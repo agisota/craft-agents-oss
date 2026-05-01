@@ -476,6 +476,7 @@ export type ErrorCode =
   | 'queued_message_replay_failed'  // A message queued during an active turn could not be auto-replayed (#616)
   | 'sdk_binary_missing'     // SDK subprocess binary not present on disk (incomplete bundle)
   | 'sdk_cwd_missing'        // SDK subprocess cwd not present on disk (stale cross-machine import)
+  | 'context_overflow'       // Provider rejected request because input/context exceeded the model's window (#666)
   | 'unknown_error';
 
 /**
