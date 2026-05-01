@@ -53,6 +53,7 @@ export const KEYS = {
   // Appearance
   showConnectionIcons: 'show-connection-icons',
   projectColorTreatment: 'project-color-treatment', // 'stripe' | 'stripe-tint'
+  workspaceSelectorRail: 'workspace-selector-rail',
 
   // What's New
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
