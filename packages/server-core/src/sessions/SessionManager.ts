@@ -6710,7 +6710,9 @@ export class SessionManager implements ISessionManager {
         }
       }
 
-      // No queue - emit complete to UI (include tokenUsage and hasUnread for state updates)
+      // No queue - emit complete to UI (include tokenUsage and hasUnread for state updates).
+      // reason + didReceiveNewFinalMessage let the renderer distinguish a real
+      // completion from an error/interrupt cleanup so it can gate notifications (#664).
       this.sendEvent({
         type: 'complete',
         sessionId,
@@ -6721,6 +6723,8 @@ export class SessionManager implements ISessionManager {
         // chip orphan-backstop does not falsely flip live tasks to `orphaned`; a
         // real `task_completed` will arrive when the agent actually finishes.
         backgroundTasksAlive: this.keepBackgroundTasksAlive,
+        reason,
+        didReceiveNewFinalMessage,
       }, managed.workspace.id)
 
       // Tasks Conductor seam: signal true completion (queue empty) with the stop
