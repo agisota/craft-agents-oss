@@ -4871,10 +4871,12 @@ export class SessionManager implements ISessionManager {
     managed.lastMessageRole = managed.messages.length > 0
       ? managed.messages[managed.messages.length - 1].role as ManagedSession['lastMessageRole']
       : undefined
-    // Destroy the agent so the next message rebuilds it with the truncated history.
-    // Without this, the SDK session retains the old conversation on the provider side.
-    managed.agent = null
+    // Reset provider-side conversation history so the next turn doesn't
+    // include the undone messages.  clearHistory() resets the SDK session
+    // without tearing down MCP pools / pool servers / other shared resources.
+    managed.agent?.clearHistory()
     managed.sdkSessionId = undefined
+    managed.wasInterrupted = false
     this.setProcessing(managed, false)
     this.persistSession(managed)
     this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
