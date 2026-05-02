@@ -4866,6 +4866,11 @@ export class SessionManager implements ISessionManager {
     const content = typeof userMessage.content === 'string' ? userMessage.content : ''
 
     managed.messages = managed.messages.slice(0, lastUserIndex)
+    managed.messageCount = managed.messages.length
+    managed.lastFinalMessageId = undefined
+    managed.lastMessageRole = managed.messages.length > 0
+      ? managed.messages[managed.messages.length - 1].role as ManagedSession['lastMessageRole']
+      : undefined
     this.setProcessing(managed, false)
     this.persistSession(managed)
     this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
