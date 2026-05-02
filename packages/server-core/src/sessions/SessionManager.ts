@@ -4857,10 +4857,16 @@ export class SessionManager implements ISessionManager {
     const lastUserIndex = managed.messages.map(m => m.role).lastIndexOf('user')
     if (lastUserIndex === -1) return { success: false }
 
+    // Cancel any in-flight processing before truncating
+    if (managed.isProcessing) {
+      await this.cancelProcessing(sessionId, true)
+    }
+
     const userMessage = managed.messages[lastUserIndex]
     const content = typeof userMessage.content === 'string' ? userMessage.content : ''
 
     managed.messages = managed.messages.slice(0, lastUserIndex)
+    this.setProcessing(managed, false)
     this.persistSession(managed)
     this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
 
