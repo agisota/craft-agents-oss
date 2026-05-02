@@ -4871,6 +4871,10 @@ export class SessionManager implements ISessionManager {
     managed.lastMessageRole = managed.messages.length > 0
       ? managed.messages[managed.messages.length - 1].role as ManagedSession['lastMessageRole']
       : undefined
+    // Destroy the agent so the next message rebuilds it with the truncated history.
+    // Without this, the SDK session retains the old conversation on the provider side.
+    managed.agent = null
+    managed.sdkSessionId = undefined
     this.setProcessing(managed, false)
     this.persistSession(managed)
     this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
