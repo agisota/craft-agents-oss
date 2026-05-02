@@ -4845,6 +4845,29 @@ export class SessionManager implements ISessionManager {
   }
 
   /**
+   * Undo the last user message by truncating session messages to before it.
+   * Returns the user message content so the client can restore it to the input.
+   */
+  async undoLastUserMessage(sessionId: string): Promise<{ success: boolean; userMessage?: string }> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return { success: false }
+
+    await this.ensureMessagesLoaded(managed)
+
+    const lastUserIndex = managed.messages.map(m => m.role).lastIndexOf('user')
+    if (lastUserIndex === -1) return { success: false }
+
+    const userMessage = managed.messages[lastUserIndex]
+    const content = typeof userMessage.content === 'string' ? userMessage.content : ''
+
+    managed.messages = managed.messages.slice(0, lastUserIndex)
+    this.persistSession(managed)
+    this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
+
+    return { success: true, userMessage: content }
+  }
+
+  /**
    * Get pending plan execution state for a session.
    * Used on reload/init to check if we need to resume plan execution.
    */
