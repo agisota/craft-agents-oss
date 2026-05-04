@@ -1682,5 +1682,8 @@
   "workspace.serverAuthToken": "服务器认证令牌",
   "workspace.underDefaultFolder": ".craft-agent 文件夹下",
   "settings.messaging.comingSoon": "即将推出",
-  "settings.messaging.wechat.title": "微信"
+  "settings.messaging.wechat.title": "微信",
+  "settings.messaging.wechat.connected": "已连接",
+  "settings.messaging.wechat.directSessionSubtitle": "私信会话",
+  "settings.messaging.wechat.notConnected": "未连接"
 }

@@ -432,6 +432,8 @@ export const CHANNEL_MAP = {
   submitWhatsAppPhone: invoke(RPC_CHANNELS.messaging.WA_SUBMIT_PHONE),
   onWhatsAppEvent: listener(RPC_CHANNELS.messaging.WA_UI_EVENT),
 
+
+
   // Messaging access control (Phase 3)
   getMessagingPlatformOwners: invoke(RPC_CHANNELS.messaging.GET_PLATFORM_OWNERS),
   setMessagingPlatformOwners: invoke(RPC_CHANNELS.messaging.SET_PLATFORM_OWNERS),
@@ -442,4 +444,7 @@ export const CHANNEL_MAP = {
   allowMessagingPendingSender: invoke(RPC_CHANNELS.messaging.ALLOW_PENDING_SENDER),
   setMessagingBindingAccess: invoke(RPC_CHANNELS.messaging.SET_BINDING_ACCESS),
   onMessagingPendingChanged: listener(RPC_CHANNELS.messaging.PENDING_CHANGED),
+  startWeChatConnect: invoke(RPC_CHANNELS.messaging.WC_START_CONNECT),
+  cancelWeChatConnect: invoke(RPC_CHANNELS.messaging.WC_CANCEL_CONNECT),
+  onWeChatEvent: listener(RPC_CHANNELS.messaging.WC_UI_EVENT),
 } satisfies ChannelMap

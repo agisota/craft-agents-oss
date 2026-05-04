@@ -1682,5 +1682,8 @@
   "workspace.serverAuthToken": "Server-Authentifizierungstoken",
   "workspace.underDefaultFolder": "im .craft-agent-Ordner",
   "settings.messaging.comingSoon": "Demnächst verfügbar",
-  "settings.messaging.wechat.title": "WeChat"
+  "settings.messaging.wechat.title": "WeChat",
+  "settings.messaging.wechat.connected": "Verbunden",
+  "settings.messaging.wechat.directSessionSubtitle": "Direktnachrichten-Sitzung",
+  "settings.messaging.wechat.notConnected": "Nicht verbunden"
 }

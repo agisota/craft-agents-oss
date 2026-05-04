@@ -1682,5 +1682,8 @@
   "workspace.serverAuthToken": "Szerver hitelesítési token",
   "workspace.underDefaultFolder": "a .craft-agent mappában",
   "settings.messaging.comingSoon": "Hamarosan",
-  "settings.messaging.wechat.title": "WeChat"
+  "settings.messaging.wechat.title": "WeChat",
+  "settings.messaging.wechat.connected": "Csatlakoztatva",
+  "settings.messaging.wechat.directSessionSubtitle": "Közvetlen üzenetváltás",
+  "settings.messaging.wechat.notConnected": "Nincs csatlakoztatva"
 }
