@@ -146,6 +146,20 @@ export default function AppearanceSettingsPage() {
     setShowConnectionIcons(checked)
     storage.set(storage.KEYS.showConnectionIcons, checked)
   }, [])
+  const handleLanguageChange = useCallback((value: string) => {
+    void (async () => {
+      try {
+        console.info('[i18n] Appearance dropdown change', {
+          from: i18n.resolvedLanguage ?? null,
+          to: value,
+        })
+        await i18n.changeLanguage(value)
+        await window.electronAPI?.changeLanguage?.(value)
+      } catch (error) {
+        console.error('Failed to change language:', error)
+      }
+    })()
+  }, [i18n])
 
   // Project color treatment in the SessionList
   const projectColorTreatment = useProjectColorTreatment()
@@ -350,14 +364,7 @@ export default function AppearanceSettingsPage() {
                   <SettingsRow label={t("settings.appearance.language")}>
                     <SettingsMenuSelect
                       value={(i18n.resolvedLanguage ?? i18n.language) as LanguageCode}
-                      onValueChange={(value) => {
-                        console.info('[i18n] Appearance dropdown change', {
-                          from: i18n.resolvedLanguage ?? null,
-                          to: value,
-                        })
-                        i18n.changeLanguage(value)
-                        window.electronAPI?.changeLanguage?.(value)
-                      }}
+                      onValueChange={handleLanguageChange}
                       options={Object.entries(LANGUAGES).map(([code, config]) => ({
                         value: code,
                         label: config.nativeName,
