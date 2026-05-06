@@ -62,24 +62,73 @@ function parsePreferences(json: string): PreferencesFormState {
   }
 }
 
-// Serialize form state to JSON
-function serializePreferences(state: PreferencesFormState): string {
-  const prefs: Record<string, unknown> = {}
+// Stable signature of form state (excludes updatedAt) for dirty-checking.
+function formSignature(state: PreferencesFormState): string {
+  return JSON.stringify({
+    name: state.name,
+    timezone: state.timezone,
+    city: state.city,
+    country: state.country,
+    notes: state.notes,
+  })
+}
 
-  if (state.name) prefs.name = state.name
-  if (state.timezone) prefs.timezone = state.timezone
+// Merge form state into existing on-disk prefs so untouched fields survive.
+function mergeFormIntoPrefs(
+  existing: Record<string, unknown>,
+  state: PreferencesFormState,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...existing }
+
+  if (state.name) next.name = state.name
+  else delete next.name
+
+  if (state.timezone) next.timezone = state.timezone
+  else delete next.timezone
 
   if (state.city || state.country) {
-    const location: Record<string, string> = {}
+    const existingLocation =
+      (existing.location as Record<string, unknown> | undefined) ?? {}
+    const location: Record<string, unknown> = { ...existingLocation }
     if (state.city) location.city = state.city
+    else delete location.city
     if (state.country) location.country = state.country
-    prefs.location = location
+    else delete location.country
+    if (Object.keys(location).length > 0) next.location = location
+    else delete next.location
+  } else {
+    delete next.location
   }
 
-  if (state.notes) prefs.notes = state.notes
-  prefs.updatedAt = Date.now()
+  if (state.notes) next.notes = state.notes
+  else delete next.notes
 
-  return JSON.stringify(prefs, null, 2)
+  next.updatedAt = Date.now()
+  return next
+}
+
+async function persistFormState(state: PreferencesFormState): Promise<string | null> {
+  try {
+    const { content } = await window.electronAPI.readPreferences()
+    let existing: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(content)
+      if (parsed && typeof parsed === 'object') existing = parsed
+    } catch {
+      // ignore — start from empty rather than propagating corruption
+    }
+    const merged = mergeFormIntoPrefs(existing, state)
+    const json = JSON.stringify(merged, null, 2)
+    const result = await window.electronAPI.writePreferences(json)
+    if (!result.success) {
+      console.error('Failed to save preferences:', result.error)
+      return null
+    }
+    return json
+  } catch (err) {
+    console.error('Failed to save preferences:', err)
+    return null
+  }
 }
 
 export default function PreferencesPage() {
@@ -105,7 +154,7 @@ export default function PreferencesPage() {
         const parsed = parsePreferences(result.content)
         setFormState(parsed)
         setPreferencesPath(result.path)
-        lastSavedRef.current = serializePreferences(parsed)
+        lastSavedRef.current = formSignature(parsed)
       } catch (err) {
         console.error('Failed to load stored user preferences:', err)
         setFormState(emptyFormState)
@@ -132,16 +181,11 @@ export default function PreferencesPage() {
 
     // Debounce save by 500ms
     saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        const json = serializePreferences(formState)
-        const result = await window.electronAPI.writePreferences(json)
-        if (result.success) {
-          lastSavedRef.current = json
-        } else {
-          console.error('Failed to save preferences:', result.error)
-        }
-      } catch (err) {
-        console.error('Failed to save preferences:', err)
+      const signature = formSignature(formState)
+      if (lastSavedRef.current === signature) return
+      const written = await persistFormState(formState)
+      if (written !== null) {
+        lastSavedRef.current = signature
       }
     }, 500)
 
@@ -155,19 +199,18 @@ export default function PreferencesPage() {
   // Force save on unmount if there are unsaved changes
   useEffect(() => {
     return () => {
-      // Clear any pending debounced save
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
 
-      // Check if there are unsaved changes and save immediately
-      const currentJson = serializePreferences(formStateRef.current)
-      if (lastSavedRef.current !== currentJson && !isInitialLoadRef.current) {
-        // Fire and forget - we can't await in cleanup
-        window.electronAPI.writePreferences(currentJson).catch((err) => {
-          console.error('Failed to save preferences on unmount:', err)
-        })
-      }
+      if (isInitialLoadRef.current) return
+
+      const signature = formSignature(formStateRef.current)
+      if (lastSavedRef.current === signature) return
+
+      persistFormState(formStateRef.current).catch((err) => {
+        console.error('Failed to save preferences on unmount:', err)
+      })
     }
   }, [])
 
