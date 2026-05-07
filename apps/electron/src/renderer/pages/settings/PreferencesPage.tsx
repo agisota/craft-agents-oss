@@ -136,6 +136,7 @@ export default function PreferencesPage() {
   const [formState, setFormState] = useState<PreferencesFormState>(emptyFormState)
   const [isLoading, setIsLoading] = useState(true)
   const [preferencesPath, setPreferencesPath] = useState<string | null>(null)
+  const [isEditPopoverOpen, setIsEditPopoverOpen] = useState(false)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isInitialLoadRef = useRef(true)
   const formStateRef = useRef(formState)
@@ -145,6 +146,22 @@ export default function PreferencesPage() {
   useEffect(() => {
     formStateRef.current = formState
   }, [formState])
+
+  // Reload preferences from disk if they changed externally (e.g. agent edits).
+  const reloadFromDisk = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.readPreferences()
+      const parsed = parsePreferences(result.content)
+      const incomingSignature = formSignature(parsed)
+      if (lastSavedRef.current === incomingSignature) return
+      // Skip if the user has local edits pending a save — don't clobber them.
+      if (saveTimeoutRef.current) return
+      setFormState(parsed)
+      lastSavedRef.current = incomingSignature
+    } catch (err) {
+      console.error('Failed to reload stored user preferences:', err)
+    }
+  }, [])
 
   // Load stored user preferences on mount
   useEffect(() => {
@@ -169,6 +186,28 @@ export default function PreferencesPage() {
     load()
   }, [])
 
+  // Refresh from disk on focus/visibility change (catches external edits).
+  useEffect(() => {
+    if (isLoading) return
+    const handleFocus = () => { void reloadFromDisk() }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void reloadFromDisk()
+    }
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [isLoading, reloadFromDisk])
+
+  // Refresh after the EditPopover closes (agent likely just edited the file).
+  useEffect(() => {
+    if (isEditPopoverOpen) return
+    if (isLoading || isInitialLoadRef.current) return
+    void reloadFromDisk()
+  }, [isEditPopoverOpen, isLoading, reloadFromDisk])
+
   // Auto-save with debouncing
   useEffect(() => {
     // Skip auto-save during initial load
@@ -181,6 +220,7 @@ export default function PreferencesPage() {
 
     // Debounce save by 500ms
     saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = null
       const signature = formSignature(formState)
       if (lastSavedRef.current === signature) return
       const written = await persistFormState(formState)
@@ -295,6 +335,8 @@ export default function PreferencesPage() {
                 <EditPopover
                   trigger={<EditButton />}
                   {...getEditConfig('preferences-notes', preferencesPath)}
+                  open={isEditPopoverOpen}
+                  onOpenChange={setIsEditPopoverOpen}
                   secondaryAction={{
                     label: t("common.editFile"),
                     filePath: preferencesPath!,
