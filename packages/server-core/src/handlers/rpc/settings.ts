@@ -115,6 +115,7 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
       cyclablePermissionModes: config?.defaults?.cyclablePermissionModes,
       thinkingLevel: normalizeThinkingLevel(config?.defaults?.thinkingLevel),
       workingDirectory: config?.defaults?.workingDirectory,
+      notesPath: config?.notesPath,
       localMcpEnabled: config?.localMcpServers?.enabled ?? true,
       defaultLlmConnection: config?.defaults?.defaultLlmConnection,
       enabledSourceSlugs: config?.defaults?.enabledSourceSlugs ?? [],
@@ -129,7 +130,7 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
       : value
 
     // Validate key is a known workspace setting
-    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'localMcpEnabled', 'defaultLlmConnection']
+    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'notesPath', 'localMcpEnabled', 'defaultLlmConnection']
     if (!validKeys.includes(key)) {
       throw new Error(`Invalid workspace setting key: ${key}. Valid keys: ${validKeys.join(', ')}`)
     }
@@ -162,6 +163,13 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
       // Store in localMcpServers.enabled (top-level, not in defaults)
       config.localMcpServers = config.localMcpServers || { enabled: true }
       config.localMcpServers.enabled = Boolean(normalizedValue)
+    } else if (key === 'notesPath') {
+      // Top-level field; undefined/null clears it (revert to default location)
+      if (normalizedValue == null || normalizedValue === '') {
+        delete config.notesPath
+      } else {
+        config.notesPath = String(normalizedValue).trim()
+      }
     } else {
       // Update the setting in defaults
       config.defaults = config.defaults || {}

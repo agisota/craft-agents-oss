@@ -333,6 +333,27 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
   const handleOpenFile = React.useCallback(
     async (path: string) => {
+      const getNoteIdFromPath = (candidate: string): string | null => {
+        const cleaned = candidate.replace(/^\.\//, '').replace(/\\/g, '/')
+        const relativeMatch = cleaned.match(/^notes\/(.+)\.md$/i)
+        if (relativeMatch) return relativeMatch[1]
+
+        const workspaceRoot = activeWorkspace?.rootPath?.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+        if (!workspaceRoot) return null
+
+        const notesPrefix = `${workspaceRoot}/notes/`
+        if (cleaned.startsWith(notesPrefix) && cleaned.toLowerCase().endsWith('.md')) {
+          return cleaned.slice(notesPrefix.length, -3)
+        }
+        return null
+      }
+
+      const directNoteId = getNoteIdFromPath(path)
+      if (directNoteId) {
+        navigate(routes.view.notes(directNoteId))
+        return
+      }
+
       // Resolve bare relative paths against session working directory,
       // or workspace root as a fallback when workingDirectory is not set.
       const resolved = (() => {
@@ -349,6 +370,12 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         const cleanedPath = path.replace(/^\.\//, '')
         return `${cleanedBase}/${cleanedPath}`
       })()
+
+      const resolvedNoteId = getNoteIdFromPath(resolved)
+      if (resolvedNoteId) {
+        navigate(routes.view.notes(resolvedNoteId))
+        return
+      }
 
       // Smart fallback for missing files in AI output:
       // if the exact path doesn't exist, search nearby for same basename
@@ -385,10 +412,32 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   )
 
   const handleOpenUrl = React.useCallback(
-    (url: string) => {
+    async (url: string) => {
+      if (url.startsWith('craft-note:')) {
+        const target = decodeURIComponent(url.slice('craft-note:'.length)).replace(/\.md$/i, '')
+        if (activeWorkspaceId) {
+          try {
+            const notes = await window.electronAPI.listNotes(activeWorkspaceId)
+            const normalized = target.trim().toLowerCase()
+            const note = notes.find(item => {
+              const id = item.id.toLowerCase()
+              const title = item.title.toLowerCase()
+              const basename = id.split('/').pop() ?? id
+              return id === normalized || title === normalized || basename === normalized
+            })
+            navigate(routes.view.notes(note?.id ?? target))
+            return
+          } catch {
+            navigate(routes.view.notes(target))
+            return
+          }
+        }
+        navigate(routes.view.notes(target))
+        return
+      }
       onOpenUrl(url)
     },
-    [onOpenUrl]
+    [activeWorkspaceId, onOpenUrl]
   )
 
   // Perf: Mark when data is ready

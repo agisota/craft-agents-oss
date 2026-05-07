@@ -23,6 +23,7 @@ import {
   Inbox,
   Globe,
   FolderOpen,
+  BookOpen,
   Cake,
   Calendar,
   Layers,
@@ -115,6 +116,7 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isNotesNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
   type NavigationState,
@@ -1818,6 +1820,11 @@ function AppShellContent({
     navigate(routes.view.skills())
   }, [])
 
+  // Handler for notes view
+  const handleNotesClick = useCallback(() => {
+    navigate(routes.view.notes())
+  }, [])
+
   // Handlers for automations view
   const handleAutomationsClick = useCallback(() => {
     navigate(routes.view.automations())
@@ -2118,12 +2125,13 @@ function AppShellContent({
     // 3. Sources, Skills, Settings
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
+    result.push({ id: 'nav:notes', type: 'nav', action: handleNotesClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
     result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleNotesClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -2245,6 +2253,8 @@ function AppShellContent({
     // Projects navigator
     if (isProjectsNavigation(navState)) {
       return t("sidebar.allProjects")
+    if (isNotesNavigation(navState)) {
+      return "Notes"
     }
 
     // Automations navigator
@@ -2588,28 +2598,7 @@ function AppShellContent({
                       },
                     },
                     {
-                      id: "nav:projects",
-                      title: t("sidebar.projects"),
-                      label: String(projects.length),
-                      icon: FolderKanban,
-                      // Highlight only when on Projects view itself, not when a child is "active" (jumped-to filter)
-                      variant: isProjectsNavigation(navState) ? "default" : "ghost",
-                      onClick: handleProjectsClick,
-                      expandable: projects.length > 0,
-                      expanded: isExpanded('nav:projects'),
-                      onToggle: () => toggleExpanded('nav:projects'),
-                      contextMenu: {
-                        type: 'projects' as const,
-                        onAddProject: openAddProject,
-                      },
-                      items: projects.map(p => ({
-                        id: `nav:projects:${p.config.id}`,
-                        title: p.config.name,
-                        icon: FolderKanban,
-                        // Highlight when on allSessions view AND filter includes this project (the jump-to state)
-                        variant: (sessionFilter?.kind === 'allSessions' && projectFilter.get(p.config.id) === 'include') ? "default" as const : "ghost" as const,
-                        onClick: () => handleJumpToProjectSessions(p.config.id),
-                      })),
+22: @both
                     },
                     {
                       id: "nav:automations",
@@ -2689,7 +2678,7 @@ function AppShellContent({
           </div>
           }
           sidebarWidth={effectiveSidebarAndNavigatorHidden ? 0 : (isSidebarVisible ? sidebarWidth : 0)}
-          navigatorSlot={
+          navigatorSlot={isNotesNavigation(navState) ? null : (
             <div
               style={{ width: isAutoCompact ? '100%' : sessionListWidth }}
               className="h-full flex flex-col min-w-0 relative z-panel"
@@ -3582,8 +3571,8 @@ function AppShellContent({
               <FabNewChat onClick={() => handleNewChat()} />
             )}
             </div>
-          }
-          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth)}
+          )}
+          navigatorWidth={isNotesNavigation(navState) ? 0 : (isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth))}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
           isRightSidebarVisible={false}
           isCompact={isAutoCompact}
