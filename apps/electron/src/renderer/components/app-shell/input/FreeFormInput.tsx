@@ -2090,68 +2090,7 @@ export function FreeFormInput({
                     {t('chat.connectionUnavailableDescription')}
                   </div>
                 </div>
-              ) : pickerMode === 'locked-single' && connectionDefaultModel ? (
-                (() => {
-                  // Single-model pi_compat connection on a non-empty session (or
-                  // when there's only one connection, so no switcher to show).
-                  // Model row is disabled (locked to this session); vision toggle
-                  // remains interactive.
-                  const showVisionToggle =
-                    !!effectiveConnectionDetails && isCompatProvider(effectiveConnectionDetails.providerType)
-                  const visionOn = showVisionToggle && modelSupportsImages(effectiveConnectionDetails!, connectionDefaultModel)
-                  return (
-                    <StyledDropdownMenuItem
-                      disabled
-                      className="flex items-center justify-between px-2 py-2 rounded-lg"
-                    >
-                      <div className="text-left">
-                        <div className="font-medium text-sm">{stripPiPrefixForDisplay(connectionDefaultModel)}</div>
-                        <div className="text-xs text-muted-foreground">{t('chat.connectionDefault')}</div>
-                      </div>
-                      <div className="flex items-center gap-1 ml-3 shrink-0">
-                        {showVisionToggle && effectiveConnectionDetails && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                aria-label={visionOn
-                                  ? t('chat.modelPicker.supportsImagesOn')
-                                  : t('chat.modelPicker.supportsImagesOff')}
-                                className="inline-flex items-center justify-center p-1 rounded pointer-events-auto opacity-100 hover:bg-foreground/5 cursor-pointer"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
-                                  }
-                                }}
-                              >
-                                <ImageIcon className={cn(
-                                  "h-3.5 w-3.5",
-                                  visionOn ? "text-foreground/70" : "text-foreground/30"
-                                )} />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {visionOn
-                                ? t('chat.modelPicker.supportsImagesOn')
-                                : t('chat.modelPicker.supportsImagesOff')}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                        <Check className="h-3 w-3 text-foreground" />
-                      </div>
-                    </StyledDropdownMenuItem>
-                  )
-                })()
-              ) : pickerMode === 'switcher' ? (
-                /* Hierarchical view: Provider → Connection → Models (empty session with multiple connections — lets the user switch BEFORE the first message locks the connection) */
+12: @ours
                 connectionsByProvider.map(([providerName, connections], index) => (
                   <React.Fragment key={providerName}>
                     {/* Provider group label */}
@@ -2260,6 +2199,64 @@ export function FreeFormInput({
                     )}
                   </React.Fragment>
                 ))
+              ) : connectionDefaultModel ? (
+                (() => {
+                  // Single-model pi_compat connection: model row is disabled (you
+                  // can't switch), but vision toggle is still a separate control.
+                  const showVisionToggle =
+                    !!effectiveConnectionDetails && isCompatProvider(effectiveConnectionDetails.providerType)
+                  const visionOn = showVisionToggle && modelSupportsImages(effectiveConnectionDetails!, connectionDefaultModel)
+                  return (
+                    <StyledDropdownMenuItem
+                      disabled
+                      className="flex items-center justify-between px-2 py-2 rounded-lg"
+                    >
+                      <div className="text-left">
+                        <div className="font-medium text-sm">{stripPiPrefixForDisplay(connectionDefaultModel)}</div>
+                        <div className="text-xs text-muted-foreground">{t('chat.connectionDefault')}</div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-3 shrink-0">
+                        {showVisionToggle && effectiveConnectionDetails && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label={visionOn
+                                  ? t('chat.modelPicker.supportsImagesOn')
+                                  : t('chat.modelPicker.supportsImagesOff')}
+                                className="inline-flex items-center justify-center p-1 rounded pointer-events-auto opacity-100 hover:bg-foreground/5 cursor-pointer"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
+                                  }
+                                }}
+                              >
+                                <ImageIcon className={cn(
+                                  "h-3.5 w-3.5",
+                                  visionOn ? "text-foreground/70" : "text-foreground/30"
+                                )} />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {visionOn
+                                ? t('chat.modelPicker.supportsImagesOn')
+                                : t('chat.modelPicker.supportsImagesOff')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        <Check className="h-3 w-3 text-foreground" />
+                      </div>
+                    </StyledDropdownMenuItem>
+                  )
+                })()
               ) : (
                 /* Flat model list (single connection or session started) */
                 <>
