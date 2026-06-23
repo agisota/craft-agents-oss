@@ -533,6 +533,39 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
         && !!oauth?.expiresAt
         && oauth.expiresAt <= Date.now()
 
+      // Lazy identity migration: for ChatGPT/Codex connections that already have
+      // credentials but were created before we started stamping identity onto the
+      // connection config, parse the stored idToken and backfill oauthAccountEmail etc.
+      if (
+        !conn.oauthAccountEmail && !conn.oauthOrganizationName
+        && conn.authType === 'oauth'
+        && oauth?.idToken
+        && conn.providerType === 'pi'
+        && conn.piAuthProvider === 'openai-codex'
+      ) {
+        try {
+          const { parseChatGptIdToken } = await import('@craft-agent/shared/auth')
+          const identity = parseChatGptIdToken(oauth.idToken)
+          if (identity?.accountUuid || identity?.accountEmail) {
+            updateLlmConnection(conn.slug, {
+              oauthAccountUuid: identity.accountUuid,
+              oauthAccountEmail: identity.accountEmail,
+              oauthOrganizationUuid: identity.organizationUuid,
+              oauthOrganizationName: identity.organizationName,
+              oauthProfileVerifiedAt: Date.now(),
+            })
+            // Update the local conn object so this response includes the identity
+            conn.oauthAccountUuid = identity.accountUuid
+            conn.oauthAccountEmail = identity.accountEmail
+            conn.oauthOrganizationUuid = identity.organizationUuid
+            conn.oauthOrganizationName = identity.organizationName
+            conn.oauthProfileVerifiedAt = Date.now()
+          }
+        } catch {
+          // Non-critical migration
+        }
+      }
+
       return {
         ...conn,
         isAuthenticated: conn.authType === 'none' || (hasCredentials && !oauthExpired),
@@ -799,7 +832,7 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
     }
 
     try {
-      const { exchangeChatGptTokens } = await import('@craft-agent/shared/auth')
+      const { exchangeChatGptTokens, parseChatGptIdToken } = await import('@craft-agent/shared/auth')
       const credentialManager = getCredentialManager()
 
       const tokens = await exchangeChatGptTokens(code, flow.codeVerifier)
@@ -810,6 +843,18 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt,
       })
+
+      // Parse identity from id_token and stamp onto connection
+      const identity = parseChatGptIdToken(tokens.idToken)
+      if (identity) {
+        updateLlmConnection(flow.connectionSlug, {
+          oauthAccountUuid: identity.accountUuid,
+          oauthAccountEmail: identity.accountEmail,
+          oauthOrganizationUuid: identity.organizationUuid,
+          oauthOrganizationName: identity.organizationName,
+          oauthProfileVerifiedAt: Date.now(),
+        })
+      }
 
       pendingChatGptFlows.delete(state)
       deps.platform.logger?.info(`[ChatGPT OAuth] Flow complete for ${flow.connectionSlug}`)
@@ -935,6 +980,26 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       })
 
       deps.platform.logger?.info('GitHub Copilot OAuth completed successfully')
+      // Fetch GitHub identity (username/login) from the refresh token (GitHub access token)
+      // and stamp onto connection for display in settings + model picker.
+      try {
+        const ghRes = await fetch('https://api.github.com/user', {
+          headers: { Authorization: `Bearer ${credentials.refresh}`, 'User-Agent': 'CraftAgents' },
+        })
+        if (ghRes.ok) {
+          const ghUser = (await ghRes.json()) as { login?: string; email?: string; name?: string }
+          if (ghUser.login || ghUser.email) {
+            updateLlmConnection(connectionSlug, {
+              oauthAccountUuid: ghUser.login,
+              oauthAccountEmail: ghUser.email,
+              oauthProfileVerifiedAt: Date.now(),
+            })
+          }
+        }
+      } catch {
+        // Non-critical: identity is best-effort
+      }
+
       refreshModelsInBackground(connectionSlug, 'Copilot auth')
       return { success: true }
     } catch (error) {
