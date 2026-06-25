@@ -147,57 +147,7 @@ export default function AppearanceSettingsPage() {
     storage.set(storage.KEYS.showConnectionIcons, checked)
   }, [])
 
-  // Project color treatment in the SessionList
-  const projectColorTreatment = useProjectColorTreatment()
-  const handleProjectColorTreatmentChange = useCallback((value: string) => {
-    setProjectColorTreatment(value as ProjectColorTreatment)
-  }, [])
-
-  // Per-workspace avatar color overrides (persisted in localStorage)
-  const [workspaceAvatarColors, setWorkspaceAvatarColors] = useAtom(workspaceAvatarColorsAtom)
-  const setWorkspaceAvatarColor = useCallback((workspaceId: string, hex: string) => {
-    setWorkspaceAvatarColors(prev => ({ ...prev, [workspaceId]: hex }))
-  }, [setWorkspaceAvatarColors])
-  const clearWorkspaceAvatarColor = useCallback((workspaceId: string) => {
-    setWorkspaceAvatarColors(prev => {
-      const next = { ...prev }
-      delete next[workspaceId]
-      return next
-    })
-  }, [setWorkspaceAvatarColors])
-
-  // Kanban board appearance (persisted in localStorage via atomWithStorage).
-  const [kanbanColumnColors, setKanbanColumnColors] = useAtom(kanbanColumnColorsAtom)
-  const setKanbanColumnColor = useCallback((column: KanbanColumnId, hex: string) => {
-    setKanbanColumnColors(prev => ({ ...prev, [column]: hex }))
-  }, [setKanbanColumnColors])
-  const resetKanbanColumnColor = useCallback((column: KanbanColumnId) => {
-    setKanbanColumnColors(prev => {
-      const next = { ...prev }
-      delete next[column]
-      return next
-    })
-  }, [setKanbanColumnColors])
-  const [kanbanLivePulse, setKanbanLivePulse] = useAtom(kanbanLivePulseAtom)
-
-  // Per-column status applied when a task is dragged into that column. Empty
-  // selection ('') removes the mapping → status left unchanged on move.
-  const [kanbanColumnStatus, setKanbanColumnStatus] = useAtom(kanbanColumnStatusAtom)
-  const setColumnStatus = useCallback((column: KanbanColumnId, statusId: string) => {
-    setKanbanColumnStatus(prev => {
-      const next = { ...prev }
-      if (statusId) next[column] = statusId
-      else delete next[column]
-      return next
-    })
-  }, [setKanbanColumnStatus])
-  const columnStatusOptions = useMemo(
-    () => [
-      { value: '', label: t("settings.appearance.kanbanColumnStatusNone") },
-      ...(sessionStatuses ?? []).map(s => ({ value: s.id, label: s.label })),
-    ],
-    [sessionStatuses, t]
-  )
+10: @both
 
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
   const [richToolDescriptions, setRichToolDescriptions] = useState(true)
@@ -464,6 +414,19 @@ export default function AppearanceSettingsPage() {
                       options={[
                         { value: 'stripe', label: t("settings.appearance.projectColorStripe") },
                         { value: 'stripe-tint', label: t("settings.appearance.projectColorStripeTint") },
+                      ]}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    label={t("settings.appearance.turnActivities")}
+                    description={t("settings.appearance.turnActivitiesDesc")}
+                  >
+                    <SettingsSegmentedControl
+                      value={turnActivitiesExpandedByDefault ? 'expanded' : 'collapsed'}
+                      onValueChange={handleTurnActivitiesDefaultChange}
+                      options={[
+                        { value: 'collapsed', label: t("settings.appearance.turnActivitiesCollapsed") },
+                        { value: 'expanded', label: t("settings.appearance.turnActivitiesExpanded") },
                       ]}
                     />
                   </SettingsRow>

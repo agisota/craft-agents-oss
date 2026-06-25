@@ -317,6 +317,12 @@ export interface TurnCardProps {
   expandedActivityGroups?: Set<string>
   /** Callback when activity group expansion changes */
   onExpandedActivityGroupsChange?: (groups: Set<string>) => void
+  /** Start activity groups in expanded state */
+  activityGroupsExpandedByDefault?: boolean
+  /** Controlled collapsed state for activity groups when expanded by default */
+  collapsedActivityGroups?: Set<string>
+  /** Callback when default-expanded activity group collapse state changes */
+  onCollapsedActivityGroupsChange?: (groups: Set<string>) => void
   /** Callback when file path is clicked */
   onOpenFile?: (path: string) => void
   /** Callback when URL is clicked */
@@ -1219,6 +1225,12 @@ interface ActivityGroupRowProps {
   expandedGroups?: Set<string>
   /** Callback when expansion changes */
   onExpandedGroupsChange?: (groups: Set<string>) => void
+  /** Start activity groups in expanded state */
+  expandedByDefault?: boolean
+  /** Controlled collapsed state when expanded by default */
+  collapsedGroups?: Set<string>
+  /** Callback when default-expanded collapse state changes */
+  onCollapsedGroupsChange?: (groups: Set<string>) => void
   /** Callback to open activity details in Monaco */
   onOpenActivityDetails?: (activity: ActivityItem) => void
   /** Animation index for staggered animation */
@@ -1233,16 +1245,42 @@ interface ActivityGroupRowProps {
  * Renders a Task subagent with its child activities grouped together.
  * Provides visual containment and collapsible children.
  */
-function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExpandedGroupsChange, onOpenActivityDetails, animationIndex = 0, sessionFolderPath, displayMode = 'detailed' }: ActivityGroupRowProps) {
+function ActivityGroupRow({
+  group,
+  expandedGroups: externalExpandedGroups,
+  onExpandedGroupsChange,
+  expandedByDefault = false,
+  collapsedGroups: externalCollapsedGroups,
+  onCollapsedGroupsChange,
+  onOpenActivityDetails,
+  animationIndex = 0,
+  sessionFolderPath,
+  displayMode = 'detailed',
+}: ActivityGroupRowProps) {
   // Use local state if no controlled state provided
   const [localExpandedGroups, setLocalExpandedGroups] = useState<Set<string>>(new Set())
   const expandedGroups = externalExpandedGroups ?? localExpandedGroups
   const setExpandedGroups = onExpandedGroupsChange ?? setLocalExpandedGroups
 
+  const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string>>(new Set())
+  const collapsedGroups = externalCollapsedGroups ?? localCollapsedGroups
+  const setCollapsedGroups = onCollapsedGroupsChange ?? setLocalCollapsedGroups
+
   const groupId = group.parent.id
-  const isExpanded = expandedGroups.has(groupId)
+  const isExpanded = expandedByDefault ? !collapsedGroups.has(groupId) : expandedGroups.has(groupId)
 
   const toggleExpanded = useCallback(() => {
+    if (expandedByDefault) {
+      const next = new Set(collapsedGroups)
+      if (isExpanded) {
+        next.add(groupId)
+      } else {
+        next.delete(groupId)
+      }
+      setCollapsedGroups(next)
+      return
+    }
+
     const next = new Set(expandedGroups)
     if (next.has(groupId)) {
       next.delete(groupId)
@@ -1250,7 +1288,7 @@ function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExp
       next.add(groupId)
     }
     setExpandedGroups(next)
-  }, [groupId, expandedGroups, setExpandedGroups])
+  }, [collapsedGroups, expandedByDefault, expandedGroups, groupId, isExpanded, setCollapsedGroups, setExpandedGroups])
 
   const description = group.parent.toolInput?.description as string | undefined
   const subagentType = group.parent.toolInput?.subagent_type as string | undefined
@@ -2780,6 +2818,9 @@ export const TurnCard = React.memo(function TurnCard({
   onExpandedChange,
   expandedActivityGroups: externalExpandedActivityGroups,
   onExpandedActivityGroupsChange,
+  activityGroupsExpandedByDefault = false,
+  collapsedActivityGroups: externalCollapsedActivityGroups,
+  onCollapsedActivityGroupsChange,
   onOpenFile,
   onOpenUrl,
   onPopOut,
@@ -2872,6 +2913,10 @@ export const TurnCard = React.memo(function TurnCard({
   const [localExpandedActivityGroups, setLocalExpandedActivityGroups] = useState<Set<string>>(new Set())
   const expandedActivityGroups = externalExpandedActivityGroups ?? localExpandedActivityGroups
   const handleExpandedActivityGroupsChange = onExpandedActivityGroupsChange ?? setLocalExpandedActivityGroups
+
+  const [localCollapsedActivityGroups, setLocalCollapsedActivityGroups] = useState<Set<string>>(new Set())
+  const collapsedActivityGroups = externalCollapsedActivityGroups ?? localCollapsedActivityGroups
+  const handleCollapsedActivityGroupsChange = onCollapsedActivityGroupsChange ?? setLocalCollapsedActivityGroups
 
   // Check if response is in buffering state
   // No polling needed - parent updates trigger re-evaluation naturally
@@ -3055,6 +3100,9 @@ export const TurnCard = React.memo(function TurnCard({
                           group={item}
                           expandedGroups={expandedActivityGroups}
                           onExpandedGroupsChange={handleExpandedActivityGroupsChange}
+                          expandedByDefault={activityGroupsExpandedByDefault}
+                          collapsedGroups={collapsedActivityGroups}
+                          onCollapsedGroupsChange={handleCollapsedActivityGroupsChange}
                           onOpenActivityDetails={onOpenActivityDetails}
                           animationIndex={index}
                           sessionFolderPath={sessionFolderPath}
@@ -3263,6 +3311,8 @@ export const TurnCard = React.memo(function TurnCard({
   // Re-render if expansion state changed
   if (prev.isExpanded !== next.isExpanded) return false
   if (prev.expandedActivityGroups !== next.expandedActivityGroups) return false
+  if (prev.activityGroupsExpandedByDefault !== next.activityGroupsExpandedByDefault) return false
+  if (prev.collapsedActivityGroups !== next.collapsedActivityGroups) return false
 
   // Re-render if isLastResponse changed (for Accept Plan button visibility)
   if (prev.isLastResponse !== next.isLastResponse) return false

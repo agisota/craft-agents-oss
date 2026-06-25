@@ -75,6 +75,7 @@ import { CHAT_LAYOUT } from "@/config/layout"
 import { collectFileChangesFromActivities, getFirstFileChangeIdForActivity } from "@/lib/file-changes"
 import { resolveBranchNewPanelOption } from "./branching"
 import { handleErrorMessageAction } from "./error-message-actions"
+import * as storage from "@/lib/local-storage"
 
 // ============================================================================
 // CSS Custom Highlight API helper
@@ -543,6 +544,28 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // This accounts for scenic themes (like Haze) that force dark mode
   const { isDark } = useTheme()
 
+  const [turnActivitiesExpandedByDefault, setTurnActivitiesExpandedByDefault] = useState(() =>
+    storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false)
+  )
+  useEffect(() => {
+    const settingKey = storage.getKeyString(storage.KEYS.turnActivitiesExpandedByDefault)
+    const syncValue = () => {
+      setTurnActivitiesExpandedByDefault(storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false))
+    }
+    const handleChange = () => syncValue()
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === settingKey || event.key === null) {
+        syncValue()
+      }
+    }
+    window.addEventListener(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, handleChange)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, handleChange)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
+
   // Register as focus zone - when zone gains focus, focus the textarea
   // Guard with isFocusedPanelRef so only the focused panel responds in multi-panel layouts
   const { zoneRef, isFocused } = useFocusZone({
@@ -562,11 +585,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
   // TurnCard expansion state — persisted to localStorage across session switches
   const {
-    expandedTurns,
+    isTurnExpanded,
     toggleTurn,
     expandedActivityGroups,
     setExpandedActivityGroups,
-  } = useTurnCardExpansion(session?.id)
+    collapsedActivityGroups,
+    setCollapsedActivityGroups,
+  } = useTurnCardExpansion(session?.id, turnActivitiesExpandedByDefault)
 
 
   // ============================================================================
@@ -1718,10 +1743,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         intent={turn.intent}
                         isStreaming={turn.isStreaming}
                         isComplete={turn.isComplete}
-                        isExpanded={expandedTurns.has(assistantUiKey)}
+                        isExpanded={isTurnExpanded(assistantUiKey)}
                         onExpandedChange={(expanded) => toggleTurn(assistantUiKey, expanded)}
                         expandedActivityGroups={expandedActivityGroups}
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
+                        activityGroupsExpandedByDefault={turnActivitiesExpandedByDefault}
+                        collapsedActivityGroups={collapsedActivityGroups}
+                        onCollapsedActivityGroupsChange={setCollapsedActivityGroups}
                         todos={turn.todos}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
