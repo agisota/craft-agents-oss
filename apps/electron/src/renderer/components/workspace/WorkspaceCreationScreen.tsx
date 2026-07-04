@@ -10,10 +10,18 @@ import { AddWorkspaceStep_Choice } from "./AddWorkspaceStep_Choice"
 import { AddWorkspaceStep_CreateNew } from "./AddWorkspaceStep_CreateNew"
 import { AddWorkspaceStep_OpenFolder } from "./AddWorkspaceStep_OpenFolder"
 import { AddWorkspaceStep_ConnectRemote } from "./AddWorkspaceStep_ConnectRemote"
+import { AddWorkspaceStep_Ssh } from "./AddWorkspaceStep_Ssh"
 import type { Workspace } from "../../../shared/types"
 import { toast } from "sonner"
 
-type CreationStep = 'choice' | 'create' | 'open' | 'remote'
+type CreationStep = 'choice' | 'create' | 'open' | 'remote' | 'ssh'
+
+/** Prefill for the remote step when arriving from a connected SSH tunnel. */
+interface SshPrefill {
+  url: string
+  token?: string
+  hostLabel: string
+}
 
 interface WorkspaceCreationScreenProps {
   /** Callback when a workspace is created successfully */
@@ -46,6 +54,7 @@ export function WorkspaceCreationScreen({
   // Start at 'remote' step directly when reconnecting
   const [step, setStep] = useState<CreationStep>(reconnectWorkspace ? 'remote' : 'choice')
   const [isCreating, setIsCreating] = useState(false)
+  const [sshPrefill, setSshPrefill] = useState<SshPrefill | null>(null)
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 })
 
   // Track window dimensions for shader
@@ -101,7 +110,8 @@ export function WorkspaceCreationScreen({
           <AddWorkspaceStep_Choice
             onCreateNew={() => setStep('create')}
             onOpenFolder={() => setStep('open')}
-            onConnectRemote={() => setStep('remote')}
+            onConnectRemote={() => { setSshPrefill(null); setStep('remote') }}
+            onConnectSsh={() => setStep('ssh')}
           />
         )
 
@@ -123,14 +133,27 @@ export function WorkspaceCreationScreen({
           />
         )
 
+      case 'ssh':
+        return (
+          <AddWorkspaceStep_Ssh
+            onBack={() => setStep('choice')}
+            onConnected={({ url, token, hostLabel }) => {
+              setSshPrefill({ url, token, hostLabel })
+              setStep('remote')
+            }}
+          />
+        )
+
       case 'remote':
         return (
           <AddWorkspaceStep_ConnectRemote
-            onBack={reconnectWorkspace ? onClose : () => setStep('choice')}
+            onBack={
+              reconnectWorkspace ? onClose : () => setStep(sshPrefill ? 'ssh' : 'choice')
+            }
             onCreate={handleCreateWorkspace}
             isCreating={isCreating}
-            initialUrl={reconnectWorkspace?.remoteServer?.url}
-            initialToken={reconnectWorkspace?.remoteServer?.token}
+            initialUrl={sshPrefill?.url ?? reconnectWorkspace?.remoteServer?.url}
+            initialToken={sshPrefill?.token ?? reconnectWorkspace?.remoteServer?.token}
             reconnectWorkspace={reconnectWorkspace?.remoteServer ? {
               id: reconnectWorkspace.id,
               name: reconnectWorkspace.name,
