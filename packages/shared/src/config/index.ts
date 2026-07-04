@@ -9,6 +9,9 @@ export * from './storage.ts';
 export * from './theme.ts';
 export * from './validators.ts';
 export * from './cli-domains.ts';
+export * from './server-config.ts';
+export * from './ssh-hosts.ts';
+export * from './ssh-config-parser.ts';
 export {
   ConfigWatcher,
   createConfigWatcher,
