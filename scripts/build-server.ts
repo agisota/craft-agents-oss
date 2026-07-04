@@ -304,6 +304,43 @@ function copyDependencyTree(
       // Skip if package.json is malformed
     }
   }
+
+  // Packages with their own nested node_modules (version-conflict duplicates,
+  // e.g. an sdk shipping ajv@8) get those copied verbatim above, but the nested
+  // packages' *own* deps may be hoisted to the root tree (e.g. ajv@8 → fast-uri)
+  // and would otherwise never be pulled in. Recurse into nested packages' deps.
+  const nestedModules = join(src, 'node_modules');
+  if (existsSync(nestedModules)) {
+    for (const nestedPkgJson of collectNestedPackageJsons(nestedModules)) {
+      try {
+        const pkg = JSON.parse(readFileSync(nestedPkgJson, 'utf-8'));
+        for (const childDep of Object.keys(pkg.dependencies || {})) {
+          copyDependencyTree(childDep, srcModules, destModules, visited);
+        }
+      } catch {
+        // Skip if package.json is malformed
+      }
+    }
+  }
+}
+
+/** List package.json paths of packages directly inside a node_modules dir (incl. scoped). */
+function collectNestedPackageJsons(modulesDir: string): string[] {
+  const results: string[] = [];
+  for (const entry of readdirSync(modulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith('@')) {
+      for (const scoped of readdirSync(join(modulesDir, entry.name), { withFileTypes: true })) {
+        if (!scoped.isDirectory()) continue;
+        const p = join(modulesDir, entry.name, scoped.name, 'package.json');
+        if (existsSync(p)) results.push(p);
+      }
+    } else {
+      const p = join(modulesDir, entry.name, 'package.json');
+      if (existsSync(p)) results.push(p);
+    }
+  }
+  return results;
 }
 
 /**
