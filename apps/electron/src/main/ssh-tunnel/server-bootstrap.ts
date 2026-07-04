@@ -121,8 +121,12 @@ export function buildStartCommand(archiveRemotePath: string, remotePort: number)
   // (otherwise ssh blocks until the server exits and the connection times
   // out): nohup + background, with the outer command's own stdin/stdout/stderr
   // redirected so no fd keeps the ssh session open.
+  // CRAFT_CONFIG_DIR isolates the managed server's config/state under the
+  // install dir so it never contends (lock file, sessions) with a craft
+  // instance the user may already run on that host.
   const launch =
     `CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})" CRAFT_RPC_PORT=${remotePort} ` +
+    `CRAFT_CONFIG_DIR=${REMOTE_INSTALL_DIR}/config ` +
     `nohup ${REMOTE_INSTALL_DIR}/start.sh > ${REMOTE_LOG_PATH} 2>&1 < /dev/null &`
   return [
     `mkdir -p ${REMOTE_INSTALL_DIR}`,

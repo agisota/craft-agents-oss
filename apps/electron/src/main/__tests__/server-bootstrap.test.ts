@@ -96,6 +96,7 @@ describe('buildStartCommand', () => {
     expect(cmd).toContain('tar -xzf ~/.craft-agent/x.tar.gz')
     expect(cmd).toContain(`CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})"`)
     expect(cmd).toContain('CRAFT_RPC_PORT=9200')
+    expect(cmd).toContain('CRAFT_CONFIG_DIR=')
     expect(cmd).toContain('nohup')
     expect(cmd).toContain(REMOTE_LOG_PATH)
     expect(cmd).toContain('&')
