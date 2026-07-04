@@ -55,6 +55,24 @@ describe('parseSshConfig', () => {
     expect(out[0]!.port).toBe(22)
   })
 
+  it('does not attribute Match block options to the prior Host', () => {
+    const out = parseSshConfig(
+      [
+        'Host real',
+        '  HostName 1.2.3.4',
+        'Match user deploy',
+        '  User matched',
+        '  Port 9999',
+        'Host after',
+        '  User later',
+      ].join('\n'),
+    )
+    expect(out).toHaveLength(2)
+    expect(out[0]).toMatchObject({ alias: 'real', host: '1.2.3.4', port: 22 })
+    expect(out[0]!.user).toBeUndefined()
+    expect(out[1]).toMatchObject({ alias: 'after', user: 'later' })
+  })
+
   it('returns empty for empty input', () => {
     expect(parseSshConfig('')).toEqual([])
   })

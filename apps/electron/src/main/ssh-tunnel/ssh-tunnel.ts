@@ -57,25 +57,31 @@ function defaultBackoff(attempt: number): number {
   return Math.min(500 * 2 ** (attempt - 1), 15_000)
 }
 
+export interface BuildSshArgsOptions {
+  /** When set, run in -N -L port-forward mode; otherwise a one-shot command connection. */
+  forward?: { localPort: number }
+}
+
 /**
- * Build the ssh argv for a host's forward. Exported for testing.
+ * Build the ssh argv for a host. Exported for testing.
  */
-export function buildSshArgs(host: SshHostConfig, localPort: number): string[] {
-  const args: string[] = [
-    '-N',
-    '-L',
-    `${localPort}:127.0.0.1:${host.remotePort}`,
+export function buildSshArgs(host: SshHostConfig, opts: BuildSshArgsOptions = {}): string[] {
+  const args: string[] = []
+  if (opts.forward) {
+    args.push('-N', '-L', `${opts.forward.localPort}:127.0.0.1:${host.remotePort}`, '-o', 'ExitOnForwardFailure=yes')
+  }
+  args.push(
     '-o',
     'BatchMode=yes',
     '-o',
-    'ExitOnForwardFailure=yes',
+    'ConnectTimeout=10',
     '-o',
     'ServerAliveInterval=15',
     '-o',
     'ServerAliveCountMax=3',
     '-p',
     String(host.port),
-  ]
+  )
   if (host.identityFile) {
     args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
   }
@@ -113,6 +119,10 @@ export class SshTunnel extends EventEmitter {
     return this.state
   }
 
+  getHostConfig(): Readonly<SshHostConfig> {
+    return this.host
+  }
+
   private setState(patch: Partial<TunnelState>): void {
     this.state = { ...this.state, ...patch }
     this.emit('state', this.state)
@@ -140,7 +150,7 @@ export class SshTunnel extends EventEmitter {
     }
     if (this.disposed) return
 
-    const args = buildSshArgs(this.host, localPort)
+    const args = buildSshArgs(this.host, { forward: { localPort } })
     const proc = this.deps.spawn(args)
     this.proc = proc
     this.stderrTail = ''

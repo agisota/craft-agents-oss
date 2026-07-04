@@ -15,37 +15,56 @@ const SSH_BIN = 'ssh'
 const PROBE_TIMEOUT_MS = 8000
 const PROBE_INTERVAL_MS = 250
 
+/** Minimal factory over net.connect, injectable for tests. */
+export type ConnectFn = (port: number) => import('net').Socket
+
 /**
- * Probe a local port by opening a TCP connection until it succeeds or the
- * overall timeout elapses. A successful connect means the forwarded
- * craft-agent server is accepting connections (the WS handshake/auth is done
- * later by the existing remote-workspace client).
+ * One application-level probe attempt against the forwarded port.
+ *
+ * A bare TCP connect is not enough: with `ssh -L` the *local* listener accepts
+ * even when nothing listens on the remote port — ssh accepts locally, then
+ * tears the socket down when the remote channel fails. So after connecting we
+ * write a minimal HTTP request and require at least one response byte before
+ * the socket closes. Immediate close/reset without data = failure.
+ */
+export function probeOnce(localPort: number, connectFn: ConnectFn = (p) => netConnect({ host: '127.0.0.1', port: p })): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = connectFn(localPort)
+    let settled = false
+    const finish = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      sock.destroy()
+      resolve(ok)
+    }
+    sock.once('connect', () => {
+      sock.write('GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n')
+    })
+    sock.once('data', () => finish(true))
+    sock.once('error', () => finish(false))
+    sock.once('close', () => finish(false))
+    sock.setTimeout(3000, () => finish(false))
+  })
+}
+
+/**
+ * Probe the forwarded local port for a live craft-agent server, retrying
+ * until the overall timeout elapses.
  */
 function probeLocalPort(localPort: number): Promise<boolean> {
   const deadline = Date.now() + PROBE_TIMEOUT_MS
   return new Promise((resolve) => {
-    const tryOnce = () => {
-      const sock = netConnect({ host: '127.0.0.1', port: localPort })
-      let settled = false
-      const cleanup = () => {
-        if (settled) return
-        settled = true
-        sock.destroy()
-      }
-      sock.once('connect', () => {
-        cleanup()
+    const tryOnce = async () => {
+      const ok = await probeOnce(localPort)
+      if (ok) {
         resolve(true)
-      })
-      sock.once('error', () => {
-        cleanup()
-        if (Date.now() >= deadline) {
-          resolve(false)
-        } else {
-          setTimeout(tryOnce, PROBE_INTERVAL_MS)
-        }
-      })
+      } else if (Date.now() >= deadline) {
+        resolve(false)
+      } else {
+        setTimeout(tryOnce, PROBE_INTERVAL_MS)
+      }
     }
-    tryOnce()
+    void tryOnce()
   })
 }
 
@@ -73,6 +92,18 @@ export class SshTunnelManager extends EventEmitter {
    */
   async connect(host: SshHostConfig): Promise<TunnelState> {
     let tunnel = this.tunnels.get(host.id)
+    if (tunnel) {
+      // Discard the cached tunnel when it is idle or was built from a stale
+      // host config (the user may have edited port/user/identityFile).
+      const status = tunnel.getState().status
+      const idle = status !== 'connected' && status !== 'connecting'
+      const stale = JSON.stringify(tunnel.getHostConfig()) !== JSON.stringify(host)
+      if (idle || stale) {
+        tunnel.dispose()
+        this.tunnels.delete(host.id)
+        tunnel = undefined
+      }
+    }
     if (!tunnel) {
       tunnel = new SshTunnel(host, {
         spawn: (args) => spawn(SSH_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] }),
@@ -133,14 +164,15 @@ export class SshTunnelManager extends EventEmitter {
     if (!host.remoteServerCommand) {
       throw new Error('No remote server command configured for this host')
     }
-    await this.runRemote(host, `nohup sh -c '${host.remoteServerCommand}' >/dev/null 2>&1 &`)
+    await this.runRemote(
+      host,
+      `nohup sh -c ${posixSingleQuote(host.remoteServerCommand)} >/dev/null 2>&1 &`,
+    )
   }
 
   /** Run a one-shot command over ssh and return stdout. */
   private runRemote(host: SshHostConfig, command: string): Promise<string> {
-    const args = buildSshArgs(host, 0)
-      // Drop the -N / -L forwarding flags; keep connection/identity options.
-      .filter((a, i, arr) => a !== '-N' && arr[i - 1] !== '-L' && a !== '-L')
+    const args = buildSshArgs(host)
     // buildSshArgs ends with user@host; append the remote command.
     return new Promise((resolve, reject) => {
       execFile(SSH_BIN, [...args, command], { timeout: 15_000 }, (err, stdout) => {
@@ -155,6 +187,11 @@ export class SshTunnelManager extends EventEmitter {
     this.tunnels.clear()
     this.removeAllListeners()
   }
+}
+
+/** POSIX single-quote a string for safe embedding in a remote shell command. */
+export function posixSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`
 }
 
 /** Pull a token out of `KEY=value` env lines or a bare token file. */

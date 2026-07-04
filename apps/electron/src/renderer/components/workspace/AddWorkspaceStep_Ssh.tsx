@@ -9,6 +9,7 @@ import {
   AddWorkspacePrimaryButton,
   AddWorkspaceSecondaryButton,
 } from "./primitives"
+import { DEFAULT_SSH_PORT, DEFAULT_REMOTE_SERVER_PORT } from "@craft-agent/shared/config"
 import type {
   SshHostConfig,
   SshHostInput,
@@ -62,8 +63,8 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
   const [editing, setEditing] = useState<SshHostConfig | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<SshHostInput>(EMPTY_FORM)
-  const [portStr, setPortStr] = useState("22")
-  const [remotePortStr, setRemotePortStr] = useState("9100")
+  const [portStr, setPortStr] = useState(String(DEFAULT_SSH_PORT))
+  const [remotePortStr, setRemotePortStr] = useState(String(DEFAULT_REMOTE_SERVER_PORT))
   const [busyHostId, setBusyHostId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<SshConfigImportSuggestion[]>([])
@@ -85,8 +86,8 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
   const openAddForm = () => {
     setEditing(null)
     setForm(EMPTY_FORM)
-    setPortStr("22")
-    setRemotePortStr("9100")
+    setPortStr(String(DEFAULT_SSH_PORT))
+    setRemotePortStr(String(DEFAULT_REMOTE_SERVER_PORT))
     setShowForm(true)
   }
 
@@ -107,8 +108,8 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
   const saveForm = async () => {
     const payload: SshHostInput = {
       ...form,
-      port: parseInt(portStr, 10) || 22,
-      remotePort: parseInt(remotePortStr, 10) || 9100,
+      port: parseInt(portStr, 10) || DEFAULT_SSH_PORT,
+      remotePort: parseInt(remotePortStr, 10) || DEFAULT_REMOTE_SERVER_PORT,
       identityFile: form.identityFile?.trim() || undefined,
       remoteServerCommand: form.remoteServerCommand?.trim() || undefined,
     }

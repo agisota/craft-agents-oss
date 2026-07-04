@@ -64,21 +64,32 @@ function makeDeps(overrides: Partial<SshTunnelDeps> & { procs?: FakeProc[] } = {
 
 describe('buildSshArgs', () => {
   it('builds -N -L forward with hardening options', () => {
-    const args = buildSshArgs(HOST, 55000)
+    const args = buildSshArgs(HOST, { forward: { localPort: 55000 } })
     expect(args).toContain('-N')
     expect(args).toContain('55000:127.0.0.1:9100')
     expect(args.join(' ')).toContain('BatchMode=yes')
     expect(args.join(' ')).toContain('ExitOnForwardFailure=yes')
+    expect(args.join(' ')).toContain('ConnectTimeout=10')
     expect(args).toContain('-i')
     expect(args).toContain('/keys/id_ed25519')
     expect(args[args.length - 1]).toBe('deploy@example.com')
     expect(args).toContain('2222')
   })
 
+  it('omits forwarding flags in command mode', () => {
+    const args = buildSshArgs(HOST)
+    expect(args).not.toContain('-N')
+    expect(args).not.toContain('-L')
+    expect(args.join(' ')).not.toContain('ExitOnForwardFailure')
+    expect(args.join(' ')).toContain('BatchMode=yes')
+    expect(args.join(' ')).toContain('ConnectTimeout=10')
+    expect(args[args.length - 1]).toBe('deploy@example.com')
+  })
+
   it('omits -i when no identityFile', () => {
     const { identityFile, ...rest } = HOST
     void identityFile
-    expect(buildSshArgs(rest, 1).includes('-i')).toBe(false)
+    expect(buildSshArgs(rest, { forward: { localPort: 1 } }).includes('-i')).toBe(false)
   })
 })
 
@@ -194,5 +205,65 @@ describe('findFreePort', () => {
     // Not guaranteed distinct, but the allocator should not throw.
     expect(typeof a).toBe('number')
     expect(typeof b).toBe('number')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Manager helpers: application-level probe + shell quoting
+// ---------------------------------------------------------------------------
+
+import { probeOnce, posixSingleQuote } from '../ssh-tunnel/ssh-tunnel-manager.ts'
+import type { Socket } from 'net'
+
+class FakeSocket extends EventEmitter {
+  written: string[] = []
+  destroyed = false
+  write(data: string) {
+    this.written.push(data)
+    return true
+  }
+  destroy() {
+    this.destroyed = true
+  }
+  setTimeout(_ms: number, _cb?: () => void) {
+    return this
+  }
+}
+
+describe('probeOnce', () => {
+  it('succeeds only after receiving a response byte', async () => {
+    const sock = new FakeSocket()
+    const p = probeOnce(1234, () => sock as unknown as Socket)
+    sock.emit('connect')
+    expect(sock.written[0]).toContain('GET / HTTP/1.1')
+    sock.emit('data', Buffer.from('HTTP/1.1 400 Bad Request'))
+    expect(await p).toBe(true)
+    expect(sock.destroyed).toBe(true)
+  })
+
+  it('fails when the socket closes without any data (ssh -L false accept)', async () => {
+    const sock = new FakeSocket()
+    const p = probeOnce(1234, () => sock as unknown as Socket)
+    // ssh accepts locally, then tears down when the remote channel fails.
+    sock.emit('connect')
+    sock.emit('close')
+    expect(await p).toBe(false)
+  })
+
+  it('fails on connection error', async () => {
+    const sock = new FakeSocket()
+    const p = probeOnce(1234, () => sock as unknown as Socket)
+    sock.emit('error', new Error('ECONNREFUSED'))
+    expect(await p).toBe(false)
+  })
+})
+
+describe('posixSingleQuote', () => {
+  it('wraps plain strings in single quotes', () => {
+    expect(posixSingleQuote('echo hi')).toBe("'echo hi'")
+  })
+
+  it('escapes embedded single quotes', () => {
+    expect(posixSingleQuote("echo 'hi'")).toBe("'echo '\\''hi'\\'''")
   })
 })

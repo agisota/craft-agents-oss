@@ -60,6 +60,11 @@ export function parseSshConfig(text: string): SshConfigImportSuggestion[] {
       entries.push(current);
       continue;
     }
+    if (key === 'match') {
+      // Options under a Match block belong to that block, not the prior Host.
+      current = undefined;
+      continue;
+    }
     if (!current) continue;
 
     switch (key) {
