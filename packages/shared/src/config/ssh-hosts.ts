@@ -41,9 +41,16 @@ export interface SshHostConfig {
   remotePort: number;
   /**
    * Optional custom command to start the craft-agent server on the remote host.
-   * Used by the "start remote server" action when no server is reachable.
+   * Advanced / back-compat only: one-click bootstrap installs and starts a
+   * managed server instead, so this is not required for the normal flow.
    */
   remoteServerCommand?: string;
+  /**
+   * Auth token for the app-managed craft-agent server that one-click bootstrap
+   * installs on this host. This is a secret — it is written to the ssh-hosts
+   * store file (like other config) and must never be logged.
+   */
+  managedToken?: string;
   /** True when this entry was imported from ~/.ssh/config (read-only suggestion). */
   imported?: boolean;
   /** Last time this record was written. */
