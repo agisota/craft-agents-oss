@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, Plus, Server, Pencil, Trash2, Download, Play } from "lucide-react"
+import { ArrowLeft, Plus, Server, Pencil, Trash2, Download, Loader2, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "../ui/input"
 import {
@@ -9,18 +9,29 @@ import {
   AddWorkspacePrimaryButton,
   AddWorkspaceSecondaryButton,
 } from "./primitives"
+import { prepareRemoteWorkspace } from "./remote-workspace-create"
 import { DEFAULT_SSH_PORT, DEFAULT_REMOTE_SERVER_PORT } from "../../../shared/types"
 import type {
   SshHostConfig,
   SshHostInput,
   SshConfigImportSuggestion,
   SshTunnelState,
+  SshBootstrapPhase,
 } from "../../../shared/types"
 
 interface AddWorkspaceStep_SshProps {
   onBack: () => void
-  /** Called once a tunnel is connected; hands the forwarded ws url + token to the remote flow. */
-  onConnected: (args: { url: string; token?: string; hostLabel: string }) => void
+  /**
+   * Advanced escape hatch: hand the forwarded ws url + token to the manual
+   * remote ws/token form (for users who run their own server).
+   */
+  onAdvancedConnect: (args: { url: string; token?: string; hostLabel: string }) => void
+  /** Programmatic workspace creation — the happy-path completion. */
+  onCreate: (
+    folderPath: string,
+    name: string,
+    remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+  ) => Promise<void>
 }
 
 type TunnelStatus = SshTunnelState["status"]
@@ -31,6 +42,19 @@ const STATUS_COLOR: Record<TunnelStatus, string> = {
   connected: "bg-emerald-500",
   error: "bg-red-500",
 }
+
+/** Ordered bootstrap phases we surface as a progress list. */
+const PROGRESS_STEPS: SshBootstrapPhase[] = [
+  "checking-server",
+  "detecting-os",
+  "building-server",
+  "uploading-server",
+  "installing-server",
+  "starting-server",
+  "waiting-for-server",
+  "connecting-tunnel",
+  "creating-workspace",
+]
 
 function StatusDot({ status }: { status: TunnelStatus }) {
   const { t } = useTranslation()
@@ -56,18 +80,25 @@ const EMPTY_FORM: SshHostInput = {
   remoteServerCommand: "",
 }
 
-export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_SshProps) {
+export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: AddWorkspaceStep_SshProps) {
   const { t } = useTranslation()
   const [hosts, setHosts] = useState<SshHostConfig[]>([])
   const [statuses, setStatuses] = useState<Record<string, SshTunnelState>>({})
   const [editing, setEditing] = useState<SshHostConfig | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false)
   const [form, setForm] = useState<SshHostInput>(EMPTY_FORM)
   const [portStr, setPortStr] = useState(String(DEFAULT_SSH_PORT))
   const [remotePortStr, setRemotePortStr] = useState(String(DEFAULT_REMOTE_SERVER_PORT))
-  const [busyHostId, setBusyHostId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<SshConfigImportSuggestion[]>([])
+  // One-click bootstrap state for the host currently being connected.
+  const [bootstrapping, setBootstrapping] = useState<{
+    hostId: string
+    hostLabel: string
+    phase: SshBootstrapPhase
+    detail?: string
+  } | null>(null)
 
   const refresh = useCallback(async () => {
     setHosts(await window.electronAPI.sshListHosts())
@@ -75,10 +106,18 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
 
   useEffect(() => {
     void refresh()
-    const off = window.electronAPI.onSshTunnelState((state) => {
+    const offState = window.electronAPI.onSshTunnelState((state) => {
       setStatuses((prev) => ({ ...prev, [state.hostId]: state }))
     })
-    return off
+    const offProgress = window.electronAPI.onSshBootstrapProgress((p) => {
+      setBootstrapping((prev) =>
+        prev && prev.hostId === p.hostId ? { ...prev, phase: p.phase, detail: p.detail } : prev,
+      )
+    })
+    return () => {
+      offState()
+      offProgress()
+    }
   }, [refresh])
 
   const statusOf = (id: string): TunnelStatus => statuses[id]?.status ?? "disconnected"
@@ -88,6 +127,7 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
     setForm(EMPTY_FORM)
     setPortStr(String(DEFAULT_SSH_PORT))
     setRemotePortStr(String(DEFAULT_REMOTE_SERVER_PORT))
+    setShowAdvancedFields(false)
     setShowForm(true)
   }
 
@@ -102,6 +142,7 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
     })
     setPortStr(String(host.port))
     setRemotePortStr(String(host.remotePort))
+    setShowAdvancedFields(!!host.remoteServerCommand)
     setShowForm(true)
   }
 
@@ -131,9 +172,7 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
     const found = await window.electronAPI.sshImportFromConfig()
     // Filter out hosts already saved (by host+user).
     const existing = new Set(hosts.map((h) => `${h.user}@${h.host}:${h.port}`))
-    setSuggestions(
-      found.filter((s) => !existing.has(`${s.user ?? ""}@${s.host}:${s.port}`)),
-    )
+    setSuggestions(found.filter((s) => !existing.has(`${s.user ?? ""}@${s.host}:${s.port}`)))
   }
 
   const addSuggestion = async (s: SshConfigImportSuggestion) => {
@@ -150,29 +189,85 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
     await refresh()
   }
 
+  /** One-click: bootstrap the managed server, then create the workspace programmatically. */
   const connect = async (host: SshHostConfig) => {
     setError(null)
-    setBusyHostId(host.id)
+    setBootstrapping({ hostId: host.id, hostLabel: host.label, phase: "checking-server" })
     try {
-      const { url, token } = await window.electronAPI.sshConnect(host.id)
-      if (!url) throw new Error(t("ssh.error.noUrl"))
-      onConnected({ url, token, hostLabel: host.label })
+      const { url, token } = await window.electronAPI.sshBootstrapConnect(host.id)
+      if (!url || !token) throw new Error(t("ssh.error.noUrl"))
+      const homeDir = await window.electronAPI.getHomeDir()
+      const prepared = await prepareRemoteWorkspace({
+        url,
+        token,
+        name: host.label,
+        homeDir,
+      })
+      await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusyHostId(null)
+      setBootstrapping(null)
     }
   }
 
-  const startRemoteServer = async (host: SshHostConfig) => {
-    setBusyHostId(host.id)
+  /** Advanced: tunnel only, then hand off to the manual ws/token form. */
+  const advancedConnect = async (host: SshHostConfig) => {
+    setError(null)
+    setBootstrapping({ hostId: host.id, hostLabel: host.label, phase: "connecting-tunnel" })
     try {
-      await window.electronAPI.sshStartRemoteServer(host.id)
+      const { url, token } = await window.electronAPI.sshConnect(host.id)
+      if (!url) throw new Error(t("ssh.error.noUrl"))
+      onAdvancedConnect({ url, token, hostLabel: host.label })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusyHostId(null)
+      setBootstrapping(null)
     }
+  }
+
+  // Progress overlay while bootstrapping a host.
+  if (bootstrapping) {
+    const activeIndex = PROGRESS_STEPS.indexOf(bootstrapping.phase)
+    return (
+      <AddWorkspaceContainer>
+        <AddWorkspaceStepHeader
+          title={t("ssh.bootstrap.title", { host: bootstrapping.hostLabel })}
+          description={t("ssh.bootstrap.description")}
+        />
+        <div className="mt-6 w-full space-y-2">
+          {PROGRESS_STEPS.map((phase, i) => {
+            const done = activeIndex > i
+            const active = activeIndex === i
+            return (
+              <div
+                key={phase}
+                className={cn(
+                  "flex items-center gap-2 text-sm",
+                  done ? "opacity-60" : active ? "opacity-100" : "opacity-40",
+                )}
+              >
+                <span className="flex h-4 w-4 items-center justify-center">
+                  {done ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : active ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-foreground/30" />
+                  )}
+                </span>
+                <span>{t(`ssh.bootstrap.phase.${phase}`)}</span>
+              </div>
+            )
+          })}
+        </div>
+        {bootstrapping.detail && (
+          <pre className="mt-4 max-h-40 w-full overflow-auto whitespace-pre-wrap rounded-[10px] bg-foreground/5 p-3 text-[11px] opacity-70">
+            {bootstrapping.detail}
+          </pre>
+        )}
+      </AddWorkspaceContainer>
+    )
   }
 
   if (showForm) {
@@ -222,13 +317,26 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
               placeholder="~/.ssh/id_ed25519"
             />
           </Field>
-          <Field label={t("ssh.field.remoteCommand")}>
-            <Input
-              value={form.remoteServerCommand ?? ""}
-              onChange={(e) => setForm({ ...form, remoteServerCommand: e.target.value })}
-              placeholder="cd ~/craft && ./start.sh"
-            />
-          </Field>
+          {showAdvancedFields ? (
+            <Field label={t("ssh.field.remoteCommand")}>
+              <Input
+                value={form.remoteServerCommand ?? ""}
+                onChange={(e) => setForm({ ...form, remoteServerCommand: e.target.value })}
+                placeholder="cd ~/craft && ./start.sh"
+              />
+              <span className="mt-1 block text-[11px] opacity-60">
+                {t("ssh.field.remoteCommandHint")}
+              </span>
+            </Field>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFields(true)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              {t("ssh.showAdvanced")}
+            </button>
+          )}
         </div>
         <div className="mt-6 w-full">
           <AddWorkspacePrimaryButton onClick={saveForm} disabled={!valid}>
@@ -242,7 +350,7 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
   return (
     <AddWorkspaceContainer>
       <BackHeader onBack={onBack} title={t("ssh.title")} />
-      <p className="mt-1 text-sm text-muted-foreground text-center max-w-sm">
+      <p className="mt-1 max-w-sm text-center text-sm text-muted-foreground">
         {t("ssh.description")}
       </p>
 
@@ -260,7 +368,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
         )}
         {hosts.map((host) => {
           const status = statusOf(host.id)
-          const busy = busyHostId === host.id
           return (
             <div
               key={host.id}
@@ -278,23 +385,14 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {host.remoteServerCommand && status === "error" && (
-                  <IconBtn
-                    title={t("ssh.startServer")}
-                    onClick={() => startRemoteServer(host)}
-                    disabled={busy}
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                  </IconBtn>
-                )}
                 <IconBtn title={t("common.edit")} onClick={() => openEditForm(host)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </IconBtn>
                 <IconBtn title={t("common.delete")} onClick={() => removeHost(host.id)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </IconBtn>
-                <AddWorkspaceSecondaryButton onClick={() => connect(host)} disabled={busy}>
-                  {busy ? t("ssh.connecting") : t("ssh.connect")}
+                <AddWorkspaceSecondaryButton onClick={() => connect(host)}>
+                  {t("ssh.connect")}
                 </AddWorkspaceSecondaryButton>
               </div>
             </div>
@@ -334,6 +432,27 @@ export function AddWorkspaceStep_Ssh({ onBack, onConnected }: AddWorkspaceStep_S
           {t("ssh.importFromConfig")}
         </AddWorkspaceSecondaryButton>
       </div>
+
+      {hosts.length > 0 && (
+        <div className="mt-3 w-full text-center">
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer hover:text-foreground">
+              {t("ssh.advanced.summary")}
+            </summary>
+            <div className="mt-2 space-y-1">
+              {hosts.map((host) => (
+                <button
+                  key={`adv-${host.id}`}
+                  onClick={() => advancedConnect(host)}
+                  className="block w-full rounded-[8px] px-2 py-1 text-left hover:bg-foreground/5"
+                >
+                  {t("ssh.advanced.connectManual", { host: host.label })}
+                </button>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
     </AddWorkspaceContainer>
   )
 }

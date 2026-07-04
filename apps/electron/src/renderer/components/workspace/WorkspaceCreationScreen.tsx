@@ -137,7 +137,8 @@ export function WorkspaceCreationScreen({
         return (
           <AddWorkspaceStep_Ssh
             onBack={() => setStep('choice')}
-            onConnected={({ url, token, hostLabel }) => {
+            onCreate={handleCreateWorkspace}
+            onAdvancedConnect={({ url, token, hostLabel }) => {
               setSshPrefill({ url, token, hostLabel })
               setStep('remote')
             }}
