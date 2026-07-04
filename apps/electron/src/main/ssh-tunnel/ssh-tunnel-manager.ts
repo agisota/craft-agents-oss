@@ -180,26 +180,40 @@ export class SshTunnelManager extends EventEmitter {
   }
 
   /**
-   * Run a one-shot command over ssh and return stdout.
+   * Run a one-shot command over ssh and return stdout. Optional `stdin` data is
+   * piped to the remote command — used to transfer the managed token so the
+   * secret never appears in any argv (local or remote `ps`).
    *
-   * SECURITY: the remote command may embed a secret (the managed token). Node's
-   * execFile error attaches the full argv (including the command) to `err.cmd`
-   * and its message, which would leak the token into logs/UI. We therefore
-   * reject with a sanitized Error that carries only stderr + exit status — never
+   * SECURITY: Node's execFile error attaches the full argv to `err.cmd` and its
+   * message, which could leak sensitive command content into logs/UI. We
+   * therefore reject with a sanitized Error that carries only stderr — never
    * the command string.
    */
-  private runRemote(host: SshHostConfig, command: string, timeoutMs = 20_000): Promise<string> {
+  private runRemote(
+    host: SshHostConfig,
+    command: string,
+    opts: { timeoutMs?: number; stdin?: string } = {},
+  ): Promise<string> {
     const args = buildSshArgs(host)
     // buildSshArgs ends with user@host; append the remote command.
     return new Promise((resolve, reject) => {
-      execFile(SSH_BIN, [...args, command], { timeout: timeoutMs }, (err, stdout, stderr) => {
-        if (err && !stdout) {
-          const detail = String(stderr || '').trim()
-          reject(new Error(`Remote command failed${detail ? `: ${detail}` : ''}`))
-        } else {
-          resolve(stdout)
-        }
-      })
+      const child = execFile(
+        SSH_BIN,
+        [...args, command],
+        { timeout: opts.timeoutMs ?? 20_000 },
+        (err, stdout, stderr) => {
+          if (err && !stdout) {
+            const detail = String(stderr || '').trim()
+            reject(new Error(`Remote command failed${detail ? `: ${detail}` : ''}`))
+          } else {
+            resolve(stdout)
+          }
+        },
+      )
+      if (opts.stdin !== undefined) {
+        child.stdin?.write(opts.stdin)
+      }
+      child.stdin?.end()
     })
   }
 
@@ -256,7 +270,7 @@ export class SshTunnelManager extends EventEmitter {
     onProgress: (p: BootstrapProgress) => void,
   ): Promise<{ token: string }> {
     const deps: ServerBootstrapDeps = {
-      runRemote: (h, cmd, timeoutMs) => this.runRemote(h, cmd, timeoutMs),
+      runRemote: (h, cmd, opts) => this.runRemote(h, cmd, opts),
       uploadFile: (h, local, remote) => this.uploadFile(h, local, remote),
       detectTarget: (uname) => parseUnameTarget(uname),
       resolveArtifact: (target) =>

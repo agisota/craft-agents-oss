@@ -8,7 +8,9 @@ import { describe, it, expect } from 'bun:test'
 import {
   bootstrapRemoteServer,
   buildStartCommand,
+  buildWriteTokenCommand,
   REMOTE_LOG_PATH,
+  REMOTE_TOKEN_PATH,
   type ServerBootstrapDeps,
   type BootstrapProgress,
 } from '../ssh-tunnel/server-bootstrap.ts'
@@ -25,6 +27,8 @@ const HOST: SshHostConfig = {
 
 interface Recorded {
   remoteCommands: string[]
+  /** stdin payloads passed alongside remote commands (parallel to remoteCommands). */
+  remoteStdins: Array<string | undefined>
   uploads: Array<{ local: string; remote: string }>
   stored: Record<string, string>
   progress: BootstrapProgress[]
@@ -36,14 +40,15 @@ function makeDeps(
     initialToken?: string
   } = {},
 ): { deps: ServerBootstrapDeps; rec: Recorded; onProgress: (p: BootstrapProgress) => void } {
-  const rec: Recorded = { remoteCommands: [], uploads: [], stored: {}, progress: [] }
+  const rec: Recorded = { remoteCommands: [], remoteStdins: [], uploads: [], stored: {}, progress: [] }
   if (overrides.initialToken) rec.stored[HOST.id] = overrides.initialToken
   const probeResults = overrides.probeResults ? [...overrides.probeResults] : []
   let probeIdx = 0
 
   const deps: ServerBootstrapDeps = {
-    runRemote: async (_h, cmd) => {
+    runRemote: async (_h, cmd, opts) => {
       rec.remoteCommands.push(cmd)
+      rec.remoteStdins.push(opts?.stdin)
       if (cmd.includes('uname')) return 'Darwin arm64\n'
       if (cmd.includes('tail')) return 'boom: server crashed\n'
       return ''
@@ -76,27 +81,28 @@ function makeDeps(
   return { deps, rec, onProgress }
 }
 
+describe('buildWriteTokenCommand', () => {
+  it('writes the token file from stdin with 0600 permissions', () => {
+    const cmd = buildWriteTokenCommand()
+    expect(cmd).toContain('umask 077')
+    expect(cmd).toContain(`cat > ${REMOTE_TOKEN_PATH}`)
+    expect(cmd).toContain(`chmod 600 ${REMOTE_TOKEN_PATH}`)
+  })
+})
+
 describe('buildStartCommand', () => {
-  it('extracts, passes token via env, detaches under nohup, logs to a file', () => {
-    const cmd = buildStartCommand('~/.craft-agent/x.tar.gz', 'secret-token', 9200)
+  it('extracts, reads token from file, detaches under nohup, logs to a file', () => {
+    const cmd = buildStartCommand('~/.craft-agent/x.tar.gz', 9200)
     expect(cmd).toContain('tar -xzf ~/.craft-agent/x.tar.gz')
-    expect(cmd).toContain('CRAFT_SERVER_TOKEN=')
+    expect(cmd).toContain(`CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})"`)
     expect(cmd).toContain('CRAFT_RPC_PORT=9200')
     expect(cmd).toContain('nohup')
     expect(cmd).toContain(REMOTE_LOG_PATH)
     expect(cmd).toContain('&')
   })
 
-  it('quotes the token so shell metacharacters are inert', () => {
-    const cmd = buildStartCommand('~/x.tgz', "to'ken", 9100)
-    // The launcher is single-quoted for the outer `sh -c`, so the token is
-    // doubly quoted — but never appears as the bare, unescaped literal.
-    expect(cmd).not.toContain("=to'ken ")
-    expect(cmd).toContain('CRAFT_SERVER_TOKEN=')
-  })
-
   it('detaches all fds so the ssh channel closes (no hang)', () => {
-    const cmd = buildStartCommand('~/x.tgz', 'tok', 9100)
+    const cmd = buildStartCommand('~/x.tgz', 9100)
     expect(cmd).toContain('< /dev/null')
     expect(cmd).toContain('sh -c')
   })
@@ -110,6 +116,19 @@ describe('bootstrapRemoteServer', () => {
     expect(rec.uploads).toHaveLength(0)
     expect(rec.remoteCommands).toHaveLength(0)
     expect(rec.progress.map((p) => p.phase)).toEqual(['checking-server', 'ready'])
+  })
+
+  it('fails fast when a server is alive but not managed by us (no stored token)', async () => {
+    const { deps, rec, onProgress } = makeDeps({ probeResults: [true] })
+    await expect(bootstrapRemoteServer(HOST, deps, onProgress)).rejects.toThrow(
+      /already running on port 9200.*not managed/s,
+    )
+    // No install actions were attempted — no upload, no remote commands.
+    expect(rec.uploads).toHaveLength(0)
+    expect(rec.remoteCommands).toHaveLength(0)
+    // No token generated or stored for a server we don't manage.
+    expect(rec.stored[HOST.id]).toBeUndefined()
+    expect(rec.progress.at(-1)!.phase).toBe('error')
   })
 
   it('runs the full install path when no server exists', async () => {
@@ -130,6 +149,22 @@ describe('bootstrapRemoteServer', () => {
     expect(rec.progress.at(-1)!.phase).toBe('ready')
   })
 
+  it('transfers the token via stdin only — never in any command argv', async () => {
+    const { deps, rec, onProgress } = makeDeps({ probeResults: [false, true] })
+    await bootstrapRemoteServer(HOST, deps, onProgress)
+
+    // The token travels exactly once, as stdin to the write-token command.
+    const stdinPayloads = rec.remoteStdins.filter((s) => s !== undefined)
+    expect(stdinPayloads).toEqual(['GENERATED_SECRET_TOKEN_abcdef0123456789'])
+    const writeIdx = rec.remoteStdins.findIndex((s) => s !== undefined)
+    expect(rec.remoteCommands[writeIdx]).toContain(`cat > ${REMOTE_TOKEN_PATH}`)
+
+    // No remote command string ever contains the literal token (ps-safe).
+    for (const cmd of rec.remoteCommands) {
+      expect(cmd).not.toContain('GENERATED_SECRET_TOKEN')
+    }
+  })
+
   it('never leaks the token into progress events', async () => {
     const { deps, rec, onProgress } = makeDeps({ probeResults: [false, true] })
     await bootstrapRemoteServer(HOST, deps, onProgress)
@@ -144,8 +179,8 @@ describe('bootstrapRemoteServer', () => {
     })
     const result = await bootstrapRemoteServer(HOST, deps, onProgress)
     expect(result.token).toBe('REUSED_TOKEN_0123456789abcdef')
-    // Started the server with the reused token (present in the start command).
-    expect(rec.remoteCommands.some((c) => c.includes('REUSED_TOKEN_0123456789abcdef'))).toBe(true)
+    // The reused token was written to the remote token file via stdin.
+    expect(rec.remoteStdins).toContain('REUSED_TOKEN_0123456789abcdef')
   })
 
   it('surfaces a remote log tail on start timeout', async () => {

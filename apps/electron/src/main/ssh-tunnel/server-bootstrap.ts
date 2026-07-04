@@ -44,10 +44,22 @@ export interface BootstrapResult {
 /** Directory on the remote host where the managed server is installed. */
 export const REMOTE_INSTALL_DIR = '~/.craft-agent/remote-server'
 export const REMOTE_LOG_PATH = '~/.craft-agent/remote-server/server.log'
+/** Token file on the remote (0600). The token travels over ssh stdin, never argv. */
+export const REMOTE_TOKEN_PATH = '~/.craft-agent/remote-server/.token'
+
+export interface RunRemoteOptions {
+  /** Timeout for the remote command, ms. */
+  timeoutMs?: number
+  /**
+   * Data piped to the remote command's stdin. Used to transfer the token
+   * without it ever appearing in any argv (local or remote `ps`).
+   */
+  stdin?: string
+}
 
 export interface ServerBootstrapDeps {
-  /** Run a command over ssh on the remote host; resolves stdout. Optional timeout (ms). */
-  runRemote: (host: SshHostConfig, command: string, timeoutMs?: number) => Promise<string>
+  /** Run a command over ssh on the remote host; resolves stdout. */
+  runRemote: (host: SshHostConfig, command: string, opts?: RunRemoteOptions) => Promise<string>
   /** Upload a local file to a remote absolute-ish path via scp. */
   uploadFile: (host: SshHostConfig, localPath: string, remotePath: string) => Promise<void>
   /** Detect remote target from `uname -sm`. */
@@ -83,23 +95,34 @@ export function posixSingleQuote(s: string): string {
 }
 
 /**
- * Build the remote shell command that installs an uploaded archive and starts
- * the server. Exported for testing (asserts the token is passed via env, the
- * server is detached under nohup, and logs go to a file).
+ * Build the remote shell command that writes the token file from stdin.
+ * The token is piped over ssh stdin (see RunRemoteOptions.stdin) so the
+ * literal secret never appears in any argv — not locally, and not in the
+ * remote's `ps` output. umask 077 ensures the file is 0600 from creation.
  */
-export function buildStartCommand(
-  archiveRemotePath: string,
-  token: string,
-  remotePort: number,
-): string {
-  // Extract into the install dir, then start start.sh detached with the token
-  // + port in the environment, logging to server.log.
-  // The launch must fully detach so the ssh channel closes immediately (otherwise
-  // ssh blocks until the server exits and the connection times out). We background
-  // the server with nohup AND redirect the outer command's own stdin/stdout/stderr
-  // to /dev/null / the logfile so no fd keeps the ssh session open.
+export function buildWriteTokenCommand(): string {
+  return (
+    `mkdir -p ${REMOTE_INSTALL_DIR} && umask 077 && ` +
+    `cat > ${REMOTE_TOKEN_PATH} && chmod 600 ${REMOTE_TOKEN_PATH}`
+  )
+}
+
+/**
+ * Build the remote shell command that installs an uploaded archive and starts
+ * the server. Exported for testing (asserts the token is read from the 0600
+ * token file — never embedded in argv — the server is detached under nohup,
+ * and logs go to a file).
+ */
+export function buildStartCommand(archiveRemotePath: string, remotePort: number): string {
+  // Extract into the install dir, then start start.sh detached, logging to
+  // server.log. The token is read from REMOTE_TOKEN_PATH inside the inner
+  // shell — the `$(cat ...)` stays literal in argv, so `ps` never shows it.
+  // The launch must fully detach so the ssh channel closes immediately
+  // (otherwise ssh blocks until the server exits and the connection times
+  // out): nohup + background, with the outer command's own stdin/stdout/stderr
+  // redirected so no fd keeps the ssh session open.
   const launch =
-    `CRAFT_SERVER_TOKEN=${posixSingleQuote(token)} CRAFT_RPC_PORT=${remotePort} ` +
+    `CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})" CRAFT_RPC_PORT=${remotePort} ` +
     `nohup ${REMOTE_INSTALL_DIR}/start.sh > ${REMOTE_LOG_PATH} 2>&1 < /dev/null &`
   return [
     `mkdir -p ${REMOTE_INSTALL_DIR}`,
@@ -134,6 +157,17 @@ export async function bootstrapRemoteServer(
     onProgress({ phase: 'ready' })
     return { token: stored }
   }
+  if (alreadyAlive) {
+    // A server we don't manage already occupies the port. Installing another
+    // one would fail to bind, the re-probe would then hit the old server, and
+    // workspace creation would fail auth with a confusing error — fail fast
+    // with a clear, actionable message instead.
+    const detail =
+      `A server is already running on port ${host.remotePort} on this host, but it is not managed by this app. ` +
+      `Connect to it via the Advanced option (with its own token), or change this host's server port to install a managed server.`
+    onProgress({ phase: 'error', detail })
+    throw new Error(detail)
+  }
 
   // 2. Detect the remote OS/arch.
   onProgress({ phase: 'detecting-os' })
@@ -150,14 +184,19 @@ export async function bootstrapRemoteServer(
   await deps.runRemote(host, 'mkdir -p ~/.craft-agent')
   await deps.uploadFile(host, artifact.archivePath, remoteArchive)
 
-  // 5. Generate + store token, then install + start the server.
+  // 5. Generate + store token, transfer it via stdin (never argv), then
+  //    install + start the server (which reads the token from the 0600 file).
   const token = stored ?? deps.generateToken()
   deps.storeToken(host.id, token)
 
   onProgress({ phase: 'installing-server' })
+  await deps.runRemote(host, buildWriteTokenCommand(), { stdin: token })
+
   onProgress({ phase: 'starting-server' })
   // Extracting a large archive + launching can take a while; allow generous time.
-  await deps.runRemote(host, buildStartCommand(remoteArchive, token, host.remotePort), 180_000)
+  await deps.runRemote(host, buildStartCommand(remoteArchive, host.remotePort), {
+    timeoutMs: 180_000,
+  })
 
   // 6. Re-probe until the server answers.
   onProgress({ phase: 'waiting-for-server' })
