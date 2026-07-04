@@ -19,9 +19,16 @@ import {
 import { getSshTunnelManager } from './ssh-tunnel-manager.ts'
 import type { TunnelState } from './ssh-tunnel.ts'
 import type { BootstrapProgress } from './server-bootstrap.ts'
+import {
+  resolveRemoteConnection,
+  type SshConnectionStatus,
+} from './connection-resolver.ts'
+import type { RemoteServerConfig } from '@craft-agent/core/types'
 
 export const SSH_TUNNEL_STATE_EVENT = 'ssh:tunnelState'
 export const SSH_BOOTSTRAP_PROGRESS_EVENT = 'ssh:bootstrapProgress'
+/** Resolution progress for an SSH-backed workspace being (re)connected. */
+export const SSH_CONNECTION_STATUS_EVENT = 'ssh:connectionStatus'
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -89,6 +96,24 @@ export function registerSshTunnelIpc(): void {
     emit({ phase: 'connecting-tunnel' })
     const state = await manager.connect(host)
     emit({ phase: 'creating-workspace' })
-    return { url: state.url, localPort: state.localPort, token }
+    return { url: state.url, localPort: state.localPort, token, hostId }
   })
+
+  // Resolve a persisted RemoteServerConfig into a live { url, token } just before
+  // the ws transport dials it. Plain-ws configs pass through unchanged; SSH-backed
+  // configs drive the tunnel/bootstrap machinery to obtain a FRESH forwarded port
+  // + the managed token. Streams SSH-level status so the UI can show
+  // "SSH tunnel reconnecting…" / "Starting remote server…" in front of ws states.
+  ipcMain.handle(
+    'ssh:resolveWorkspaceConnection',
+    async (event, remoteServer: RemoteServerConfig) => {
+      const onStatus = (s: SshConnectionStatus) => {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        if (win && !win.isDestroyed()) {
+          win.webContents.send(SSH_CONNECTION_STATUS_EVENT, s)
+        }
+      }
+      return resolveRemoteConnection(remoteServer, manager.connectionResolverDeps(), onStatus)
+    },
+  )
 }

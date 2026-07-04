@@ -60,7 +60,7 @@ export function probeOnce(localPort: number, connectFn: ConnectFn = (p) => netCo
  * Probe the forwarded local port for a live craft-agent server, retrying
  * until the overall timeout elapses.
  */
-function probeLocalPort(localPort: number): Promise<boolean> {
+export function probeLocalPort(localPort: number): Promise<boolean> {
   const deadline = Date.now() + PROBE_TIMEOUT_MS
   return new Promise((resolve) => {
     const tryOnce = async () => {
@@ -283,6 +283,25 @@ export class SshTunnelManager extends EventEmitter {
       loadStoredToken: (hostId) => getSshHost(hostId)?.managedToken,
     }
     return bootstrapRemoteServer(host, deps, onProgress)
+  }
+
+  /**
+   * Build the side-effect deps a {@link resolveRemoteConnection} call needs,
+   * bound to this manager + the shared host store. Kept here so the concrete
+   * ssh/net/bootstrap wiring lives next to the manager, and the resolver stays
+   * pure/injectable for tests.
+   */
+  connectionResolverDeps(): import('./connection-resolver.ts').ConnectionResolverDeps {
+    return {
+      getSshHost: (hostId) => getSshHost(hostId),
+      connectTunnel: async (host) => {
+        const state = await this.connect(host)
+        return { url: state.url, localPort: state.localPort }
+      },
+      bootstrapServer: (host, onProgress) => this.bootstrapServer(host, onProgress),
+      loadManagedToken: (hostId) => getSshHost(hostId)?.managedToken,
+      probe: (localPort) => probeOnce(localPort),
+    }
   }
 
   disposeAll(): void {

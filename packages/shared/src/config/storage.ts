@@ -38,7 +38,7 @@ export type {
 } from '@craft-agent/core/types';
 
 // Import for local use
-import type { Workspace, AuthType } from '@craft-agent/core/types';
+import type { Workspace, AuthType, RemoteServerConfig } from '@craft-agent/core/types';
 
 // Import LLM connection types and constants
 import type { LlmConnection } from './llm-connections.ts';
@@ -733,7 +733,7 @@ export function getWorkspaceByNameOrId(nameOrId: string): Workspace | null {
 
 export function updateWorkspaceRemoteServer(
   workspaceId: string,
-  remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+  remoteServer: RemoteServerConfig,
 ): void {
   const config = loadStoredConfig();
   if (!config) return;

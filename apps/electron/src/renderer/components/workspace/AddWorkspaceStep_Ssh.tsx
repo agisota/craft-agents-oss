@@ -30,7 +30,7 @@ interface AddWorkspaceStep_SshProps {
   onCreate: (
     folderPath: string,
     name: string,
-    remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+    remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string },
   ) => Promise<void>
 }
 
@@ -202,6 +202,7 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
         token,
         name: host.label,
         homeDir,
+        sshHostId: host.id,
       })
       await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
     } catch (err) {

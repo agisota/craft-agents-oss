@@ -20,6 +20,7 @@ import type {
   ContentBadge,
   ToolDisplayMeta,
   AnnotationV1,
+  RemoteServerConfig,
 } from '@craft-agent/core/types';
 
 // Mode types from dedicated subpath export (avoids pulling in SDK)
@@ -96,6 +97,23 @@ export interface SshBootstrapProgress {
   hostId: string;
   phase: SshBootstrapPhase;
   /** Human-readable detail (never contains secrets). */
+  detail?: string;
+}
+
+/** SSH-level phase surfaced while (re)connecting an SSH-backed workspace. */
+export type SshConnectionPhase =
+  | 'tunnel-connecting'
+  | 'bootstrapping'
+  | 'tunnel-reconnecting'
+  | 'ready'
+  | 'error';
+
+/** Status event pushed while resolving an SSH-backed workspace connection. */
+export interface SshConnectionStatus {
+  hostId: string;
+  hostLabel: string;
+  phase: SshConnectionPhase;
+  attempt?: number;
   detail?: string;
 }
 
@@ -328,9 +346,16 @@ export interface ElectronAPI {
   sshDisconnect(hostId: string): Promise<SshTunnelState>
   sshStartRemoteServer(hostId: string): Promise<{ ok: boolean }>
   /** One-click: install (if needed) + start a managed server, then tunnel. */
-  sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
+  sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string; hostId: string }>
+  /**
+   * Resolve a persisted RemoteServerConfig into a live { url, token } just before
+   * the ws transport dials it. Plain-ws passes through unchanged; SSH-backed
+   * configs (re)establish a fresh tunnel + managed server.
+   */
+  sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
   onSshTunnelState(cb: (state: SshTunnelState) => void): () => void
   onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
+  onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>
@@ -349,7 +374,7 @@ export interface ElectronAPI {
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
-  createWorkspace(folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string }): Promise<Workspace>
+  createWorkspace(folderPath: string, name: string, remoteServer?: RemoteServerConfig): Promise<Workspace>
   checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
   updateWorkspaceRemoteServer(workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }): Promise<{ success: boolean }>
 

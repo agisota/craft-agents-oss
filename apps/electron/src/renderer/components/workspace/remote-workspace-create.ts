@@ -41,6 +41,12 @@ export interface RemoteServerBinding {
   url: string
   token: string
   remoteWorkspaceId: string
+  /**
+   * Set for SSH-backed workspaces. Makes the SSH host the durable identity so
+   * reconnects re-establish a fresh tunnel instead of dialing the (now dead)
+   * ephemeral `url`. Absent for plain-ws workspaces.
+   */
+  sshHostId?: string
 }
 
 /**
@@ -57,8 +63,10 @@ export async function prepareRemoteWorkspace(args: {
   name: string
   homeDir: string
   remoteWorkspaceId?: string
+  /** When set, the created workspace is SSH-backed and durably bound to this host. */
+  sshHostId?: string
 }): Promise<{ folderPath: string; name: string; remoteServer: RemoteServerBinding }> {
-  const { url, token, name, homeDir } = args
+  const { url, token, name, homeDir, sshHostId } = args
   const defaultBasePath = `${homeDir}/.craft-agent/workspaces`
 
   let remoteWorkspaceId = args.remoteWorkspaceId
@@ -79,6 +87,6 @@ export async function prepareRemoteWorkspace(args: {
   return {
     folderPath,
     name: workspaceName,
-    remoteServer: { url, token, remoteWorkspaceId },
+    remoteServer: { url, token, remoteWorkspaceId, ...(sshHostId ? { sshHostId } : {}) },
   }
 }

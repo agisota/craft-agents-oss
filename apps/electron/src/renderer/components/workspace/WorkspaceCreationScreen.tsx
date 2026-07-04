@@ -75,7 +75,7 @@ export function WorkspaceCreationScreen({
     }
   }, [isCreating, onClose])
 
-  const handleCreateWorkspace = useCallback(async (folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string }) => {
+  const handleCreateWorkspace = useCallback(async (folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string }) => {
     setIsCreating(true)
     try {
       const workspace = await window.electronAPI.createWorkspace(folderPath, name, remoteServer)

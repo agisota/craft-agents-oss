@@ -100,6 +100,14 @@ export interface WsRpcClientOptions {
   mode?: TransportMode
   /** Accept self-signed TLS certificates for wss:// connections. Default: false. Only works in Node.js (main process). */
   tlsRejectUnauthorized?: boolean
+  /**
+   * Optional async hook invoked before EVERY connect/reconnect to (re)resolve
+   * the live target. Used for SSH-backed workspaces whose forwarded localhost
+   * port is ephemeral: a reconnect must re-establish the tunnel and dial the NEW
+   * port, not the dead one. Returning a new `url`/`token` updates the socket
+   * target for that attempt. Omit for plain connections (no behavior change).
+   */
+  resolveTarget?: () => Promise<{ url: string; token?: string }>
 }
 
 // ---------------------------------------------------------------------------
@@ -136,10 +144,13 @@ export class WsRpcClient implements RpcClient {
   private connectionState: TransportConnectionState
   private serverChannels: Set<string> | null = null
 
-  private readonly url: string
+  // Mutable so an SSH-backed reconnect can re-target a fresh forwarded port/token
+  // via `resolveTarget`. Plain connections never reassign these.
+  private url: string
   private readonly workspaceId: string | undefined
   private readonly webContentsId: number | undefined
-  private readonly token: string | undefined
+  private token: string | undefined
+  private readonly resolveTarget?: () => Promise<{ url: string; token?: string }>
   private readonly clientCapabilities: string[]
   private readonly requestTimeout: number
   private readonly maxReconnectDelay: number
@@ -160,6 +171,7 @@ export class WsRpcClient implements RpcClient {
     this.connectTimeout = opts?.connectTimeout ?? 10_000
     this.mode = opts?.mode ?? this.inferMode(url)
     this.tlsRejectUnauthorized = opts?.tlsRejectUnauthorized ?? true
+    this.resolveTarget = opts?.resolveTarget
 
     this.connectionState = {
       mode: this.mode,
@@ -351,6 +363,42 @@ export class WsRpcClient implements RpcClient {
     this.connectStarted = true
     this.connectError = null
     this.createReadyPromise()
+
+    // SSH-backed clients re-resolve the live target (fresh forwarded port + token)
+    // before every attempt. On failure, surface it as a connection error and let
+    // the normal reconnect loop retry (which re-resolves again).
+    if (this.resolveTarget) {
+      this.setConnectionState({
+        status: this.reconnectAttempt > 0 || this.pendingReconnect !== null ? 'reconnecting' : 'connecting',
+        attempt: this.reconnectAttempt,
+        nextRetryInMs: undefined,
+        lastError: undefined,
+      })
+      void this.resolveTarget()
+        .then((target) => {
+          if (this.destroyed) return
+          this.url = target.url
+          if (target.token !== undefined) this.token = target.token
+          this.connectionState = { ...this.connectionState, url: target.url }
+          this.openSocket()
+        })
+        .catch((err) => {
+          if (this.destroyed) return
+          const e = this.createConnectionError('network', err instanceof Error ? err.message : String(err), 'RESOLVE_TARGET_FAILED')
+          this.connectError = e
+          this.setConnectionState({ status: 'failed', lastError: this.toErrorState(e), attempt: this.reconnectAttempt })
+          this.failReady(e)
+          if (this.autoReconnect && !this.permanentlyClosed) this.scheduleReconnect()
+        })
+      return
+    }
+
+    this.openSocket()
+  }
+
+  /** Open the WebSocket against the current (already-resolved) url/token. */
+  private openSocket(): void {
+    if (this.destroyed) return
 
     const isReconnectAttempt = this.reconnectAttempt > 0 || this.pendingReconnect !== null
     const status: TransportConnectionStatus = isReconnectAttempt ? 'reconnecting' : 'connecting'
