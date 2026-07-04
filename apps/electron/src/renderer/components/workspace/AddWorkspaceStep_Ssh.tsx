@@ -9,7 +9,7 @@ import {
   AddWorkspacePrimaryButton,
   AddWorkspaceSecondaryButton,
 } from "./primitives"
-import { DEFAULT_SSH_PORT, DEFAULT_REMOTE_SERVER_PORT } from "@craft-agent/shared/config"
+import { DEFAULT_SSH_PORT, DEFAULT_REMOTE_SERVER_PORT } from "../../../shared/types"
 import type {
   SshHostConfig,
   SshHostInput,

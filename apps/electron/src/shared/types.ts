@@ -58,6 +58,15 @@ import type {
 } from '@craft-agent/shared/config';
 export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
 
+/**
+ * Renderer-safe copies of the SSH defaults. Kept as literals because the
+ * renderer bundle cannot value-import `@craft-agent/shared/config` (Node-only).
+ * Parity with the shared config constants is asserted in
+ * main/__tests__/ssh-tunnel.test.ts.
+ */
+export const DEFAULT_SSH_PORT = 22;
+export const DEFAULT_REMOTE_SERVER_PORT = 9100;
+
 /** Live SSH tunnel state pushed to the renderer (mirrors main's TunnelState). */
 export interface SshTunnelState {
   hostId: string;

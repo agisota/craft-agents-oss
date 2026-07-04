@@ -267,3 +267,21 @@ describe('posixSingleQuote', () => {
     expect(posixSingleQuote("echo 'hi'")).toBe("'echo '\\''hi'\\'''")
   })
 })
+
+// The renderer keeps literal copies of the SSH defaults (it cannot value-import
+// the Node-only shared config barrel). Guard against drift here.
+import {
+  DEFAULT_SSH_PORT as SHARED_SSH_PORT,
+  DEFAULT_REMOTE_SERVER_PORT as SHARED_REMOTE_PORT,
+} from '@craft-agent/shared/config'
+import {
+  DEFAULT_SSH_PORT as RENDERER_SSH_PORT,
+  DEFAULT_REMOTE_SERVER_PORT as RENDERER_REMOTE_PORT,
+} from '../../shared/types.ts'
+
+describe('SSH default port parity (renderer copies vs shared config)', () => {
+  it('matches the shared config constants', () => {
+    expect(RENDERER_SSH_PORT).toBe(SHARED_SSH_PORT)
+    expect(RENDERER_REMOTE_PORT).toBe(SHARED_REMOTE_PORT)
+  })
+})
