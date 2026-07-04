@@ -18,8 +18,10 @@ import {
 } from '@craft-agent/shared/config'
 import { getSshTunnelManager } from './ssh-tunnel-manager.ts'
 import type { TunnelState } from './ssh-tunnel.ts'
+import type { BootstrapProgress } from './server-bootstrap.ts'
 
 export const SSH_TUNNEL_STATE_EVENT = 'ssh:tunnelState'
+export const SSH_BOOTSTRAP_PROGRESS_EVENT = 'ssh:bootstrapProgress'
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -69,5 +71,24 @@ export function registerSshTunnelIpc(): void {
     if (!host) throw new Error(`Unknown SSH host: ${hostId}`)
     await manager.startRemoteServer(host)
     return { ok: true }
+  })
+
+  // One-click bootstrap: install (if needed) + start a managed server, then
+  // establish the tunnel. Streams progress events; returns { url, token } ready
+  // for programmatic workspace creation. The token is a managed secret.
+  ipcMain.handle('ssh:bootstrapConnect', async (event, hostId: string) => {
+    const host = getSshHost(hostId)
+    if (!host) throw new Error(`Unknown SSH host: ${hostId}`)
+    const emit = (p: BootstrapProgress) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(SSH_BOOTSTRAP_PROGRESS_EVENT, { hostId, ...p })
+      }
+    }
+    const { token } = await manager.bootstrapServer(host, emit)
+    emit({ phase: 'connecting-tunnel' })
+    const state = await manager.connect(host)
+    emit({ phase: 'creating-workspace' })
+    return { url: state.url, localPort: state.localPort, token }
   })
 }

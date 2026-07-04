@@ -8,10 +8,19 @@ import { spawn, execFile } from 'child_process'
 import { connect as netConnect } from 'net'
 import { EventEmitter } from 'events'
 import type { SshHostConfig } from '@craft-agent/shared/config'
+import { updateSshHost, getSshHost } from '@craft-agent/shared/config'
+import { generateServerToken } from '@craft-agent/server-core/bootstrap'
 import { findFreePort } from './port-allocator.ts'
 import { SshTunnel, buildSshArgs, type TunnelState } from './ssh-tunnel.ts'
+import { resolveServerArtifact, parseUnameTarget } from './server-artifact.ts'
+import {
+  bootstrapRemoteServer,
+  type BootstrapProgress,
+  type ServerBootstrapDeps,
+} from './server-bootstrap.ts'
 
 const SSH_BIN = 'ssh'
+const SCP_BIN = 'scp'
 const PROBE_TIMEOUT_MS = 8000
 const PROBE_INTERVAL_MS = 250
 
@@ -170,16 +179,96 @@ export class SshTunnelManager extends EventEmitter {
     )
   }
 
-  /** Run a one-shot command over ssh and return stdout. */
-  private runRemote(host: SshHostConfig, command: string): Promise<string> {
+  /**
+   * Run a one-shot command over ssh and return stdout.
+   *
+   * SECURITY: the remote command may embed a secret (the managed token). Node's
+   * execFile error attaches the full argv (including the command) to `err.cmd`
+   * and its message, which would leak the token into logs/UI. We therefore
+   * reject with a sanitized Error that carries only stderr + exit status — never
+   * the command string.
+   */
+  private runRemote(host: SshHostConfig, command: string, timeoutMs = 20_000): Promise<string> {
     const args = buildSshArgs(host)
     // buildSshArgs ends with user@host; append the remote command.
     return new Promise((resolve, reject) => {
-      execFile(SSH_BIN, [...args, command], { timeout: 15_000 }, (err, stdout) => {
-        if (err && !stdout) reject(err)
-        else resolve(stdout)
+      execFile(SSH_BIN, [...args, command], { timeout: timeoutMs }, (err, stdout, stderr) => {
+        if (err && !stdout) {
+          const detail = String(stderr || '').trim()
+          reject(new Error(`Remote command failed${detail ? `: ${detail}` : ''}`))
+        } else {
+          resolve(stdout)
+        }
       })
     })
+  }
+
+  /** Upload a local file to the remote host via scp. */
+  private uploadFile(host: SshHostConfig, localPath: string, remotePath: string): Promise<void> {
+    // scp uses -P for the port (uppercase, unlike ssh's -p).
+    // -O uses the legacy SCP protocol instead of SFTP: some minimal/user-mode
+    // sshd setups don't enable the sftp subsystem, and the managed server only
+    // needs a single file copied, so the classic protocol is the safer default.
+    const args = ['-O', '-B', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-P', String(host.port)]
+    if (host.identityFile) args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
+    // Expand a leading ~ locally is not needed; remote ~ is expanded by the shell
+    // on the remote side, but scp does not run a shell for the destination path.
+    // Strip a leading "~/" so scp writes relative to the login home dir.
+    const dest = remotePath.replace(/^~\//, '')
+    args.push(localPath, `${host.user}@${host.host}:${dest}`)
+    return new Promise((resolve, reject) => {
+      execFile(SCP_BIN, args, { timeout: 120_000 }, (err, _stdout, stderr) => {
+        if (err) reject(new Error(`scp upload failed: ${stderr?.trim() || err.message}`))
+        else resolve()
+      })
+    })
+  }
+
+  /**
+   * Probe the remote server port directly over ssh (no tunnel needed). Used
+   * during bootstrap, before a tunnel is established. Returns true if something
+   * answers an HTTP request on 127.0.0.1:<remotePort> on the remote host.
+   */
+  private async probeRemotePort(host: SshHostConfig): Promise<boolean> {
+    const port = host.remotePort
+    // Try curl, fall back to a /dev/tcp bash probe. We only need a byte back;
+    // craft-agent answers HTTP on the RPC port. Any non-empty response = alive.
+    const cmd =
+      `(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:${port}/ 2>/dev/null ` +
+      `|| (exec 3<>/dev/tcp/127.0.0.1/${port} && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && head -c 1 <&3 | od -An -tx1)) 2>/dev/null`
+    try {
+      const out = (await this.runRemote(host, cmd)).trim()
+      // curl prints an HTTP status; a 000 means connection refused/timeout.
+      if (/^\d{3}$/.test(out)) return out !== '000'
+      return out.length > 0
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * One-click bootstrap: ensure an app-managed craft-agent server is installed
+   * and running on `host`, installing it over SSH if necessary. Streams
+   * progress via `onProgress`. Returns the managed token on success.
+   */
+  async bootstrapServer(
+    host: SshHostConfig,
+    onProgress: (p: BootstrapProgress) => void,
+  ): Promise<{ token: string }> {
+    const deps: ServerBootstrapDeps = {
+      runRemote: (h, cmd, timeoutMs) => this.runRemote(h, cmd, timeoutMs),
+      uploadFile: (h, local, remote) => this.uploadFile(h, local, remote),
+      detectTarget: (uname) => parseUnameTarget(uname),
+      resolveArtifact: (target) =>
+        resolveServerArtifact(target, { isPackaged: isAppPackaged() }),
+      probe: () => this.probeRemotePort(host),
+      generateToken: () => generateServerToken(),
+      storeToken: (hostId, token) => {
+        updateSshHost(hostId, { managedToken: token })
+      },
+      loadStoredToken: (hostId) => getSshHost(hostId)?.managedToken,
+    }
+    return bootstrapRemoteServer(host, deps, onProgress)
   }
 
   disposeAll(): void {
@@ -203,6 +292,18 @@ function extractToken(out: string): string | undefined {
   // A file containing just the token.
   if (/^[A-Za-z0-9._-]{16,}$/.test(text)) return text
   return undefined
+}
+
+/** Whether the Electron app is packaged. Fail-soft to `false` (dev) if electron isn't available. */
+function isAppPackaged(): boolean {
+  try {
+    // Lazy require so this module stays importable in plain-bun unit tests.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const electron = require('electron') as { app?: { isPackaged?: boolean } }
+    return electron.app?.isPackaged ?? false
+  } catch {
+    return false
+  }
 }
 
 let singleton: SshTunnelManager | undefined
