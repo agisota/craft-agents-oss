@@ -38,7 +38,9 @@ type ApiToChannelMapKeys = Exclude<
   | 'sshConnect'
   | 'sshDisconnect'
   | 'sshStartRemoteServer'
+  | 'sshBootstrapConnect'
   | 'onSshTunnelState'
+  | 'onSshBootstrapProgress'
 > | BrowserPaneKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 

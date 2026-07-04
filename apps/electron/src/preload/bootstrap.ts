@@ -36,7 +36,7 @@ import {
 import type { ConfirmDialogSpec, FileDialogSpec, BrowserCapabilityRequest } from '@craft-agent/server-core/transport'
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
-import type { ElectronAPI, SshTunnelState } from '../shared/types'
+import type { ElectronAPI, SshTunnelState, SshBootstrapProgress } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // Client interface — common surface for both RoutedClient and WsRpcClient
@@ -437,10 +437,17 @@ client.onConnectionStateChanged((state) => {
   ipcRenderer.invoke('ssh:disconnect', hostId)
 ;(api as ElectronAPI).sshStartRemoteServer = (hostId: string) =>
   ipcRenderer.invoke('ssh:startRemoteServer', hostId)
+;(api as ElectronAPI).sshBootstrapConnect = (hostId: string) =>
+  ipcRenderer.invoke('ssh:bootstrapConnect', hostId)
 ;(api as ElectronAPI).onSshTunnelState = (cb) => {
   const handler = (_e: unknown, state: SshTunnelState) => cb(state)
   ipcRenderer.on('ssh:tunnelState', handler)
   return () => { ipcRenderer.removeListener('ssh:tunnelState', handler) }
+}
+;(api as ElectronAPI).onSshBootstrapProgress = (cb) => {
+  const handler = (_e: unknown, progress: SshBootstrapProgress) => cb(progress)
+  ipcRenderer.on('ssh:bootstrapProgress', handler)
+  return () => { ipcRenderer.removeListener('ssh:bootstrapProgress', handler) }
 }
 
 // System warnings — expose env-based flags set during main process startup

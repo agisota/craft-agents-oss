@@ -77,6 +77,28 @@ export interface SshTunnelState {
   reconnectAttempts: number;
 }
 
+/** Phases of the one-click SSH server bootstrap (mirrors main's BootstrapPhase). */
+export type SshBootstrapPhase =
+  | 'checking-server'
+  | 'detecting-os'
+  | 'building-server'
+  | 'uploading-server'
+  | 'installing-server'
+  | 'starting-server'
+  | 'waiting-for-server'
+  | 'connecting-tunnel'
+  | 'creating-workspace'
+  | 'ready'
+  | 'error';
+
+/** Progress event pushed to the renderer during one-click bootstrap. */
+export interface SshBootstrapProgress {
+  hostId: string;
+  phase: SshBootstrapPhase;
+  /** Human-readable detail (never contains secrets). */
+  detail?: string;
+}
+
 // Credential health types
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
@@ -305,7 +327,10 @@ export interface ElectronAPI {
   sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
   sshDisconnect(hostId: string): Promise<SshTunnelState>
   sshStartRemoteServer(hostId: string): Promise<{ ok: boolean }>
+  /** One-click: install (if needed) + start a managed server, then tunnel. */
+  sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
   onSshTunnelState(cb: (state: SshTunnelState) => void): () => void
+  onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>
