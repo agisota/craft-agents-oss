@@ -46,7 +46,13 @@ export function parseUnameTarget(unameOutput: string): RemoteTarget {
 
 /** Locate the monorepo root by walking up until a root package.json + scripts/ is found. */
 function findRepoRoot(): string | undefined {
-  let dir = dirname(fileURLToPath(import.meta.url))
+  // The main process is bundled to CJS, where import.meta.url is undefined —
+  // prefer __dirname and fall back to import.meta.url for direct ts execution
+  // (e.g. bun test).
+  let dir =
+    typeof __dirname !== 'undefined' && __dirname
+      ? __dirname
+      : dirname(fileURLToPath(import.meta.url))
   for (let i = 0; i < 8; i++) {
     if (existsSync(join(dir, 'scripts', 'build-server.ts')) && existsSync(join(dir, 'package.json'))) {
       return dir
