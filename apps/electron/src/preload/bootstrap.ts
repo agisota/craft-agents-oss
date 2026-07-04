@@ -36,7 +36,7 @@ import {
 import type { ConfirmDialogSpec, FileDialogSpec, BrowserCapabilityRequest } from '@craft-agent/server-core/transport'
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
-import type { ElectronAPI } from '../shared/types'
+import type { ElectronAPI, SshTunnelState } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // Client interface — common surface for both RoutedClient and WsRpcClient
@@ -421,6 +421,26 @@ client.onConnectionStateChanged((state) => {
   const handler = (_e: any, progress: { sessionIndex: number; sessionCount: number; chunkSent: number; chunkTotal: number }) => cb(progress)
   ipcRenderer.on('transfer:progress', handler)
   return () => { ipcRenderer.removeListener('transfer:progress', handler) }
+}
+
+// SSH remote hosts + tunnels — direct IPC (Electron-only, not WS RPC)
+;(api as ElectronAPI).sshListHosts = () => ipcRenderer.invoke('ssh:listHosts')
+;(api as ElectronAPI).sshAddHost = (input) => ipcRenderer.invoke('ssh:addHost', input)
+;(api as ElectronAPI).sshUpdateHost = (id: string, updates) =>
+  ipcRenderer.invoke('ssh:updateHost', id, updates)
+;(api as ElectronAPI).sshDeleteHost = (id: string) => ipcRenderer.invoke('ssh:deleteHost', id)
+;(api as ElectronAPI).sshImportFromConfig = () => ipcRenderer.invoke('ssh:importFromConfig')
+;(api as ElectronAPI).sshTunnelStatus = (hostId: string) =>
+  ipcRenderer.invoke('ssh:tunnelStatus', hostId)
+;(api as ElectronAPI).sshConnect = (hostId: string) => ipcRenderer.invoke('ssh:connect', hostId)
+;(api as ElectronAPI).sshDisconnect = (hostId: string) =>
+  ipcRenderer.invoke('ssh:disconnect', hostId)
+;(api as ElectronAPI).sshStartRemoteServer = (hostId: string) =>
+  ipcRenderer.invoke('ssh:startRemoteServer', hostId)
+;(api as ElectronAPI).onSshTunnelState = (cb) => {
+  const handler = (_e: unknown, state: SshTunnelState) => cb(state)
+  ipcRenderer.on('ssh:tunnelState', handler)
+  return () => { ipcRenderer.removeListener('ssh:tunnelState', handler) }
 }
 
 // System warnings — expose env-based flags set during main process startup

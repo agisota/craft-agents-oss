@@ -28,6 +28,17 @@ type ApiToChannelMapKeys = Exclude<
   | 'onTransferProgress' // direct IPC listener — chunk upload progress
   | 'changeLanguage' // direct IPC to main process — syncs i18n language
   | 'getFilePath' // renderer-local — webUtils.getPathForFile, no IPC round-trip
+  // SSH remote hosts + tunnels — direct IPC to main process (Electron-only)
+  | 'sshListHosts'
+  | 'sshAddHost'
+  | 'sshUpdateHost'
+  | 'sshDeleteHost'
+  | 'sshImportFromConfig'
+  | 'sshTunnelStatus'
+  | 'sshConnect'
+  | 'sshDisconnect'
+  | 'sshStartRemoteServer'
+  | 'onSshTunnelState'
 > | BrowserPaneKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 

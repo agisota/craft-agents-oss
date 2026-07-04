@@ -771,6 +771,10 @@ app.whenReady().then(async () => {
         return remove(workspaceId)
       })
 
+      // SSH remote hosts + tunnels (Remote-SSH style bootstrap to a remote server)
+      const { registerSshTunnelIpc } = await import('./ssh-tunnel/ipc')
+      registerSshTunnelIpc()
+
       // Cross-server RPC — invoke a channel on an arbitrary remote server
       ipcMain.handle('server:invokeOnServer', async (_event, url: string, token: string, channel: string, ...args: unknown[]) => {
         const { connectToRemote } = await import('./handlers/workspace')

@@ -51,6 +51,23 @@ import type { AuthState, SetupNeeds } from '@craft-agent/shared/auth/types';
 import type { AuthType } from '@craft-agent/shared/config/types';
 export type { AuthState, SetupNeeds, AuthType };
 
+import type {
+  SshHostConfig,
+  SshHostInput,
+  SshConfigImportSuggestion,
+} from '@craft-agent/shared/config';
+export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
+
+/** Live SSH tunnel state pushed to the renderer (mirrors main's TunnelState). */
+export interface SshTunnelState {
+  hostId: string;
+  status: 'disconnected' | 'connecting' | 'connected' | 'error';
+  localPort?: number;
+  url?: string;
+  error?: string;
+  reconnectAttempts: number;
+}
+
 // Credential health types
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
@@ -268,6 +285,18 @@ export interface ElectronAPI {
   relaunchApp(): Promise<void>
   removeWorkspace(workspaceId: string): Promise<boolean>
   invokeOnServer(url: string, token: string, channel: string, ...args: any[]): Promise<any>
+
+  // SSH remote hosts + tunnels (Remote-SSH style bootstrap to a remote server)
+  sshListHosts(): Promise<SshHostConfig[]>
+  sshAddHost(input: SshHostInput): Promise<SshHostConfig>
+  sshUpdateHost(id: string, updates: Partial<SshHostConfig>): Promise<SshHostConfig | undefined>
+  sshDeleteHost(id: string): Promise<boolean>
+  sshImportFromConfig(): Promise<SshConfigImportSuggestion[]>
+  sshTunnelStatus(hostId: string): Promise<SshTunnelState>
+  sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
+  sshDisconnect(hostId: string): Promise<SshTunnelState>
+  sshStartRemoteServer(hostId: string): Promise<{ ok: boolean }>
+  onSshTunnelState(cb: (state: SshTunnelState) => void): () => void
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>
