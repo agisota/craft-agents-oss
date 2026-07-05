@@ -113,30 +113,50 @@ export function buildWriteTokenCommand(): string {
  * token file — never embedded in argv — the server is detached under nohup,
  * and logs go to a file).
  */
-export function buildStartCommand(archiveRemotePath: string, remotePort: number): string {
-  // Extract into the install dir, then start start.sh detached, logging to
-  // server.log. The token is read from REMOTE_TOKEN_PATH inside the inner
-  // shell — the `$(cat ...)` stays literal in argv, so `ps` never shows it.
+function buildLaunch(remotePort: number): string {
+  // The token is read from REMOTE_TOKEN_PATH inside the inner shell — the
+  // `$(cat ...)` stays literal in argv, so `ps` never shows it.
+  // CRAFT_CONFIG_DIR isolates the managed server's config/state under the
+  // install dir so it never contends (lock file, sessions) with a craft
+  // instance the user may already run on that host.
+  return (
+    `CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})" CRAFT_RPC_PORT=${remotePort} ` +
+    `CRAFT_CONFIG_DIR=${REMOTE_INSTALL_DIR}/config ` +
+    `nohup ${REMOTE_INSTALL_DIR}/start.sh > ${REMOTE_LOG_PATH} 2>&1 < /dev/null &`
+  )
+}
+
+/** Detached launcher: `sh -c '... &'` with all fds redirected so ssh returns immediately. */
+function detach(launch: string): string {
   // The launch must fully detach so the ssh channel closes immediately
   // (otherwise ssh blocks until the server exits and the connection times
   // out): nohup + background, with the outer command's own stdin/stdout/stderr
   // redirected so no fd keeps the ssh session open.
-  // CRAFT_CONFIG_DIR isolates the managed server's config/state under the
-  // install dir so it never contends (lock file, sessions) with a craft
-  // instance the user may already run on that host.
-  const launch =
-    `CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})" CRAFT_RPC_PORT=${remotePort} ` +
-    `CRAFT_CONFIG_DIR=${REMOTE_INSTALL_DIR}/config ` +
-    `nohup ${REMOTE_INSTALL_DIR}/start.sh > ${REMOTE_LOG_PATH} 2>&1 < /dev/null &`
+  return `sh -c ${posixSingleQuote(launch)} > /dev/null 2>&1 < /dev/null`
+}
+
+export function buildStartCommand(archiveRemotePath: string, remotePort: number): string {
+  // Extract into the install dir, then start start.sh detached, logging to server.log.
   return [
     `mkdir -p ${REMOTE_INSTALL_DIR}`,
     `tar -xzf ${archiveRemotePath} -C ${REMOTE_INSTALL_DIR}`,
     `chmod +x ${REMOTE_INSTALL_DIR}/start.sh ${REMOTE_INSTALL_DIR}/bin/craft-server 2>/dev/null || true`,
     `rm -f ${archiveRemotePath}`,
-    // Detach the launcher: `sh -c '... &'` with all fds redirected so ssh returns.
-    `sh -c ${posixSingleQuote(launch)} > /dev/null 2>&1 < /dev/null`,
+    detach(buildLaunch(remotePort)),
   ].join(' && ')
 }
+
+/**
+ * Restart an already-installed server without re-uploading the artifact — the
+ * path taken when the remote server process died (crash, reboot, OOM kill) but
+ * the install dir is intact.
+ */
+export function buildRestartCommand(remotePort: number): string {
+  return detach(buildLaunch(remotePort))
+}
+
+/** Shell test used to decide the restart-only path: is a runnable install present? */
+export const CHECK_INSTALLED_COMMAND = `test -x ${REMOTE_INSTALL_DIR}/start.sh && echo INSTALLED || true`
 
 /**
  * Run the full bootstrap. Assumes the SSH tunnel is already established and the
@@ -173,22 +193,45 @@ export async function bootstrapRemoteServer(
     throw new Error(detail)
   }
 
-  // 2. Detect the remote OS/arch.
+  // 2. Server not answering but we manage this host and the install is intact
+  //    (process died: crash, reboot, OOM kill) — restart it without re-uploading.
+  if (stored) {
+    const installed = (await deps.runRemote(host, CHECK_INSTALLED_COMMAND)).includes('INSTALLED')
+    if (installed) {
+      onProgress({ phase: 'starting-server', detail: 'restart' })
+      // Re-write the token file (survives most failures, but cheap to refresh)
+      // and relaunch; fall through to a full reinstall if the restart doesn't
+      // bring the server up (e.g. corrupted install).
+      await deps.runRemote(host, buildWriteTokenCommand(), { stdin: stored })
+      await deps.runRemote(host, buildRestartCommand(host.remotePort))
+      onProgress({ phase: 'waiting-for-server' })
+      for (let attempt = 0; attempt < probeAttempts; attempt++) {
+        if (await deps.probe()) {
+          onProgress({ phase: 'ready' })
+          return { token: stored }
+        }
+        await sleep(probeIntervalMs)
+      }
+      // Restart failed — continue into the full install path below.
+    }
+  }
+
+  // 3. Detect the remote OS/arch.
   onProgress({ phase: 'detecting-os' })
   const uname = await deps.runRemote(host, 'uname -sm')
   const target = deps.detectTarget(uname)
 
-  // 3. Ensure a local artifact for the target (build on demand in dev).
+  // 4. Ensure a local artifact for the target (build on demand in dev).
   onProgress({ phase: 'building-server', detail: `${target.platform}-${target.arch}` })
   const artifact = await deps.resolveArtifact(target)
 
-  // 4. Upload + extract.
+  // 5. Upload + extract.
   const remoteArchive = `~/.craft-agent/${artifact.archiveName}`
   onProgress({ phase: 'uploading-server' })
   await deps.runRemote(host, 'mkdir -p ~/.craft-agent')
   await deps.uploadFile(host, artifact.archivePath, remoteArchive)
 
-  // 5. Generate + store token, transfer it via stdin (never argv), then
+  // 6. Generate + store token, transfer it via stdin (never argv), then
   //    install + start the server (which reads the token from the 0600 file).
   const token = stored ?? deps.generateToken()
   deps.storeToken(host.id, token)
@@ -202,7 +245,7 @@ export async function bootstrapRemoteServer(
     timeoutMs: 180_000,
   })
 
-  // 6. Re-probe until the server answers.
+  // 7. Re-probe until the server answers.
   onProgress({ phase: 'waiting-for-server' })
   for (let attempt = 0; attempt < probeAttempts; attempt++) {
     if (await deps.probe()) {

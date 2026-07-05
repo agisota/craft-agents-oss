@@ -8,7 +8,9 @@ import { describe, it, expect } from 'bun:test'
 import {
   bootstrapRemoteServer,
   buildStartCommand,
+  buildRestartCommand,
   buildWriteTokenCommand,
+  CHECK_INSTALLED_COMMAND,
   REMOTE_LOG_PATH,
   REMOTE_TOKEN_PATH,
   type ServerBootstrapDeps,
@@ -188,5 +190,64 @@ describe('bootstrapRemoteServer', () => {
     // Initial probe false, and all post-start probes false → timeout.
     const { deps, onProgress } = makeDeps({ probeResults: [false, false, false, false] })
     await expect(bootstrapRemoteServer(HOST, deps, onProgress)).rejects.toThrow(/server crashed/)
+  })
+})
+
+describe('bootstrapRemoteServer — restart path (server died, install intact)', () => {
+  const installedRunRemote =
+    (rec: string[], stdins: (string | undefined)[]) =>
+    async (_h: unknown, cmd: string, opts?: { stdin?: string }) => {
+      rec.push(cmd)
+      stdins.push(opts?.stdin)
+      if (cmd === CHECK_INSTALLED_COMMAND) return 'INSTALLED\n'
+      if (cmd.includes('uname')) return 'Darwin arm64\n'
+      if (cmd.includes('tail')) return 'boom\n'
+      return ''
+    }
+
+  it('restarts without re-uploading when installed and a token is stored', async () => {
+    const cmds: string[] = []
+    const stdins: (string | undefined)[] = []
+    const uploads: unknown[] = []
+    const { deps } = makeDeps({
+      initialToken: 'STORED_TOKEN_0123456789abcdef',
+      probeResults: [false, true], // dead on first check, up after restart
+      runRemote: installedRunRemote(cmds, stdins) as ServerBootstrapDeps['runRemote'],
+      uploadFile: async (_h, l, r) => { uploads.push({ l, r }) },
+    })
+    const { token } = await bootstrapRemoteServer(HOST, deps)
+    expect(token).toBe('STORED_TOKEN_0123456789abcdef')
+    expect(uploads).toHaveLength(0)
+    expect(cmds).toContain(buildRestartCommand(HOST.remotePort))
+    // Token still travels via stdin only.
+    expect(stdins.filter(Boolean)).toEqual(['STORED_TOKEN_0123456789abcdef'])
+    expect(cmds.some(c => c.includes('STORED_TOKEN'))).toBe(false)
+  })
+
+  it('falls back to full reinstall when the restart does not bring the server up', async () => {
+    const cmds: string[] = []
+    const stdins: (string | undefined)[] = []
+    const uploads: unknown[] = []
+    const { deps } = makeDeps({
+      initialToken: 'STORED_TOKEN_0123456789abcdef',
+      // dead check, restart probes all fail (3 attempts), then up after reinstall
+      probeResults: [false, false, false, false, true],
+      runRemote: installedRunRemote(cmds, stdins) as ServerBootstrapDeps['runRemote'],
+      uploadFile: async (_h, l, r) => { uploads.push({ l, r }) },
+    })
+    const { token } = await bootstrapRemoteServer(HOST, deps)
+    expect(token).toBe('STORED_TOKEN_0123456789abcdef')
+    expect(uploads).toHaveLength(1)
+  })
+
+  it('skips the restart probe entirely when nothing is installed', async () => {
+    const { deps, rec } = makeDeps({
+      initialToken: 'STORED_TOKEN_0123456789abcdef',
+      probeResults: [false, true],
+    })
+    await bootstrapRemoteServer(HOST, deps)
+    // Default mock returns '' for the install check → straight to full install.
+    expect(rec.uploads).toHaveLength(1)
+    expect(rec.remoteCommands).not.toContain(buildRestartCommand(HOST.remotePort))
   })
 })
