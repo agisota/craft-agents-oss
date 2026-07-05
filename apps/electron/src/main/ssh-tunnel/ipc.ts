@@ -1,11 +1,3 @@
-/**
- * IPC surface for SSH remote hosts + tunnels. Registered from main/index.ts.
- *
- * Host CRUD/import delegates to the shared config store; connect/disconnect
- * drives the SshTunnelManager and pushes tunnel state changes to every renderer
- * so connection dots stay live.
- */
-
 import { ipcMain, BrowserWindow } from 'electron'
 import type { SshHostConfig, SshHostInput } from '@craft-agent/shared/config'
 import {
@@ -44,11 +36,8 @@ export function registerSshTunnelIpc(): void {
 
   const manager = getSshTunnelManager()
   manager.on('state', (state: TunnelState) => {
-    // Mid-session tunnel drops: forward the tunnel state as an SSH connection
-    // status so SSH-backed workspace banners show "tunnel reconnecting…" (or a
-    // terminal error / recovery) instead of a raw ws error on the dead forwarded
-    // port. resolveRemoteConnection only streams status while a (re)dial is in
-    // flight, so this is the ONLY emitter once a workspace is connected.
+    // Mid-session tunnel drops: forward tunnel state as an SSH connection status so
+    // banners show "tunnel reconnecting…" — the ONLY emitter once a workspace is connected.
     const host = getSshHost(state.hostId)
     const status = tunnelStateToConnectionStatus(state, host?.label ?? state.hostId)
     if (status) broadcast(SSH_CONNECTION_STATUS_EVENT, status)
@@ -75,9 +64,8 @@ export function registerSshTunnelIpc(): void {
     return { url: state.url, localPort: state.localPort, token }
   })
 
-  // One-click bootstrap: install (if needed) + start a managed server, then
-  // establish the tunnel. Streams progress events; returns { url, token } ready
-  // for programmatic workspace creation. The token is a managed secret.
+  // One-click bootstrap: install (if needed) + start a managed server, then establish
+  // the tunnel. Streams progress; returns { url, token } (managed secret) for workspace creation.
   ipcMain.handle('ssh:bootstrapConnect', async (event, hostId: string) => {
     const host = getSshHost(hostId)
     if (!host) throw new Error(`Unknown SSH host: ${hostId}`)
@@ -94,11 +82,8 @@ export function registerSshTunnelIpc(): void {
     return { url: state.url, localPort: state.localPort, token, hostId }
   })
 
-  // Resolve a persisted RemoteServerConfig into a live { url, token } just before
-  // the ws transport dials it. Plain-ws configs pass through unchanged; SSH-backed
-  // configs drive the tunnel/bootstrap machinery to obtain a FRESH forwarded port
-  // + the managed token. Streams SSH-level status so the UI can show
-  // "SSH tunnel reconnecting…" / "Starting remote server…" in front of ws states.
+  // Resolve a persisted RemoteServerConfig into a live { url, token } before the ws
+  // transport dials. SSH configs re-dial the tunnel for a FRESH forwarded port + managed token.
   ipcMain.handle(
     'ssh:resolveWorkspaceConnection',
     async (event, remoteServer: RemoteServerConfig) => {

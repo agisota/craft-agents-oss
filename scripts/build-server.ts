@@ -305,10 +305,8 @@ function copyDependencyTree(
     }
   }
 
-  // Packages with their own nested node_modules (version-conflict duplicates,
-  // e.g. an sdk shipping ajv@8) get those copied verbatim above, but the nested
-  // packages' *own* deps may be hoisted to the root tree (e.g. ajv@8 → fast-uri)
-  // and would otherwise never be pulled in. Recurse into nested packages' deps.
+  // Nested node_modules are copied verbatim above, but those packages' own deps may
+  // be hoisted to the root tree — recurse so they get pulled in too.
   const nestedModules = join(src, 'node_modules');
   if (existsSync(nestedModules)) {
     for (const nestedPkgJson of collectNestedPackageJsons(nestedModules)) {

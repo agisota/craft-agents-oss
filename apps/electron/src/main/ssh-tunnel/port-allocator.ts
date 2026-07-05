@@ -1,10 +1,3 @@
-/**
- * Allocate a free local TCP port on 127.0.0.1 by binding an ephemeral server
- * and reading back the assigned port. There is an inherent TOCTOU window
- * between release and reuse, but ssh's ExitOnForwardFailure surfaces a bind
- * clash as a clean tunnel error which the manager retries.
- */
-
 import { createServer } from 'net'
 
 export function findFreePort(): Promise<number> {

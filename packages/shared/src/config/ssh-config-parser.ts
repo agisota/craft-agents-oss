@@ -1,11 +1,3 @@
-/**
- * Read-only parser for `~/.ssh/config` Host entries.
- *
- * Produces import suggestions (host/hostname/user/port/identityfile). Wildcard
- * patterns (`Host *`, `Host foo.*`) are skipped — they are match rules, not
- * concrete hosts. The user's ssh config is never mutated.
- */
-
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -26,20 +18,15 @@ function hasWildcard(pattern: string): boolean {
   return pattern.includes('*') || pattern.includes('?') || pattern.startsWith('!');
 }
 
-/**
- * Expand a leading `~` in an ssh IdentityFile path to the user's home dir.
- */
+/** Expand a leading `~` in an ssh IdentityFile path to the user's home dir. */
 function expandHome(p: string): string {
   if (p === '~') return homedir();
   if (p.startsWith('~/')) return join(homedir(), p.slice(2));
   return p;
 }
 
-/**
- * Parse ssh config text into concrete host suggestions.
- * A `Host` line may list multiple aliases; only non-wildcard aliases become
- * suggestions, and an entry with only wildcard aliases is dropped entirely.
- */
+/** Parse ssh config text into concrete host suggestions; only non-wildcard aliases become
+ * suggestions, and a wildcard-only entry is dropped. */
 export function parseSshConfig(text: string): SshConfigImportSuggestion[] {
   const entries: MutableEntry[] = [];
   let current: MutableEntry | undefined;
@@ -103,10 +90,7 @@ export function parseSshConfig(text: string): SshConfigImportSuggestion[] {
   return suggestions;
 }
 
-/**
- * Read and parse the user's ssh config file. Returns [] when the file is
- * missing or unreadable.
- */
+/** Read and parse the user's ssh config file. Returns [] when the file is missing or unreadable. */
 export function importSshConfigSuggestions(
   configPath: string = DEFAULT_SSH_CONFIG_PATH,
 ): SshConfigImportSuggestion[] {

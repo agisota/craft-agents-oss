@@ -1,16 +1,3 @@
-/**
- * SSH host configuration for reaching a craft-agent server on a remote machine
- * over an SSH tunnel (VS Code Remote-SSH style).
- *
- * SSH is used only as a tunnel/bootstrap layer: a local port is forwarded to the
- * craft-agent server's port on the remote host, and the app then talks to that
- * server over the existing remote-workspace WebSocket path.
- *
- * Manually-added/edited hosts are persisted to `ssh-hosts.json`. Entries parsed
- * from `~/.ssh/config` are read-only import suggestions and are never written
- * back to the user's ssh config.
- */
-
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { ensureConfigDir } from './storage.ts';
@@ -59,11 +46,7 @@ export interface SshConfigImportSuggestion {
 
 const SSH_HOSTS_FILE = join(CONFIG_DIR, 'ssh-hosts.json');
 
-/**
- * On-disk record. `managedToken` is a legacy field: tokens now live in the
- * credential store (see loadManagedToken) and are migrated out of this file
- * lazily on first read.
- */
+/** On-disk record. `managedToken` is a legacy field migrated to the credential store lazily on first read. */
 type StoredSshHost = SshHostConfig & { managedToken?: string };
 
 interface SshHostsFile {
@@ -71,10 +54,7 @@ interface SshHostsFile {
   updatedAt?: number;
 }
 
-/**
- * Turn an arbitrary string into a stable, filesystem/url-safe slug.
- * Falls back to `host` when the label reduces to empty.
- */
+/** Turn an arbitrary string into a stable, filesystem/url-safe slug. */
 export function slugifyHostId(input: string): string {
   return generateSlug(input, 'host');
 }
@@ -96,9 +76,8 @@ export function loadSshHosts(): SshHostConfig[] {
 }
 
 function saveSshHosts(hosts: SshHostConfig[]): void {
-  // Rescue any not-yet-migrated legacy plaintext tokens for hosts that remain,
-  // moving them into the credential store before the stripped list overwrites
-  // the file (see loadManagedToken for the read-path migration).
+  // Rescue any not-yet-migrated legacy plaintext tokens into the credential store
+  // before the stripped list overwrites the file (see loadManagedToken read-path migration).
   const keep = new Set(hosts.map((h) => h.id));
   for (const record of readHostsFile()) {
     if (record.managedToken && keep.has(record.id)) {
@@ -184,14 +163,8 @@ export function getSshHostsPath(): string {
   return SSH_HOSTS_FILE;
 }
 
-// ============================================================
-// Managed server auth tokens (credential store)
-// ============================================================
-//
-// The auth token for the app-managed craft-agent server on a host is a secret:
-// it lives in the encrypted credential store (keyed by host id), never in
-// ssh-hosts.json. Legacy files that still carry a plaintext `managedToken`
-// field are migrated lazily on first read.
+// Managed server auth tokens: the token is a secret, so it lives in the encrypted
+// credential store (keyed by host id), never in ssh-hosts.json. Legacy plaintext migrated on read.
 
 /** Migrate all legacy plaintext tokens into the credential store and strip them from the file. */
 async function migrateLegacyManagedTokens(records: StoredSshHost[]): Promise<void> {
@@ -205,10 +178,7 @@ async function migrateLegacyManagedTokens(records: StoredSshHost[]): Promise<voi
   saveSshHosts(records.map(normalizeHost));
 }
 
-/**
- * Get the managed-server auth token for a host from the credential store.
- * Migrates legacy plaintext tokens out of ssh-hosts.json on first read.
- */
+/** Get the managed-server auth token for a host, migrating legacy plaintext tokens out of ssh-hosts.json on first read. */
 export async function loadManagedToken(hostId: string): Promise<string | undefined> {
   const stored = await getCredentialManager().getSshManagedToken(hostId);
   if (stored) return stored;

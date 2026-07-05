@@ -1,19 +1,3 @@
-/**
- * One-click bootstrap of an app-managed craft-agent server on a remote host,
- * VS Code Remote-SSH style: detect the remote OS/arch, ensure a server build
- * for that target exists locally, upload + extract it, generate and store a
- * token, start the server under nohup, and re-probe until it answers.
- *
- * The orchestration is a pure state machine with every side effect (ssh exec,
- * scp upload, artifact resolution, probe, token gen, token persistence)
- * injected as a dependency, so it can be unit-tested without touching the
- * network or filesystem. Progress is reported via an `onProgress` callback so
- * the UI can render a step list.
- *
- * SECURITY: the managed token is a secret. It is never included in progress
- * events, log output, or error messages produced here.
- */
-
 import type { SshHostConfig } from '@craft-agent/shared/config'
 import type { RemoteTarget, ResolvedArtifact } from './server-artifact.ts'
 
@@ -50,10 +34,8 @@ export const REMOTE_TOKEN_PATH = '~/.craft-agent/remote-server/.token'
 export interface RunRemoteOptions {
   /** Timeout for the remote command, ms. */
   timeoutMs?: number
-  /**
-   * Data piped to the remote command's stdin. Used to transfer the token
-   * without it ever appearing in any argv (local or remote `ps`).
-   */
+  /** Data piped to the remote command's stdin. Transfers the token without it
+   * ever appearing in any argv (local or remote `ps`). */
   stdin?: string
 }
 
@@ -94,12 +76,8 @@ export function posixSingleQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`
 }
 
-/**
- * Build the remote shell command that writes the token file from stdin.
- * The token is piped over ssh stdin (see RunRemoteOptions.stdin) so the
- * literal secret never appears in any argv — not locally, and not in the
- * remote's `ps` output. umask 077 ensures the file is 0600 from creation.
- */
+/** Build the remote shell command that writes the token file from stdin. The
+ * token is piped over ssh stdin so the secret never appears in any argv; umask 077 makes it 0600 from creation. */
 export function buildWriteTokenCommand(): string {
   return (
     `mkdir -p ${REMOTE_INSTALL_DIR} && umask 077 && ` +
@@ -107,18 +85,11 @@ export function buildWriteTokenCommand(): string {
   )
 }
 
-/**
- * Build the remote shell command that installs an uploaded archive and starts
- * the server. Exported for testing (asserts the token is read from the 0600
- * token file — never embedded in argv — the server is detached under nohup,
- * and logs go to a file).
- */
+/** Build the remote shell command that installs an uploaded archive and starts
+ * the server. The token is read from the 0600 file, never argv; detached under nohup. */
 function buildLaunch(remotePort: number): string {
-  // The token is read from REMOTE_TOKEN_PATH inside the inner shell — the
-  // `$(cat ...)` stays literal in argv, so `ps` never shows it.
-  // CRAFT_CONFIG_DIR isolates the managed server's config/state under the
-  // install dir so it never contends (lock file, sessions) with a craft
-  // instance the user may already run on that host.
+  // The `$(cat ...)` stays literal in argv, so `ps` never shows the token.
+  // CRAFT_CONFIG_DIR isolates the managed server's state from any user craft instance.
   return (
     `CRAFT_SERVER_TOKEN="$(cat ${REMOTE_TOKEN_PATH})" CRAFT_RPC_PORT=${remotePort} ` +
     `CRAFT_CONFIG_DIR=${REMOTE_INSTALL_DIR}/config ` +
@@ -128,10 +99,8 @@ function buildLaunch(remotePort: number): string {
 
 /** Detached launcher: `sh -c '... &'` with all fds redirected so ssh returns immediately. */
 function detach(launch: string): string {
-  // The launch must fully detach so the ssh channel closes immediately
-  // (otherwise ssh blocks until the server exits and the connection times
-  // out): nohup + background, with the outer command's own stdin/stdout/stderr
-  // redirected so no fd keeps the ssh session open.
+  // Must fully detach so the ssh channel closes immediately (else ssh blocks
+  // until the server exits and times out): nohup + background, all fds redirected.
   return `sh -c ${posixSingleQuote(launch)} > /dev/null 2>&1 < /dev/null`
 }
 
@@ -146,11 +115,8 @@ export function buildStartCommand(archiveRemotePath: string, remotePort: number)
   ].join(' && ')
 }
 
-/**
- * Restart an already-installed server without re-uploading the artifact — the
- * path taken when the remote server process died (crash, reboot, OOM kill) but
- * the install dir is intact.
- */
+/** Restart an already-installed server without re-uploading the artifact — the
+ * path taken when the process died but the install dir is intact. */
 export function buildRestartCommand(remotePort: number): string {
   return detach(buildLaunch(remotePort))
 }
@@ -158,20 +124,13 @@ export function buildRestartCommand(remotePort: number): string {
 /** Shell test used to decide the restart-only path: is a runnable install present? */
 export const CHECK_INSTALLED_COMMAND = `test -x ${REMOTE_INSTALL_DIR}/start.sh && echo INSTALLED || true`
 
-/**
- * Kill a running app-managed server so it can be relaunched with a new token.
- * The `[.]` bracket keeps the pattern from matching the shell running this very
- * command (its own cmdline contains the literal pattern, not a bare dot).
- */
+/** Kill a running app-managed server so it can be relaunched with a new token.
+ * The `[.]` bracket keeps the pattern from matching the shell running this command. */
 export const KILL_MANAGED_SERVER_COMMAND =
   `pkill -f '[.]craft-agent/remote-server' 2>/dev/null || true`
 
-/**
- * Run the full bootstrap. Assumes the SSH tunnel is already established and the
- * remote server port is forwarded locally (so `probe()` targets it).
- *
- * Returns the token in hand on success. Progress is streamed via `onProgress`.
- */
+/** Run the full bootstrap. Assumes the SSH tunnel is already established and the
+ * remote server port is forwarded locally (so `probe()` targets it). */
 export async function bootstrapRemoteServer(
   host: SshHostConfig,
   deps: ServerBootstrapDeps,
@@ -190,10 +149,8 @@ export async function bootstrapRemoteServer(
     return { token: stored }
   }
   if (alreadyAlive) {
-    // A server answers but we hold no token for it. If OUR install dir is on
-    // the remote, this is an app-managed server whose token we lost (e.g. the
-    // host was deleted and re-added with the same slug) — restart it with a
-    // fresh token instead of locking the user out forever.
+    // A server answers but we hold no token for it. If OUR install dir is present,
+    // it's a managed server whose token we lost — restart with a fresh token.
     const installed = (await deps.runRemote(host, CHECK_INSTALLED_COMMAND)).includes('INSTALLED')
     if (installed) {
       const token = deps.generateToken()
@@ -215,10 +172,8 @@ export async function bootstrapRemoteServer(
       onProgress({ phase: 'error', detail })
       throw new Error(detail)
     }
-    // A server we don't manage already occupies the port. Installing another
-    // one would fail to bind, the re-probe would then hit the old server, and
-    // workspace creation would fail auth with a confusing error — fail fast
-    // with a clear, actionable message instead.
+    // A server we don't manage occupies the port. Installing another would fail
+    // to bind and the re-probe would hit the old server — fail fast with a clear message.
     const detail =
       `A server is already running on port ${host.remotePort} on this host, but it is not managed by this app. ` +
       `Connect to it via "Connect to remote server" (with its own token), or change this host's server port to install a managed server.`
@@ -232,9 +187,8 @@ export async function bootstrapRemoteServer(
     const installed = (await deps.runRemote(host, CHECK_INSTALLED_COMMAND)).includes('INSTALLED')
     if (installed) {
       onProgress({ phase: 'starting-server', detail: 'restart' })
-      // Re-write the token file (survives most failures, but cheap to refresh)
-      // and relaunch; fall through to a full reinstall if the restart doesn't
-      // bring the server up (e.g. corrupted install).
+      // Re-write the token file (cheap to refresh) and relaunch; fall through to
+      // a full reinstall if the restart doesn't bring the server up.
       await deps.runRemote(host, buildWriteTokenCommand(), { stdin: stored })
       await deps.runRemote(host, buildRestartCommand(host.remotePort))
       onProgress({ phase: 'waiting-for-server' })

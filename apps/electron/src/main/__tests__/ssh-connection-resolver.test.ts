@@ -96,10 +96,8 @@ describe('resolveRemoteConnection — ssh backed', () => {
   })
 
   it('recovers a dead remote server: tunnel kept without probe → bootstrap → re-dial', async () => {
-    // Real-world combination: the server process died. The tunnel must be
-    // requested WITHOUT a live-server probe requirement (ssh is fine, the port
-    // is silent), the bootstrap must run (restart/reinstall), and the resolver
-    // must hand back the fresh url + bootstrap token.
+    // Server process died: the tunnel must be requested WITHOUT a live-server
+    // probe (ssh is fine, port silent), then bootstrap, then re-dial fresh.
     const calls: Array<{ requireProbe?: boolean }> = []
     let bootstrapped = false
     const resolved = await resolveRemoteConnection(

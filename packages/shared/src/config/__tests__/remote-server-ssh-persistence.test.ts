@@ -5,11 +5,8 @@ import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 
-/**
- * Persistence round-trip: an SSH-backed workspace records sshHostId durably and
- * does NOT rely on the ephemeral forwarded port as its source of truth. Plain-ws
- * workspaces round-trip unchanged (backward compat).
- */
+/** SSH-backed workspaces record sshHostId durably (not the ephemeral port);
+ * plain-ws workspaces round-trip unchanged (backward compat). */
 
 const STORAGE_MODULE_PATH = pathToFileURL(join(import.meta.dir, '..', 'storage.ts')).href
 

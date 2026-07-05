@@ -59,18 +59,13 @@ import type {
 } from '@craft-agent/shared/config';
 export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
 
-/**
- * Renderer-safe copies of the SSH defaults. Kept as literals because the
- * renderer bundle cannot value-import `@craft-agent/shared/config` (Node-only).
- * Parity with the shared config constants is asserted in
- * main/__tests__/ssh-tunnel.test.ts.
- */
+/** Renderer-safe copies of the SSH defaults (the renderer bundle can't value-import
+ * the Node-only shared config); parity is asserted in ssh-tunnel.test.ts. */
 export const DEFAULT_SSH_PORT = 22;
 export const DEFAULT_REMOTE_SERVER_PORT = 9100;
 
-// SSH wire types — type-only re-exports from the main-process modules (erased
-// at build, so the renderer bundle never pulls in Node-only code). Single
-// source of truth: no hand-maintained mirrors.
+// SSH wire types — type-only re-exports from the main-process modules (erased at
+// build, so the renderer bundle never pulls in Node-only code).
 import type { BootstrapPhase as SshBootstrapPhase } from '../main/ssh-tunnel/server-bootstrap';
 import type { SshConnectionPhase, SshConnectionStatus } from '../main/ssh-tunnel/connection-resolver';
 export type { SshBootstrapPhase, SshConnectionPhase, SshConnectionStatus };
@@ -310,11 +305,8 @@ export interface ElectronAPI {
   sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
   /** One-click: install (if needed) + start a managed server, then tunnel. */
   sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string; hostId: string }>
-  /**
-   * Resolve a persisted RemoteServerConfig into a live { url, token } just before
-   * the ws transport dials it. Plain-ws passes through unchanged; SSH-backed
-   * configs (re)establish a fresh tunnel + managed server.
-   */
+  /** Resolve a persisted RemoteServerConfig into a live { url, token } before dialing:
+   * plain-ws passes through, SSH-backed (re)establishes a fresh tunnel + server. */
   sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
   onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
   onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void

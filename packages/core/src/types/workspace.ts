@@ -16,18 +16,8 @@ export interface RemoteServerConfig {
   url: string;              // ws://host:port or wss://host:port
   token: string;            // Auth token for the remote server
   remoteWorkspaceId: string; // ID of the workspace on the remote server
-  /**
-   * When set, this workspace is reached over an SSH tunnel (VS Code Remote-SSH
-   * style). `sshHostId` + the SSH host store are the DURABLE source of truth for
-   * how to connect: the tunnel forwards an EPHEMERAL localhost port that changes
-   * every session, so `url` here is only a last-known hint and `token` is not the
-   * source of truth (the managed token lives in the host store). Before dialing,
-   * an SSH-backed workspace must be resolved (ensure tunnel up / bootstrap the
-   * remote server) to obtain a fresh `url` + `token`.
-   *
-   * Absent for plain-ws remote workspaces, which dial `url`/`token` directly and
-   * are unaffected by any SSH resolution.
-   */
+  /** When set, reached over an SSH tunnel: sshHostId + the host store are the durable
+   * identity, so url/token are ephemeral and re-resolved before every dial. */
   sshHostId?: string;
 }
 

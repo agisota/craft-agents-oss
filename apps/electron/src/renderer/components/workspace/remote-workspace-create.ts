@@ -1,17 +1,7 @@
-/**
- * Shared helpers for creating a local workspace bound to a remote craft-agent
- * server. Extracted from AddWorkspaceStep_ConnectRemote so the one-click SSH
- * bootstrap flow creates workspaces through the exact same path (create on the
- * server via RPC, resolve a unique local slug, then call the app's
- * createWorkspace).
- */
-
 import { slugify } from "@/lib/slugify"
 
-/**
- * Resolve a unique local workspace slug by appending suffixes if needed.
- * Tries: baseName → baseName-remote → baseName-2 → baseName-3 → ...
- */
+/** Resolve a unique local workspace slug by appending suffixes if needed.
+ * Tries: baseName → baseName-remote → baseName-2 → baseName-3 → ... */
 export async function resolveUniqueSlug(baseName: string): Promise<{ slug: string; path: string }> {
   const baseSlug = slugify(baseName)
   if (!baseSlug) return { slug: 'remote', path: '' }
@@ -41,22 +31,13 @@ export interface RemoteServerBinding {
   url: string
   token: string
   remoteWorkspaceId: string
-  /**
-   * Set for SSH-backed workspaces. Makes the SSH host the durable identity so
-   * reconnects re-establish a fresh tunnel instead of dialing the (now dead)
-   * ephemeral `url`. Absent for plain-ws workspaces.
-   */
+  /** Set for SSH-backed workspaces: makes the SSH host the durable identity so reconnects
+   * re-establish a fresh tunnel instead of dialing the (now dead) ephemeral `url`. */
   sshHostId?: string
 }
 
-/**
- * Create (or reuse) a workspace on the remote server and resolve the local
- * folder path + remote binding. Mirrors AddWorkspaceStep_ConnectRemote's
- * create path so the SSH one-click flow lands identically.
- *
- * If `remoteWorkspaceId` is provided, connects to that existing remote
- * workspace; otherwise creates a new one on the server named `name`.
- */
+/** Create (or reuse) a workspace on the remote server and resolve the local folder path + remote binding.
+ * With `remoteWorkspaceId`, connects to that existing remote workspace; otherwise creates a new one named `name`. */
 export async function prepareRemoteWorkspace(args: {
   url: string
   token: string

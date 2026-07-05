@@ -8,12 +8,8 @@ export function shouldShowTransportConnectionBanner(state: TransportConnectionSt
   return state.status !== 'connected' && state.status !== 'idle'
 }
 
-/**
- * Whether the SSH layer should MASK the ws transport state — i.e. the tunnel /
- * remote server is still settling, so the UI must show the SSH-level status and
- * never a raw ws error for the (dead) forwarded port. Once the SSH layer is
- * `ready` the ws state takes over.
- */
+/** Whether the SSH layer should mask the ws transport state — the tunnel/server is
+ * still settling, so show SSH status (not a raw ws error) until it is `ready`. */
 export function shouldShowSshBanner(ssh: SshConnectionStatus | null | undefined): boolean {
   return !!ssh && ssh.phase !== 'ready'
 }

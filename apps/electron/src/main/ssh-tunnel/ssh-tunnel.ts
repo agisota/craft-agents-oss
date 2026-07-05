@@ -1,17 +1,3 @@
-/**
- * A single SSH port-forward tunnel to a craft-agent server on a remote host.
- *
- * Uses the system `ssh` binary (not an npm ssh2 lib) so it respects the user's
- * ~/.ssh/config, agent, ProxyJump, etc. — the same reason VS Code Remote-SSH
- * shells out to ssh. We spawn:
- *
- *   ssh -N -L <localPort>:127.0.0.1:<remotePort> \
- *       -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 ...
- *
- * The class is a self-contained state machine. `spawn` and `probe` are injected
- * so the state machine can be unit-tested with a mocked child_process.
- */
-
 import type { ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import type { SshHostConfig } from '@craft-agent/shared/config'
@@ -29,20 +15,14 @@ export interface TunnelState {
   error?: string
   /** How many auto-reconnect attempts have been made in the current outage. */
   reconnectAttempts: number
-  /**
-   * Only meaningful when status === 'error': true means the error is transient
-   * and the tunnel is about to retry on its own; false/undefined means terminal.
-   */
+  /** Only meaningful when status === 'error': true means transient (about to
+   * retry on its own); false/undefined means terminal. */
   willRetry?: boolean
 }
 
 export interface TunnelConnectOptions {
-  /**
-   * When false, a tunnel whose ssh transport came up but whose forwarded port
-   * has no live server answering is still reported 'connected' (instead of
-   * being torn down). Used by the connection resolver so it can bootstrap a
-   * dead remote server through the established tunnel. Default true.
-   */
+  /** When false, a tunnel with ssh up but no server answering is still reported
+   * 'connected' so the resolver can bootstrap through it. Default true. */
   requireProbe?: boolean
 }
 
@@ -77,9 +57,7 @@ export interface BuildSshArgsOptions {
   forward?: { localPort: number }
 }
 
-/**
- * Build the ssh argv for a host. Exported for testing.
- */
+/** Build the ssh argv for a host. Exported for testing. */
 export function buildSshArgs(host: SshHostConfig, opts: BuildSshArgsOptions = {}): string[] {
   const args: string[] = []
   if (opts.forward) {
@@ -104,10 +82,8 @@ export function buildSshArgs(host: SshHostConfig, opts: BuildSshArgsOptions = {}
   return args
 }
 
-/**
- * `user@host`, or just `host` when no user is configured (imported hosts can
- * have an empty user — ssh then defaults to the local username, like the CLI).
- */
+/** `user@host`, or just `host` when no user is configured (ssh then defaults to
+ * the local username, like the CLI). */
 export function sshDestination(host: SshHostConfig): string {
   return host.user ? `${host.user}@${host.host}` : host.host
 }
@@ -200,9 +176,8 @@ export class SshTunnel extends EventEmitter {
     const alive = await this.deps.probe(localPort)
     if (this.disposed || this.proc !== proc) return
     if (!alive && !this.requireProbe) {
-      // ssh transport is up (the proc would have exited otherwise) but nothing
-      // answers the forwarded port. The caller asked to keep such a tunnel:
-      // report connected so it can bootstrap the server through the forward.
+      // ssh transport is up but nothing answers the forwarded port; the caller
+      // asked to keep it so it can bootstrap the server through the forward.
       this.probeError = undefined
       this.setState({
         status: 'connected',
@@ -303,9 +278,7 @@ export class SshTunnel extends EventEmitter {
   dispose(): void {
     this.disposed = true
     // Emit a terminal error BEFORE listeners are dropped so any pending
-    // connect() waiter (e.g. manager.connect awaiting a state event) rejects
-    // instead of hanging forever. Only needed while an attempt is in flight —
-    // a settled tunnel has no waiters and should dispose silently.
+    // connect() waiter rejects instead of hanging forever.
     const st = this.state
     if (st.status === 'connecting' || (st.status === 'error' && st.willRetry)) this.setState({
       status: 'error',

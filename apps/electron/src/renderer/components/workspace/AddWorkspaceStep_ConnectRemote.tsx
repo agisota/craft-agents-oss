@@ -18,11 +18,8 @@ interface AddWorkspaceStep_ConnectRemoteProps {
   initialUrl?: string
   /** Pre-fill the token (for reconnect flow) */
   initialToken?: string
-  /**
-   * Durable SSH host id, set when reconnecting an SSH-backed workspace.
-   * Persisted on the created workspace so restarts resolve a fresh tunnel
-   * instead of dialing the ephemeral url.
-   */
+  /** Durable SSH host id, set when reconnecting an SSH-backed workspace (persisted
+   * so restarts resolve a fresh tunnel instead of dialing the ephemeral url). */
   sshHostId?: string
   /** When set, updating an existing workspace's remote config instead of creating */
   reconnectWorkspace?: { id: string; name: string; remoteWorkspaceId: string }

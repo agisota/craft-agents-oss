@@ -1,9 +1,3 @@
-/**
- * Owns all live SSH tunnels (one per host) and the concrete child_process /
- * network wiring the SshTunnel state machine depends on. Emits per-host state
- * changes so the main process can forward them to the renderer.
- */
-
 import { spawn, execFile } from 'child_process'
 import { connect as netConnect } from 'net'
 import { EventEmitter } from 'events'
@@ -33,15 +27,8 @@ const PROBE_INTERVAL_MS = 250
 /** Minimal factory over net.connect, injectable for tests. */
 export type ConnectFn = (port: number) => import('net').Socket
 
-/**
- * One application-level probe attempt against the forwarded port.
- *
- * A bare TCP connect is not enough: with `ssh -L` the *local* listener accepts
- * even when nothing listens on the remote port — ssh accepts locally, then
- * tears the socket down when the remote channel fails. So after connecting we
- * write a minimal HTTP request and require at least one response byte before
- * the socket closes. Immediate close/reset without data = failure.
- */
+/** Probe the forwarded port once. A bare TCP connect is not enough (`ssh -L`
+ * accepts locally then drops), so require a response byte to an HTTP request. */
 export function probeOnce(localPort: number, connectFn: ConnectFn = (p) => netConnect({ host: '127.0.0.1', port: p })): Promise<boolean> {
   return new Promise((resolve) => {
     const sock = connectFn(localPort)
@@ -62,10 +49,8 @@ export function probeOnce(localPort: number, connectFn: ConnectFn = (p) => netCo
   })
 }
 
-/**
- * Probe the forwarded local port for a live craft-agent server, retrying
- * until the overall timeout elapses.
- */
+/** Probe the forwarded local port for a live craft-agent server, retrying
+ * until the overall timeout elapses. */
 export function probeLocalPort(localPort: number): Promise<boolean> {
   const deadline = Date.now() + PROBE_TIMEOUT_MS
   return new Promise((resolve) => {
@@ -101,10 +86,8 @@ export class SshTunnelManager extends EventEmitter {
     return [...this.tunnels.values()].map((t) => t.getState())
   }
 
-  /**
-   * Establish (or reuse) a tunnel for `host`. Resolves with the connected
-   * state (including the forwarded ws:// url) or rejects with the error.
-   */
+  /** Establish (or reuse) a tunnel for `host`. Resolves with the connected
+   * state (including the forwarded ws:// url) or rejects with the error. */
   async connect(host: SshHostConfig, opts: TunnelConnectOptions = {}): Promise<TunnelState> {
     let tunnel = this.tunnels.get(host.id)
     if (tunnel) {
@@ -129,9 +112,8 @@ export class SshTunnelManager extends EventEmitter {
       this.tunnels.set(host.id, tunnel)
     }
 
-    // Already up (e.g. resolveTarget re-runs while the tunnel is healthy):
-    // tunnel.connect() is an idempotent no-op in this state and emits no event,
-    // so waiting for one below would hang forever — return the live state.
+    // Already up: connect() is an idempotent no-op that emits no event, so
+    // waiting for one below would hang forever — return the live state.
     const current = tunnel.getState()
     if (current.status === 'connected') return current
 
@@ -142,8 +124,7 @@ export class SshTunnelManager extends EventEmitter {
           resolve(state)
         } else if (state.status === 'error' && !state.willRetry) {
           // Transient errors (willRetry) mean the tunnel is auto-reconnecting;
-          // keep waiting so a recoverable blip doesn't reject the connect and
-          // orphan a tunnel that comes back up moments later.
+          // keep waiting so a recoverable blip doesn't orphan a returning tunnel.
           tunnel!.off('state', onState)
           reject(new Error(state.error ?? 'SSH tunnel failed'))
         }
@@ -160,14 +141,8 @@ export class SshTunnelManager extends EventEmitter {
     this.emit('state', tunnel.getState())
   }
 
-  /**
-   * Fetch the remote craft-agent server token over ssh, best-effort.
-   *
-   * The server takes its token from the CRAFT_SERVER_TOKEN env var and does not
-   * persist it to a fixed path by default, so we try the token file the user
-   * configured (if any) plus the common `.env` convention. Callers fall back to
-   * manual token entry when this returns undefined.
-   */
+  /** Fetch the remote craft-agent server token over ssh, best-effort: try the
+   * configured token file (if any) plus the common `.env` convention. */
   async fetchRemoteToken(host: SshHostConfig, tokenPath?: string): Promise<string | undefined> {
     const candidates = tokenPath
       ? [tokenPath]
@@ -180,16 +155,8 @@ export class SshTunnelManager extends EventEmitter {
     return undefined
   }
 
-  /**
-   * Run a one-shot command over ssh and return stdout. Optional `stdin` data is
-   * piped to the remote command — used to transfer the managed token so the
-   * secret never appears in any argv (local or remote `ps`).
-   *
-   * SECURITY: Node's execFile error attaches the full argv to `err.cmd` and its
-   * message, which could leak sensitive command content into logs/UI. We
-   * therefore reject with a sanitized Error that carries only stderr — never
-   * the command string.
-   */
+  /** Run a one-shot command over ssh and return stdout (optional `stdin` keeps
+   * secrets out of argv). SECURITY: reject with stderr only, never the argv. */
   private runRemote(
     host: SshHostConfig,
     command: string,
@@ -220,11 +187,8 @@ export class SshTunnelManager extends EventEmitter {
 
   /** Upload a local file to the remote host via scp. */
   private async uploadFile(host: SshHostConfig, localPath: string, remotePath: string): Promise<void> {
-    // -O uses the legacy SCP protocol instead of SFTP: some minimal/user-mode
-    // sshd setups don't enable the sftp subsystem, and the managed server only
-    // needs a single file copied, so the classic protocol is the safer default.
-    // Local scp binaries older than OpenSSH 9 don't know -O (they speak the
-    // legacy protocol natively), so retry without it on "unknown option".
+    // -O forces the legacy SCP protocol (safer for minimal sshd without sftp);
+    // pre-OpenSSH-9 scp lacks -O, so retry without it on "unknown option".
     try {
       await this.scpUpload(host, localPath, remotePath, true)
     } catch (err) {
@@ -254,11 +218,8 @@ export class SshTunnelManager extends EventEmitter {
     })
   }
 
-  /**
-   * Probe the remote server port directly over ssh (no tunnel needed). Used
-   * during bootstrap, before a tunnel is established. Returns true if something
-   * answers an HTTP request on 127.0.0.1:<remotePort> on the remote host.
-   */
+  /** Probe the remote server port directly over ssh (no tunnel needed), used
+   * during bootstrap. True if something answers HTTP on 127.0.0.1:<remotePort>. */
   private async probeRemotePort(host: SshHostConfig): Promise<boolean> {
     const port = host.remotePort
     // Try curl, fall back to a /dev/tcp bash probe. We only need a byte back;
@@ -276,11 +237,8 @@ export class SshTunnelManager extends EventEmitter {
     }
   }
 
-  /**
-   * One-click bootstrap: ensure an app-managed craft-agent server is installed
-   * and running on `host`, installing it over SSH if necessary. Streams
-   * progress via `onProgress`. Returns the managed token on success.
-   */
+  /** One-click bootstrap: ensure an app-managed server is installed and running
+   * on `host` (installing over SSH if needed). Returns the managed token. */
   async bootstrapServer(
     host: SshHostConfig,
     onProgress: (p: BootstrapProgress) => void,
@@ -299,12 +257,8 @@ export class SshTunnelManager extends EventEmitter {
     return bootstrapRemoteServer(host, deps, onProgress)
   }
 
-  /**
-   * Build the side-effect deps a {@link resolveRemoteConnection} call needs,
-   * bound to this manager + the shared host store. Kept here so the concrete
-   * ssh/net/bootstrap wiring lives next to the manager, and the resolver stays
-   * pure/injectable for tests.
-   */
+  /** Build the side-effect deps a {@link resolveRemoteConnection} call needs,
+   * bound to this manager, so the resolver stays pure/injectable for tests. */
   connectionResolverDeps(): import('./connection-resolver.ts').ConnectionResolverDeps {
     return {
       getSshHost: (hostId) => getSshHost(hostId),
@@ -336,9 +290,8 @@ export function buildScpArgs(
   const args = ['-B', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-P', String(host.port)]
   if (legacyFlag) args.unshift('-O')
   if (host.identityFile) args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
-  // Expand a leading ~ locally is not needed; remote ~ is expanded by the shell
-  // on the remote side, but scp does not run a shell for the destination path.
-  // Strip a leading "~/" so scp writes relative to the login home dir.
+  // scp does not run a shell for the destination path, so strip a leading "~/"
+  // to write relative to the login home dir.
   const dest = remotePath.replace(/^~\//, '')
   args.push(localPath, `${sshDestination(host)}:${dest}`)
   return args

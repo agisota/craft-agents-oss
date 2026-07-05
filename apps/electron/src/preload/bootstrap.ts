@@ -110,11 +110,8 @@ if (isClientOnly) {
     clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
   })
 
-  // Build a workspace client for a RemoteServerConfig. For SSH-backed configs we
-  // attach a `resolveTarget` hook: the durable identity is the SSH host, and the
-  // forwarded localhost port is ephemeral, so before every (re)connect we ask the
-  // main process to (re)establish the tunnel + managed server and hand back a
-  // FRESH { url, token }. Plain-ws configs dial their persisted url/token directly.
+  // Build a workspace client for a RemoteServerConfig. SSH-backed configs get a
+  // `resolveTarget` hook that re-establishes the tunnel + a fresh url/token per connect.
   const makeRemoteClient = (rc: RemoteServerConfig): WsRpcClient =>
     new WsRpcClient(rc.url, {
       token: rc.token,

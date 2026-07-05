@@ -100,13 +100,8 @@ export interface WsRpcClientOptions {
   mode?: TransportMode
   /** Accept self-signed TLS certificates for wss:// connections. Default: false. Only works in Node.js (main process). */
   tlsRejectUnauthorized?: boolean
-  /**
-   * Optional async hook invoked before EVERY connect/reconnect to (re)resolve
-   * the live target. Used for SSH-backed workspaces whose forwarded localhost
-   * port is ephemeral: a reconnect must re-establish the tunnel and dial the NEW
-   * port, not the dead one. Returning a new `url`/`token` updates the socket
-   * target for that attempt. Omit for plain connections (no behavior change).
-   */
+  /** Async hook to (re)resolve the live target before each connect — SSH-backed
+   * clients re-establish the tunnel and dial a fresh port. Omit for plain ws. */
   resolveTarget?: () => Promise<{ url: string; token?: string }>
 }
 
@@ -137,11 +132,8 @@ export class WsRpcClient implements RpcClient {
   /** Set when server sends shuttingDown — prevents reconnection attempts. */
   private permanentlyClosed = false
   private connectStarted = false
-  /**
-   * Monotonic connect generation. Each connect() bumps it; async work started
-   * by an older connect (e.g. a slow resolveTarget) bails when it settles late,
-   * so it can never clobber the url/token of — or tear down — a newer attempt.
-   */
+  /** Monotonic connect generation: async work from an older connect bails when it
+   * settles late, so it can never clobber or tear down a newer attempt. */
   private connectEpoch = 0
   private connectError: Error | null = null
   private readyPromise: Promise<void> | null = null
@@ -371,9 +363,8 @@ export class WsRpcClient implements RpcClient {
     this.connectError = null
     this.createReadyPromise()
 
-    // SSH-backed clients re-resolve the live target (fresh forwarded port + token)
-    // before every attempt. On failure, surface it as a connection error and let
-    // the normal reconnect loop retry (which re-resolves again).
+    // SSH-backed clients re-resolve the live target before each attempt; on failure
+    // surface a connection error and let the reconnect loop retry (re-resolving).
     if (this.resolveTarget) {
       this.setConnectionState({
         status: this.computeConnectingStatus(),
@@ -381,9 +372,8 @@ export class WsRpcClient implements RpcClient {
         nextRetryInMs: undefined,
         lastError: undefined,
       })
-      // connectTimeout only guards the socket handshake, so bound the resolve
-      // phase separately. 3x connectTimeout because resolution can legitimately
-      // include re-establishing an SSH tunnel + server bootstrap.
+      // Bound the resolve phase separately (3x connectTimeout) since it can include
+      // re-establishing an SSH tunnel + server bootstrap.
       const resolveTimeoutMs = this.connectTimeout * 3
       let resolveTimer: ReturnType<typeof setTimeout> | null = null
       const resolveTimeout = new Promise<never>((_, reject) => {

@@ -67,10 +67,8 @@ export function CompactWorkspaceSwitcher({
     const abort = new AbortController()
     healthCheckAbort.current = abort
 
-    // SSH-backed workspaces are excluded: their persisted url is an ephemeral
-    // forwarded port that is stale by design — the transport re-resolves a fresh
-    // tunnel on switch, so probing the old url would misreport "disconnected"
-    // and wrongly route the user into the ws reconnect form.
+    // SSH-backed workspaces are excluded: their persisted url is a stale ephemeral
+    // port (re-resolved on switch), so probing it would misreport "disconnected".
     const remoteWorkspaces = workspaces.filter(
       w => w.remoteServer && !isSshBackedWorkspace(w) && w.id !== activeWorkspaceId,
     )
@@ -108,10 +106,8 @@ export function CompactWorkspaceSwitcher({
   const isRemoteDisconnected = (workspaceId: string) => {
     const workspace = workspaces.find(w => w.id === workspaceId)
     if (isSshBackedWorkspace(workspace)) {
-      // The SSH layer owns their connection state (tunnel auto-reconnect + fresh
-      // port resolution), so transient ws failures never surface here. The one
-      // exception is a terminal AUTH failure (e.g. the managed token was
-      // rotated) — the tunnel cannot fix that, so offer the reconnect/token form.
+      // The SSH layer owns connection state, so transient ws failures never surface
+      // here — except a terminal AUTH failure, which offers the reconnect/token form.
       if (workspaceId !== activeWorkspaceId || !isRemote || !connectionState) return false
       const { status, lastError } = connectionState
       const terminal = status === 'failed' || status === 'disconnected'

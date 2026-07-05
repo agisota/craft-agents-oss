@@ -1,17 +1,3 @@
-/**
- * Resolve a craft-agent server build artifact (a .tar.gz) for a given remote
- * target (platform + arch). This is what one-click SSH bootstrap uploads to a
- * remote host that has no server yet.
- *
- * Dev mode: builds on demand via `scripts/build-server.ts` and caches the
- * resulting tarball. A fresh artifact (matching the current app version) is
- * reused instead of rebuilt.
- *
- * Packaged mode: not yet implemented — a packaged app cannot run the build
- * toolchain. See the clearly-marked TODO below. The resolver throws a
- * descriptive error in that case so the caller can surface it.
- */
-
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join, dirname } from 'path'
@@ -46,9 +32,8 @@ export function parseUnameTarget(unameOutput: string): RemoteTarget {
 
 /** Locate the monorepo root by walking up until a root package.json + scripts/ is found. */
 function findRepoRoot(): string | undefined {
-  // The main process is bundled to CJS, where import.meta.url is undefined —
-  // prefer __dirname and fall back to import.meta.url for direct ts execution
-  // (e.g. bun test).
+  // The main process is bundled to CJS (import.meta.url undefined) — prefer
+  // __dirname, fall back to import.meta.url for direct ts execution (e.g. bun test).
   let dir =
     typeof __dirname !== 'undefined' && __dirname
       ? __dirname
@@ -80,10 +65,8 @@ function readAppVersion(repoRoot: string): string {
 export interface ResolveArtifactDeps {
   /** Whether the app is running packaged (no build toolchain available). */
   isPackaged: boolean
-  /**
-   * Run `bun run scripts/build-server.ts ...` for a target. Injectable for tests.
-   * Resolves on exit 0, rejects otherwise.
-   */
+  /** Run `bun run scripts/build-server.ts ...` for a target. Injectable for tests;
+   * resolves on exit 0, rejects otherwise. */
   runBuild?: (repoRoot: string, args: string[]) => Promise<void>
   /** existsSync override for tests. */
   fileExists?: (path: string) => boolean
@@ -115,10 +98,8 @@ export interface ResolvedArtifact {
   version: string
 }
 
-/**
- * Ensure a server artifact for `target` exists locally and return its path.
- * Reuses a cached artifact matching the current app version; otherwise builds.
- */
+/** Ensure a server artifact for `target` exists locally and return its path.
+ * Reuses a cached artifact matching the current app version; otherwise builds. */
 export async function resolveServerArtifact(
   target: RemoteTarget,
   deps: ResolveArtifactDeps,
@@ -128,9 +109,8 @@ export async function resolveServerArtifact(
 
   const repoRoot = findRepoRoot()
   if (!repoRoot) {
-    // TODO(packaged-bootstrap): In a packaged app there is no monorepo/build
-    // toolchain. Ship or download prebuilt per-target artifacts (e.g. from a
-    // release CDN keyed by version+platform+arch) and return that path here.
+    // TODO(packaged-bootstrap): no monorepo/build toolchain in a packaged app.
+    // Ship or download prebuilt per-target artifacts and return that path here.
     throw new Error(
       'One-click server install is only available in development builds right now. ' +
         'Use "Connect to remote server" to connect to a server you started manually.',
@@ -148,9 +128,8 @@ export async function resolveServerArtifact(
 
   const version = readAppVersion(repoRoot)
   const archiveName = `craft-server-${version}-${target.platform}-${target.arch}.tar.gz`
-  // build-server.ts writes the archive next to the output dir (dirname(outputDir)).
-  // Direct output to a per-target dir under dist/ so parallel targets don't clash;
-  // the archive then lands at dist/<archiveName>.
+  // build-server.ts writes the archive next to the output dir; use a per-target
+  // dir under dist/ so parallel targets don't clash — archive lands at dist/<archiveName>.
   const outputRel = join('dist', `server-${target.platform}-${target.arch}`)
   const archivePath = join(repoRoot, 'dist', archiveName)
 

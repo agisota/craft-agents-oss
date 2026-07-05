@@ -1,9 +1,3 @@
-/**
- * Unit tests for the SshTunnel state machine and port allocator.
- * child_process is faked via an injected spawn returning a controllable
- * EventEmitter-backed process stub.
- */
-
 import { describe, it, expect } from 'bun:test'
 import { EventEmitter } from 'events'
 import { SshTunnel, buildSshArgs, type SshTunnelDeps } from '../ssh-tunnel/ssh-tunnel.ts'
@@ -186,8 +180,8 @@ describe('SshTunnel state machine', () => {
   })
 
   it('reports connected without a live probe when requireProbe is false', async () => {
-    // Server dead on the remote: probe fails, but ssh transport is up. The
-    // resolver relies on the tunnel staying up so it can bootstrap through it.
+    // Server dead but ssh transport up: the resolver relies on the tunnel
+    // staying up so it can bootstrap through it.
     const { deps, procs } = makeDeps({ probe: async () => false })
     const tunnel = new SshTunnel(HOST, deps)
     await tunnel.connect({ requireProbe: false })
@@ -244,9 +238,7 @@ describe('findFreePort', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
 // Manager helpers: application-level probe + shell quoting
-// ---------------------------------------------------------------------------
 
 import { probeOnce, buildScpArgs } from '../ssh-tunnel/ssh-tunnel-manager.ts'
 import { posixSingleQuote } from '../ssh-tunnel/server-bootstrap.ts'

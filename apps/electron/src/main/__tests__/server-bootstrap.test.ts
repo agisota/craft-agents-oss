@@ -1,9 +1,3 @@
-/**
- * Unit tests for the one-click remote-server bootstrap state machine.
- * All side effects (ssh exec, scp, artifact resolution, probe, token store)
- * are injected as mocks — nothing touches the network or filesystem.
- */
-
 import { describe, it, expect } from 'bun:test'
 import {
   bootstrapRemoteServer,
@@ -195,9 +189,8 @@ describe('bootstrapRemoteServer', () => {
 })
 
 describe('bootstrapRemoteServer — alive server, lost token, our install dir', () => {
-  // Host deleted + re-added with the same slug while the app-managed server
-  // kept running: the port answers, we hold no token, but OUR install dir is
-  // there — restart with a fresh token instead of throwing 'not managed'.
+  // Host re-added with the same slug while the app-managed server kept running:
+  // port answers, no token, but OUR install dir is there — restart, not throw.
   it('kills + restarts the managed server with a freshly generated token', async () => {
     const cmds: string[] = []
     const stdins: (string | undefined)[] = []

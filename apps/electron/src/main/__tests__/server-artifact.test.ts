@@ -1,8 +1,3 @@
-/**
- * Unit tests for remote-target parsing and the server-artifact resolver's
- * caching / build-on-demand behavior (build is injected, no real toolchain run).
- */
-
 import { describe, it, expect } from 'bun:test'
 import {
   parseUnameTarget,

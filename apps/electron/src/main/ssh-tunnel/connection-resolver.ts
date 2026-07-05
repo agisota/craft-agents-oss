@@ -1,30 +1,3 @@
-/**
- * SSH-aware remote-workspace connection resolver.
- *
- * A remote workspace can be reached two ways:
- *
- *   - Plain ws  — `RemoteServerConfig.url`/`token` point straight at a server the
- *     user runs. There is nothing to resolve: dial as-is.
- *   - SSH-backed — `RemoteServerConfig.sshHostId` is set. The durable identity is
- *     the SSH host (in the host store), NOT the persisted `url`: the tunnel
- *     forwards an EPHEMERAL localhost port that changes every session, and the
- *     managed token lives in the host store. Before the ws transport can dial, we
- *     must drive the SSH machinery to obtain a FRESH `url` + `token`:
- *       1. ensure the tunnel is up (auto-reconnect handles later drops);
- *       2. if no server answers the forwarded port, run the one-click bootstrap
- *          (fast path when already installed, full install otherwise);
- *       3. return the fresh forwarded `url` + the managed token.
- *
- * This module is the single place that knows "how do I turn a persisted
- * RemoteServerConfig into a live {url, token}". The preload transport calls it
- * (over IPC) before constructing each workspace WsRpcClient, so a restart — where
- * the old ephemeral port is dead — transparently establishes a new tunnel on a
- * new port instead of dialing the stale one.
- *
- * SECURITY: the resolved token is a managed secret. It is returned to the preload
- * over IPC (same trust boundary as today's direct token) but never logged here.
- */
-
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 import type { SshHostConfig } from '@craft-agent/shared/config'
 import type { BootstrapProgress } from './server-bootstrap.ts'
@@ -38,11 +11,8 @@ export interface ResolvedConnection {
   remoteWorkspaceId: string
 }
 
-/**
- * Structured, user-facing status for the SSH resolution phase — composed IN
- * FRONT of the ws transport states so the UI never surfaces a raw ws error
- * ("connection refused on 127.0.0.1:64037") for an SSH workspace.
- */
+/** User-facing status for the SSH resolution phase, composed IN FRONT of the ws
+ * states so the UI never surfaces a raw ws error for an SSH workspace. */
 export type SshConnectionPhase =
   | 'tunnel-connecting'
   | 'bootstrapping'
@@ -64,19 +34,14 @@ export interface SshConnectionStatus {
 export interface ConnectionResolverDeps {
   /** Look up the durable SSH host record by id. */
   getSshHost: (hostId: string) => SshHostConfig | undefined
-  /**
-   * Ensure a tunnel is up; resolves the forwarded ws url + local port. With
-   * `requireProbe: false` the tunnel is kept (and reported connected) even when
-   * nothing answers the forwarded port yet — ssh transport failures still reject.
-   */
+  /** Ensure a tunnel is up; resolves the forwarded ws url + local port.
+   * `requireProbe: false` keeps it even when nothing answers the port yet. */
   connectTunnel: (
     host: SshHostConfig,
     opts?: { requireProbe?: boolean },
   ) => Promise<{ url?: string; localPort?: number }>
-  /**
-   * Ensure a managed server is installed + running on the host (fast path when
-   * already alive). Resolves the managed token.
-   */
+  /** Ensure a managed server is installed + running on the host (fast path when
+   * already alive). Resolves the managed token. */
   bootstrapServer: (
     host: SshHostConfig,
     onProgress: (p: BootstrapProgress) => void,
@@ -87,16 +52,8 @@ export interface ConnectionResolverDeps {
   probe: (localPort: number) => Promise<boolean>
 }
 
-/**
- * Map a live tunnel state change to the SSH connection status the renderer
- * banners render, or null when nothing should be pushed (fresh first connect —
- * an active resolve emits its own richer phases — or an idle disconnect).
- *
- * This is the mid-session-drop path: resolveRemoteConnection only streams
- * status while a (re)dial is in flight, so without this mapping a tunnel that
- * drops later would surface as a raw ws error and the 'tunnel-reconnecting'
- * banner branch would never fire.
- */
+/** Map a live tunnel state change to the SSH connection status (or null). This
+ * is the mid-session-drop path; resolve only streams status during a (re)dial. */
 export function tunnelStateToConnectionStatus(
   state: TunnelState,
   hostLabel: string,
@@ -127,13 +84,8 @@ export function tunnelStateToConnectionStatus(
   }
 }
 
-/**
- * Resolve a persisted RemoteServerConfig into a live {url, token}.
- *
- * Plain-ws workspaces are returned unchanged (zero behavior change). SSH-backed
- * workspaces are driven through the tunnel + bootstrap machinery to obtain a
- * fresh forwarded url and the managed token.
- */
+/** Resolve a persisted RemoteServerConfig into a live {url, token}. Plain-ws is
+ * returned unchanged; SSH-backed goes through the tunnel + bootstrap machinery. */
 export async function resolveRemoteConnection(
   remote: RemoteServerConfig,
   deps: ConnectionResolverDeps,
@@ -151,15 +103,11 @@ export async function resolveRemoteConnection(
     throw new Error(`SSH host "${hostId}" is no longer configured. Re-add it in Remote (SSH) settings.`)
   }
 
-  // Wrap the whole SSH resolution so ANY failure (tunnel, bootstrap, re-dial)
-  // reaches the renderer as a terminal 'error' phase — the connection banner
-  // masks ws state until the last phase is 'ready', so a silent throw would
-  // leave it spinning forever with no retry affordance.
+  // Wrap the whole SSH resolution so ANY failure reaches the renderer as a
+  // terminal 'error' phase, instead of leaving the banner spinning forever.
   try {
     // 1. Ensure the tunnel is up → fresh forwarded local port. `requireProbe:
-    //    false` keeps the tunnel even when the remote server is dead (ssh
-    //    transport up, nothing answering) so step 3 can bootstrap through it;
-    //    an ssh-level failure still rejects here.
+    //    false` keeps it even when the server is dead so step 3 can bootstrap.
     onStatus({ hostId, hostLabel: host.label, phase: 'tunnel-connecting' })
     let tunnel: { url?: string; localPort?: number }
     try {

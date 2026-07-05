@@ -240,10 +240,7 @@ export function getWorkspaceSummary(rootPath: string): WorkspaceSummary | null {
 // Create/Delete Operations
 // ============================================================
 
-/**
- * Generate URL-safe slug from name
- * (shared implementation lives in ../utils/slug.ts; re-exported for compatibility)
- */
+/** Generate a URL-safe slug (shared impl in ../utils/slug.ts; re-exported for compat). */
 export { generateSlug } from '../utils/slug.ts';
 
 /**

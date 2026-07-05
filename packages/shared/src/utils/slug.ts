@@ -1,11 +1,4 @@
-/**
- * Shared slug generation (no Node.js dependencies).
- */
-
-/**
- * Generate a URL/filesystem-safe slug from a name.
- * Falls back to `fallback` when the name reduces to empty.
- */
+/** Generate a URL/filesystem-safe slug from a name; falls back to `fallback` when it reduces to empty. */
 export function generateSlug(name: string, fallback = 'workspace'): string {
   const slug = name
     .toLowerCase()

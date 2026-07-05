@@ -1,11 +1,3 @@
-/**
- * WsRpcClient.resolveTarget — re-resolves url/token before every (re)connect.
- *
- * This is the mechanism that lets an SSH-backed workspace re-dial the NEW
- * forwarded port after the tunnel drops and comes back on a different port,
- * instead of dialing the dead one.
- */
-
 import { describe, test, expect, afterEach } from 'bun:test'
 import { WsRpcServer } from '../transport/server'
 import { WsRpcClient } from '../transport/client'
