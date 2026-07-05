@@ -68,52 +68,18 @@ export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
 export const DEFAULT_SSH_PORT = 22;
 export const DEFAULT_REMOTE_SERVER_PORT = 9100;
 
-/** Live SSH tunnel state pushed to the renderer (mirrors main's TunnelState). */
-export interface SshTunnelState {
-  hostId: string;
-  status: 'disconnected' | 'connecting' | 'connected' | 'error';
-  localPort?: number;
-  url?: string;
-  error?: string;
-  reconnectAttempts: number;
-}
+// SSH wire types — type-only re-exports from the main-process modules (erased
+// at build, so the renderer bundle never pulls in Node-only code). Single
+// source of truth: no hand-maintained mirrors.
+import type { BootstrapPhase as SshBootstrapPhase } from '../main/ssh-tunnel/server-bootstrap';
+import type { SshConnectionPhase, SshConnectionStatus } from '../main/ssh-tunnel/connection-resolver';
+export type { SshBootstrapPhase, SshConnectionPhase, SshConnectionStatus };
 
-/** Phases of the one-click SSH server bootstrap (mirrors main's BootstrapPhase). */
-export type SshBootstrapPhase =
-  | 'checking-server'
-  | 'detecting-os'
-  | 'building-server'
-  | 'uploading-server'
-  | 'installing-server'
-  | 'starting-server'
-  | 'waiting-for-server'
-  | 'connecting-tunnel'
-  | 'creating-workspace'
-  | 'ready'
-  | 'error';
-
-/** Progress event pushed to the renderer during one-click bootstrap. */
+/** Progress event pushed to the renderer during one-click bootstrap (main adds hostId). */
 export interface SshBootstrapProgress {
   hostId: string;
   phase: SshBootstrapPhase;
   /** Human-readable detail (never contains secrets). */
-  detail?: string;
-}
-
-/** SSH-level phase surfaced while (re)connecting an SSH-backed workspace. */
-export type SshConnectionPhase =
-  | 'tunnel-connecting'
-  | 'bootstrapping'
-  | 'tunnel-reconnecting'
-  | 'ready'
-  | 'error';
-
-/** Status event pushed while resolving an SSH-backed workspace connection. */
-export interface SshConnectionStatus {
-  hostId: string;
-  hostLabel: string;
-  phase: SshConnectionPhase;
-  attempt?: number;
   detail?: string;
 }
 
@@ -341,10 +307,7 @@ export interface ElectronAPI {
   sshUpdateHost(id: string, updates: Partial<SshHostConfig>): Promise<SshHostConfig | undefined>
   sshDeleteHost(id: string): Promise<boolean>
   sshImportFromConfig(): Promise<SshConfigImportSuggestion[]>
-  sshTunnelStatus(hostId: string): Promise<SshTunnelState>
   sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
-  sshDisconnect(hostId: string): Promise<SshTunnelState>
-  sshStartRemoteServer(hostId: string): Promise<{ ok: boolean }>
   /** One-click: install (if needed) + start a managed server, then tunnel. */
   sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string; hostId: string }>
   /**
@@ -353,7 +316,6 @@ export interface ElectronAPI {
    * configs (re)establish a fresh tunnel + managed server.
    */
   sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
-  onSshTunnelState(cb: (state: SshTunnelState) => void): () => void
   onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
   onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void
 

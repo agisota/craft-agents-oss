@@ -21,6 +21,7 @@ import { WorkspaceCreationScreen } from "@/components/workspace"
 import { waitForTransportConnected } from '@/lib/transport-wait'
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon"
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState"
+import { isSshBackedWorkspace } from "../../../shared/ssh"
 import type { Workspace } from "../../../shared/types"
 
 interface CompactWorkspaceSwitcherProps {
@@ -71,7 +72,7 @@ export function CompactWorkspaceSwitcher({
     // tunnel on switch, so probing the old url would misreport "disconnected"
     // and wrongly route the user into the ws reconnect form.
     const remoteWorkspaces = workspaces.filter(
-      w => w.remoteServer && !w.remoteServer.sshHostId && w.id !== activeWorkspaceId,
+      w => w.remoteServer && !isSshBackedWorkspace(w) && w.id !== activeWorkspaceId,
     )
     if (remoteWorkspaces.length === 0) return
 
@@ -105,11 +106,17 @@ export function CompactWorkspaceSwitcher({
   }
 
   const isRemoteDisconnected = (workspaceId: string) => {
-    // SSH-backed workspaces never surface as ws-disconnected here: the SSH layer
-    // owns their connection state (tunnel auto-reconnect + fresh port resolution)
-    // and the ws reconnect form does not apply to them.
     const workspace = workspaces.find(w => w.id === workspaceId)
-    if (workspace?.remoteServer?.sshHostId) return false
+    if (isSshBackedWorkspace(workspace)) {
+      // The SSH layer owns their connection state (tunnel auto-reconnect + fresh
+      // port resolution), so transient ws failures never surface here. The one
+      // exception is a terminal AUTH failure (e.g. the managed token was
+      // rotated) — the tunnel cannot fix that, so offer the reconnect/token form.
+      if (workspaceId !== activeWorkspaceId || !isRemote || !connectionState) return false
+      const { status, lastError } = connectionState
+      const terminal = status === 'failed' || status === 'disconnected'
+      return terminal && lastError?.kind === 'auth'
+    }
     if (workspaceId === activeWorkspaceId) {
       if (!isRemote || !connectionState) return false
       const { status } = connectionState

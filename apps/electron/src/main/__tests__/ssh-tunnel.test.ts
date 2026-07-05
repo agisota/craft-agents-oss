@@ -91,6 +91,11 @@ describe('buildSshArgs', () => {
     void identityFile
     expect(buildSshArgs(rest, { forward: { localPort: 1 } }).includes('-i')).toBe(false)
   })
+
+  it('passes a bare hostname when user is empty (imported hosts)', () => {
+    const args = buildSshArgs({ ...HOST, user: '' })
+    expect(args[args.length - 1]).toBe('example.com')
+  })
 })
 
 describe('SshTunnel state machine', () => {
@@ -180,6 +185,37 @@ describe('SshTunnel state machine', () => {
     expect(tunnel.getState().error).toContain('gave up')
   })
 
+  it('reports connected without a live probe when requireProbe is false', async () => {
+    // Server dead on the remote: probe fails, but ssh transport is up. The
+    // resolver relies on the tunnel staying up so it can bootstrap through it.
+    const { deps, procs } = makeDeps({ probe: async () => false })
+    const tunnel = new SshTunnel(HOST, deps)
+    await tunnel.connect({ requireProbe: false })
+    const st = tunnel.getState()
+    expect(st.status).toBe('connected')
+    expect(st.localPort).toBe(55000)
+    expect(procs[0]!.killed).toBe(false) // the tunnel was NOT torn down
+  })
+
+  it('marks reconnect-pending errors willRetry=true and terminal errors willRetry=false', async () => {
+    // First probe connects; the reconnect attempt's probe fails.
+    const probes = [true, false]
+    const { deps, procs, timers } = makeDeps({ maxReconnects: 1, probe: async () => probes.shift() ?? false })
+    const tunnel = new SshTunnel(HOST, deps)
+    await tunnel.connect()
+    // Drop -> transient error (a retry is scheduled).
+    procs[0]!.emit('exit', 255)
+    expect(tunnel.getState().status).toBe('error')
+    expect(tunnel.getState().willRetry).toBe(true)
+    // The retry fails too (probe false -> proc killed -> exit) -> exceeds
+    // maxReconnects -> terminal.
+    timers.shift()!()
+    await flush()
+    expect(tunnel.getState().status).toBe('error')
+    expect(tunnel.getState().willRetry).toBe(false)
+    expect(tunnel.getState().error).toContain('gave up')
+  })
+
   it('disconnect stops reconnection', async () => {
     const { deps, procs } = makeDeps()
     const tunnel = new SshTunnel(HOST, deps)
@@ -212,7 +248,8 @@ describe('findFreePort', () => {
 // Manager helpers: application-level probe + shell quoting
 // ---------------------------------------------------------------------------
 
-import { probeOnce, posixSingleQuote } from '../ssh-tunnel/ssh-tunnel-manager.ts'
+import { probeOnce, buildScpArgs } from '../ssh-tunnel/ssh-tunnel-manager.ts'
+import { posixSingleQuote } from '../ssh-tunnel/server-bootstrap.ts'
 import type { Socket } from 'net'
 
 class FakeSocket extends EventEmitter {
@@ -255,6 +292,55 @@ describe('probeOnce', () => {
     const p = probeOnce(1234, () => sock as unknown as Socket)
     sock.emit('error', new Error('ECONNREFUSED'))
     expect(await p).toBe(false)
+  })
+})
+
+describe('buildScpArgs', () => {
+  it('includes -O in legacy mode and omits it otherwise', () => {
+    expect(buildScpArgs(HOST, '/l/a.tgz', '~/.craft-agent/a.tgz', true)[0]).toBe('-O')
+    expect(buildScpArgs(HOST, '/l/a.tgz', '~/.craft-agent/a.tgz', false)).not.toContain('-O')
+  })
+
+  it('builds user@host:dest, or host:dest when user is empty', () => {
+    expect(buildScpArgs(HOST, '/l/a.tgz', '~/x', true).at(-1)).toBe('deploy@example.com:x')
+    expect(buildScpArgs({ ...HOST, user: '' }, '/l/a.tgz', '~/x', true).at(-1)).toBe('example.com:x')
+  })
+})
+
+describe('SshTunnelManager.uploadFile — scp -O fallback', () => {
+  type ExecCb = (err: Error | null, stdout: string, stderr: string) => void
+
+  function managerWithScp(behavior: (args: string[]) => { err?: string }) {
+    const manager = new SshTunnelManager()
+    const calls: string[][] = []
+    manager.scpExec = ((_bin: string, args: string[], _opts: unknown, cb: ExecCb) => {
+      calls.push(args)
+      const { err } = behavior(args)
+      queueMicrotask(() => (err ? cb(new Error('scp failed'), '', err) : cb(null, '', '')))
+      return undefined as never
+    }) as unknown as SshTunnelManager['scpExec']
+    const upload = (
+      manager as unknown as { uploadFile(h: SshHostConfig, l: string, r: string): Promise<void> }
+    ).uploadFile.bind(manager)
+    return { manager, calls, upload }
+  }
+
+  it('retries without -O when the local scp does not know the flag (OpenSSH < 9)', async () => {
+    const { manager, calls, upload } = managerWithScp((args) =>
+      args.includes('-O') ? { err: 'scp: unknown option -- O' } : {},
+    )
+    await upload(HOST, '/l/a.tgz', '~/.craft-agent/a.tgz')
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toContain('-O')
+    expect(calls[1]).not.toContain('-O')
+    manager.disposeAll()
+  })
+
+  it('does not retry (and surfaces stderr) on a real transfer failure', async () => {
+    const { manager, calls, upload } = managerWithScp(() => ({ err: 'Permission denied' }))
+    await expect(upload(HOST, '/l/a.tgz', '~/x')).rejects.toThrow(/Permission denied/)
+    expect(calls).toHaveLength(1)
+    manager.disposeAll()
   })
 })
 
@@ -312,6 +398,63 @@ describe('SshTunnelManager.connect — already-connected tunnel', () => {
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hung')), 500)),
     ])
     expect(result.url).toBe('ws://127.0.0.1:61234')
+    manager.disposeAll()
+  })
+})
+
+describe('SshTunnelManager.connect — pending waiters', () => {
+  const host: SshHostConfig = {
+    id: 'pending', label: 'Pending', host: 'h', user: 'u', port: 22, remotePort: 9100,
+  }
+
+  /** A tunnel stuck in 'connecting' (its probe never settles), injected into a manager. */
+  function pendingSetup() {
+    const tunnel = new SshTunnel(host, {
+      spawn: () => new FakeProc() as unknown as ReturnType<SshTunnelDeps['spawn']>,
+      probe: () => new Promise<boolean>(() => {}), // never settles
+      allocatePort: async () => 61000,
+    })
+    // Mid-attempt: manager.connect must reuse (not dispose) this tunnel and
+    // wait on its state events; tunnel.connect() is a no-op in this state.
+    ;(tunnel as unknown as { state: unknown }).state = {
+      hostId: host.id, status: 'connecting', reconnectAttempts: 0,
+    }
+    const manager = new SshTunnelManager()
+    ;(manager as unknown as { tunnels: Map<string, SshTunnel> }).tunnels.set(host.id, tunnel)
+    return { tunnel, manager }
+  }
+
+  it('rejects (not hangs) when the tunnel is disposed while a connect is pending', async () => {
+    const { tunnel, manager } = pendingSetup()
+    const p = manager.connect(host)
+    p.catch(() => {}) // avoid unhandled-rejection noise before the assertion
+    await Promise.resolve() // let connect() subscribe and start the attempt
+    tunnel.dispose()
+    await expect(
+      Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hung')), 500))]),
+    ).rejects.toThrow(/disposed/)
+    manager.disposeAll()
+  })
+
+  it('ignores transient (willRetry) errors and resolves once the tunnel reconnects', async () => {
+    const { tunnel, manager } = pendingSetup()
+    const p = manager.connect(host)
+    await Promise.resolve()
+    // A recoverable blip: the tunnel emits an error but is auto-reconnecting.
+    tunnel.emit('state', {
+      hostId: host.id, status: 'error', error: 'ssh exited with code 255',
+      reconnectAttempts: 1, willRetry: true,
+    })
+    // ...and then comes back up.
+    tunnel.emit('state', {
+      hostId: host.id, status: 'connected', localPort: 61000,
+      url: 'ws://127.0.0.1:61000', reconnectAttempts: 0, willRetry: false,
+    })
+    const state = await Promise.race([
+      p,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hung')), 500)),
+    ])
+    expect(state.url).toBe('ws://127.0.0.1:61000')
     manager.disposeAll()
   })
 })

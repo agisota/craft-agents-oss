@@ -12,12 +12,18 @@ const CREATE_NEW_VALUE = '__create_new__'
 
 interface AddWorkspaceStep_ConnectRemoteProps {
   onBack: () => void
-  onCreate: (folderPath: string, name: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }) => Promise<void>
+  onCreate: (folderPath: string, name: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string }) => Promise<void>
   isCreating: boolean
   /** Pre-fill the server URL (for reconnect flow) */
   initialUrl?: string
   /** Pre-fill the token (for reconnect flow) */
   initialToken?: string
+  /**
+   * Durable SSH host id, set when reconnecting an SSH-backed workspace.
+   * Persisted on the created workspace so restarts resolve a fresh tunnel
+   * instead of dialing the ephemeral url.
+   */
+  sshHostId?: string
   /** When set, updating an existing workspace's remote config instead of creating */
   reconnectWorkspace?: { id: string; name: string; remoteWorkspaceId: string }
   /** Called when reconnect updates the remote server config */
@@ -37,6 +43,7 @@ export function AddWorkspaceStep_ConnectRemote({
   isCreating,
   initialUrl,
   initialToken,
+  sshHostId,
   reconnectWorkspace,
   onUpdate,
 }: AddWorkspaceStep_ConnectRemoteProps) {
@@ -129,7 +136,7 @@ export function AddWorkspaceStep_ConnectRemote({
       if (!name) return
 
       try {
-        const prepared = await prepareRemoteWorkspace({ url: serverUrl, token, name, homeDir })
+        const prepared = await prepareRemoteWorkspace({ url: serverUrl, token, name, homeDir, sshHostId })
         await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
       } catch (err) {
         setTestState('error')
@@ -144,10 +151,11 @@ export function AddWorkspaceStep_ConnectRemote({
         name: selectedWorkspace.name,
         homeDir,
         remoteWorkspaceId: selectedWorkspace.id,
+        sshHostId,
       })
       await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
     }
-  }, [serverUrl, token, homeDir, isCreateNew, isFreshServer, newWorkspaceName, selectedWorkspace, onCreate, isReconnectMode, onUpdate, reconnectWorkspace])
+  }, [serverUrl, token, homeDir, isCreateNew, isFreshServer, newWorkspaceName, selectedWorkspace, onCreate, isReconnectMode, onUpdate, reconnectWorkspace, sshHostId])
 
   const canConnect = testState === 'ok' && !isCreating && (
     isReconnectMode ? true :

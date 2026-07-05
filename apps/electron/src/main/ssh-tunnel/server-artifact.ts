@@ -133,7 +133,7 @@ export async function resolveServerArtifact(
     // release CDN keyed by version+platform+arch) and return that path here.
     throw new Error(
       'One-click server install is only available in development builds right now. ' +
-        'Use the Advanced option to connect to a server you started manually.',
+        'Use "Connect to remote server" to connect to a server you started manually.',
     )
   }
 
@@ -142,7 +142,7 @@ export async function resolveServerArtifact(
     // artifact instead of building. Building requires the dev toolchain.
     throw new Error(
       'One-click server install is not yet supported in packaged builds. ' +
-        'Use the Advanced option to connect to a server you started manually.',
+        'Use "Connect to remote server" to connect to a server you started manually.',
     )
   }
 

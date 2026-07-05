@@ -29,6 +29,21 @@ export interface TunnelState {
   error?: string
   /** How many auto-reconnect attempts have been made in the current outage. */
   reconnectAttempts: number
+  /**
+   * Only meaningful when status === 'error': true means the error is transient
+   * and the tunnel is about to retry on its own; false/undefined means terminal.
+   */
+  willRetry?: boolean
+}
+
+export interface TunnelConnectOptions {
+  /**
+   * When false, a tunnel whose ssh transport came up but whose forwarded port
+   * has no live server answering is still reported 'connected' (instead of
+   * being torn down). Used by the connection resolver so it can bootstrap a
+   * dead remote server through the established tunnel. Default true.
+   */
+  requireProbe?: boolean
 }
 
 export type SpawnSshFn = (args: string[]) => ChildProcess
@@ -85,8 +100,16 @@ export function buildSshArgs(host: SshHostConfig, opts: BuildSshArgsOptions = {}
   if (host.identityFile) {
     args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
   }
-  args.push(`${host.user}@${host.host}`)
+  args.push(sshDestination(host))
   return args
+}
+
+/**
+ * `user@host`, or just `host` when no user is configured (imported hosts can
+ * have an empty user — ssh then defaults to the local username, like the CLI).
+ */
+export function sshDestination(host: SshHostConfig): string {
+  return host.user ? `${host.user}@${host.host}` : host.host
 }
 
 export class SshTunnel extends EventEmitter {
@@ -97,6 +120,7 @@ export class SshTunnel extends EventEmitter {
   private probeError?: string
   private disposed = false
   private wantConnected = false
+  private requireProbe = true
 
   private readonly maxReconnects: number
   private readonly backoffMs: (attempt: number) => number
@@ -129,9 +153,10 @@ export class SshTunnel extends EventEmitter {
   }
 
   /** Start (or restart) the tunnel. Idempotent while already connecting/connected. */
-  async connect(): Promise<void> {
+  async connect(opts: TunnelConnectOptions = {}): Promise<void> {
     if (this.disposed) return
     this.wantConnected = true
+    this.requireProbe = opts.requireProbe ?? true
     if (this.state.status === 'connecting' || this.state.status === 'connected') return
     await this.attempt()
   }
@@ -174,6 +199,22 @@ export class SshTunnel extends EventEmitter {
     // With -N there is no ready signal on stdout, so probe the forwarded port.
     const alive = await this.deps.probe(localPort)
     if (this.disposed || this.proc !== proc) return
+    if (!alive && !this.requireProbe) {
+      // ssh transport is up (the proc would have exited otherwise) but nothing
+      // answers the forwarded port. The caller asked to keep such a tunnel:
+      // report connected so it can bootstrap the server through the forward.
+      this.probeError = undefined
+      this.setState({
+        status: 'connected',
+        localPort,
+        url: `ws://127.0.0.1:${localPort}`,
+        error: undefined,
+        reconnectAttempts: 0,
+        willRetry: false,
+      })
+      this.emit('connected', this.state)
+      return
+    }
     if (!alive) {
       // Probe failed but ssh may still be up; record why, then tear it down.
       // The proc's exit handler routes to reconnect (if wanted) or disconnect.
@@ -191,6 +232,7 @@ export class SshTunnel extends EventEmitter {
       url: `ws://127.0.0.1:${localPort}`,
       error: undefined,
       reconnectAttempts: 0,
+      willRetry: false,
     })
     this.emit('connected', this.state)
   }
@@ -217,6 +259,8 @@ export class SshTunnel extends EventEmitter {
       localPort: undefined,
       error: detail,
       reconnectAttempts: attempts,
+      // Transient: a reconnect is scheduled below — waiters should keep waiting.
+      willRetry: true,
     })
     const delay = this.backoffMs(attempts)
     this.reconnectTimer = this.setTimeoutFn(() => {
@@ -225,7 +269,7 @@ export class SshTunnel extends EventEmitter {
   }
 
   private fail(error: string): void {
-    this.setState({ status: 'error', url: undefined, localPort: undefined, error })
+    this.setState({ status: 'error', url: undefined, localPort: undefined, error, willRetry: false })
     this.emit('failed', this.state)
   }
 
@@ -258,6 +302,18 @@ export class SshTunnel extends EventEmitter {
 
   dispose(): void {
     this.disposed = true
+    // Emit a terminal error BEFORE listeners are dropped so any pending
+    // connect() waiter (e.g. manager.connect awaiting a state event) rejects
+    // instead of hanging forever. Only needed while an attempt is in flight —
+    // a settled tunnel has no waiters and should dispose silently.
+    const st = this.state
+    if (st.status === 'connecting' || (st.status === 'error' && st.willRetry)) this.setState({
+      status: 'error',
+      url: undefined,
+      localPort: undefined,
+      error: 'SSH tunnel disposed (host configuration changed)',
+      willRetry: false,
+    })
     this.disconnect()
     this.removeAllListeners()
   }

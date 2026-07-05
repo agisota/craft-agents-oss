@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { WorkspaceAvatar } from '@/components/ui/workspace-avatar'
 import { useWorkspaceIcons } from '@/hooks/useWorkspaceIcon'
 import { cn } from '@/lib/utils'
+import { isSshBackedWorkspace } from '../../../shared/ssh'
 import type { Workspace, ExportResourcesOptions, ResourceImportMode } from '../../../shared/types'
 
 export type SendResourceType = 'source' | 'skill' | 'automation'
@@ -100,7 +101,7 @@ export function SendResourceToWorkspaceDialog({
       // SSH-backed workspaces: the persisted url is an ephemeral (stale) port —
       // the transfer path resolves a fresh tunnel at send time, so report ok
       // instead of probing a dead port.
-      if (ws.remoteServer!.sshHostId) {
+      if (isSshBackedWorkspace(ws)) {
         setRemoteHealthMap(prev => new Map(prev).set(ws.id, 'ok'))
         continue
       }

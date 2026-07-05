@@ -36,7 +36,8 @@ import {
 import type { ConfirmDialogSpec, FileDialogSpec, BrowserCapabilityRequest } from '@craft-agent/server-core/transport'
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
-import type { ElectronAPI, SshTunnelState, SshBootstrapProgress, SshConnectionStatus } from '../shared/types'
+import type { ElectronAPI, SshBootstrapProgress, SshConnectionStatus } from '../shared/types'
+import { isSshBacked } from '../shared/ssh'
 
 // ---------------------------------------------------------------------------
 // Client interface — common surface for both RoutedClient and WsRpcClient
@@ -114,9 +115,6 @@ if (isClientOnly) {
   // forwarded localhost port is ephemeral, so before every (re)connect we ask the
   // main process to (re)establish the tunnel + managed server and hand back a
   // FRESH { url, token }. Plain-ws configs dial their persisted url/token directly.
-  const isSshBacked = (rc: RemoteServerConfig): boolean =>
-    typeof (rc as { sshHostId?: string }).sshHostId === 'string' && !!(rc as { sshHostId?: string }).sshHostId
-
   const makeRemoteClient = (rc: RemoteServerConfig): WsRpcClient =>
     new WsRpcClient(rc.url, {
       token: rc.token,
@@ -440,22 +438,11 @@ client.onConnectionStateChanged((state) => {
   ipcRenderer.invoke('ssh:updateHost', id, updates)
 ;(api as ElectronAPI).sshDeleteHost = (id: string) => ipcRenderer.invoke('ssh:deleteHost', id)
 ;(api as ElectronAPI).sshImportFromConfig = () => ipcRenderer.invoke('ssh:importFromConfig')
-;(api as ElectronAPI).sshTunnelStatus = (hostId: string) =>
-  ipcRenderer.invoke('ssh:tunnelStatus', hostId)
 ;(api as ElectronAPI).sshConnect = (hostId: string) => ipcRenderer.invoke('ssh:connect', hostId)
-;(api as ElectronAPI).sshDisconnect = (hostId: string) =>
-  ipcRenderer.invoke('ssh:disconnect', hostId)
-;(api as ElectronAPI).sshStartRemoteServer = (hostId: string) =>
-  ipcRenderer.invoke('ssh:startRemoteServer', hostId)
 ;(api as ElectronAPI).sshBootstrapConnect = (hostId: string) =>
   ipcRenderer.invoke('ssh:bootstrapConnect', hostId)
 ;(api as ElectronAPI).sshResolveWorkspaceConnection = (remoteServer) =>
   ipcRenderer.invoke('ssh:resolveWorkspaceConnection', remoteServer)
-;(api as ElectronAPI).onSshTunnelState = (cb) => {
-  const handler = (_e: unknown, state: SshTunnelState) => cb(state)
-  ipcRenderer.on('ssh:tunnelState', handler)
-  return () => { ipcRenderer.removeListener('ssh:tunnelState', handler) }
-}
 ;(api as ElectronAPI).onSshBootstrapProgress = (cb) => {
   const handler = (_e: unknown, progress: SshBootstrapProgress) => cb(progress)
   ipcRenderer.on('ssh:bootstrapProgress', handler)

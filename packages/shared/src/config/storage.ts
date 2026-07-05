@@ -739,7 +739,11 @@ export function updateWorkspaceRemoteServer(
   if (!config) return;
   const ws = config.workspaces.find(w => w.id === workspaceId);
   if (!ws) throw new Error('Workspace not found');
-  ws.remoteServer = remoteServer;
+  // Merge over the existing config so durable fields the caller doesn't know
+  // about (notably `sshHostId` — the SSH-backed identity) survive a reconnect
+  // that only supplies url/token/remoteWorkspaceId. Callers can still clear a
+  // field by passing it explicitly as undefined.
+  ws.remoteServer = ws.remoteServer ? { ...ws.remoteServer, ...remoteServer } : remoteServer;
   saveConfig(config);
 }
 

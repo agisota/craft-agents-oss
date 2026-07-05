@@ -95,4 +95,84 @@ describe('WsRpcClient resolveTarget', () => {
     expect(lastResolvedPort).toBe(second.port)
     expect(client.getConnectionState().url).toBe(`ws://127.0.0.1:${second.port}`)
   })
+
+  test('stale resolve settling after a newer connect does nothing', async () => {
+    const server = await makeServer()
+
+    // First connect gets a resolve promise we control; second connect resolves
+    // immediately to the real server.
+    let call = 0
+    let settleStale: ((target: { url: string; token?: string }) => void) | null = null
+    let rejectStale: ((err: Error) => void) | null = null
+    const client = new WsRpcClient('ws://127.0.0.1:1', {
+      autoReconnect: false,
+      workspaceId: 'w',
+      resolveTarget: () => {
+        call++
+        if (call === 1) {
+          return new Promise((resolve, reject) => {
+            settleStale = resolve
+            rejectStale = reject
+          })
+        }
+        return Promise.resolve({ url: `ws://127.0.0.1:${server.port}`, token: 'tok' })
+      },
+    })
+    clients.push(client)
+
+    client.connect() // hangs on the first resolve
+    await new Promise((r) => setTimeout(r, 20))
+    expect(client.getConnectionState().status).toBe('connecting')
+
+    client.connect() // newer attempt — resolves fast and connects
+    await waitConnected(client)
+    const goodUrl = `ws://127.0.0.1:${server.port}`
+    expect(client.getConnectionState().url).toBe(goodUrl)
+
+    // The stale resolve now settles with a bogus target — must be ignored.
+    settleStale!({ url: 'ws://127.0.0.1:2', token: 'stale' })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(client.getConnectionState().status).toBe('connected')
+    expect(client.getConnectionState().url).toBe(goodUrl)
+
+    // A stale rejection must not mark the healthy connection failed either.
+    rejectStale!(new Error('stale boom'))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(client.getConnectionState().status).toBe('connected')
+    expect(client.getConnectionState().url).toBe(goodUrl)
+  })
+
+  test('hung resolveTarget times out, fails, and schedules a reconnect', async () => {
+    let calls = 0
+    const client = new WsRpcClient('ws://127.0.0.1:1', {
+      autoReconnect: true,
+      workspaceId: 'w',
+      connectTimeout: 30, // resolve phase is bounded at 3x this
+      maxReconnectDelay: 50,
+      resolveTarget: () => {
+        calls++
+        return new Promise(() => {}) // never settles
+      },
+    })
+    clients.push(client)
+    client.connect()
+
+    // Wait for the timeout to fire and the failure to surface.
+    const start = Date.now()
+    while (!client.getConnectionState().lastError) {
+      if (Date.now() - start > 2000) {
+        throw new Error(`resolve timeout never surfaced; status=${client.getConnectionState().status}`)
+      }
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    expect(client.getConnectionState().lastError?.code).toBe('RESOLVE_TARGET_TIMEOUT')
+    expect(client.getConnectionState().lastError?.kind).toBe('timeout')
+
+    // The normal reconnect loop takes over — resolveTarget is called again.
+    while (calls < 2) {
+      if (Date.now() - start > 3000) throw new Error('reconnect never re-resolved')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    expect(calls).toBeGreaterThanOrEqual(2)
+  })
 })

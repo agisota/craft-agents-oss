@@ -35,7 +35,7 @@ describe('resolveServerArtifact', () => {
         { platform: 'linux', arch: 'x64' },
         { isPackaged: true, fileExists: () => false, runBuild: async () => {} },
       ),
-    ).rejects.toThrow(/Advanced option|packaged/i)
+    ).rejects.toThrow(/Connect to remote server|packaged/i)
   })
 
   it('reuses a cached artifact without building', async () => {

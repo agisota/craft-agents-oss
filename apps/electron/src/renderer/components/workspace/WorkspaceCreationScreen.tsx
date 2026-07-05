@@ -16,13 +16,6 @@ import { toast } from "sonner"
 
 type CreationStep = 'choice' | 'create' | 'open' | 'remote' | 'ssh'
 
-/** Prefill for the remote step when arriving from a connected SSH tunnel. */
-interface SshPrefill {
-  url: string
-  token?: string
-  hostLabel: string
-}
-
 interface WorkspaceCreationScreenProps {
   /** Callback when a workspace is created successfully */
   onWorkspaceCreated: (workspace: Workspace) => void
@@ -54,7 +47,6 @@ export function WorkspaceCreationScreen({
   // Start at 'remote' step directly when reconnecting
   const [step, setStep] = useState<CreationStep>(reconnectWorkspace ? 'remote' : 'choice')
   const [isCreating, setIsCreating] = useState(false)
-  const [sshPrefill, setSshPrefill] = useState<SshPrefill | null>(null)
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 })
 
   // Track window dimensions for shader
@@ -110,7 +102,7 @@ export function WorkspaceCreationScreen({
           <AddWorkspaceStep_Choice
             onCreateNew={() => setStep('create')}
             onOpenFolder={() => setStep('open')}
-            onConnectRemote={() => { setSshPrefill(null); setStep('remote') }}
+            onConnectRemote={() => setStep('remote')}
             onConnectSsh={() => setStep('ssh')}
           />
         )
@@ -138,23 +130,18 @@ export function WorkspaceCreationScreen({
           <AddWorkspaceStep_Ssh
             onBack={() => setStep('choice')}
             onCreate={handleCreateWorkspace}
-            onAdvancedConnect={({ url, token, hostLabel }) => {
-              setSshPrefill({ url, token, hostLabel })
-              setStep('remote')
-            }}
           />
         )
 
       case 'remote':
         return (
           <AddWorkspaceStep_ConnectRemote
-            onBack={
-              reconnectWorkspace ? onClose : () => setStep(sshPrefill ? 'ssh' : 'choice')
-            }
+            onBack={reconnectWorkspace ? onClose : () => setStep('choice')}
             onCreate={handleCreateWorkspace}
             isCreating={isCreating}
-            initialUrl={sshPrefill?.url ?? reconnectWorkspace?.remoteServer?.url}
-            initialToken={sshPrefill?.token ?? reconnectWorkspace?.remoteServer?.token}
+            initialUrl={reconnectWorkspace?.remoteServer?.url}
+            initialToken={reconnectWorkspace?.remoteServer?.token}
+            sshHostId={reconnectWorkspace?.remoteServer?.sshHostId}
             reconnectWorkspace={reconnectWorkspace?.remoteServer ? {
               id: reconnectWorkspace.id,
               name: reconnectWorkspace.name,

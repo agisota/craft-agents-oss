@@ -70,10 +70,10 @@ export interface ServerBootstrapDeps {
   probe: () => Promise<boolean>
   /** Generate a fresh server auth token. */
   generateToken: () => string
-  /** Persist the managed token for this host in the ssh-hosts store. */
-  storeToken: (hostId: string, token: string) => void
+  /** Persist the managed token for this host in the encrypted credential store. */
+  storeToken: (hostId: string, token: string) => Promise<void>
   /** Read a previously stored managed token for this host, if any. */
-  loadStoredToken: (hostId: string) => string | undefined
+  loadStoredToken: (hostId: string) => Promise<string | undefined>
   /** Injectable delay (ms) for probe retry loops. */
   sleep?: (ms: number) => Promise<void>
   /** Max attempts (with delay) to re-probe after starting the server. */
@@ -159,6 +159,14 @@ export function buildRestartCommand(remotePort: number): string {
 export const CHECK_INSTALLED_COMMAND = `test -x ${REMOTE_INSTALL_DIR}/start.sh && echo INSTALLED || true`
 
 /**
+ * Kill a running app-managed server so it can be relaunched with a new token.
+ * The `[.]` bracket keeps the pattern from matching the shell running this very
+ * command (its own cmdline contains the literal pattern, not a bare dot).
+ */
+export const KILL_MANAGED_SERVER_COMMAND =
+  `pkill -f '[.]craft-agent/remote-server' 2>/dev/null || true`
+
+/**
  * Run the full bootstrap. Assumes the SSH tunnel is already established and the
  * remote server port is forwarded locally (so `probe()` targets it).
  *
@@ -176,19 +184,44 @@ export async function bootstrapRemoteServer(
   // 1. If a server already answers and we have a stored token, we're done.
   onProgress({ phase: 'checking-server' })
   const alreadyAlive = await deps.probe()
-  const stored = deps.loadStoredToken(host.id)
+  const stored = await deps.loadStoredToken(host.id)
   if (alreadyAlive && stored) {
     onProgress({ phase: 'ready' })
     return { token: stored }
   }
   if (alreadyAlive) {
+    // A server answers but we hold no token for it. If OUR install dir is on
+    // the remote, this is an app-managed server whose token we lost (e.g. the
+    // host was deleted and re-added with the same slug) — restart it with a
+    // fresh token instead of locking the user out forever.
+    const installed = (await deps.runRemote(host, CHECK_INSTALLED_COMMAND)).includes('INSTALLED')
+    if (installed) {
+      const token = deps.generateToken()
+      await deps.storeToken(host.id, token)
+      onProgress({ phase: 'starting-server', detail: 'restart' })
+      await deps.runRemote(host, buildWriteTokenCommand(), { stdin: token })
+      // The old (token-less to us) server still holds the port; kill it first.
+      await deps.runRemote(host, KILL_MANAGED_SERVER_COMMAND)
+      await deps.runRemote(host, buildRestartCommand(host.remotePort))
+      onProgress({ phase: 'waiting-for-server' })
+      for (let attempt = 0; attempt < probeAttempts; attempt++) {
+        if (await deps.probe()) {
+          onProgress({ phase: 'ready' })
+          return { token }
+        }
+        await sleep(probeIntervalMs)
+      }
+      const detail = 'The managed server did not come back up after a restart with a new token.'
+      onProgress({ phase: 'error', detail })
+      throw new Error(detail)
+    }
     // A server we don't manage already occupies the port. Installing another
     // one would fail to bind, the re-probe would then hit the old server, and
     // workspace creation would fail auth with a confusing error — fail fast
     // with a clear, actionable message instead.
     const detail =
       `A server is already running on port ${host.remotePort} on this host, but it is not managed by this app. ` +
-      `Connect to it via the Advanced option (with its own token), or change this host's server port to install a managed server.`
+      `Connect to it via "Connect to remote server" (with its own token), or change this host's server port to install a managed server.`
     onProgress({ phase: 'error', detail })
     throw new Error(detail)
   }
@@ -234,7 +267,7 @@ export async function bootstrapRemoteServer(
   // 6. Generate + store token, transfer it via stdin (never argv), then
   //    install + start the server (which reads the token from the 0600 file).
   const token = stored ?? deps.generateToken()
-  deps.storeToken(host.id, token)
+  await deps.storeToken(host.id, token)
 
   onProgress({ phase: 'installing-server' })
   await deps.runRemote(host, buildWriteTokenCommand(), { stdin: token })

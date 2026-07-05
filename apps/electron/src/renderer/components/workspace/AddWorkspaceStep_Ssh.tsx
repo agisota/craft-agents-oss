@@ -15,32 +15,17 @@ import type {
   SshHostConfig,
   SshHostInput,
   SshConfigImportSuggestion,
-  SshTunnelState,
   SshBootstrapPhase,
 } from "../../../shared/types"
 
 interface AddWorkspaceStep_SshProps {
   onBack: () => void
-  /**
-   * Advanced escape hatch: hand the forwarded ws url + token to the manual
-   * remote ws/token form (for users who run their own server).
-   */
-  onAdvancedConnect: (args: { url: string; token?: string; hostLabel: string }) => void
   /** Programmatic workspace creation — the happy-path completion. */
   onCreate: (
     folderPath: string,
     name: string,
     remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string },
   ) => Promise<void>
-}
-
-type TunnelStatus = SshTunnelState["status"]
-
-const STATUS_COLOR: Record<TunnelStatus, string> = {
-  disconnected: "bg-foreground/30",
-  connecting: "bg-amber-400",
-  connected: "bg-emerald-500",
-  error: "bg-red-500",
 }
 
 /** Ordered bootstrap phases we surface as a progress list. */
@@ -56,37 +41,18 @@ const PROGRESS_STEPS: SshBootstrapPhase[] = [
   "creating-workspace",
 ]
 
-function StatusDot({ status }: { status: TunnelStatus }) {
-  const { t } = useTranslation()
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span
-        className={cn(
-          "h-2 w-2 rounded-full",
-          STATUS_COLOR[status],
-          status === "connecting" && "animate-pulse",
-        )}
-      />
-      <span className="text-xs opacity-70">{t(`ssh.status.${status}`)}</span>
-    </span>
-  )
-}
-
 const EMPTY_FORM: SshHostInput = {
   label: "",
   host: "",
   user: "",
   identityFile: "",
-  remoteServerCommand: "",
 }
 
-export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: AddWorkspaceStep_SshProps) {
+export function AddWorkspaceStep_Ssh({ onBack, onCreate }: AddWorkspaceStep_SshProps) {
   const { t } = useTranslation()
   const [hosts, setHosts] = useState<SshHostConfig[]>([])
-  const [statuses, setStatuses] = useState<Record<string, SshTunnelState>>({})
   const [editing, setEditing] = useState<SshHostConfig | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [showAdvancedFields, setShowAdvancedFields] = useState(false)
   const [form, setForm] = useState<SshHostInput>(EMPTY_FORM)
   const [portStr, setPortStr] = useState(String(DEFAULT_SSH_PORT))
   const [remotePortStr, setRemotePortStr] = useState(String(DEFAULT_REMOTE_SERVER_PORT))
@@ -106,28 +72,21 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
 
   useEffect(() => {
     void refresh()
-    const offState = window.electronAPI.onSshTunnelState((state) => {
-      setStatuses((prev) => ({ ...prev, [state.hostId]: state }))
-    })
     const offProgress = window.electronAPI.onSshBootstrapProgress((p) => {
       setBootstrapping((prev) =>
         prev && prev.hostId === p.hostId ? { ...prev, phase: p.phase, detail: p.detail } : prev,
       )
     })
     return () => {
-      offState()
       offProgress()
     }
   }, [refresh])
-
-  const statusOf = (id: string): TunnelStatus => statuses[id]?.status ?? "disconnected"
 
   const openAddForm = () => {
     setEditing(null)
     setForm(EMPTY_FORM)
     setPortStr(String(DEFAULT_SSH_PORT))
     setRemotePortStr(String(DEFAULT_REMOTE_SERVER_PORT))
-    setShowAdvancedFields(false)
     setShowForm(true)
   }
 
@@ -138,11 +97,9 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
       host: host.host,
       user: host.user,
       identityFile: host.identityFile ?? "",
-      remoteServerCommand: host.remoteServerCommand ?? "",
     })
     setPortStr(String(host.port))
     setRemotePortStr(String(host.remotePort))
-    setShowAdvancedFields(!!host.remoteServerCommand)
     setShowForm(true)
   }
 
@@ -152,7 +109,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
       port: parseInt(portStr, 10) || DEFAULT_SSH_PORT,
       remotePort: parseInt(remotePortStr, 10) || DEFAULT_REMOTE_SERVER_PORT,
       identityFile: form.identityFile?.trim() || undefined,
-      remoteServerCommand: form.remoteServerCommand?.trim() || undefined,
     }
     if (editing) {
       await window.electronAPI.sshUpdateHost(editing.id, payload)
@@ -205,21 +161,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
         sshHostId: host.id,
       })
       await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBootstrapping(null)
-    }
-  }
-
-  /** Advanced: tunnel only, then hand off to the manual ws/token form. */
-  const advancedConnect = async (host: SshHostConfig) => {
-    setError(null)
-    setBootstrapping({ hostId: host.id, hostLabel: host.label, phase: "connecting-tunnel" })
-    try {
-      const { url, token } = await window.electronAPI.sshConnect(host.id)
-      if (!url) throw new Error(t("ssh.error.noUrl"))
-      onAdvancedConnect({ url, token, hostLabel: host.label })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -318,26 +259,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
               placeholder="~/.ssh/id_ed25519"
             />
           </Field>
-          {showAdvancedFields ? (
-            <Field label={t("ssh.field.remoteCommand")}>
-              <Input
-                value={form.remoteServerCommand ?? ""}
-                onChange={(e) => setForm({ ...form, remoteServerCommand: e.target.value })}
-                placeholder="cd ~/craft && ./start.sh"
-              />
-              <span className="mt-1 block text-[11px] opacity-60">
-                {t("ssh.field.remoteCommandHint")}
-              </span>
-            </Field>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFields(true)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              {t("ssh.showAdvanced")}
-            </button>
-          )}
         </div>
         <div className="mt-6 w-full">
           <AddWorkspacePrimaryButton onClick={saveForm} disabled={!valid}>
@@ -368,7 +289,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
           </div>
         )}
         {hosts.map((host) => {
-          const status = statusOf(host.id)
           return (
             <div
               key={host.id}
@@ -380,9 +300,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
                 <div className="truncate text-xs opacity-70">
                   {host.user}@{host.host}
                   {host.port !== 22 ? `:${host.port}` : ""}
-                </div>
-                <div className="mt-1">
-                  <StatusDot status={status} />
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -433,27 +350,6 @@ export function AddWorkspaceStep_Ssh({ onBack, onAdvancedConnect, onCreate }: Ad
           {t("ssh.importFromConfig")}
         </AddWorkspaceSecondaryButton>
       </div>
-
-      {hosts.length > 0 && (
-        <div className="mt-3 w-full text-center">
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer hover:text-foreground">
-              {t("ssh.advanced.summary")}
-            </summary>
-            <div className="mt-2 space-y-1">
-              {hosts.map((host) => (
-                <button
-                  key={`adv-${host.id}`}
-                  onClick={() => advancedConnect(host)}
-                  className="block w-full rounded-[8px] px-2 py-1 text-left hover:bg-foreground/5"
-                >
-                  {t("ssh.advanced.connectManual", { host: host.label })}
-                </button>
-              ))}
-            </div>
-          </details>
-        </div>
-      )}
     </AddWorkspaceContainer>
   )
 }

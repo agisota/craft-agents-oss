@@ -8,10 +8,16 @@ import { spawn, execFile } from 'child_process'
 import { connect as netConnect } from 'net'
 import { EventEmitter } from 'events'
 import type { SshHostConfig } from '@craft-agent/shared/config'
-import { updateSshHost, getSshHost } from '@craft-agent/shared/config'
+import { getSshHost, loadManagedToken, storeManagedToken } from '@craft-agent/shared/config'
 import { generateServerToken } from '@craft-agent/server-core/bootstrap'
 import { findFreePort } from './port-allocator.ts'
-import { SshTunnel, buildSshArgs, type TunnelState } from './ssh-tunnel.ts'
+import {
+  SshTunnel,
+  buildSshArgs,
+  sshDestination,
+  type TunnelState,
+  type TunnelConnectOptions,
+} from './ssh-tunnel.ts'
 import { resolveServerArtifact, parseUnameTarget } from './server-artifact.ts'
 import {
   bootstrapRemoteServer,
@@ -99,7 +105,7 @@ export class SshTunnelManager extends EventEmitter {
    * Establish (or reuse) a tunnel for `host`. Resolves with the connected
    * state (including the forwarded ws:// url) or rejects with the error.
    */
-  async connect(host: SshHostConfig): Promise<TunnelState> {
+  async connect(host: SshHostConfig, opts: TunnelConnectOptions = {}): Promise<TunnelState> {
     let tunnel = this.tunnels.get(host.id)
     if (tunnel) {
       // Discard the cached tunnel when it is idle or was built from a stale
@@ -134,13 +140,16 @@ export class SshTunnelManager extends EventEmitter {
         if (state.status === 'connected') {
           tunnel!.off('state', onState)
           resolve(state)
-        } else if (state.status === 'error') {
+        } else if (state.status === 'error' && !state.willRetry) {
+          // Transient errors (willRetry) mean the tunnel is auto-reconnecting;
+          // keep waiting so a recoverable blip doesn't reject the connect and
+          // orphan a tunnel that comes back up moments later.
           tunnel!.off('state', onState)
           reject(new Error(state.error ?? 'SSH tunnel failed'))
         }
       }
       tunnel!.on('state', onState)
-      void tunnel!.connect()
+      void tunnel!.connect(opts)
     })
   }
 
@@ -169,20 +178,6 @@ export class SshTunnelManager extends EventEmitter {
       if (token) return token
     }
     return undefined
-  }
-
-  /**
-   * Run the host's remoteServerCommand over ssh in the background (detached on
-   * the remote via nohup) so a server comes up before the next connect attempt.
-   */
-  async startRemoteServer(host: SshHostConfig): Promise<void> {
-    if (!host.remoteServerCommand) {
-      throw new Error('No remote server command configured for this host')
-    }
-    await this.runRemote(
-      host,
-      `nohup sh -c ${posixSingleQuote(host.remoteServerCommand)} >/dev/null 2>&1 &`,
-    )
   }
 
   /**
@@ -224,21 +219,36 @@ export class SshTunnelManager extends EventEmitter {
   }
 
   /** Upload a local file to the remote host via scp. */
-  private uploadFile(host: SshHostConfig, localPath: string, remotePath: string): Promise<void> {
-    // scp uses -P for the port (uppercase, unlike ssh's -p).
+  private async uploadFile(host: SshHostConfig, localPath: string, remotePath: string): Promise<void> {
     // -O uses the legacy SCP protocol instead of SFTP: some minimal/user-mode
     // sshd setups don't enable the sftp subsystem, and the managed server only
     // needs a single file copied, so the classic protocol is the safer default.
-    const args = ['-O', '-B', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-P', String(host.port)]
-    if (host.identityFile) args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
-    // Expand a leading ~ locally is not needed; remote ~ is expanded by the shell
-    // on the remote side, but scp does not run a shell for the destination path.
-    // Strip a leading "~/" so scp writes relative to the login home dir.
-    const dest = remotePath.replace(/^~\//, '')
-    args.push(localPath, `${host.user}@${host.host}:${dest}`)
+    // Local scp binaries older than OpenSSH 9 don't know -O (they speak the
+    // legacy protocol natively), so retry without it on "unknown option".
+    try {
+      await this.scpUpload(host, localPath, remotePath, true)
+    } catch (err) {
+      if (err instanceof Error && /unknown option/i.test(err.message)) {
+        await this.scpUpload(host, localPath, remotePath, false)
+      } else {
+        throw err
+      }
+    }
+  }
+
+  /** Injectable for tests (bun cannot mock child_process cleanly). */
+  scpExec: typeof execFile = execFile
+
+  private scpUpload(
+    host: SshHostConfig,
+    localPath: string,
+    remotePath: string,
+    legacyFlag: boolean,
+  ): Promise<void> {
+    const args = buildScpArgs(host, localPath, remotePath, legacyFlag)
     return new Promise((resolve, reject) => {
-      execFile(SCP_BIN, args, { timeout: 120_000 }, (err, _stdout, stderr) => {
-        if (err) reject(new Error(`scp upload failed: ${stderr?.trim() || err.message}`))
+      this.scpExec(SCP_BIN, args, { timeout: 120_000 }, (err, _stdout, stderr) => {
+        if (err) reject(new Error(`scp upload failed: ${String(stderr)?.trim() || err.message}`))
         else resolve()
       })
     })
@@ -283,10 +293,8 @@ export class SshTunnelManager extends EventEmitter {
         resolveServerArtifact(target, { isPackaged: isAppPackaged() }),
       probe: () => this.probeRemotePort(host),
       generateToken: () => generateServerToken(),
-      storeToken: (hostId, token) => {
-        updateSshHost(hostId, { managedToken: token })
-      },
-      loadStoredToken: (hostId) => getSshHost(hostId)?.managedToken,
+      storeToken: (hostId, token) => storeManagedToken(hostId, token),
+      loadStoredToken: (hostId) => loadManagedToken(hostId),
     }
     return bootstrapRemoteServer(host, deps, onProgress)
   }
@@ -300,12 +308,12 @@ export class SshTunnelManager extends EventEmitter {
   connectionResolverDeps(): import('./connection-resolver.ts').ConnectionResolverDeps {
     return {
       getSshHost: (hostId) => getSshHost(hostId),
-      connectTunnel: async (host) => {
-        const state = await this.connect(host)
+      connectTunnel: async (host, opts) => {
+        const state = await this.connect(host, opts)
         return { url: state.url, localPort: state.localPort }
       },
       bootstrapServer: (host, onProgress) => this.bootstrapServer(host, onProgress),
-      loadManagedToken: (hostId) => getSshHost(hostId)?.managedToken,
+      loadManagedToken: (hostId) => loadManagedToken(hostId),
       probe: (localPort) => probeOnce(localPort),
     }
   }
@@ -317,9 +325,23 @@ export class SshTunnelManager extends EventEmitter {
   }
 }
 
-/** POSIX single-quote a string for safe embedding in a remote shell command. */
-export function posixSingleQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`
+/** Build the scp argv for an upload. Exported for testing. */
+export function buildScpArgs(
+  host: SshHostConfig,
+  localPath: string,
+  remotePath: string,
+  legacyFlag: boolean,
+): string[] {
+  // scp uses -P for the port (uppercase, unlike ssh's -p).
+  const args = ['-B', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-P', String(host.port)]
+  if (legacyFlag) args.unshift('-O')
+  if (host.identityFile) args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes')
+  // Expand a leading ~ locally is not needed; remote ~ is expanded by the shell
+  // on the remote side, but scp does not run a shell for the destination path.
+  // Strip a leading "~/" so scp writes relative to the login home dir.
+  const dest = remotePath.replace(/^~\//, '')
+  args.push(localPath, `${sshDestination(host)}:${dest}`)
+  return args
 }
 
 /** Pull a token out of `KEY=value` env lines or a bare token file. */

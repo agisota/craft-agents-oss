@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'bun:test'
 import {
   resolveRemoteConnection,
-  isSshBacked,
   type ConnectionResolverDeps,
   type SshConnectionStatus,
 } from '../ssh-tunnel/connection-resolver.ts'
+import { isSshBacked } from '../../shared/ssh.ts'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 import type { SshHostConfig } from '@craft-agent/shared/config'
 
@@ -15,7 +15,6 @@ const HOST: SshHostConfig = {
   port: 22,
   user: 'deploy',
   remotePort: 9200,
-  managedToken: 'stored-token',
 }
 
 function baseDeps(overrides: Partial<ConnectionResolverDeps> = {}): ConnectionResolverDeps {
@@ -23,7 +22,7 @@ function baseDeps(overrides: Partial<ConnectionResolverDeps> = {}): ConnectionRe
     getSshHost: (id) => (id === HOST.id ? HOST : undefined),
     connectTunnel: async () => ({ url: 'ws://127.0.0.1:50001', localPort: 50001 }),
     bootstrapServer: async () => ({ token: 'boot-token' }),
-    loadManagedToken: (id) => (id === HOST.id ? 'stored-token' : undefined),
+    loadManagedToken: async (id) => (id === HOST.id ? 'stored-token' : undefined),
     probe: async () => true,
     ...overrides,
   }
@@ -88,12 +87,52 @@ describe('resolveRemoteConnection — ssh backed', () => {
     const resolved = await resolveRemoteConnection(
       remote,
       baseDeps({
-        loadManagedToken: () => undefined,
+        loadManagedToken: async () => undefined,
         bootstrapServer: async () => { bootstrapped = true; return { token: 'boot-token' } },
       }),
     )
     expect(bootstrapped).toBe(true)
     expect(resolved.token).toBe('boot-token')
+  })
+
+  it('recovers a dead remote server: tunnel kept without probe → bootstrap → re-dial', async () => {
+    // Real-world combination: the server process died. The tunnel must be
+    // requested WITHOUT a live-server probe requirement (ssh is fine, the port
+    // is silent), the bootstrap must run (restart/reinstall), and the resolver
+    // must hand back the fresh url + bootstrap token.
+    const calls: Array<{ requireProbe?: boolean }> = []
+    let bootstrapped = false
+    const resolved = await resolveRemoteConnection(
+      remote,
+      baseDeps({
+        connectTunnel: async (_h, opts) => {
+          calls.push(opts ?? {})
+          return { url: 'ws://127.0.0.1:50001', localPort: 50001 }
+        },
+        probe: async () => false, // nothing answers the forwarded port
+        bootstrapServer: async () => { bootstrapped = true; return { token: 'boot-token' } },
+      }),
+    )
+    expect(calls[0]).toEqual({ requireProbe: false }) // step 1 must not require a live server
+    expect(bootstrapped).toBe(true)
+    expect(calls.length).toBe(2) // re-ensured the tunnel after bootstrap
+    expect(resolved.url).toBe('ws://127.0.0.1:50001')
+    expect(resolved.token).toBe('boot-token')
+  })
+
+  it('emits a terminal error phase when the bootstrap itself fails', async () => {
+    const phases: string[] = []
+    await expect(
+      resolveRemoteConnection(
+        remote,
+        baseDeps({
+          probe: async () => false,
+          bootstrapServer: async () => { throw new Error('artifact build failed') },
+        }),
+        (s) => phases.push(s.phase),
+      ),
+    ).rejects.toThrow(/artifact build failed/)
+    expect(phases[phases.length - 1]).toBe('error')
   })
 
   it('throws a clear error when the host is no longer configured', async () => {

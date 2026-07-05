@@ -21,11 +21,11 @@ import type { TunnelState } from './ssh-tunnel.ts'
 import type { BootstrapProgress } from './server-bootstrap.ts'
 import {
   resolveRemoteConnection,
+  tunnelStateToConnectionStatus,
   type SshConnectionStatus,
 } from './connection-resolver.ts'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 
-export const SSH_TUNNEL_STATE_EVENT = 'ssh:tunnelState'
 export const SSH_BOOTSTRAP_PROGRESS_EVENT = 'ssh:bootstrapProgress'
 /** Resolution progress for an SSH-backed workspace being (re)connected. */
 export const SSH_CONNECTION_STATUS_EVENT = 'ssh:connectionStatus'
@@ -43,7 +43,16 @@ export function registerSshTunnelIpc(): void {
   registered = true
 
   const manager = getSshTunnelManager()
-  manager.on('state', (state: TunnelState) => broadcast(SSH_TUNNEL_STATE_EVENT, state))
+  manager.on('state', (state: TunnelState) => {
+    // Mid-session tunnel drops: forward the tunnel state as an SSH connection
+    // status so SSH-backed workspace banners show "tunnel reconnecting…" (or a
+    // terminal error / recovery) instead of a raw ws error on the dead forwarded
+    // port. resolveRemoteConnection only streams status while a (re)dial is in
+    // flight, so this is the ONLY emitter once a workspace is connected.
+    const host = getSshHost(state.hostId)
+    const status = tunnelStateToConnectionStatus(state, host?.label ?? state.hostId)
+    if (status) broadcast(SSH_CONNECTION_STATUS_EVENT, status)
+  })
 
   ipcMain.handle('ssh:listHosts', () => loadSshHosts())
 
@@ -57,8 +66,6 @@ export function registerSshTunnelIpc(): void {
 
   ipcMain.handle('ssh:importFromConfig', () => importSshConfigSuggestions())
 
-  ipcMain.handle('ssh:tunnelStatus', (_e, hostId: string) => manager.getState(hostId))
-
   // Connect and return { url, token? } for the existing remote-workspace flow.
   ipcMain.handle('ssh:connect', async (_e, hostId: string) => {
     const host = getSshHost(hostId)
@@ -66,18 +73,6 @@ export function registerSshTunnelIpc(): void {
     const state = await manager.connect(host)
     const token = await manager.fetchRemoteToken(host)
     return { url: state.url, localPort: state.localPort, token }
-  })
-
-  ipcMain.handle('ssh:disconnect', (_e, hostId: string) => {
-    manager.disconnect(hostId)
-    return manager.getState(hostId)
-  })
-
-  ipcMain.handle('ssh:startRemoteServer', async (_e, hostId: string) => {
-    const host = getSshHost(hostId)
-    if (!host) throw new Error(`Unknown SSH host: ${hostId}`)
-    await manager.startRemoteServer(host)
-    return { ok: true }
   })
 
   // One-click bootstrap: install (if needed) + start a managed server, then

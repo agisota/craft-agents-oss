@@ -16,6 +16,8 @@ import { join } from 'path';
 import { ensureConfigDir } from './storage.ts';
 import { CONFIG_DIR } from './paths.ts';
 import { readJsonFileSync, atomicWriteFileSync } from '../utils/files.ts';
+import { generateSlug } from '../utils/slug.ts';
+import { getCredentialManager } from '../credentials/manager.ts';
 import { DEFAULT_SERVER_CONFIG } from './server-config.ts';
 
 /** Default SSH port. */
@@ -39,18 +41,6 @@ export interface SshHostConfig {
   identityFile?: string;
   /** craft-agent server port on the remote host. Defaults to the server default. */
   remotePort: number;
-  /**
-   * Optional custom command to start the craft-agent server on the remote host.
-   * Advanced / back-compat only: one-click bootstrap installs and starts a
-   * managed server instead, so this is not required for the normal flow.
-   */
-  remoteServerCommand?: string;
-  /**
-   * Auth token for the app-managed craft-agent server that one-click bootstrap
-   * installs on this host. This is a secret — it is written to the ssh-hosts
-   * store file (like other config) and must never be logged.
-   */
-  managedToken?: string;
   /** True when this entry was imported from ~/.ssh/config (read-only suggestion). */
   imported?: boolean;
   /** Last time this record was written. */
@@ -69,8 +59,15 @@ export interface SshConfigImportSuggestion {
 
 const SSH_HOSTS_FILE = join(CONFIG_DIR, 'ssh-hosts.json');
 
+/**
+ * On-disk record. `managedToken` is a legacy field: tokens now live in the
+ * credential store (see loadManagedToken) and are migrated out of this file
+ * lazily on first read.
+ */
+type StoredSshHost = SshHostConfig & { managedToken?: string };
+
 interface SshHostsFile {
-  hosts: SshHostConfig[];
+  hosts: StoredSshHost[];
   updatedAt?: number;
 }
 
@@ -79,34 +76,46 @@ interface SshHostsFile {
  * Falls back to `host` when the label reduces to empty.
  */
 export function slugifyHostId(input: string): string {
-  const slug = input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'host';
+  return generateSlug(input, 'host');
 }
 
-export function loadSshHosts(): SshHostConfig[] {
+/** Read the raw on-disk records, including any legacy plaintext `managedToken`s. */
+function readHostsFile(): StoredSshHost[] {
   try {
     if (!existsSync(SSH_HOSTS_FILE)) return [];
     const raw = readJsonFileSync<SshHostsFile>(SSH_HOSTS_FILE);
     if (!raw || !Array.isArray(raw.hosts)) return [];
-    return raw.hosts.map(normalizeHost);
+    return raw.hosts;
   } catch {
     return [];
   }
 }
 
+export function loadSshHosts(): SshHostConfig[] {
+  return readHostsFile().map(normalizeHost);
+}
+
 function saveSshHosts(hosts: SshHostConfig[]): void {
+  // Rescue any not-yet-migrated legacy plaintext tokens for hosts that remain,
+  // moving them into the credential store before the stripped list overwrites
+  // the file (see loadManagedToken for the read-path migration).
+  const keep = new Set(hosts.map((h) => h.id));
+  for (const record of readHostsFile()) {
+    if (record.managedToken && keep.has(record.id)) {
+      void getCredentialManager()
+        .setSshManagedToken(record.id, record.managedToken)
+        .catch(() => {});
+    }
+  }
   ensureConfigDir();
   const payload: SshHostsFile = { hosts, updatedAt: Date.now() };
   atomicWriteFileSync(SSH_HOSTS_FILE, JSON.stringify(payload, null, 2));
 }
 
-function normalizeHost(host: SshHostConfig): SshHostConfig {
+function normalizeHost(host: StoredSshHost): SshHostConfig {
+  const { managedToken: _legacyToken, ...rest } = host;
   return {
-    ...host,
+    ...rest,
     port: host.port || DEFAULT_SSH_PORT,
     remotePort: host.remotePort || DEFAULT_REMOTE_SERVER_PORT,
   };
@@ -162,6 +171,8 @@ export function deleteSshHost(id: string): boolean {
   const next = hosts.filter((h) => h.id !== id);
   if (next.length === hosts.length) return false;
   saveSshHosts(next);
+  // Deleting a host also deletes its managed-server token.
+  getCredentialManager().deleteSync({ type: 'ssh_managed_token', hostId: id });
   return true;
 }
 
@@ -171,4 +182,50 @@ export function getSshHost(id: string): SshHostConfig | undefined {
 
 export function getSshHostsPath(): string {
   return SSH_HOSTS_FILE;
+}
+
+// ============================================================
+// Managed server auth tokens (credential store)
+// ============================================================
+//
+// The auth token for the app-managed craft-agent server on a host is a secret:
+// it lives in the encrypted credential store (keyed by host id), never in
+// ssh-hosts.json. Legacy files that still carry a plaintext `managedToken`
+// field are migrated lazily on first read.
+
+/** Migrate all legacy plaintext tokens into the credential store and strip them from the file. */
+async function migrateLegacyManagedTokens(records: StoredSshHost[]): Promise<void> {
+  const creds = getCredentialManager();
+  for (const record of records) {
+    if (record.managedToken) {
+      await creds.setSshManagedToken(record.id, record.managedToken);
+    }
+  }
+  // Rewrite the file without the token fields (saveSshHosts strips them).
+  saveSshHosts(records.map(normalizeHost));
+}
+
+/**
+ * Get the managed-server auth token for a host from the credential store.
+ * Migrates legacy plaintext tokens out of ssh-hosts.json on first read.
+ */
+export async function loadManagedToken(hostId: string): Promise<string | undefined> {
+  const stored = await getCredentialManager().getSshManagedToken(hostId);
+  if (stored) return stored;
+  // Lazy migration: legacy files stored the token as a plaintext field.
+  const records = readHostsFile();
+  const legacy = records.find((h) => h.id === hostId)?.managedToken;
+  if (!legacy) return undefined;
+  await migrateLegacyManagedTokens(records);
+  return legacy;
+}
+
+/** Store the managed-server auth token for a host in the credential store. */
+export async function storeManagedToken(hostId: string, token: string): Promise<void> {
+  await getCredentialManager().setSshManagedToken(hostId, token);
+}
+
+/** Delete the managed-server auth token for a host. */
+export async function deleteManagedToken(hostId: string): Promise<boolean> {
+  return getCredentialManager().deleteSshManagedToken(hostId);
 }

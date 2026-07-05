@@ -11,6 +11,7 @@ import {
   buildRestartCommand,
   buildWriteTokenCommand,
   CHECK_INSTALLED_COMMAND,
+  KILL_MANAGED_SERVER_COMMAND,
   REMOTE_LOG_PATH,
   REMOTE_TOKEN_PATH,
   type ServerBootstrapDeps,
@@ -70,10 +71,10 @@ function makeDeps(
       return r
     },
     generateToken: () => 'GENERATED_SECRET_TOKEN_abcdef0123456789',
-    storeToken: (hostId, token) => {
+    storeToken: async (hostId, token) => {
       rec.stored[hostId] = token
     },
-    loadStoredToken: (hostId) => rec.stored[hostId],
+    loadStoredToken: async (hostId) => rec.stored[hostId],
     sleep: async () => {},
     probeAttempts: 3,
     probeIntervalMs: 1,
@@ -121,14 +122,14 @@ describe('bootstrapRemoteServer', () => {
     expect(rec.progress.map((p) => p.phase)).toEqual(['checking-server', 'ready'])
   })
 
-  it('fails fast when a server is alive but not managed by us (no stored token)', async () => {
+  it('fails fast when a server is alive, no token is stored, and no install dir exists', async () => {
     const { deps, rec, onProgress } = makeDeps({ probeResults: [true] })
     await expect(bootstrapRemoteServer(HOST, deps, onProgress)).rejects.toThrow(
       /already running on port 9200.*not managed/s,
     )
-    // No install actions were attempted — no upload, no remote commands.
+    // Only the install-dir check ran — no upload, no start/restart.
     expect(rec.uploads).toHaveLength(0)
-    expect(rec.remoteCommands).toHaveLength(0)
+    expect(rec.remoteCommands).toEqual([CHECK_INSTALLED_COMMAND])
     // No token generated or stored for a server we don't manage.
     expect(rec.stored[HOST.id]).toBeUndefined()
     expect(rec.progress.at(-1)!.phase).toBe('error')
@@ -190,6 +191,50 @@ describe('bootstrapRemoteServer', () => {
     // Initial probe false, and all post-start probes false → timeout.
     const { deps, onProgress } = makeDeps({ probeResults: [false, false, false, false] })
     await expect(bootstrapRemoteServer(HOST, deps, onProgress)).rejects.toThrow(/server crashed/)
+  })
+})
+
+describe('bootstrapRemoteServer — alive server, lost token, our install dir', () => {
+  // Host deleted + re-added with the same slug while the app-managed server
+  // kept running: the port answers, we hold no token, but OUR install dir is
+  // there — restart with a fresh token instead of throwing 'not managed'.
+  it('kills + restarts the managed server with a freshly generated token', async () => {
+    const cmds: string[] = []
+    const stdins: (string | undefined)[] = []
+    const { deps, rec } = makeDeps({
+      probeResults: [true, true], // alive on first check, up again after restart
+      runRemote: (async (_h: unknown, cmd: string, opts?: { stdin?: string }) => {
+        cmds.push(cmd)
+        stdins.push(opts?.stdin)
+        if (cmd === CHECK_INSTALLED_COMMAND) return 'INSTALLED\n'
+        return ''
+      }) as ServerBootstrapDeps['runRemote'],
+    })
+    const { token } = await bootstrapRemoteServer(HOST, deps, (p) => rec.progress.push(p))
+    expect(token).toBe('GENERATED_SECRET_TOKEN_abcdef0123456789')
+    expect(rec.stored[HOST.id]).toBe(token) // fresh token persisted
+    expect(rec.uploads).toHaveLength(0) // no re-upload
+    // Old server killed before the relaunch, token via stdin only.
+    expect(cmds).toContain(KILL_MANAGED_SERVER_COMMAND)
+    expect(cmds).toContain(buildRestartCommand(HOST.remotePort))
+    expect(cmds.indexOf(KILL_MANAGED_SERVER_COMMAND)).toBeLessThan(
+      cmds.indexOf(buildRestartCommand(HOST.remotePort)),
+    )
+    expect(stdins.filter(Boolean)).toEqual([token])
+    expect(cmds.some((c) => c.includes('GENERATED_SECRET_TOKEN'))).toBe(false)
+    expect(rec.progress.at(-1)!.phase).toBe('ready')
+  })
+
+  it('throws with an error phase when the restarted server never answers', async () => {
+    const { deps, rec } = makeDeps({
+      probeResults: [true, false, false, false], // alive, then never back up
+      runRemote: (async (_h: unknown, cmd: string) =>
+        cmd === CHECK_INSTALLED_COMMAND ? 'INSTALLED\n' : '') as ServerBootstrapDeps['runRemote'],
+    })
+    await expect(bootstrapRemoteServer(HOST, deps, (p) => rec.progress.push(p))).rejects.toThrow(
+      /did not come back up/,
+    )
+    expect(rec.progress.at(-1)!.phase).toBe('error')
   })
 })
 

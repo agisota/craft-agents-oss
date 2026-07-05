@@ -34,13 +34,9 @@ type ApiToChannelMapKeys = Exclude<
   | 'sshUpdateHost'
   | 'sshDeleteHost'
   | 'sshImportFromConfig'
-  | 'sshTunnelStatus'
   | 'sshConnect'
-  | 'sshDisconnect'
-  | 'sshStartRemoteServer'
   | 'sshBootstrapConnect'
   | 'sshResolveWorkspaceConnection'
-  | 'onSshTunnelState'
   | 'onSshBootstrapProgress'
   | 'onSshConnectionStatus'
 > | BrowserPaneKeys

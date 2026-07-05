@@ -28,6 +28,8 @@
 import type { RemoteServerConfig } from '@craft-agent/core/types'
 import type { SshHostConfig } from '@craft-agent/shared/config'
 import type { BootstrapProgress } from './server-bootstrap.ts'
+import type { TunnelState } from './ssh-tunnel.ts'
+import { isSshBacked } from '../../shared/ssh.ts'
 
 /** A live connection target for the ws transport. */
 export interface ResolvedConnection {
@@ -62,8 +64,15 @@ export interface SshConnectionStatus {
 export interface ConnectionResolverDeps {
   /** Look up the durable SSH host record by id. */
   getSshHost: (hostId: string) => SshHostConfig | undefined
-  /** Ensure a tunnel is up; resolves the forwarded ws url + local port. */
-  connectTunnel: (host: SshHostConfig) => Promise<{ url?: string; localPort?: number }>
+  /**
+   * Ensure a tunnel is up; resolves the forwarded ws url + local port. With
+   * `requireProbe: false` the tunnel is kept (and reported connected) even when
+   * nothing answers the forwarded port yet — ssh transport failures still reject.
+   */
+  connectTunnel: (
+    host: SshHostConfig,
+    opts?: { requireProbe?: boolean },
+  ) => Promise<{ url?: string; localPort?: number }>
   /**
    * Ensure a managed server is installed + running on the host (fast path when
    * already alive). Resolves the managed token.
@@ -72,15 +81,50 @@ export interface ConnectionResolverDeps {
     host: SshHostConfig,
     onProgress: (p: BootstrapProgress) => void,
   ) => Promise<{ token: string }>
-  /** Read the stored managed token for a host, if any. */
-  loadManagedToken: (hostId: string) => string | undefined
+  /** Read the stored managed token for a host, if any (credential store). */
+  loadManagedToken: (hostId: string) => Promise<string | undefined>
   /** Probe a forwarded local port for a live craft-agent server. */
   probe: (localPort: number) => Promise<boolean>
 }
 
-/** True when this workspace is reached over SSH (durable, not port-derived). */
-export function isSshBacked(remote: RemoteServerConfig | null | undefined): remote is RemoteServerConfig & { sshHostId: string } {
-  return !!remote && typeof remote.sshHostId === 'string' && remote.sshHostId.length > 0
+/**
+ * Map a live tunnel state change to the SSH connection status the renderer
+ * banners render, or null when nothing should be pushed (fresh first connect —
+ * an active resolve emits its own richer phases — or an idle disconnect).
+ *
+ * This is the mid-session-drop path: resolveRemoteConnection only streams
+ * status while a (re)dial is in flight, so without this mapping a tunnel that
+ * drops later would surface as a raw ws error and the 'tunnel-reconnecting'
+ * banner branch would never fire.
+ */
+export function tunnelStateToConnectionStatus(
+  state: TunnelState,
+  hostLabel: string,
+): SshConnectionStatus | null {
+  const base = { hostId: state.hostId, hostLabel }
+  switch (state.status) {
+    case 'connected':
+      // Also clears any earlier reconnecting/error banner when no resolve runs.
+      return { ...base, phase: 'ready' }
+    case 'connecting':
+      // First connect (attempts 0) is narrated by the active resolve; only a
+      // drop-recovery retry needs to be pushed from here.
+      return state.reconnectAttempts > 0
+        ? { ...base, phase: 'tunnel-reconnecting', attempt: state.reconnectAttempts }
+        : null
+    case 'error':
+      return state.willRetry
+        ? {
+            ...base,
+            phase: 'tunnel-reconnecting',
+            attempt: Math.max(state.reconnectAttempts, 1),
+            detail: state.error,
+          }
+        : { ...base, phase: 'error', detail: state.error }
+    case 'disconnected':
+    default:
+      return null
+  }
 }
 
 /**
@@ -107,41 +151,51 @@ export async function resolveRemoteConnection(
     throw new Error(`SSH host "${hostId}" is no longer configured. Re-add it in Remote (SSH) settings.`)
   }
 
-  // 1. Ensure the tunnel is up → fresh forwarded local port.
-  onStatus({ hostId, hostLabel: host.label, phase: 'tunnel-connecting' })
-  let tunnel: { url?: string; localPort?: number }
+  // Wrap the whole SSH resolution so ANY failure (tunnel, bootstrap, re-dial)
+  // reaches the renderer as a terminal 'error' phase — the connection banner
+  // masks ws state until the last phase is 'ready', so a silent throw would
+  // leave it spinning forever with no retry affordance.
   try {
-    tunnel = await deps.connectTunnel(host)
+    // 1. Ensure the tunnel is up → fresh forwarded local port. `requireProbe:
+    //    false` keeps the tunnel even when the remote server is dead (ssh
+    //    transport up, nothing answering) so step 3 can bootstrap through it;
+    //    an ssh-level failure still rejects here.
+    onStatus({ hostId, hostLabel: host.label, phase: 'tunnel-connecting' })
+    let tunnel: { url?: string; localPort?: number }
+    try {
+      tunnel = await deps.connectTunnel(host, { requireProbe: false })
+    } catch (err) {
+      throw new Error(`SSH tunnel to ${host.label} failed: ${errMsg(err)}`)
+    }
+    if (!tunnel.url || tunnel.localPort == null) {
+      throw new Error(`SSH tunnel to ${host.label} did not report a forwarded port.`)
+    }
+
+    // 2. Is a managed server already answering on the fresh port with a token we hold?
+    const stored = await deps.loadManagedToken(hostId)
+    const alive = await deps.probe(tunnel.localPort)
+    if (alive && stored) {
+      onStatus({ hostId, hostLabel: host.label, phase: 'ready' })
+      return { url: tunnel.url, token: stored, remoteWorkspaceId: remote.remoteWorkspaceId }
+    }
+
+    // 3. Server not answering (or no token) — run the one-click bootstrap. It probes
+    //    over ssh, fast-paths when already installed, and installs+starts otherwise.
+    onStatus({ hostId, hostLabel: host.label, phase: 'bootstrapping' })
+    const { token } = await deps.bootstrapServer(host, (p) => {
+      onStatus({ hostId, hostLabel: host.label, phase: 'bootstrapping', detail: p.phase })
+    })
+
+    // Re-ensure the tunnel (idempotent when it stayed up) and grab a current
+    // forwarded url now that a server answers.
+    const after = await deps.connectTunnel(host)
+    const url = after.url ?? tunnel.url
+    onStatus({ hostId, hostLabel: host.label, phase: 'ready' })
+    return { url, token, remoteWorkspaceId: remote.remoteWorkspaceId }
   } catch (err) {
     onStatus({ hostId, hostLabel: host.label, phase: 'error', detail: errMsg(err) })
-    throw new Error(`SSH tunnel to ${host.label} failed: ${errMsg(err)}`)
+    throw err
   }
-  if (!tunnel.url || tunnel.localPort == null) {
-    onStatus({ hostId, hostLabel: host.label, phase: 'error', detail: 'no-forwarded-port' })
-    throw new Error(`SSH tunnel to ${host.label} did not report a forwarded port.`)
-  }
-
-  // 2. Is a managed server already answering on the fresh port with a token we hold?
-  const stored = deps.loadManagedToken(hostId)
-  const alive = await deps.probe(tunnel.localPort)
-  if (alive && stored) {
-    onStatus({ hostId, hostLabel: host.label, phase: 'ready' })
-    return { url: tunnel.url, token: stored, remoteWorkspaceId: remote.remoteWorkspaceId }
-  }
-
-  // 3. Server not answering (or no token) — run the one-click bootstrap. It probes
-  //    over ssh, fast-paths when already installed, and installs+starts otherwise.
-  onStatus({ hostId, hostLabel: host.label, phase: 'bootstrapping' })
-  const { token } = await deps.bootstrapServer(host, (p) => {
-    onStatus({ hostId, hostLabel: host.label, phase: 'bootstrapping', detail: p.phase })
-  })
-
-  // Re-ensure the tunnel: bootstrap may have started the server after the tunnel's
-  // own probe tore it down, so grab a current forwarded url.
-  const after = await deps.connectTunnel(host)
-  const url = after.url ?? tunnel.url
-  onStatus({ hostId, hostLabel: host.label, phase: 'ready' })
-  return { url, token, remoteWorkspaceId: remote.remoteWorkspaceId }
 }
 
 function errMsg(err: unknown): string {
