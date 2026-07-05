@@ -1441,6 +1441,7 @@
   "ssh.status.disconnected": "Disconnected",
   "ssh.status.error": "Error",
   "ssh.title": "Remote (SSH)",
+  "ssh.workspaceSubtitle": "SSH · {{host}}",
   "status.backlog": "积压",
   "status.cancelled": "已取消",
   "status.change": "更改状态",

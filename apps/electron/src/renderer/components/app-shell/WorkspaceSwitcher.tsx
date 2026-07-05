@@ -72,7 +72,13 @@ export function WorkspaceSwitcher({
     const abort = new AbortController()
     healthCheckAbort.current = abort
 
-    const remoteWorkspaces = workspaces.filter(w => w.remoteServer && w.id !== activeWorkspaceId)
+    // SSH-backed workspaces are excluded: their persisted url is an ephemeral
+    // forwarded port that is stale by design — the transport re-resolves a fresh
+    // tunnel on switch, so probing the old url would misreport "disconnected"
+    // and wrongly route the user into the ws reconnect form.
+    const remoteWorkspaces = workspaces.filter(
+      w => w.remoteServer && !w.remoteServer.sshHostId && w.id !== activeWorkspaceId,
+    )
     if (remoteWorkspaces.length === 0) return
 
     // Mark all as checking
@@ -109,6 +115,11 @@ export function WorkspaceSwitcher({
 
   /** True when we know a remote workspace is unreachable. */
   const isRemoteDisconnected = (workspaceId: string) => {
+    // SSH-backed workspaces never surface as ws-disconnected here: the SSH layer
+    // owns their connection state (tunnel auto-reconnect + fresh port resolution)
+    // and the ws reconnect form does not apply to them.
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (workspace?.remoteServer?.sshHostId) return false
     // Active workspace: use live transport state
     if (workspaceId === activeWorkspaceId) {
       if (!isRemote || !connectionState) return false

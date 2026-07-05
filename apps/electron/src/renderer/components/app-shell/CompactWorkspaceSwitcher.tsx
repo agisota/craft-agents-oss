@@ -66,7 +66,13 @@ export function CompactWorkspaceSwitcher({
     const abort = new AbortController()
     healthCheckAbort.current = abort
 
-    const remoteWorkspaces = workspaces.filter(w => w.remoteServer && w.id !== activeWorkspaceId)
+    // SSH-backed workspaces are excluded: their persisted url is an ephemeral
+    // forwarded port that is stale by design — the transport re-resolves a fresh
+    // tunnel on switch, so probing the old url would misreport "disconnected"
+    // and wrongly route the user into the ws reconnect form.
+    const remoteWorkspaces = workspaces.filter(
+      w => w.remoteServer && !w.remoteServer.sshHostId && w.id !== activeWorkspaceId,
+    )
     if (remoteWorkspaces.length === 0) return
 
     setRemoteHealthMap(prev => {
@@ -99,6 +105,11 @@ export function CompactWorkspaceSwitcher({
   }
 
   const isRemoteDisconnected = (workspaceId: string) => {
+    // SSH-backed workspaces never surface as ws-disconnected here: the SSH layer
+    // owns their connection state (tunnel auto-reconnect + fresh port resolution)
+    // and the ws reconnect form does not apply to them.
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (workspace?.remoteServer?.sshHostId) return false
     if (workspaceId === activeWorkspaceId) {
       if (!isRemote || !connectionState) return false
       const { status } = connectionState
@@ -249,7 +260,7 @@ export function CompactWorkspaceSwitcher({
                         <div className="flex items-center gap-1 text-xs text-foreground/50 mt-0.5">
                           {disconnected
                             ? <><CloudOff className="h-3 w-3 text-destructive shrink-0" /><span title={getDisconnectTooltip(workspace.id)}>{t('toast.disconnected')}</span></>
-                            : <><Cloud className="h-3 w-3 shrink-0" /><span className="truncate">{workspace.remoteServer.url}</span></>
+                            : <><Cloud className="h-3 w-3 shrink-0" /><span className="truncate">{workspace.remoteServer.sshHostId ? t('ssh.workspaceSubtitle', { host: workspace.remoteServer.sshHostId }) : workspace.remoteServer.url}</span></>
                           }
                         </div>
                       )}

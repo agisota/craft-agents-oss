@@ -808,6 +808,13 @@ app.whenReady().then(async () => {
         if (!targetWorkspace) throw new Error(`Workspace ${targetWorkspaceId} not found`)
         if (!sessionManager) throw new Error('Session manager not initialized')
 
+        // SSH-backed configs persist an ephemeral (stale) forwarded port — resolve
+        // a live { url, token } through the tunnel/bootstrap machinery before
+        // dialing. Plain-ws configs pass through unchanged.
+        const { resolveRemoteConnection } = await import('./ssh-tunnel/connection-resolver')
+        const { getSshTunnelManager } = await import('./ssh-tunnel/ssh-tunnel-manager')
+        const resolverDeps = getSshTunnelManager().connectionResolverDeps()
+
         const sourceWorkspaceLocalId = windowManager?.getWorkspaceForWindow(_event.sender.id)
         if (!sourceWorkspaceLocalId) throw new Error('Unable to resolve source workspace for transfer')
 
@@ -817,7 +824,8 @@ app.whenReady().then(async () => {
         let bundle: any = null
 
         if (sourceWorkspace.remoteServer) {
-          const { url: sourceUrl, token: sourceToken, remoteWorkspaceId: sourceRemoteWorkspaceId } = sourceWorkspace.remoteServer
+          const { url: sourceUrl, token: sourceToken, remoteWorkspaceId: sourceRemoteWorkspaceId } =
+            await resolveRemoteConnection(sourceWorkspace.remoteServer, resolverDeps)
           console.log(`[Transfer] Exporting remote-owned session ${sessionId} from workspace ${sourceRemoteWorkspaceId}...`)
           const { client: sourceClient, error: sourceError } = await connectToRemote(sourceUrl, sourceToken, sourceRemoteWorkspaceId, { requestTimeout: TRANSFER_REQUEST_TIMEOUT_MS })
           if (!sourceClient) throw new Error(sourceError ?? 'Connection failed to source remote server')
@@ -875,7 +883,8 @@ app.whenReady().then(async () => {
           return result
         }
 
-        const { url, token, remoteWorkspaceId } = targetWorkspace.remoteServer
+        const { url, token, remoteWorkspaceId } =
+          await resolveRemoteConnection(targetWorkspace.remoteServer, resolverDeps)
         console.log(`[Transfer] Connecting to target remote server: ${url}`)
         const { client, error } = await connectToRemote(url, token, remoteWorkspaceId, { requestTimeout: TRANSFER_REQUEST_TIMEOUT_MS })
         if (!client) throw new Error(error ?? 'Connection failed to target remote server')

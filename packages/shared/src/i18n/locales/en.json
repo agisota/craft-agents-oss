@@ -1441,6 +1441,7 @@
   "ssh.status.disconnected": "Disconnected",
   "ssh.status.error": "Error",
   "ssh.title": "Remote (SSH)",
+  "ssh.workspaceSubtitle": "SSH · {{host}}",
   "status.backlog": "Backlog",
   "status.cancelled": "Cancelled",
   "status.change": "Change status",

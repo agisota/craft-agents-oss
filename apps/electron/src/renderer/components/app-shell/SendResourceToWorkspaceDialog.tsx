@@ -97,6 +97,13 @@ export function SendResourceToWorkspaceDialog({
 
     // Fire parallel checks
     for (const ws of remoteTargets) {
+      // SSH-backed workspaces: the persisted url is an ephemeral (stale) port —
+      // the transfer path resolves a fresh tunnel at send time, so report ok
+      // instead of probing a dead port.
+      if (ws.remoteServer!.sshHostId) {
+        setRemoteHealthMap(prev => new Map(prev).set(ws.id, 'ok'))
+        continue
+      }
       window.electronAPI.testRemoteConnection(ws.remoteServer!.url, ws.remoteServer!.token)
         .then(result => {
           if (abort.signal.aborted) return
