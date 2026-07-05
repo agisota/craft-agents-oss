@@ -285,3 +285,33 @@ describe('SSH default port parity (renderer copies vs shared config)', () => {
     expect(RENDERER_REMOTE_PORT).toBe(SHARED_REMOTE_PORT)
   })
 })
+
+import { SshTunnelManager } from '../ssh-tunnel/ssh-tunnel-manager.ts'
+
+describe('SshTunnelManager.connect — already-connected tunnel', () => {
+  it('resolves immediately instead of waiting for a state event that never fires', async () => {
+    const host: SshHostConfig = {
+      id: 'live', label: 'Live', host: 'h', user: 'u', port: 22, remotePort: 9100,
+    }
+    // A tunnel already in 'connected' state: connect() is an idempotent no-op
+    // and emits nothing — manager.connect must short-circuit, not hang.
+    const tunnel = new SshTunnel(host, {
+      spawn: () => { throw new Error('must not spawn') },
+      probe: async () => true,
+      allocatePort: async () => 61234,
+    })
+    ;(tunnel as unknown as { state: unknown }).state = {
+      hostId: 'live', status: 'connected', localPort: 61234,
+      url: 'ws://127.0.0.1:61234', reconnectAttempts: 0,
+    }
+    const manager = new SshTunnelManager()
+    ;(manager as unknown as { tunnels: Map<string, SshTunnel> }).tunnels.set('live', tunnel)
+
+    const result = await Promise.race([
+      manager.connect(host),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('hung')), 500)),
+    ])
+    expect(result.url).toBe('ws://127.0.0.1:61234')
+    manager.disposeAll()
+  })
+})

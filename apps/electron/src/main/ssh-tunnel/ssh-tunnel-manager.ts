@@ -123,6 +123,12 @@ export class SshTunnelManager extends EventEmitter {
       this.tunnels.set(host.id, tunnel)
     }
 
+    // Already up (e.g. resolveTarget re-runs while the tunnel is healthy):
+    // tunnel.connect() is an idempotent no-op in this state and emits no event,
+    // so waiting for one below would hang forever — return the live state.
+    const current = tunnel.getState()
+    if (current.status === 'connected') return current
+
     return new Promise<TunnelState>((resolve, reject) => {
       const onState = (state: TunnelState) => {
         if (state.status === 'connected') {
