@@ -1680,5 +1680,15 @@
   "workspace.selectWorkspaceDesc": "选择此服务器上的 Workspace 或创建新的。",
   "workspace.selectWorkspacePlaceholder": "选择 Workspace...",
   "workspace.serverAuthToken": "服务器认证令牌",
-  "workspace.underDefaultFolder": ".craft-agent 文件夹下"
+  "workspace.underDefaultFolder": ".craft-agent 文件夹下",
+  "label.default.automation": "自动化",
+  "label.default.bug": "缺陷",
+  "label.default.code": "代码",
+  "label.default.content": "内容",
+  "label.default.design": "设计",
+  "label.default.development": "开发",
+  "label.default.priority": "优先级",
+  "label.default.project": "项目",
+  "label.default.research": "研究",
+  "label.default.writing": "写作"
 }
