@@ -202,6 +202,11 @@ export function buildClaudeSubprocessEnv(
         const gitBash = getGitBashPath()?.trim();
         if (gitBash) env.CLAUDE_CODE_GIT_BASH_PATH = gitBash;
     }
+    // Strip CLAUDECODE from the subprocess env to prevent nested-session detection.
+    // The Claude Code CLI refuses to start when CLAUDECODE is set, interpreting it as
+    // an attempt to nest sessions. When the host process itself runs inside a Claude
+    // Code session this variable is inherited, so we remove it for standalone use.
+    delete env.CLAUDECODE;
 
     // Bedrock must never be routed through the Claude SDK path.
     // Strip only Claude-specific Bedrock routing vars here; keep generic AWS_*
