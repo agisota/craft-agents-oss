@@ -285,6 +285,7 @@
       "version": "0.11.3",
       "dependencies": {
         "@craft-agent/core": "workspace:*",
+        "@craft-agent/messaging-discord-worker": "workspace:*",
         "@craft-agent/messaging-whatsapp-worker": "workspace:*",
         "@craft-agent/server-core": "workspace:*",
         "@craft-agent/shared": "workspace:*",
