@@ -148,6 +148,10 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
+import {
+  resolveInheritedNewSessionParams,
+  type FilterMode,
+} from "./new-session-filter-inheritance"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -2015,7 +2019,6 @@ function AppShellContent({
     () => resolveInheritedFilterParams(listFilter, labelFilter, projectFilter),
     [listFilter, labelFilter, projectFilter]
   )
-
   // Create a new chat and select it
   const handleNewChat = useCallback((newPanel: boolean = false) => {
     if (!activeWorkspace) return
@@ -2024,8 +2027,8 @@ function AppShellContent({
     setSearchActive(false)
     setSearchQuery('')
 
-    // Inherit sole-active filter into the new session when unambiguous.
-    const inherited = resolveInheritedNewSessionParams()
+    // Inherit the sole included filter into the new session when unambiguous.
+    const inherited = resolveInheritedNewSessionParams(listFilter, labelFilter, projectFilter)
 
     // Delegate to NavigationContext which handles session creation
     navigate(
@@ -2035,7 +2038,7 @@ function AppShellContent({
 
     // Focus the chat input after navigation completes
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
-  }, [activeWorkspace, focusZone, navigate, resolveInheritedNewSessionParams])
+  }, [activeWorkspace, focusZone, labelFilter, listFilter, navigate, projectFilter])
 
   // Create a brand new dedicated browser window and focus it.
   // Intentionally unbound: this action should always create a NEW window.
