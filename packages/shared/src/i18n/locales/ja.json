@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "リプレイに失敗しました: {{error}}",
   "toast.restart": "再起動",
   "toast.restartToApply": "アップデートを適用するには再起動してください。",
+  "toast.sendDisabledForSession": "このセッションでは現在送信が無効になっています。",
   "toast.serverUnreachable": "サーバーに接続できません — クリックして再接続",
   "toast.sessionArchived": "セッションをアーカイブしました",
   "toast.sessionArchivedDesc": "アーカイブに移動しました",

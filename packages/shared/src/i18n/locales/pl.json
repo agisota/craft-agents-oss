@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "Odtwarzanie nie powiodło się: {{error}}",
   "toast.restart": "Uruchom ponownie",
   "toast.restartToApply": "Uruchom ponownie, aby zastosować aktualizację.",
+  "toast.sendDisabledForSession": "Wysyłanie jest obecnie wyłączone dla tej sesji.",
   "toast.serverUnreachable": "Serwer nieosiągalny — kliknij, aby ponownie połączyć",
   "toast.sessionArchived": "Sesja zarchiwizowana",
   "toast.sessionArchivedDesc": "Przeniesiono do archiwum",

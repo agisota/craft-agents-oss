@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "Visszajátszás sikertelen: {{error}}",
   "toast.restart": "Újraindítás",
   "toast.restartToApply": "Indítsd újra az alkalmazást a frissítés alkalmazásához.",
+  "toast.sendDisabledForSession": "A küldés jelenleg le van tiltva ehhez a munkamenethez.",
   "toast.serverUnreachable": "A szerver nem érhető el — kattints az újracsatlakozáshoz",
   "toast.sessionArchived": "Munkamenet archiválva",
   "toast.sessionArchivedDesc": "Áthelyezve az archívumba",

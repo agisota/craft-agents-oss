@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "Reproducción fallida: {{error}}",
   "toast.restart": "Reiniciar",
   "toast.restartToApply": "Reinicia para aplicar la actualización.",
+  "toast.sendDisabledForSession": "El envío está deshabilitado para esta sesión.",
   "toast.serverUnreachable": "Servidor inaccesible — haz clic para reconectar",
   "toast.sessionArchived": "Sesión archivada",
   "toast.sessionArchivedDesc": "Movida al archivo",

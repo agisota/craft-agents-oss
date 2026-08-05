@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "Replay failed: {{error}}",
   "toast.restart": "Restart",
   "toast.restartToApply": "Restart to apply the update.",
+  "toast.sendDisabledForSession": "Sending is currently disabled for this session.",
   "toast.serverUnreachable": "Server unreachable — click to reconnect",
   "toast.sessionArchived": "Session archived",
   "toast.sessionArchivedDesc": "Moved to archive",

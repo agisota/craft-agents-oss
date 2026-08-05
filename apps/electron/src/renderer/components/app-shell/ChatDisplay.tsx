@@ -1282,7 +1282,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
     if (isInputDisabled || disableSend || connectionUnavailable) {
       toast.error(t('toast.cannotSendRightNow'), {
-        description: 'Sending is currently disabled for this session.',
+        description: t('toast.sendDisabledForSession'),
       })
       return
     }

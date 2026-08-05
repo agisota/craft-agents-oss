@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "回放失败: {{error}}",
   "toast.restart": "重启",
   "toast.restartToApply": "重启以应用更新。",
+  "toast.sendDisabledForSession": "此会话当前已禁用发送。",
   "toast.serverUnreachable": "服务器不可达——点击重新连接",
   "toast.sessionArchived": "会话已归档",
   "toast.sessionArchivedDesc": "已移至归档",

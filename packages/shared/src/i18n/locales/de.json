@@ -1557,6 +1557,7 @@
   "toast.replayFailed": "Wiedergabe fehlgeschlagen: {{error}}",
   "toast.restart": "Neu starten",
   "toast.restartToApply": "Neu starten, um das Update anzuwenden.",
+  "toast.sendDisabledForSession": "Das Senden ist für diese Sitzung derzeit deaktiviert.",
   "toast.serverUnreachable": "Server nicht erreichbar — zum Wiederverbinden klicken",
   "toast.sessionArchived": "Sitzung archiviert",
   "toast.sessionArchivedDesc": "In Archiv verschoben",
