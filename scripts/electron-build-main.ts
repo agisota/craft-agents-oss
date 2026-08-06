@@ -390,6 +390,12 @@ async function main(): Promise<void> {
       // Electron 39 ships Node 22.x which supports require() of ESM without TLA, so the
       // bundled main.cjs's `require('@anthropic-ai/claude-agent-sdk')` works.
       "--external:@anthropic-ai/claude-agent-sdk",
+      // M2 semantic memory: native ONNX runtime + native sharp can't be
+      // bundled by esbuild (.node addons). Externalized and resolved from
+      // node_modules at runtime; lazy-loaded only when memory.semantic=true.
+      "--external:@xenova/transformers",
+      "--external:onnxruntime-node",
+      "--external:sharp",
       // Replace grammY's bundled polyfills (node-fetch@2 + abort-controller@3)
       // with native Node globals. esbuild otherwise renames the polyfill's
       // `class AbortSignal` to `_AbortSignal` to dodge collision with the
@@ -397,6 +403,9 @@ async function main(): Promise<void> {
       // fails every Telegram API call with a TypeError.
       "--alias:node-fetch=./apps/electron/src/main/shims/node-fetch.cjs",
       "--alias:abort-controller=./apps/electron/src/main/shims/abort-controller.cjs",
+      // server-core memory FTS uses bun:sqlite (Bun-only); Electron main runs
+      // Node whose node:sqlite exposes the same DatabaseSync surface (22.5+).
+      "--alias:bun:sqlite=./apps/electron/src/main/shims/node-sqlite.cjs",
       ...buildDefines,
     ],
     cwd: ROOT_DIR,
