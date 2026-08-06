@@ -25,6 +25,7 @@ import type {
 } from './types.ts';
 import { ClaudeAgent } from '../claude-agent.ts';
 import { PiAgent } from '../pi-agent.ts';
+import { OmpAgent } from '../omp-agent.ts';
 import {
   getLlmConnection,
   getDefaultLlmConnection,
@@ -59,10 +60,12 @@ import {
 } from './internal/runtime-resolver.ts';
 import { anthropicDriver } from './internal/drivers/anthropic.ts';
 import { piDriver } from './internal/drivers/pi.ts';
+import { ompDriver } from './internal/drivers/omp.ts';
 
 const DRIVER_REGISTRY: Record<AgentProvider, ProviderDriver> = {
   anthropic: anthropicDriver,
   pi: piDriver,
+  omp: ompDriver,
 };
 
 function getProviderDriver(provider: AgentProvider): ProviderDriver {
@@ -139,6 +142,10 @@ export function createBackend(config: BackendConfig): AgentBackend {
       // PiAgent implements AgentBackend directly
       // Auth is API key based via Pi's AuthStorage
       return new PiAgent(config);
+    case 'omp':
+      // OmpAgent implements AgentBackend directly
+      // Auth is owned by the OMP CLI itself (~/.omp/agent config)
+      return new OmpAgent(config);
 
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
@@ -258,6 +265,9 @@ export function providerTypeToAgentProvider(providerType: LlmProviderType): Agen
     case 'pi':
     case 'pi_compat':
       return 'pi';
+    // OMP CLI backend (subprocess with its own auth/model config)
+    case 'omp':
+      return 'omp';
 
     default:
       // Exhaustive check
@@ -588,6 +598,7 @@ export const BACKEND_CAPABILITIES: Record<AgentProvider, {
 }> = {
   anthropic: { needsHttpPoolServer: false },
   pi: { needsHttpPoolServer: false },
+  omp: { needsHttpPoolServer: false },
 };
 
 // ============================================================
@@ -604,6 +615,7 @@ export function getDefaultAuthType(provider: AgentProvider): LlmAuthType | undef
   switch (provider) {
     case 'anthropic': return undefined;
     case 'pi':        return 'api_key';
+    case 'omp':       return 'none';
     default:          return undefined;
   }
 }

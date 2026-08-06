@@ -21,7 +21,7 @@ import {
   type PostInitResult,
 } from '@craft-agent/shared/agent/backend'
 import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaultThinkingLevel, resetManagedAnthropicAuthEnvVars, resolveMidStreamBehavior, getPersistedUiLanguage, resolveTitleLanguageName } from '@craft-agent/shared/config'
-import type { MidStreamBehavior } from '@craft-agent/shared/config'
+import type { MidStreamBehavior, LlmProviderType } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
 import { isValidWorkingDirectory } from '../utils/path-validation'
 import { InitGate } from '@craft-agent/server-core/domain'
@@ -2715,7 +2715,7 @@ export class SessionManager implements ISessionManager {
       branchFromSessionPath?: string
       branchFromSdkCwd?: string
       branchFromSdkTurnId?: string
-      sourceProvider?: 'anthropic' | 'pi'
+      sourceProvider?: LlmProviderType
     } | undefined
 
     if (options?.branchFromSessionId || options?.branchFromMessageId) {

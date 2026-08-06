@@ -251,6 +251,7 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
           ? 'Manifest'
           : 'Craft Agents Backend Compatible')
         break
+      case 'omp': parts.push('OMP'); break
       default: parts.push(provider || 'Unknown')
     }
 
@@ -1063,6 +1064,7 @@ export default function AiSettingsPage() {
                       label: conn.name,
                       description: conn.providerType === 'anthropic' ? 'Anthropic API' :
                                    conn.providerType === 'pi' ? 'Craft Agents Backend' :
+                                   conn.providerType === 'omp' ? 'OMP' :
                                    conn.providerType === 'pi_compat' ? (conn.baseUrl?.toLowerCase().includes('manifest.build') ? 'Manifest' : 'Craft Agents Backend Compatible') :
                                    conn.providerType || 'Unknown',
                     }))}

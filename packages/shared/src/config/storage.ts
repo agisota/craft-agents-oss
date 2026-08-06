@@ -2524,8 +2524,10 @@ export function migrateOrphanedDefaultConnections(): void {
  *
  * When the config has no LLM connections at all (fresh install), a single
  * "rox-kimi" connection is created pointing at the Rox gateway
- * (https://api.rox.one/v1, OpenAI-completions protocol) with kimi-K3 as the
- * default model, and it becomes the global default for new sessions.
+ * (https://api.rox.one/v1) and runs on the OMP backend (providerType 'omp')
+ * with kimi-K3 as the default model. OMP reads the gateway credentials from
+ * its own config (~/.omp/agent/config.yml); the ROX_API_KEY env var is still
+ * mirrored into the craft credential store for potential pi_compat fallback.
  *
  * The API key is NOT baked into the repo. It is stored in the encrypted
  * credential store when available from the ROX_API_KEY environment variable
@@ -2550,12 +2552,10 @@ export async function seedDefaultLlmConnection(): Promise<void> {
 
   const connection: LlmConnection = {
     slug: ROX_DEFAULT_CONNECTION_SLUG,
-    name: 'Rox (Kimi K3)',
-    providerType: 'pi_compat',
-    piAuthProvider: 'openai',
+    name: 'Rox (Kimi K3) · OMP',
+    providerType: 'omp',
     baseUrl: 'https://api.rox.one/v1',
-    authType: 'api_key',
-    customEndpoint: { api: 'openai-completions' },
+    authType: 'none',
     models: [
       {
         id: 'kimi-K3',

@@ -137,6 +137,7 @@ function getProviderLabelFromType(providerType?: LlmProviderType, baseUrl?: stri
       case 'anthropic': return 'Anthropic';
       case 'pi':
       case 'pi_compat': return 'Craft Agents Backend';
+      case 'omp': return 'OMP';
     }
   }
   // Fallback: derive from base URL or default

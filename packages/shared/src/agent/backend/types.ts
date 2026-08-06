@@ -51,7 +51,7 @@ import type { AutomationSystem } from '../../automations/index.ts';
  * Provider identifier for AI backends.
  * @deprecated Use ModelProvider from config/models.ts instead
  */
-export type AgentProvider = ModelProvider;
+export type AgentProvider = ModelProvider | 'omp';
 
 
 // ============================================================

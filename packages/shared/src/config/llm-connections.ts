@@ -52,7 +52,8 @@ export function registerPiModelResolver(resolver: PiModelResolver): void {
 export type LlmProviderType =
   | 'anthropic'
   | 'pi'
-  | 'pi_compat';
+  | 'pi_compat'
+  | 'omp';
 
 /**
  * @deprecated Use LlmProviderType instead. Kept for migration compatibility.
@@ -462,6 +463,16 @@ export function isPiProvider(providerType: LlmProviderType): boolean {
 }
 
 /**
+ * Check if a provider type uses the OMP CLI backend (`omp --mode rpc`).
+ * OMP manages its own auth/config (~/.omp) — no API keys resolved by craft.
+ * @param providerType - Provider type to check
+ * @returns true if this provider uses the OMP subprocess backend
+ */
+export function isOmpProvider(providerType: LlmProviderType): boolean {
+  return providerType === 'omp';
+}
+
+/**
  * Default mid-stream send behavior for a given provider type.
  *
  * - 'anthropic' → 'queue': Claude's emulated steer (PreToolUse hook injection)
@@ -471,9 +482,13 @@ export function isPiProvider(providerType: LlmProviderType): boolean {
  * - 'pi' / 'pi_compat' → 'steer': Pi's native `.steer()` is non-destructive
  *   (delivers after the current tool finishes, keeps full context). No
  *   downside to defaulting to immediate steering.
+ * - 'omp' → 'queue': OMP's RPC `steer` command exists but delivery guarantees
+ *   mid-turn are weaker than Pi's native steer (fire-and-forget response).
+ *   Default to queue for predictability.
  */
 export function defaultMidStreamBehavior(providerType: LlmProviderType): MidStreamBehavior {
-  return providerType === 'anthropic' ? 'queue' : 'steer';
+  if (providerType === 'anthropic' || providerType === 'omp') return 'queue';
+  return 'steer';
 }
 
 /**
@@ -648,6 +663,7 @@ export function getDefaultModelsForConnection(providerType: LlmProviderType, piA
     return models;
   }
   if (providerType === 'pi_compat') return [];  // Dynamic — user specifies
+  if (providerType === 'omp') return [];  // Dynamic — OMP CLI owns its model catalog
   // anthropic
   return ANTHROPIC_MODELS;
 }
@@ -735,6 +751,8 @@ export function isValidProviderAuthCombination(
     anthropic: ['api_key', 'oauth'],
     pi: ['api_key', 'oauth', 'iam_credentials', 'environment', 'none'],
     pi_compat: ['api_key_with_endpoint', 'none'],
+    // OMP reads its own credentials from ~/.omp/agent config — craft stores nothing
+    omp: ['none', 'environment'],
   };
 
   return validCombinations[providerType]?.includes(authType) ?? false;

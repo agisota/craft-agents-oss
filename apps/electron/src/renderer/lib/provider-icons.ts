@@ -183,6 +183,8 @@ export function getProviderIcon(
       return providerIcons.openai
     case 'copilot':
       return providerIcons.copilot
+    case 'omp':
+      return null  // OMP — caller shows default provider icon
     case 'pi':
     case 'pi_compat': {
       // Resolve to actual upstream provider icon

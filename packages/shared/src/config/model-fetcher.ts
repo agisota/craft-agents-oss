@@ -28,6 +28,9 @@ import type { LlmProviderType, LlmConnection } from './llm-connections';
  */
 export type FetchableProvider = Exclude<LlmProviderType,
   | 'pi_compat'
+  // OMP owns its model catalog via `get_available_models` RPC — host-side
+  // HTTP fetchers would need to shell out to the CLI, so no fetcher is registered.
+  | 'omp'
 >;
 
 /**

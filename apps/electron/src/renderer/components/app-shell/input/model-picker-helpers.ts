@@ -38,6 +38,7 @@ export function groupConnectionsByProvider<T extends LlmConnection>(
 ): Array<[string, T[]]> {
   const groups: Record<string, T[]> = {
     'Anthropic': [],
+    'OMP': [],
     'Local': [],
     'Craft Agents Backend': [],
   }
@@ -45,6 +46,8 @@ export function groupConnectionsByProvider<T extends LlmConnection>(
     const provider = conn.providerType || 'anthropic'
     if (provider === 'anthropic') {
       groups['Anthropic'].push(conn)
+    } else if (provider === 'omp') {
+      groups['OMP'].push(conn)
     } else if (provider === 'pi_compat' && isLocalConnection(conn)) {
       groups['Local'].push(conn)
     } else if (provider === 'pi' || provider === 'pi_compat') {
