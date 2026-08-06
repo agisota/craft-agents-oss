@@ -54,6 +54,15 @@ import {
 
 // Config stored in JSON file (credentials stored in encrypted file, not here)
 export interface StoredConfig {
+  // Cloud Runs (PRD docs/cloud-runs-prd.md). Token lives in <configDir>/cloud-runs.env, not here.
+  cloudRuns?: {
+    enabled?: boolean;
+    provider?: 'local' | 'cloudflare' | 'modal' | 'e2b';
+    gatewayUrl?: string;
+    defaultMaxWallClockSec?: number;
+    defaultMaxLlmTokens?: number;
+    defaultMaxArtifactsBytes?: number;
+  };
   // LLM Connections (authoritative source for auth and model config)
   llmConnections?: LlmConnection[];
   defaultLlmConnection?: string;  // Slug of default connection for new sessions

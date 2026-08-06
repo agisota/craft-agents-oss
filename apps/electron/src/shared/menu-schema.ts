@@ -388,6 +388,8 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   labels: 'Tag',
   messaging: 'MessageSquare',
   server: 'Server',
+  toolchain: 'Wrench',
+  cloudRuns: 'Cloud',
   shortcuts: 'Keyboard',
   preferences: 'UserCircle',
 }

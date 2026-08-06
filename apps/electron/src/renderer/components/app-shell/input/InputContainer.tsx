@@ -8,6 +8,7 @@ import { useOptionalAppShellContext } from '@/context/AppShellContext'
 import type { StructuredInputState, StructuredResponse, InputMode } from './structured/types'
 import { getStructuredInputMaxHeight } from './structured-height'
 import { BackgroundFinishedChip } from '../BackgroundFinishedChip'
+import { CloudRunsChip } from '@/components/cloud-runs/CloudRunsChip'
 
 interface InputContainerProps extends Omit<FreeFormInputProps, 'inputRef'> {
   /** Structured input state - when present, shows structured UI instead of freeform */
@@ -293,6 +294,11 @@ export function InputContainer({
        * so the chip's soft shadow isn't clipped. */}
       {mode === 'freeform' && freeFormProps.sessionId && (
         <BackgroundFinishedChip sessionId={freeFormProps.sessionId} />
+      )}
+      {/* Cloud research runs entry point — same float position pattern;
+       * self-contained, renders nothing when the feature is disabled. */}
+      {mode === 'freeform' && freeFormProps.sessionId && (
+        <CloudRunsChip sessionId={freeFormProps.sessionId} />
       )}
     </div>
   )

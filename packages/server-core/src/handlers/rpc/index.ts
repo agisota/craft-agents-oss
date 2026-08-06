@@ -2,6 +2,7 @@ import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
 import { registerAuthHandlers } from './auth'
+import { registerCloudRunsHandlers } from './cloud-runs'
 import { registerAutomationsHandlers } from './automations'
 import { registerFilesHandlers } from './files'
 import { registerLabelsHandlers } from './labels'
@@ -22,6 +23,7 @@ import { registerSourcesHandlers } from './sources'
 import { registerStatusesHandlers } from './statuses'
 import { registerSystemCoreHandlers } from './system'
 import { registerTasksHandlers } from './tasks'
+import { registerToolchainHandlers } from './toolchain'
 import { registerTransferHandlers } from './transfer'
 import { registerWorkspaceCoreHandlers } from './workspace'
 import { registerMessagingHandlers } from './messaging'
@@ -34,6 +36,7 @@ export function registerCoreRpcHandlers(
   serverCtx?: ServerHandlerContext,
 ): void {
   registerAuthHandlers(server, deps)
+  registerCloudRunsHandlers(server, deps)
   registerAutomationsHandlers(server, deps)
   registerFilesHandlers(server, deps)
   registerLabelsHandlers(server, deps)
@@ -50,6 +53,7 @@ export function registerCoreRpcHandlers(
   registerStatusesHandlers(server, deps)
   registerSystemCoreHandlers(server, deps)
   registerTasksHandlers(server, deps)
+  registerToolchainHandlers(server, deps)
   registerTransferHandlers(server)
   registerWorkspaceCoreHandlers(server, deps)
   registerMessagingHandlers(server, deps)

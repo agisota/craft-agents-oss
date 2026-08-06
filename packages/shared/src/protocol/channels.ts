@@ -4,6 +4,17 @@
  * Key paths are internal and may be reorganized freely.
  */
 export const RPC_CHANNELS = {
+  cloudRuns: {
+    GET_CONFIG: 'cloudRuns:getConfig',
+    SET_CONFIG: 'cloudRuns:setConfig',
+    SUBMIT: 'cloudRuns:submit',
+    LIST: 'cloudRuns:list',
+    GET_STATUS: 'cloudRuns:getStatus',
+    CANCEL: 'cloudRuns:cancel',
+    LIST_ARTIFACTS: 'cloudRuns:listArtifacts',
+    IMPORT: 'cloudRuns:import',
+    AGGREGATE: 'cloudRuns:aggregate',
+  },
   remote: {
     TEST_CONNECTION: 'remote:testConnection',
   },
@@ -300,6 +311,11 @@ export const RPC_CHANNELS = {
     LIST: 'statuses:list',
     REORDER: 'statuses:reorder',
     CHANGED: 'statuses:changed',
+  },
+  toolchain: {
+    STATUS: 'toolchain:status',
+    STATUS_CHANGED: 'toolchain:statusChanged',
+    UPDATE: 'toolchain:update',
   },
   labels: {
     LIST: 'labels:list',

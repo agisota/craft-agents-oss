@@ -26,4 +26,6 @@ export { LocalSubprocessProvider } from './local-provider.ts';
 export type { LocalProviderOptions } from './local-provider.ts';
 export { CloudflareComputerProvider } from './cloudflare-provider.ts';
 export type { CloudflareProviderOptions } from './cloudflare-provider.ts';
+export { buildResearchSpec } from './research-pack.ts';
+export type { ResearchPackOptions } from './research-pack.ts';
 export { conformanceSuite } from './conformance.ts';

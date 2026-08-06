@@ -1,10 +1,11 @@
 # PRD: Cloud Runs — облачное продолжение сессий («глубокий рисёрч» и фоновые задачи)
 
-> **Фазы 1–2 завершены (2026-08-06):**
+> **Фазы 1–3 завершены (2026-08-06):**
 > - Фаза 1 (commit 5e9934e63): `packages/cloud-runner` — контракт, LocalSubprocessProvider, conformanceSuite, секция `cloudRuns` в validators.ts.
 > - Фаза 2 (рабочий деплой): `apps/cloud-gateway` задеплоен как `craft-cloud-gateway.scharlesky-192.workers.dev` (Worker + RunDO + контейнерный runner на `@cloudflare/computer@0.1.0-alpha.1`, образ с baked-in runner.mjs). Live-прогон: 2 рисёрч-сабтаска через Kimi-K3 (api.rox.one/v1) за ~10 s wall-clock, markdown-артефакты возвращены по HTTP. **Live conformance suite против gateway — green** (idempotency, terminal state, artifact round-trip, traversal, events, cancel, not_found).
 > - Найденные при реализации: (а) в alpha API поверхность — `getWorkspace(this).shell.exec` + `fs`, НЕ `runtime.exec` (это main-нейминг); (б) dirent-флаги через RPC приходят ненадёжными — recursion по `stat().isDirectory`; (в) LLM-gateway отдаёт SSE стрим по умолчанию — runner отправляет `stream:false` + SSE-fallback; (г) при редеплое с rollout'ом CF убивает живые контейнеры mid-exec (`exit -1`) — не деплоить под нагрузкой; рассмотреть rollout_step_percentage постепенный + retry шага в alarm.
-> - Секреты в воркере: CLOUD_RUNS_TOKEN (слабый spike — заменить), LLM_BASE_URL/LLM_API_KEY/LLM_MODEL (api.rox.one). Auth craft-JWT — фаза G3, v1 bearer.
+> - Секреты в воркере: CLOUD_RUNS_TOKEN (перевыпущен на сильный, лежит в ~/.craft-agent/cloud-runs.env), LLM_BASE_URL/LLM_API_KEY/LLM_MODEL (api.rox.one). Auth craft-JWT — отдельный follow-up, v1 bearer.
+> - Фаза 3 (app integration): каналы `cloudRuns.*` + handlers в server-core (provider factory из config.json + токен из cloud-runs.env; registry для LIST; workspaceId резолвится из sessionId), research prompt-pack (RU/EN, 5 сабтасков), composer chip CloudRunsChip (self-contained, фон-поллинг + toast по done, dialog: submit/list/cancel/import/aggregate), settings-страница Cloud Runs (enable/provider/gatewayUrl/limits; token status), i18n ×8 локалей, ElectronAPI типы. Аггрегатор: импорт в workspaces/<id>/runs/<runId>/ + sendMessage в исходную сессию. Тесты: handler-level suite (local provider, 6/6 green), channel-map parity, conformance local+live, electron tsc clean.
 
 > **Spike results (2026-08-06, аккаунт ROX, workers `computer-container-example.scharlesky-192.workers.dev`):**
 > - ✅ Round-trip: exec в контейнере (root, Debian, Node 22.23.2, Linux x86_64) → sync в DO → GET артефакта через воркер. Push (DO→контейнер) тоже работает.

@@ -8,6 +8,7 @@
 
 import {
   Building2,
+  Cloud,
   Keyboard,
   MessageSquare,
   Palette,
@@ -17,6 +18,7 @@ import {
   Tag,
   ToggleRight,
   UserCircle,
+  Wrench,
 } from 'lucide-react'
 import type { SettingsSubpage } from '../../../shared/types'
 
@@ -24,6 +26,7 @@ type IconProps = { className?: string }
 
 export const AppSettingsIcon = ({ className }: IconProps) => <ToggleRight className={className} />
 export const AiSettingsIcon = ({ className }: IconProps) => <Sparkles className={className} />
+export const CloudRunsIcon = ({ className }: IconProps) => <Cloud className={className} />
 export const AppearanceIcon = ({ className }: IconProps) => <Palette className={className} />
 export const InputIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className={className} />
@@ -33,6 +36,7 @@ export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquar
 export const ServerSettingsIcon = ({ className }: IconProps) => <Server className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
+export const ToolchainIcon = ({ className }: IconProps) => <Wrench className={className} />
 
 /**
  * Map of settings subpage IDs to their icon components.
@@ -48,6 +52,8 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   labels: LabelsIcon,
   messaging: MessagingSettingsIcon,
   server: ServerSettingsIcon,
+  toolchain: ToolchainIcon,
+  cloudRuns: CloudRunsIcon,
   shortcuts: ShortcutsIcon,
   preferences: PreferencesIcon,
 }
