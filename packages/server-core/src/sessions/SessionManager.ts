@@ -1923,6 +1923,20 @@ export class SessionManager implements ISessionManager {
     }
   }
 
+  /**
+   * Default permission mode for restored sessions that have no explicit mode
+   * persisted. Resolves through bundled defaults (workspaceDefaults.permissionMode,
+   * currently allow-all / «Выполнение») so restored sessions preselect Execute
+   * just like freshly created ones; explicit user choices still win.
+   */
+  private defaultRestorePermissionMode(): PermissionMode {
+    try {
+      return loadConfigDefaults().workspaceDefaults.permissionMode
+    } catch {
+      return 'ask'
+    }
+  }
+
   async initialize(): Promise<void> {
     try {
       // Backfill missing `models` arrays on existing LLM connections
@@ -2000,7 +2014,7 @@ export class SessionManager implements ISessionManager {
 
           // Initialize mode-manager state for restored sessions even before agent creation.
           // This keeps diagnostics/effective mode aligned with persisted session metadata.
-          setPermissionMode(meta.id, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+          setPermissionMode(meta.id, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
           if (managed.previousPermissionMode) {
             hydratePreviousPermissionMode(meta.id, managed.previousPermissionMode)
           }
@@ -3054,7 +3068,7 @@ export class SessionManager implements ISessionManager {
 
     // Initialize mode-manager state immediately to avoid UI/enforcement races
     // before the agent instance is lazily created.
-    setPermissionMode(storedSession.id, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+    setPermissionMode(storedSession.id, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
     if (managed.previousPermissionMode) {
       hydratePreviousPermissionMode(storedSession.id, managed.previousPermissionMode)
     }
@@ -8944,7 +8958,7 @@ export class SessionManager implements ISessionManager {
     })
     managed.messages = bundleMessages.map(storedToMessage)
 
-    setPermissionMode(sessionId, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+    setPermissionMode(sessionId, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
     if (managed.previousPermissionMode) {
       hydratePreviousPermissionMode(sessionId, managed.previousPermissionMode)
     }
