@@ -90,4 +90,41 @@ describe('installer', () => {
     assertExecBits(binFile);
     expect(fs.existsSync(path.join(paths.toolchainDir, 'jq', 'current', 'bin', 'jq'))).toBe(true);
   });
+
+  it('installTool (npm tarball): генерирует именованные лончеры из package.json bin', async () => {
+    // нпм-пакет как у omp: package/package.json с bin { demo-cli: dist/cli.js }
+    const pkgRoot = path.join(tmpDir, 'npm-fixture', 'package');
+    fs.mkdirSync(path.join(pkgRoot, 'dist'), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: 'demo-cli', version: '1.0.0', bin: { 'demo-cli': 'dist/cli.js' } }),
+    );
+    fs.writeFileSync(path.join(pkgRoot, 'dist', 'cli.js'), '#!/usr/bin/env bun\nconsole.log(1)\n', {
+      mode: 0o755,
+    });
+    const tarball = path.join(tmpDir, `npm-fixture-${process.pid}.tar.gz`);
+    const tar = Bun.spawn(['tar', '-czf', tarball, '-C', path.join(tmpDir, 'npm-fixture'), 'package']);
+    expect(await tar.exited).toBe(0);
+
+    const configDir = path.join(tmpDir, 'cfg-npm');
+    const paths = toolchainPaths(configDir);
+    const result = await installTool(paths, 'omp', '1.0.0', tarball, {
+      url: 'file://fixture',
+      sha256: 'unused',
+      size: 1,
+      archive: 'tar.gz',
+      binPaths: ['bin/demo-cli'],
+    });
+    const launcher = path.join(result.installedPath, 'bin', 'demo-cli');
+    expect(fs.existsSync(launcher)).toBe(true);
+    const content = fs.readFileSync(launcher, 'utf8');
+    expect(content).toContain('"$DIR/../package/dist/cli.js"');
+    expect(content).toContain('CRAFT_BUN_PATH');
+    if (!isWindows) {
+      assertExecBits(launcher);
+      expect(fs.lstatSync(launcher).mode & 0o755).not.toBe(0);
+    }
+    // windows-вариант генерируется всегда
+    expect(fs.existsSync(path.join(result.installedPath, 'bin', 'demo-cli.cmd'))).toBe(true);
+  });
 });

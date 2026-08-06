@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { downloadArtifact, HttpError, NetworkError, ShaMismatchError } from './downloader';
-import { installTool } from './installer';
+import { cleanupOldVersions, flipCurrent, installTool } from './installer';
 import { currentPlatform, TOOLCHAIN_MANIFEST } from './manifest';
 import { createResolver } from './resolver';
 import { StatusEmitter } from './status';
@@ -88,19 +88,34 @@ export function createManager(
     await writeStateFile(paths.stateFile, state);
   }
 
-  /** Установка python через системный/бандловый uv (через PATH-резолвер). */
-  async function installUvPython(entry: ToolEntry): Promise<void> {
+  /** Установка python через toolchain/системный uv (резолвер toolchain-first). */
+  async function installUvPython(entry: ToolEntry): Promise<{ installedPath: string }> {
     const uv = await resolver.findExecutable('uv');
     if (!uv) {
       throw new Error('uv not found: cannot install bundled python (integration must expose uv on PATH)');
     }
-    const installDir = path.join(paths.toolchainDir, 'python');
+    // Layout зеркалит обычные инструменты: python/<version>/cpython-…/ +
+    // stable link .pyinstall (binPaths манифеста относительны current).
+    const toolRoot = path.join(paths.toolchainDir, 'python');
+    const versionDir = path.join(toolRoot, entry.version);
     const proc = Bun.spawn(
-      [uv, 'python', 'install', entry.version, '--install-dir', installDir],
+      [uv, 'python', 'install', entry.version, '--install-dir', versionDir],
       { stdout: 'pipe', stderr: 'pipe' },
     );
     const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
     if (code !== 0) throw new Error(`uv python install failed: ${stderr.trim()}`);
+
+    // Находим cpython-директорию (ручное имя содержит patch-версию/платформу,
+    // в манифест его не зашить) и ссылаемся на неё стабильным .pyinstall.
+    const entries = await fs.promises.readdir(versionDir);
+    const cpython = entries.find((e) => e.startsWith('cpython-'));
+    if (!cpython) throw new Error(`uv python install: cpython dir not found in ${versionDir}`);
+    const link = path.join(versionDir, '.pyinstall');
+    await fs.promises.rm(link, { force: true, recursive: true });
+    await fs.promises.symlink(cpython, link);
+    await flipCurrent(toolRoot, entry.version, versionDir);
+    await cleanupOldVersions(toolRoot, entry.version);
+    return { installedPath: versionDir };
   }
 
   async function installOne(item: WorkItem): Promise<void> {
@@ -111,8 +126,7 @@ export function createManager(
     try {
       if (artifact.archive === 'uv-python') {
         setStatus({ name: entry.name, phase: 'installing' });
-        await installUvPython(entry);
-        const installedPath = path.join(paths.toolchainDir, 'python');
+        const { installedPath } = await installUvPython(entry);
         const result = { installedPath, installedVersion: entry.version };
         await persistTool(entry.name, result);
         setStatus({ name: entry.name, phase: 'ready', ...result });
@@ -250,12 +264,36 @@ export function createManager(
     }
 
     const startRun = (): Promise<void> => {
-      const run = runPool(plan).finally(() => {
+      // Волны по dependsOn: провайдеры (bun, uv) ставятся до зависимых
+      // (omp — нужен bun для npm install deps; python — нужен uv).
+      const run = (async () => {
+        const installedNames = new Set<ToolName>();
+        try {
+          const st = await readStateFile(paths.stateFile);
+          for (const [n, meta] of Object.entries(st.tools)) {
+            if (meta?.installedVersion && fs.existsSync(meta.installedPath)) {
+              installedNames.add(n as ToolName);
+            }
+          }
+        } catch {
+          // state unreadable — волнами только по плану
+        }
+        const remaining = [...plan];
+        while (remaining.length > 0) {
+          const wave = remaining.filter((i) =>
+            (i.entry.dependsOn ?? []).every((d) => installedNames.has(d)),
+          );
+          const batch = wave.length > 0 ? wave : remaining; // цикл: ставим как есть
+          for (const w of batch) remaining.splice(remaining.indexOf(w), 1);
+          await runPool(batch);
+          for (const w of batch) installedNames.add(w.entry.name);
+        }
+      })().finally(() => {
         if (activeRun === run) activeRun = null;
       });
       activeRun = run;
       return run;
-    };
+    }
 
     if (optsEnsure?.background !== false) {
       // фон: статусы по ходу через onStatusChange; ошибки не летят наружу

@@ -15,6 +15,7 @@ export interface ManifestToolData {
   version: string;
   displayName: string;
   critical?: boolean;
+  dependsOn?: ToolName[];
   artifacts: Partial<Record<ToolchainPlatform, ToolArtifact>>;
 }
 
@@ -29,6 +30,8 @@ export const TOOL_PLATFORM_MATRIX: Record<ToolName, ToolchainPlatform[]> = {
   jq: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   yq: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   git: ['win32-x64'],
+  bun: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  uv: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
 };
 
 function uvPython(binPaths: string[]): ToolArtifact {
@@ -43,39 +46,42 @@ function uvPython(binPaths: string[]): ToolArtifact {
 
 export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // omp 17.2.10 — npm tarball @oh-my-pi/pi-coding-agent (платформонезависимый JS).
-  // sha256 скачанного tarball; npm integrity (sha512) сверен; bin = package.json "bin" → dist/cli.js.
+  // sha256 скачанного tarball; npm integrity (sha512) сверен.
+  // binPaths — именованные лончеры, которые installer генерирует из package.json "bin" (bin/omp + bin/omp.cmd).
   omp: {
     version: '17.2.10',
     displayName: 'omp (Oh My Pi)',
     critical: true,
+    // npm-тарболл + bun install deps (pi-natives) — bun обязан стоять первым волной.
+    dependsOn: ['bun'],
     artifacts: {
       'darwin-arm64': {
         url: 'https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/-/pi-coding-agent-17.2.10.tgz',
         sha256: 'e2789960126f237842ec735af6f39a89ea4c2b1792bddc8bb78e9d148477aa85',
         size: 10202985,
         archive: 'tar.gz',
-        binPaths: ['package/dist/cli.js'],
+        binPaths: ['bin/omp'],
       },
       'darwin-x64': {
         url: 'https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/-/pi-coding-agent-17.2.10.tgz',
         sha256: 'e2789960126f237842ec735af6f39a89ea4c2b1792bddc8bb78e9d148477aa85',
         size: 10202985,
         archive: 'tar.gz',
-        binPaths: ['package/dist/cli.js'],
+        binPaths: ['bin/omp'],
       },
       'linux-x64': {
         url: 'https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/-/pi-coding-agent-17.2.10.tgz',
         sha256: 'e2789960126f237842ec735af6f39a89ea4c2b1792bddc8bb78e9d148477aa85',
         size: 10202985,
         archive: 'tar.gz',
-        binPaths: ['package/dist/cli.js'],
+        binPaths: ['bin/omp'],
       },
       'win32-x64': {
         url: 'https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/-/pi-coding-agent-17.2.10.tgz',
         sha256: 'e2789960126f237842ec735af6f39a89ea4c2b1792bddc8bb78e9d148477aa85',
         size: 10202985,
         archive: 'tar.gz',
-        binPaths: ['package/dist/cli.js'],
+        binPaths: ['bin/omp.cmd'],
       },
     },
   },
@@ -84,11 +90,13 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   python: {
     version: '3.12',
     displayName: 'Python 3.12',
+    // ставится только через toolchain uv — строго после него (волны dependsOn).
+    dependsOn: ['uv'],
     artifacts: {
-      'darwin-arm64': uvPython(['bin/python3', 'bin/python3.12']),
-      'darwin-x64': uvPython(['bin/python3', 'bin/python3.12']),
-      'linux-x64': uvPython(['bin/python3', 'bin/python3.12']),
-      'win32-x64': uvPython(['python.exe']),
+      'darwin-arm64': uvPython(['.pyinstall/bin/python3', '.pyinstall/bin/python3.12']),
+      'darwin-x64': uvPython(['.pyinstall/bin/python3', '.pyinstall/bin/python3.12']),
+      'linux-x64': uvPython(['.pyinstall/bin/python3', '.pyinstall/bin/python3.12']),
+      'win32-x64': uvPython(['.pyinstall/python.exe']),
     },
   },
 
@@ -328,6 +336,81 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
         size: 148267877,
         archive: 'zip',
         binPaths: ['ffmpeg-N-125978-g95c43d7df7-win64-lgpl/bin/ffmpeg.exe'],
+      },
+    },
+  },
+
+  // bun 1.3.14 — oven-sh/bun GitHub releases. sha256 сверены с SHASUMS256.txt релиза;
+  // darwin-aarch64 дополнительно скачан и перепроверен локально.
+  // Non-baseline сборки (для M1+/современных CPU). binPaths включают top-level dir zip'а.
+  bun: {
+    version: '1.3.14',
+    displayName: 'Bun',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip',
+        sha256: 'd8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620',
+        size: 23586433,
+        archive: 'zip',
+        binPaths: ['bun-darwin-aarch64/bun'],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip',
+        sha256: '4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633',
+        size: 26509109,
+        archive: 'zip',
+        binPaths: ['bun-darwin-x64/bun'],
+      },
+      'linux-x64': {
+        url: 'https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip',
+        sha256: '951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f',
+        size: 35969274,
+        archive: 'zip',
+        binPaths: ['bun-linux-x64/bun'],
+      },
+      'win32-x64': {
+        url: 'https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-windows-x64.zip',
+        sha256: '0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922',
+        size: 38366737,
+        archive: 'zip',
+        binPaths: ['bun-windows-x64/bun.exe'],
+      },
+    },
+  },
+
+  // uv 0.12.2 — astral-sh/uv GitHub releases. sha256 сверены с опубликованными
+  // <asset>.sha256 файлами релиза; darwin-aarch64 дополнительно скачан и перепроверен локально.
+  uv: {
+    version: '0.12.2',
+    displayName: 'uv (Astral)',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/astral-sh/uv/releases/download/0.12.2/uv-aarch64-apple-darwin.tar.gz',
+        sha256: 'fa909fea3bc06f460db79017030a221fdbc43ec4478f089cb554d8335c090817',
+        size: 17676261,
+        archive: 'tar.gz',
+        binPaths: ['uv-aarch64-apple-darwin/uv'],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/astral-sh/uv/releases/download/0.12.2/uv-x86_64-apple-darwin.tar.gz',
+        sha256: 'a6e6506a9109801222d65d17461abf4ed13bdecc5d2b13af0495418a82972c6b',
+        size: 19517927,
+        archive: 'tar.gz',
+        binPaths: ['uv-x86_64-apple-darwin/uv'],
+      },
+      'linux-x64': {
+        url: 'https://github.com/astral-sh/uv/releases/download/0.12.2/uv-x86_64-unknown-linux-gnu.tar.gz',
+        sha256: 'd66e96b5f1ca3b99806eee283a8125d33a0bd669e6e6d9bc4ab7ffda63c41bf4',
+        size: 21700643,
+        archive: 'tar.gz',
+        binPaths: ['uv-x86_64-unknown-linux-gnu/uv'],
+      },
+      'win32-x64': {
+        url: 'https://github.com/astral-sh/uv/releases/download/0.12.2/uv-x86_64-pc-windows-msvc.zip',
+        sha256: '01442d8ce5c7124151a73e697c836d252c6da853c18c73206d3cc4c2378a91d2',
+        size: 18977266,
+        archive: 'zip',
+        binPaths: ['uv-x86_64-pc-windows-msvc/uv.exe'],
       },
     },
   },

@@ -14,7 +14,9 @@ export type ToolName =
   | 'gh'
   | 'jq'
   | 'yq'
-  | 'git';
+  | 'git'
+  | 'bun'
+  | 'uv';
 
 /** Один артефакт для скачивания под конкретную платформу. */
 export interface ToolArtifact {
@@ -40,6 +42,8 @@ export interface ToolEntry {
   version: string;
   /** Критичный (omp): блокирует дефолтное OMP-подключение; статус дублируется в UI подключением. */
   critical?: boolean;
+  /** Инструменты, которые должны быть установлены раньше (волнами ensureAll). */
+  dependsOn?: ToolName[];
   /** Показываемая подсказка/icon для UI. */
   displayName: string;
   /** Per-platform записи. Отсутствие ключа = инструмент недоступен/не нужен на этой платформе (git: только win32-x64). */

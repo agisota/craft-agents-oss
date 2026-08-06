@@ -66,9 +66,101 @@ export async function extractArtifact(
   }
 }
 
+/**
+ * npm-тарболлы кладут исполняемый файл как js (например package/dist/cli.js),
+ * а имя CLI задаётся в package.json bin. Генерируем лончеры в <versionDir>/bin/
+ * с правильным именем (bin/omp, bin/omp.cmd), чтобы резолвер находил их как
+ * обычный исполняемый файл. Bun для запуска: CRAFT_BUN_PATH env → toolchain
+ * bun → bun из PATH.
+ */
+async function generateNpmWrappers(toolDir: string): Promise<string[]> {
+  const pkgFile = path.join(toolDir, 'package', 'package.json');
+  let pkgBin: Record<string, string> | undefined;
+  try {
+    const pkg = JSON.parse(await fs.promises.readFile(pkgFile, 'utf8'));
+    pkgBin = typeof pkg.bin === 'string' ? { [pkg.name ?? 'bin']: pkg.bin } : pkg.bin;
+  } catch {
+    return [];
+  }
+  if (!pkgBin || typeof pkgBin !== 'object') return [];
+
+  const binDir = path.join(toolDir, 'bin');
+  await fs.promises.mkdir(binDir, { recursive: true });
+  const created: string[] = [];
+  for (const [name, rel] of Object.entries(pkgBin)) {
+    if (typeof rel !== 'string' || !rel) continue;
+    // unix wrapper: ../package/<rel> относительно bin/
+    const sh =
+      '#!/bin/sh\n' +
+      'DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+      'if [ -n "$CRAFT_BUN_PATH" ] && [ -x "$CRAFT_BUN_PATH" ]; then\n' +
+      '  BUN="$CRAFT_BUN_PATH"\n' +
+      'else\n' +
+      '  BUN=""\n' +
+      '  for c in "$DIR"/../../../bun/current/bun "$DIR"/../../../bun/current/*/bun; do\n' +
+      '    if [ -x "$c" ]; then BUN="$c"; break; fi\n' +
+      '  done\n' +
+      '  [ -z "$BUN" ] && BUN="bun"\n' +
+      'fi\n' +
+      `exec "$BUN" "$DIR/../package/${rel}" "$@"\n`;
+    await fs.promises.writeFile(path.join(binDir, name), sh, { mode: 0o755 });
+    created.push(path.join('bin', name));
+    // windows wrapper
+    const cmd =
+      '@echo off\r\n' +
+      'setlocal\r\n' +
+      'set "BUN=%CRAFT_BUN_PATH%"\r\n' +
+      'if "%BUN%"=="" if exist "%~dp0..\\..\\..\\bun\\current\\bun-windows-x64\\bun.exe" set "BUN=%~dp0..\\..\\..\\bun\\current\\bun-windows-x64\\bun.exe"\r\n' +
+      'if "%BUN%"=="" set "BUN=bun"\r\n' +
+      `"%BUN%" "%~dp0..\\package\\${rel.replace(/\//g, '\\')}" %*\r\n`;
+    await fs.promises.writeFile(path.join(binDir, `${name}.cmd`), cmd);
+    created.push(path.join('bin', `${name}.cmd`));
+  }
+  return created;
+}
+
+/**
+ * `bun install` в распакованном npm-пакете: поставляет зависимости артефакта
+ * (в т.ч. optional native-пакеты вроде @oh-my-pi/pi-natives), без которых
+ * tarball сам по себе неработоспособен. Bun: CRAFT_BUN_PATH env → toolchain
+ * bun → PATH. Вызывается только для npm-пакетов (есть package/package.json bin).
+ */
+async function npmInstallDeps(paths: ToolchainPaths, toolDir: string): Promise<void> {
+  const envBun = process.env.CRAFT_BUN_PATH?.trim();
+  let bunExe: string | undefined = envBun && fs.existsSync(envBun) ? envBun : undefined;
+  if (!bunExe && !isWindows) {
+    const bunRoot = path.join(paths.toolchainDir, 'bun', 'current');
+    try {
+      for (const entry of await fs.promises.readdir(bunRoot)) {
+        const candidate = path.join(bunRoot, entry, 'bun');
+        if (fs.existsSync(candidate)) {
+          bunExe = candidate;
+          break;
+        }
+      }
+    } catch {
+      // toolchain bun ещё не установлен
+    }
+    bunExe ??= Bun.which('bun') ?? undefined;
+  }
+  if (!bunExe) {
+    throw new Error('bun not found: cannot install npm deps (CRAFT_BUN_PATH / toolchain bun / PATH)');
+  }
+  const pkgDir = path.join(toolDir, 'package');
+  const proc = Bun.spawn([bunExe, 'install', '--production'], {
+    cwd: pkgDir,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+  if (code !== 0) {
+    throw new Error(`npm deps install failed (bun install --production): ${stderr.trim()}`);
+  }
+}
+
 /** chmod +x всем binPaths (unix). Windows не требует. */
 async function chmodBins(toolDir: string, binPaths: string[]): Promise<void> {
-  if (isWindows) return;
+
   for (const rel of binPaths) {
     const file = path.join(toolDir, rel);
     try {
@@ -81,7 +173,7 @@ async function chmodBins(toolDir: string, binPaths: string[]): Promise<void> {
 }
 
 /** Переключить `current` на новую версию атомарно (junction/copy fallback на win32). */
-async function flipCurrent(toolRoot: string, version: string, versionDir: string): Promise<void> {
+export async function flipCurrent(toolRoot: string, version: string, versionDir: string): Promise<void> {
   const currentLink = path.join(toolRoot, 'current');
   const tmpLink = path.join(toolRoot, `.current.tmp-${process.pid}`);
   await fs.promises.rm(tmpLink, { recursive: true, force: true });
@@ -104,7 +196,7 @@ async function flipCurrent(toolRoot: string, version: string, versionDir: string
 }
 
 /** Удалить все кроме указанной версии + partial-файлы в downloads. */
-async function cleanupOldVersions(toolRoot: string, keepVersion: string): Promise<void> {
+export async function cleanupOldVersions(toolRoot: string, keepVersion: string): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.promises.readdir(toolRoot);
@@ -148,6 +240,12 @@ export async function installTool(
     await fs.promises.copyFile(artifactFile, dest);
   } else {
     await extractArtifact(artifactFile, artifact.archive, versionDir);
+    // npm-пакеты: именованные лончеры bin/<name>[.cmd] по package.json bin…
+    const wrappers = await generateNpmWrappers(versionDir);
+    if (wrappers.length > 0) {
+      // …и npm-зависимости (pi-natives и др. — тарболл один неработоспособен).
+      await npmInstallDeps(paths, versionDir);
+    }
   }
   await chmodBins(versionDir, artifact.binPaths);
   await flipCurrent(toolRoot, version, versionDir);

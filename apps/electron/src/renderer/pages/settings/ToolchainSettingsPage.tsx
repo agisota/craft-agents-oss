@@ -42,6 +42,8 @@ export const meta: DetailsPageMeta = {
  */
 const TOOL_ORDER: ToolchainToolName[] = [
   'omp',
+  'bun',
+  'uv',
   'node',
   'python',
   'git',
@@ -54,6 +56,8 @@ const TOOL_ORDER: ToolchainToolName[] = [
 
 const TOOL_LABELS: Record<ToolchainToolName, string> = {
   omp: 'OMP runtime',
+  bun: 'Bun',
+  uv: 'uv',
   node: 'Node.js LTS',
   python: 'Python 3.12',
   git: 'git',
