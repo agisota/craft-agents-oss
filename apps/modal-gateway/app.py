@@ -35,8 +35,8 @@ secret = modal.Secret.from_name("craft-cloud-runs")
 runner_image = modal.Image.debian_slim().pip_install("httpx==0.28.1")
 DATA_ROOT = Path("/data/runs")
 
-DEFAULT_WALL_CLOCK_SEC = 1800
-SUBTASK_TIMEOUT_SEC = 300
+DEFAULT_WALL_CLOCK_SEC = 5400
+SUBTASK_TIMEOUT_SEC = 720
 
 RUNNER_SOURCE = r'''
 import json, os, sys, time
@@ -61,7 +61,7 @@ body = {
         {"role": "user", "content": subtask["prompt"]},
     ],
 }
-resp = httpx.post(f"{base}/chat/completions", headers=headers, json=body, timeout=240)
+resp = httpx.post(f"{base}/chat/completions", headers=headers, json=body, timeout=600)
 if resp.status_code != 200:
     print(f"LLM gateway error {resp.status_code}: {resp.text[:500]}", file=sys.stderr)
     sys.exit(1)
@@ -156,21 +156,28 @@ def driver(spec: dict):
         }))
         volume.commit()
 
-        try:
-            sb = modal.Sandbox.create(
-                "python", "-c", RUNNER_SOURCE, str(workspace),
-                app=app,
-                image=runner_image,
-                volumes={"/data": volume},
-                timeout=SUBTASK_TIMEOUT_SEC + 60,
-            )
-            sb.wait()
-            exit_code = sb.returncode
-            stderr = sb.stderr.read() if exit_code else ""
-        except Exception as exc:
-            set_status(state="failed", failureReason="runner_error", failureDetail=str(exc)[:1000],
-                       finishedAt=int(time.time() * 1000))
-            return
+        exit_code = -1
+        stderr = ""
+        # One retry covers transient LLM 5xx and slow generations; the
+        # deterministic failures just fail fast on the second pass.
+        for _attempt in range(2):
+            try:
+                sb = modal.Sandbox.create(
+                    "python", "-c", RUNNER_SOURCE, str(workspace),
+                    app=app,
+                    image=runner_image,
+                    volumes={"/data": volume},
+                    timeout=SUBTASK_TIMEOUT_SEC + 60,
+                )
+                sb.wait()
+                exit_code = sb.returncode
+                stderr = sb.stderr.read() if exit_code else ""
+                if exit_code == 0:
+                    break
+            except Exception as exc:
+                set_status(state="failed", failureReason="runner_error", failureDetail=str(exc)[:1000],
+                           finishedAt=int(time.time() * 1000))
+                return
 
         if state.get(_cancel_key(run_id)):
             set_status(state="cancelled", failureReason="cancelled", finishedAt=int(time.time() * 1000))

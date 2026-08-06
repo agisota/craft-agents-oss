@@ -15,6 +15,7 @@
  * satisfy: the conformance suite runs against it unconditionally.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -44,7 +45,25 @@ export interface LocalProviderOptions {
 
 interface StateFile extends RunStatus {}
 
-const STUB_RUNNER = join(dirname(fileURLToPath(import.meta.url)), 'runners', 'stub-runner.ts');
+/**
+ * Top-level path resolution must survive esbuild CJS bundling (Electron
+ * main): import.meta.url is undefined there, so resolve lazily inside
+ * the constructor and fall back through the workspace package symlink.
+ */
+function resolveStubRunner(): string {
+  if (typeof import.meta.url === 'string' && import.meta.url) {
+    return join(dirname(fileURLToPath(import.meta.url)), 'runners', 'stub-runner.ts');
+  }
+  try {
+    const req = createRequire(join(process.cwd(), 'package.json'));
+    return join(
+      dirname(req.resolve('@craft-agent/cloud-runner/package.json')),
+      'src', 'runners', 'stub-runner.ts',
+    );
+  } catch {
+    return join(process.cwd(), 'packages', 'cloud-runner', 'src', 'runners', 'stub-runner.ts');
+  }
+}
 
 async function exists(path: string): Promise<boolean> {
   try { await access(path, constants.F_OK); return true; } catch { return false; }
@@ -69,7 +88,7 @@ export class LocalSubprocessProvider implements CloudRunProvider {
 
   constructor(opts: LocalProviderOptions) {
     this.baseDir = resolve(opts.baseDir);
-    this.runnerCommand = opts.runnerCommand ?? [process.execPath.endsWith('bun') ? process.execPath : 'bun', STUB_RUNNER];
+    this.runnerCommand = opts.runnerCommand ?? [process.execPath.endsWith('bun') ? process.execPath : 'bun', resolveStubRunner()];
     this.pollMs = opts.pollMs ?? 100;
   }
 

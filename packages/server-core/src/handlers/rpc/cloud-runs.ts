@@ -57,7 +57,7 @@ export interface CloudRunsSettings {
 const SETTINGS_DEFAULTS: CloudRunsSettings = {
   enabled: false,
   provider: 'local',
-  defaults: { maxWallClockSec: 1800, maxLlmTokens: 2_000_000, maxArtifactsBytes: 25 * 1024 * 1024 },
+  defaults: { maxWallClockSec: 5400, maxLlmTokens: 2_000_000, maxArtifactsBytes: 25 * 1024 * 1024 },
 };
 
 function readSettings(): CloudRunsSettings {

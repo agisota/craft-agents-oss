@@ -65,7 +65,10 @@ interface PersistedRun {
 }
 
 const DEFAULT_WALL_CLOCK_SEC = 30 * 60;
-const SUBTASK_TIMEOUT_MS = 180_000;
+// Real research prompts can stream for minutes per subtask; 180s was proven
+// too tight live (runner exit 143). Watchdog above bounds the whole run.
+const SUBTASK_TIMEOUT_MS = 600_000;
+const SUBTASK_MAX_ATTEMPTS = 2;
 const WORKSPACE_ROOT = "/workspace";
 const ARTIFACTS_ROOT = `${WORKSPACE_ROOT}/artifacts`;
 
@@ -209,11 +212,20 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
     const subtask = run.spec.subtasks[run.nextSubtask]!;
     await this.ctx.storage.put("run", run); // persist running + nextSubtask before exec
-    try {
-      await this.execSubtask(run, subtask);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      await this.finish(run, "failed", "runner_error", detail.slice(0, 2000));
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= SUBTASK_MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.execSubtask(run, subtask);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // Transient LLM 5xx / timeouts are common enough to justify one retry;
+        // anything deterministic just fails fast on attempt 2 anyway.
+      }
+    }
+    if (lastError) {
+      await this.finish(run, "failed", "runner_error", lastError.message.slice(0, 2000));
       return;
     }
 
