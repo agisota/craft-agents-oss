@@ -63,6 +63,8 @@ export interface StoredConfig {
     defaultMaxLlmTokens?: number;
     defaultMaxArtifactsBytes?: number;
     notifyWebhookUrl?: string;  // optional outbound POST on run completion (see server-core watcher)
+    cheapModelId?: string;      // F6: draft subtasks (landscape/alternatives) on cheap model
+    personas?: boolean;         // F22: default on/off for persona-expanded runs
   };
   // LLM Connections (authoritative source for auth and model config)
   llmConnections?: LlmConnection[];

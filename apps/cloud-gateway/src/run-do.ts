@@ -43,10 +43,12 @@ interface Env {
 interface RunSpec {
   id: string;
   name: string;
-  subtasks: { id: string; title?: string; prompt: string }[];
+  subtasks: { id: string; title?: string; prompt: string; model?: { connectionSlug?: string; modelId?: string } }[];
   limits?: { maxWallClockSec?: number; maxLlmTokens?: number; maxArtifactsBytes?: number };
   /** F3: parallel exec pool size (adaptive: drops to 1 on sustained LLM 503s). */
   concurrency?: number;
+  outputs?: string[];
+  agentic?: boolean;
   ttlSec?: number;
   metadata?: Record<string, string>;
   model?: { connectionSlug?: string; modelId?: string };
@@ -423,6 +425,8 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
         model: run.spec.model?.modelId ?? env.LLM_MODEL ?? "kimi-k3",
         subtasks,
         concurrency: run.effectiveConcurrency ?? run.spec.concurrency ?? 2,
+        outputs: run.spec.outputs ?? [],
+        agentic: run.spec.agentic ?? true,
       }),
     );
     // The handle is NOT awaited here — the DO must stay responsive (1101

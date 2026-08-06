@@ -104,6 +104,8 @@ const CloudRunsConfigSchema = z.object({
   defaultMaxLlmTokens: z.number().int().positive().optional(),
   defaultMaxArtifactsBytes: z.number().int().positive().optional(),
   notifyWebhookUrl: z.string().url().optional(),
+  cheapModelId: z.string().optional(),
+  personas: z.boolean().optional(),
 }).passthrough();
 export const StoredConfigSchema = z.object({
   workspaces: z.array(WorkspaceSchema).min(0),

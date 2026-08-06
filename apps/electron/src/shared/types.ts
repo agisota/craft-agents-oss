@@ -273,6 +273,8 @@ export interface ElectronAPI {
     provider: 'local' | 'cloudflare' | 'modal' | 'e2b'
     gatewayUrl?: string
     notifyWebhookUrl?: string
+    cheapModelId?: string
+    personas?: boolean
     tokenConfigured: boolean
     estimatedRunTokens?: number | null
     defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
@@ -285,12 +287,15 @@ export interface ElectronAPI {
     defaultMaxLlmTokens?: number
     defaultMaxArtifactsBytes?: number
     notifyWebhookUrl?: string
+    cheapModelId?: string
+    personas?: boolean
   }): Promise<{ ok: boolean }>
   submitCloudRun(args: {
     topic: string
     sessionId?: string
     language?: 'en' | 'ru'
     kind?: 'research' | 'competitor' | 'literature' | 'vendor'
+    personas?: boolean
     model?: { connectionSlug?: string; modelId?: string }
   }): Promise<{ id: string; provider: string; createdAt: number }>
   resumeCloudRun(args: { runId: string }): Promise<{ ok: boolean }>

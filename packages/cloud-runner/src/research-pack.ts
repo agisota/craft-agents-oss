@@ -17,6 +17,10 @@ export interface ResearchPackOptions {
   language?: 'en' | 'ru';
   /** Preset pack; default 'research'. */
   kind?: ResearchPackKind;
+  /** F22: persona expansion — each subtask runs once per persona. */
+  personas?: { id: string; systemPrompt: { en: string; ru: string } }[];
+  /** F6: cheap model for draft-heavy subtasks (landscape, alternatives). */
+  cheapModelId?: string;
 }
 
 interface SubtaskTemplate {
@@ -204,6 +208,32 @@ const PACKS: Record<ResearchPackKind, SubtaskTemplate[]> = {
   vendor: VENDOR_SUBTASKS,
 };
 
+export const DEFAULT_PERSONAS: NonNullable<ResearchPackOptions['personas']> = [
+  {
+    id: 'analyst',
+    systemPrompt: {
+      en: 'You are a sober industry analyst: data first, no hype.',
+      ru: 'Ты трезвый отраслевой аналитик: сначала данные, без ажиотажа.',
+    },
+  },
+  {
+    id: 'skeptic',
+    systemPrompt: {
+      en: 'You are a skeptic: challenge claims, hunt failure modes and costs.',
+      ru: 'Ты скептик: оспаривай утверждения, ищи слабые места и издержки.',
+    },
+  },
+  {
+    id: 'optimist',
+    systemPrompt: {
+      en: 'You are an optimist: seek upside, momentum and opportunities.',
+      ru: 'Ты оптимист: ищи апсайд, динамику и возможности.',
+    },
+  },
+];
+
+const CHEAP_SUBTASK_IDS = new Set(['landscape', 'alternatives', 'surveys', 'references']);
+
 export function buildResearchSpec(topic: string, opts: ResearchPackOptions = {}): RunSpec {
   const trimmed = topic.trim();
   if (!trimmed) throw new Error('research topic must not be empty');
@@ -211,11 +241,21 @@ export function buildResearchSpec(topic: string, opts: ResearchPackOptions = {})
   return {
     id: opts.id ?? `research-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     name: lang === 'ru' ? `Рисёрч: ${trimmed.slice(0, 60)}` : `Research: ${trimmed.slice(0, 60)}`,
-    subtasks: PACKS[opts.kind ?? 'research'].map((t) => ({
-      id: t.id,
-      title: t.title[lang],
-      prompt: t.prompt[lang].replace('%s', trimmed),
-    })),
+    subtasks: (opts.personas ?? []).length > 0
+      ? PACKS[opts.kind ?? 'research'].flatMap((t) =>
+          opts.personas!.map((p) => ({
+            id: `${p.id}--${t.id}`,
+            title: `${t.title[lang]} — ${p.id}`,
+            prompt: `${p.systemPrompt[lang]} ${t.prompt[lang].replace('%s', trimmed)}`,
+            model: opts.cheapModelId && CHEAP_SUBTASK_IDS.has(t.id) ? { modelId: opts.cheapModelId } : opts.model,
+          })),
+        )
+      : PACKS[opts.kind ?? 'research'].map((t) => ({
+          id: t.id,
+          title: t.title[lang],
+          prompt: t.prompt[lang].replace('%s', trimmed),
+          model: opts.cheapModelId && CHEAP_SUBTASK_IDS.has(t.id) ? { modelId: opts.cheapModelId } : opts.model,
+        })),
     model: opts.model,
     limits: opts.limits,
     metadata: { kind: opts.kind ?? 'research', topic: trimmed, ...opts.metadata },

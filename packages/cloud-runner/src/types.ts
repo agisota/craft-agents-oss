@@ -22,6 +22,8 @@ export interface CloudRunSubtask {
   title?: string;
   /** Fully rendered prompt the provider's runner feeds to an agent. */
   prompt: string;
+  /** F6: per-subtask model override (runner falls back to spec-level model). */
+  model?: { connectionSlug?: string; modelId?: string };
 }
 
 /** Budget/ceiling options. Server-side enforcement is authoritative. */
@@ -52,6 +54,8 @@ export interface RunSpec {
   limits?: RunLimits;
   /** Artifact retention; provider may garbage-collect afterwards. */
   ttlSec?: number;
+  /** F16: extra deliverables, e.g. ['slides'] (CF provider only). */
+  outputs?: string[];
   /** Free-form linkage back to the originating session/workspace. */
   metadata?: Record<string, string>;
 }

@@ -29,6 +29,8 @@ interface Config {
   provider: Provider
   gatewayUrl?: string
   notifyWebhookUrl?: string
+  cheapModelId?: string
+  personas?: boolean
   tokenConfigured: boolean
   defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
 }
@@ -109,6 +111,23 @@ export default function CloudRunsSettingsPage() {
               </SettingsRow>
             </>
           )}
+          <SettingsRow
+            label={t('settings.cloudRuns.cheapModel')}
+            description={t('settings.cloudRuns.cheapModelHint')}
+          >
+            <Input
+              className="w-48"
+              defaultValue={config.cheapModelId ?? ''}
+              placeholder="kimi-lite / gpt-4o-mini"
+              onBlur={(e) => patch({ cheapModelId: e.target.value.trim() || undefined })}
+            />
+          </SettingsRow>
+          <SettingsToggle
+            label={t('settings.cloudRuns.personasLbl')}
+            description={t('settings.cloudRuns.personasHint')}
+            checked={config.personas ?? false}
+            onCheckedChange={(checked) => patch({ personas: checked })}
+          />
           <SettingsRow
             label={t('settings.cloudRuns.maxWallClock')}
             description={t('settings.cloudRuns.maxWallClockHint')}

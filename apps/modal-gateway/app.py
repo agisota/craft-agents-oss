@@ -48,53 +48,156 @@ t0 = time.monotonic()
 workspace = Path(sys.argv[1])
 config_name = sys.argv[2] if len(sys.argv) > 2 else "config.json"
 config = json.loads((workspace / ".craft-run" / config_name).read_text())
-subtask = config["subtask"]
+subtasks = config.get("subtasks") or ([config["subtask"]] if config.get("subtask") else None)
 base = config["baseUrl"].rstrip("/")
 model = config["model"]
 key = config.get("apiKey") or ""
+subtask = subtasks[0]  # modal driver spawns one sandbox per subtask
 headers = {"content-type": "application/json"}
 if key:
     headers["authorization"] = f"Bearer {key}"
 
-body = {
-    "model": model,
-    "stream": False,
-    "messages": [
-        {"role": "system", "content": "You are a research sub-agent. Produce a thorough, source-aware markdown brief for the given subtask."},
-        {"role": "user", "content": subtask["prompt"]},
-    ],
-}
-resp = httpx.post(f"{base}/chat/completions", headers=headers, json=body, timeout=600)
-duration_ms = int((time.monotonic() - t0) * 1000)
-if resp.status_code != 200:
+def fail(msg):
     out = workspace / "artifacts" / subtask["id"]
     out.mkdir(parents=True, exist_ok=True)
-    (out / "fail.marker").write_text(json.dumps({"error": f"LLM gateway error {resp.status_code}: {resp.text[:500]}", "durationMs": duration_ms}) + "\n")
-    print(f"LLM gateway error {resp.status_code}: {resp.text[:500]}", file=sys.stderr)
+    (out / "fail.marker").write_text(json.dumps({"error": str(msg)[:1000], "durationMs": int((time.monotonic() - t0) * 1000)}) + "\n")
     sys.exit(1)
 
-if "text/event-stream" in resp.headers.get("content-type", ""):
-    content = "".join(
-        json.loads(line[6:])["choices"][0]["delta"].get("content", "")
-        for line in resp.text.splitlines()
-        if line.startswith("data: ") and line != "data: [DONE]"
-    )
-    usage = None
-else:
-    payload = resp.json()
-    content = payload["choices"][0]["message"]["content"]
-    usage = payload.get("usage")
+SYSTEM = "You are a research sub-agent. Investigate with the tools, then answer thoroughly, factually, citing sources."
+TOOLS = [
+    {"type": "function", "function": {"name": "web_search", "description": "Search the web.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "fetch_url", "description": "Fetch a page, return plain text (~8000 chars).", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
+]
 
-out = workspace / "artifacts" / subtask["id"]
-out.mkdir(parents=True, exist_ok=True)
-(out / "answer.md").write_text(
-    f"# {subtask.get('title') or subtask['id']}\n\n## Prompt\n\n{subtask['prompt']}\n\n## Brief\n\n{content}\n"
-)
-(out / "done.marker").write_text(json.dumps({"finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "durationMs": duration_ms}) + "\n")
+def llm(messages, use_tools=False, json_mode=False, model_override=None):
+    body = {"model": model_override or model, "stream": False, "messages": messages}
+    if use_tools:
+        body["tools"] = TOOLS
+        body["tool_choice"] = "auto"
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    resp = httpx.post(f"{base}/chat/completions", headers=headers, json=body, timeout=570)
+    if resp.status_code != 200:
+        fail(f"LLM gateway error {resp.status_code}: {resp.text[:400]}")
+    return resp.json()
+
+def web_search(query):
+    try:
+        r = httpx.get("https://html.duckduckgo.com/html/", params={"q": query}, headers={"user-agent": "Mozilla/5.0"}, timeout=30)
+        import re
+        links = re.findall(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', r.text)[:5]
+        snips = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', r.text)[:5]
+        strip = lambda s: re.sub(r"<[^>]+>", "", s).strip()
+        out = []
+        for i, (href, title) in enumerate(links):
+            snip = strip(snips[i])[:250] if i < len(snips) else ""
+            out.append(f"- {strip(title)}\n  {href}\n  {snip}")
+        return "\n".join(out) or "no results"
+    except Exception as e:
+        return f"search error: {e}"
+
+def fetch_url(url):
+    try:
+        import re
+        r = httpx.get(url, headers={"user-agent": "Mozilla/5.0"}, timeout=30, follow_redirects=True)
+        if r.status_code != 200:
+            return f"fetch error: HTTP {r.status_code}"
+        text = re.sub(r"<(script|style)[\s\S]*?</\\1>", "", r.text)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:8000] if text else "empty page"
+    except Exception as e:
+        return f"fetch error: {e}"
+
+out_dir = workspace / "artifacts" / subtask["id"]
+out_dir.mkdir(parents=True, exist_ok=True)
+trace = out_dir / "trace.jsonl"
+
+if (out_dir / "done.marker").exists():
+    print(f"subtask {subtask['id']} already done")
+    sys.exit(0)
+
+model_override = (subtask.get("model") or {}).get("modelId")
+total = {"prompt_tokens": 0, "completion_tokens": 0}
+def acc(u):
+    if u:
+        total["prompt_tokens"] += u.get("prompt_tokens", 0)
+        total["completion_tokens"] += u.get("completion_tokens", 0)
+
+text = ""
+agentic = config.get("agentic", True)
+if agentic:
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": subtask["prompt"]}]
+    for round_no in range(6):
+        payload = llm(messages, use_tools=True, model_override=model_override)
+        acc(payload.get("usage"))
+        msg = payload["choices"][0]["message"]
+        with open(trace, "a") as f:
+            f.write(json.dumps({"t": time.time(), "round": round_no, "tool_calls": len(msg.get("tool_calls") or []), "content": (msg.get("content") or "")[:200]}) + "\n")
+        calls = msg.get("tool_calls") or []
+        if not calls:
+            text = msg.get("content") or ""
+            break
+        messages.append(msg)
+        for call in calls:
+            name = call["function"]["name"]
+            try:
+                args = json.loads(call["function"].get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            result = web_search(str(args.get("query", ""))) if name == "web_search" else fetch_url(str(args.get("url", ""))) if name == "fetch_url" else f"unknown tool: {name}"
+            with open(trace, "a") as f:
+                f.write(json.dumps({"t": time.time(), "round": round_no, "tool": name, "result": result[:200]}) + "\n")
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+else:
+    payload = llm([{"role": "system", "content": SYSTEM}, {"role": "user", "content": subtask["prompt"]}], model_override=model_override)
+    acc(payload.get("usage"))
+    text = payload["choices"][0]["message"]["content"]
+
+brief = None
+try:
+    structured_instruction = (
+        'Subtask: ' + subtask['prompt'] + '\n\nResearch material:\n' + text[:12000]
+        + '\n\nDeliver ONE JSON object: {"summary": "3-5 sentence summary", '
+        + '"claims": [{"text": "...", "confidence": "high|medium|low", "sources": ["https://..."]}], '
+        + '"links": [{"title": "...", "url": "https://..."}]}'
+    )
+    p2 = llm([
+        {"role": "system", "content": "You summarize research into strict JSON."},
+        {"role": "user", "content": structured_instruction},
+    ], json_mode=True)
+    acc(p2.get("usage"))
+    brief = json.loads(p2["choices"][0]["message"]["content"])
+except Exception:
+    brief = None
+
+md = [f"# {subtask.get('title') or subtask['id']}", "", "## Prompt", "", subtask["prompt"], ""]
+if brief and brief.get("summary"):
+    md += ["## Summary", "", brief["summary"], ""]
+    if brief.get("claims"):
+        md += ["## Key claims", ""]
+        for c in brief["claims"]:
+            md.append(f"- **[{c.get('confidence', 'medium')}]** {c.get('text', '')}")
+            for s in c.get("sources") or []:
+                md.append(f"  - {s}")
+        md.append("")
+    if brief.get("links"):
+        md += ["## Sources", ""]
+        for l in brief["links"]:
+            md.append(f"- [{l.get('title') or l.get('url')}]({l.get('url')})")
+        md.append("")
+else:
+    md += ["## Brief", "", text, ""]
+
+(out_dir / "answer.md").write_text("\n".join(md))
+if brief:
+    (out_dir / "brief.json").write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n")
+duration_ms = int((time.monotonic() - t0) * 1000)
+(out_dir / "done.marker").write_text(json.dumps({"finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "durationMs": duration_ms}) + "\n")
 usage_dir = workspace / "artifacts" / "_usage"
 usage_dir.mkdir(parents=True, exist_ok=True)
 (usage_dir / f"{subtask['id']}.json").write_text(
-    json.dumps({**(usage or {"note": "usage unavailable (SSE fallback)"}), "durationMs": duration_ms}) + "\n"
+    json.dumps({**total, "durationMs": duration_ms}) + "\n"
 )
 print(f"subtask {subtask['id']} done")
 '''

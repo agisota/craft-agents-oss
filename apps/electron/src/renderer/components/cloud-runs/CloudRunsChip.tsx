@@ -76,6 +76,7 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
   const [runs, setRuns] = React.useState<ListedRun[]>([])
   const [topic, setTopic] = React.useState('')
   const [kind, setKind] = React.useState<'research' | 'competitor' | 'literature' | 'vendor'>('research')
+  const [personas, setPersonas] = React.useState(false)
   const [estimatedTokens, setEstimatedTokens] = React.useState<number | null>(null)
   const [preview, setPreview] = React.useState<{ title: string; content: string } | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
@@ -187,13 +188,17 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && topic.trim()) {
                   void act('submit', async () => {
-                    await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind })
+                    await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
                     setTopic('')
                     toast.success(t('cloudRuns.submitted'))
                   })
                 }
               }}
             />
+            <label className="flex items-center gap-1 text-xs text-muted-foreground" title={t('cloudRuns.personasHint')}>
+              <input type="checkbox" checked={personas} onChange={(e) => setPersonas(e.target.checked)} />
+              {t('cloudRuns.personas')}
+            </label>
             <Button
               size="sm"
               variant="ghost"
@@ -207,7 +212,7 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
               disabled={!topic.trim() || busy === 'submit'}
               onClick={() =>
                 void act('submit', async () => {
-                  await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind })
+                  await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
                   setTopic('')
                   toast.success(t('cloudRuns.submitted'))
                 })

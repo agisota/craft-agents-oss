@@ -27,6 +27,6 @@ export type { LocalProviderOptions } from './local-provider.ts';
 export { CloudflareComputerProvider } from './cloudflare-provider.ts';
 export type { CloudflareProviderOptions } from './cloudflare-provider.ts';
 export { ModalProvider } from './modal-provider.ts';
-export { buildResearchSpec } from './research-pack.ts';
+export { buildResearchSpec, DEFAULT_PERSONAS } from './research-pack.ts';
 export type { ResearchPackOptions, ResearchPackKind } from './research-pack.ts';
 export { conformanceSuite } from './conformance.ts';

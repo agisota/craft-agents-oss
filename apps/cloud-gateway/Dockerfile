@@ -19,6 +19,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 COPY src/runner.mjs /opt/craft-runner/runner.mjs
+RUN npm install -g @marp-team/marp-cli@^4 && marp --version
 ENV PORT=8080
 ENV MOUNT_POINT=/workspace
 ENV FUSE_MOUNT=auto
