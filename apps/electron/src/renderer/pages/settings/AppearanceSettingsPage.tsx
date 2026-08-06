@@ -222,6 +222,16 @@ export default function AppearanceSettingsPage() {
     storage.set(storage.KEYS.workspaceSelectorRail, checked)
     window.dispatchEvent(new CustomEvent(WORKSPACE_SELECTOR_RAIL_CHANGED_EVENT, { detail: checked }))
   }, [])
+  // Turn activity cards: default expansion state (persisted in localStorage)
+  const [turnActivitiesExpandedByDefault, setTurnActivitiesExpandedByDefault] = useState(() =>
+    storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false)
+  )
+  const handleTurnActivitiesDefaultChange = useCallback((value: string) => {
+    const expanded = value === 'expanded'
+    setTurnActivitiesExpandedByDefault(expanded)
+    storage.set(storage.KEYS.turnActivitiesExpandedByDefault, expanded)
+    window.dispatchEvent(new CustomEvent(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, { detail: expanded }))
+  }, [])
 
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
   const [richToolDescriptions, setRichToolDescriptions] = useState(true)
@@ -233,7 +243,6 @@ export default function AppearanceSettingsPage() {
     await window.electronAPI?.setRichToolDescriptions?.(checked)
   }, [])
 
-9: @both
 
   // Load preset themes on mount
   useEffect(() => {
@@ -377,6 +386,19 @@ export default function AppearanceSettingsPage() {
                         value: code,
                         label: config.nativeName,
                       }))}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    label={t("settings.appearance.turnActivities")}
+                    description={t("settings.appearance.turnActivitiesDesc")}
+                  >
+                    <SettingsSegmentedControl
+                      value={turnActivitiesExpandedByDefault ? 'expanded' : 'collapsed'}
+                      onValueChange={handleTurnActivitiesDefaultChange}
+                      options={[
+                        { value: 'collapsed', label: t("settings.appearance.turnActivitiesCollapsed") },
+                        { value: 'expanded', label: t("settings.appearance.turnActivitiesExpanded") },
+                      ]}
                     />
                   </SettingsRow>
                 </SettingsCard>
