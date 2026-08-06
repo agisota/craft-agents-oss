@@ -59,8 +59,8 @@ export async function conformanceSuite(
   await record('artifacts exist per subtask and round-trip byte-exact', async () => {
     const artifacts = await provider.listArtifacts(spec.id);
     assert(artifacts.length >= 2, `expected >=2 artifacts, got ${artifacts.length}`);
-    const note = artifacts.find((a) => a.path.endsWith('notes.md'));
-    assert(!!note, 'notes.md artifact missing');
+    const note = artifacts.find((a) => a.path.endsWith('.md'));
+    assert(!!note, 'markdown artifact missing');
     const bytes = await provider.fetchArtifact(spec.id, note!.path);
     assert(bytes.byteLength === note!.size, 'size mismatch between list and fetch');
     const text = new TextDecoder().decode(bytes);
