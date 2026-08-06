@@ -1,0 +1,271 @@
+/**
+ * SkillPendingQueue — approval queue for distilled skill candidates.
+ *
+ * Layout (spec §4):
+ *   {workspaceRoot}/skills/
+ *     .pending/<slug>/{SKILL.md,.meta.json}   — candidates awaiting approval
+ *     .pending/.dismissed.jsonl               — anti-repeat log of dismissals
+ *     <slug>/{SKILL.md,.versions/v1-SKILL.md} — approved skills
+ *
+ * A candidate is approved by snapshotting its SKILL.md into `.versions/` and
+ * atomically moving the directory from `.pending/` into `skills/` via rename
+ * (same filesystem). loadAllSkills ignores dot-dirs, so pending candidates
+ * are never picked up as real skills.
+ *
+ * All reads are resilient: missing/corrupt files skip the candidate instead
+ * of throwing.
+ */
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  type Dirent,
+} from 'fs'
+import { join } from 'path'
+import type { PendingSkill, SkillCandidate } from '@craft-agent/shared/memory/types'
+
+const PENDING_DIR = '.pending'
+const DISMISSED_LOG = '.dismissed.jsonl'
+const VERSIONS_DIR = '.versions'
+
+/** Normalized anti-repeat key for a candidate description. */
+export function normalizeDescription(description: string): string {
+  return description.trim().toLowerCase()
+}
+
+export interface DismissedEntry {
+  slug: string
+  ts: string
+  normalizedDescription: string
+}
+
+function readJsonl<T>(path: string): T[] {
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch {
+    return []
+  }
+  const out: T[] = []
+  for (const line of raw.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    try {
+      out.push(JSON.parse(t) as T)
+    } catch {
+      // skip corrupt line
+    }
+  }
+  return out
+}
+
+export class SkillPendingQueue {
+  /** {workspaceRoot}/skills */
+  readonly skillsDir: string
+  /** {workspaceRoot}/skills/.pending */
+  readonly pendingDir: string
+
+  constructor(workspaceRoot: string) {
+    this.skillsDir = join(workspaceRoot, 'skills')
+    this.pendingDir = join(this.skillsDir, PENDING_DIR)
+  }
+
+  private get dismissedPath(): string {
+    return join(this.pendingDir, DISMISSED_LOG)
+  }
+
+  /**
+   * Enqueue a distilled candidate. Skips (returns false) when the candidate
+   * was previously dismissed, when a pending entry with the same slug already
+   * exists, or when the slug is already an approved skill.
+   */
+  enqueue(candidate: SkillCandidate): boolean {
+    if (this.wasDismissed(candidate.slug, candidate.description)) return false
+    const dir = join(this.pendingDir, candidate.slug)
+    if (existsSync(dir)) return false
+    if (existsSync(join(this.skillsDir, candidate.slug))) return false
+    mkdirSync(dir, { recursive: true })
+    const skillMd = `---\nname: ${candidate.slug}\ndescription: ${candidate.description.replace(/\n/g, ' ')}\n---\n\n${candidate.body.replace(/\n*$/, '\n')}`
+    writeFileSync(join(dir, 'SKILL.md'), skillMd)
+    writeFileSync(
+      join(dir, '.meta.json'),
+      JSON.stringify(
+        {
+          slug: candidate.slug,
+          description: candidate.description,
+          source: candidate.source,
+        },
+        null,
+        2,
+      ),
+    )
+    return true
+  }
+
+  /** All pending candidates (parsed meta + raw SKILL.md content), corrupt entries skipped. */
+  list(): PendingSkill[] {
+    if (!existsSync(this.pendingDir)) return []
+    const out: PendingSkill[] = []
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(this.pendingDir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      const dir = join(this.pendingDir, entry.name)
+      const skillPath = join(dir, 'SKILL.md')
+      if (!existsSync(skillPath)) continue
+      let content: string
+      try {
+        content = readFileSync(skillPath, 'utf8')
+      } catch {
+        continue
+      }
+      // .meta.json is optional/corrupt-tolerant: fall back to slug + dir mtime.
+      let meta: { slug?: string; description?: string; source?: PendingSkill['source'] } = {}
+      try {
+        meta = JSON.parse(readFileSync(join(dir, '.meta.json'), 'utf8'))
+      } catch {
+        // fall through with defaults
+      }
+      let ts = ''
+      try {
+        ts = statSync(dir).mtime.toISOString()
+      } catch {
+        // leave empty
+      }
+      out.push({
+        slug: typeof meta.slug === 'string' ? meta.slug : entry.name,
+        description: typeof meta.description === 'string' ? meta.description : '',
+        content,
+        source: {
+          ts: meta.source?.ts ?? ts,
+          ...(meta.source?.sessionId ? { sessionId: meta.source.sessionId } : {}),
+          ...(meta.source?.toolCallStats ? { toolCallStats: meta.source.toolCallStats } : {}),
+        },
+      })
+    }
+    return out
+  }
+
+  /**
+   * Approve a candidate: snapshot SKILL.md as `.versions/v1-SKILL.md` inside
+   * the candidate dir, then atomically move the dir to
+   * `{workspaceRoot}/skills/<slug>/`. Throws when the target slug already
+   * exists; on rename failure any partial move is rolled back.
+   */
+  approve(slug: string): void {
+    const src = join(this.pendingDir, slug)
+    const dest = join(this.skillsDir, slug)
+    if (!existsSync(join(src, 'SKILL.md'))) {
+      throw new Error(`No pending skill candidate: ${slug}`)
+    }
+    if (existsSync(dest)) {
+      throw new Error(`Skill '${slug}' already exists in workspace`)
+    }
+    const versionsDir = join(src, VERSIONS_DIR)
+    mkdirSync(versionsDir, { recursive: true })
+    copyFileSync(join(src, 'SKILL.md'), join(versionsDir, 'v1-SKILL.md'))
+    try {
+      renameSync(src, dest)
+    } catch (err) {
+      // Restore: rename is same-filesystem atomic, so a partial dest should
+      // not exist — but never trust, remove a half-moved dir if one appeared.
+      try {
+        if (existsSync(dest) && !existsSync(src)) renameSync(dest, src)
+      } catch {
+        // leave as-is; original error wins
+      }
+      throw err instanceof Error ? err : new Error(String(err))
+    }
+  }
+
+  /** Remove the candidate and log it to .dismissed.jsonl for anti-repeat. */
+  dismiss(slug: string, description?: string): void {
+    const dir = join(this.pendingDir, slug)
+    let desc = description
+    if (desc === undefined) {
+      // Recover the description from .meta.json before deleting.
+      try {
+        const meta = JSON.parse(readFileSync(join(dir, '.meta.json'), 'utf8'))
+        if (typeof meta.description === 'string') desc = meta.description
+      } catch {
+        // no meta available
+      }
+    }
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(this.pendingDir, { recursive: true })
+    const entry: DismissedEntry = {
+      slug,
+      ts: new Date().toISOString(),
+      normalizedDescription: normalizeDescription(desc ?? ''),
+    }
+    appendFileSync(this.dismissedPath, JSON.stringify(entry) + '\n')
+  }
+
+  /** Dismissed-log entries, oldest first, corrupt lines skipped. */
+  dismissed(): DismissedEntry[] {
+    return readJsonl<DismissedEntry>(this.dismissedPath)
+      .filter(e => e && typeof e.slug === 'string')
+  }
+
+  /**
+   * Anti-repeat check: has this candidate been dismissed before? Matches on
+   * the slug OR the normalized description (case-insensitive, trimmed), so a
+   * re-distilled candidate under a new slug is still suppressed.
+   */
+  wasDismissed(slug: string, description: string): boolean {
+    const norm = normalizeDescription(description)
+    return this.dismissed().some(
+      e => e.slug === slug || (norm !== '' && e.normalizedDescription === norm),
+    )
+  }
+
+  /**
+   * Remove candidates older than `ttlDays` (based on .meta.json source.ts,
+   * falling back to the directory mtime). Returns the pruned slugs.
+   */
+  prune(ttlDays = 30): string[] {
+    if (!existsSync(this.pendingDir)) return []
+    const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000
+    const pruned: string[] = []
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(this.pendingDir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      const dir = join(this.pendingDir, entry.name)
+      let ts = NaN
+      try {
+        const meta = JSON.parse(readFileSync(join(dir, '.meta.json'), 'utf8'))
+        ts = Date.parse(meta?.source?.ts)
+      } catch {
+        // no usable meta timestamp
+      }
+      if (Number.isNaN(ts)) {
+        try {
+          ts = statSync(dir).mtimeMs
+        } catch {
+          continue
+        }
+      }
+      if (ts < cutoff) {
+        rmSync(dir, { recursive: true, force: true })
+        pruned.push(entry.name)
+      }
+    }
+    return pruned
+  }
+}

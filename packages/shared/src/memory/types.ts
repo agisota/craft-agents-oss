@@ -58,6 +58,18 @@ export interface SkillCandidate {
   }
 }
 
+/**
+ * A skill candidate awaiting approval in {workspaceRoot}/skills/.pending/.
+ * Returned by skillsPending:list — parsed .meta.json plus raw SKILL.md content.
+ */
+export interface PendingSkill {
+  slug: string
+  description: string
+  /** Raw SKILL.md file content (with frontmatter) */
+  content: string
+  source: SkillCandidate['source']
+}
+
 /** Strict-JSON payload returned by the distillation prompt */
 export interface DistillResult {
   history_entry: string | null

@@ -106,6 +106,8 @@ function parseSkillFile(content: string): { metadata: SkillMetadata; body: strin
  * @param source - Where this skill is loaded from
  */
 function loadSkillFromDir(skillsDir: string, slug: string, source: SkillSource): LoadedSkill | null {
+  // Dot entries (.pending, .versions) are internal state, never skills.
+  if (slug.startsWith('.')) return null;
   const skillDir = join(skillsDir, slug);
   const skillFile = join(skillDir, 'SKILL.md');
 
@@ -158,6 +160,9 @@ function loadSkillsFromDir(skillsDir: string, source: SkillSource): LoadedSkill[
     const entries = readdirSync(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+      // Skip dot-dirs (.pending/, .versions/ inside skills, etc.) — internal
+      // state, never real skills.
+      if (entry.name.startsWith('.')) continue;
 
       const skill = loadSkillFromDir(skillsDir, entry.name, source);
       if (skill) {
@@ -388,6 +393,7 @@ export function listSkillSlugs(workspaceRoot: string): string[] {
     return readdirSync(skillsDir, { withFileTypes: true })
       .filter((entry) => {
         if (!entry.isDirectory()) return false;
+        if (entry.name.startsWith('.')) return false;
         const skillFile = join(skillsDir, entry.name, 'SKILL.md');
         return existsSync(skillFile);
       })

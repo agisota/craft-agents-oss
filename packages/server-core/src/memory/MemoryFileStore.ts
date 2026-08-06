@@ -97,16 +97,28 @@ export class MemoryFileStore {
     }
   }
 
-  /** Paths of the most recent RECENT_HISTORY_DAYS daily files, most recent first. */
-  private recentHistoryFiles(): string[] {
+  /** All history dates (YYYY-MM-DD), most recent first. */
+  listHistoryDates(): string[] {
     const dir = join(this.memoryDir, 'history')
     if (!existsSync(dir)) return []
     return readdirSync(dir)
       .filter(name => /^\d{4}-\d{2}-\d{2}\.md$/.test(name))
       .sort()
       .reverse()
+      .map(name => name.slice(0, 10))
+  }
+
+  /** Read one daily history file by date (YYYY-MM-DD); '' when absent or invalid. */
+  readHistory(date: string): string {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return ''
+    return this.readText(join(this.memoryDir, 'history', `${date}.md`))
+  }
+
+  /** Paths of the most recent RECENT_HISTORY_DAYS daily files, most recent first. */
+  private recentHistoryFiles(): string[] {
+    return this.listHistoryDates()
       .slice(0, RECENT_HISTORY_DAYS)
-      .map(name => join(dir, name))
+      .map(date => join(this.memoryDir, 'history', `${date}.md`))
   }
 
   private readText(path: string): string {
