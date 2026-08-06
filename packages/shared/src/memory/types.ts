@@ -73,12 +73,18 @@ export interface MemoryConfig {
   distillIdleHours: number
   /** messages between lightweight distillations, default 30 */
   distillMsgCount: number
+  /**
+   * L5: ask the distiller to phrase constraint-type lessons as negative
+   * formulations (never/MUST NOT) where idiomatic, default true.
+   */
+  negativeFirst: boolean
 }
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   enabled: true,
   distillIdleHours: 3,
   distillMsgCount: 30,
+  negativeFirst: true,
 }
 
 /** Hard limits (mirror KiroCrew learn.py) */

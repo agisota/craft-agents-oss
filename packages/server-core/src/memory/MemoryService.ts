@@ -34,6 +34,7 @@ import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
 import type {
   DistillResult,
   Lesson,
+  LessonConflict,
   LessonScope,
   LessonTrigger,
   MemoryConfig,
@@ -51,7 +52,12 @@ const DISTILL_WINDOW_CHARS = 160_000
 
 export interface SessionCompletionLike {
   sessionId: string
-  reason: 'complete' | 'interrupted' | 'error' | 'timeout'
+  /**
+   * 'branch' is accepted for future emitters (branch = abandon: the user's
+   * original session ended badly) — SessionManager's SessionCompletionEvent
+   * today narrows to the other four reasons.
+   */
+  reason: 'complete' | 'interrupted' | 'error' | 'timeout' | 'branch'
 }
 
 interface DistillJob {
@@ -87,6 +93,13 @@ export interface MemoryServiceDeps {
    * absent/unknown sessions) write as before. Injectable for tests.
    */
   getSessionMode?: (sessionId: string) => SessionMemoryMode
+  /**
+   * L1 feedback loop: lessons that were injected into a session's prompts
+   * (spec F4 provenance record), as `{rule, scope}` pairs. Wired to
+   * readProvenance().lessons in SessionManager; absent/empty means nothing
+   * to attribute (session predates F4 or memory was disabled at spawn).
+   */
+  readSessionProvenance?: (sessionId: string) => Array<{ rule: string; scope: LessonScope }>
 }
 
 /**
@@ -127,7 +140,7 @@ export function parseDistillResult(raw: string): DistillResult | null {
 /** Anything sensitive-looking in a candidate slug/body blocks auto-creation. */
 const SENSITIVE_RE = /\.ssh|\.pem$|\.key$|credential|secret/i
 
-function buildDistillPrompt(windowText: string, full: boolean): string {
+function buildDistillPrompt(windowText: string, full: boolean, negativeFirst: boolean): string {
   return (
     `You are the memory distiller for a coding agent. Distill the session conversation window below into durable knowledge.\n` +
     `Return ONLY valid JSON of the shape:\n` +
@@ -135,6 +148,11 @@ function buildDistillPrompt(windowText: string, full: boolean): string {
     (full
       ? `This is a FULL distillation: extract all durable lessons and, if the session shows a repeated, generalizable workflow, propose one skill_candidate.\n`
       : `This is a LIGHTWEIGHT distillation: extract only clearly durable lessons; always set skill_candidate to null.\n`) +
+    // L5 (memory.negativeFirst): negative formulations resist agent drift better —
+    // "never do X" constrains a plan, "prefer Y" only nudges it.
+    (negativeFirst
+      ? `Prefer negative formulations (never/MUST NOT) for constraint-type lessons where idiomatic.\n`
+      : ``) +
     `history_entry: one-line session summary for the dated history log, or null if nothing worth logging.\n` +
     `memory_update: a paragraph to append to the workspace context document if it contains information not already there, else null.\n\n` +
     buildTransferredSessionContext(windowText)
@@ -196,10 +214,19 @@ export class MemoryService {
         if (evt.reason === 'complete') {
           this.enqueue({ sessionId: evt.sessionId, full: true, trigger: 'distillation' })
         } else {
+          // L1 feedback loop: a bad ending is evidence the injected lessons
+          // failed this session. Attribute the conflict to every lesson the
+          // session saw BEFORE the distill enqueues.
+          this.recordProvenanceConflicts(evt)
           this.enqueue({
             sessionId: evt.sessionId,
             full: false,
-            trigger: evt.reason === 'interrupted' ? 'interrupted' : 'error', // timeout → 'error'
+            trigger:
+              evt.reason === 'interrupted'
+                ? 'interrupted'
+                : evt.reason === 'branch'
+                  ? 'branch'
+                  : 'error', // timeout → 'error'
           })
         }
       } catch (err) {
@@ -306,6 +333,36 @@ export class MemoryService {
     return new LessonStore(store.lessonsPath, scope)
   }
 
+  /**
+   * L1 feedback loop (spec §L1/F1): on branch/interrupted/error/timeout
+   * completion, every lesson that was injected into the session's prompts
+   * (provenance) gets a conflict event — branch→'branch',
+   * interrupted→'interrupted', error|timeout→'error'. Best-effort: missing
+   * provenance, missing lessons in the store, and store errors just skip —
+   * they must never block the distill enqueue or the completion handler.
+   */
+  private recordProvenanceConflicts(evt: SessionCompletionLike): void {
+    const readProvenance = this.deps.readSessionProvenance
+    if (!readProvenance) return
+    try {
+      const used = readProvenance(evt.sessionId)
+      if (!used || used.length === 0) return
+      const reason: LessonConflict['reason'] =
+        evt.reason === 'branch' ? 'branch' : evt.reason === 'interrupted' ? 'interrupted' : 'error'
+      const ts = new Date(this.clock()).toISOString()
+      for (const lesson of used) {
+        try {
+          const store = this.deps.lessonStoreFactory?.(lesson.scope) ?? this.defaultLessonStore(lesson.scope)
+          store.recordConflict(lesson.rule, { sessionId: evt.sessionId, ts, reason }, 'distill')
+        } catch (err) {
+          this.logger.warn(`MemoryService: recordConflict failed for ${evt.sessionId}`, err)
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`MemoryService: provenance read failed for ${evt.sessionId}`, err)
+    }
+  }
+
   private recordActivity(sessionId: string): void {
     const now = this.clock()
     const prev = this.lastActivity.get(sessionId)
@@ -361,9 +418,10 @@ export class MemoryService {
       const windowText = redactSecrets(
         serialized.length > DISTILL_WINDOW_CHARS ? serialized.slice(-DISTILL_WINDOW_CHARS) : serialized,
       )
+      const negativeFirst = this.config.negativeFirst
       let raw: string | null = null
       try {
-        raw = await this.distiller(buildDistillPrompt(windowText, job.full))
+        raw = await this.distiller(buildDistillPrompt(windowText, job.full, negativeFirst))
       } catch (err) {
         this.logger.warn(`MemoryService: distiller failed for ${job.sessionId}: ${err instanceof Error ? err.message : String(err)}`, err)
         return
@@ -371,7 +429,7 @@ export class MemoryService {
       result = parseDistillResult(raw)
       if (!result) {
         // One retry with a harder JSON-only instruction.
-        raw = await this.distiller(buildDistillPrompt(windowText, job.full) + '\nReturn only valid JSON')
+        raw = await this.distiller(buildDistillPrompt(windowText, job.full, negativeFirst) + '\nReturn only valid JSON')
         result = parseDistillResult(raw ?? '')
         if (!result) {
           this.logger.warn(`MemoryService: distiller returned invalid JSON twice for ${job.sessionId}`)

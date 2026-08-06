@@ -100,6 +100,7 @@ export interface StoredConfig {
     enabled?: boolean;           // master switch (default: true)
     distillIdleHours?: number;   // idle hours before full distillation (default: 3)
     distillMsgCount?: number;    // messages between lightweight distillations (default: 30)
+    negativeFirst?: boolean;     // distill prompts prefer negative/MUST-NOT lesson formulations (default: true)
   };
   // Skills pipeline switches.
   skills?: {
@@ -627,6 +628,7 @@ export function getMemoryConfig(): MemoryConfig {
       typeof raw.distillMsgCount === 'number' && Number.isFinite(raw.distillMsgCount) && raw.distillMsgCount > 0
         ? Math.floor(raw.distillMsgCount)
         : DEFAULT_MEMORY_CONFIG.distillMsgCount,
+    negativeFirst: raw.negativeFirst !== undefined ? raw.negativeFirst === true : DEFAULT_MEMORY_CONFIG.negativeFirst,
   };
 }
 

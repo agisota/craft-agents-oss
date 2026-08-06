@@ -246,7 +246,7 @@ describe('audit seam (F2)', () => {
         }),
       logger: { warn: () => {} },
       readMessages: () => [],
-      getConfig: () => ({ enabled: true, distillIdleHours: 3, distillMsgCount: 30 }),
+      getConfig: () => ({ enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true }),
     })
     svc.attachSessionCompletion((cb) => {
       fire = cb as typeof fire

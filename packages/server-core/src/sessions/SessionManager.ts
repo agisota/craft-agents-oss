@@ -1950,6 +1950,9 @@ export class SessionManager implements ISessionManager {
         // all memory writes (distill/branch/idle triggers). Unknown sessions default
         // to 'persistent' so a session being torn down never loses lessons it earned.
         getSessionMode: (sessionId) => this.sessions.get(sessionId)?.memoryMode ?? 'persistent',
+        // L1: session provenance (F4) for the feedback loop — which lessons the
+        // session saw, so a bad ending can attribute conflicts per scope.
+        readSessionProvenance: (sessionId) => readProvenance(workspace.rootPath, sessionId)?.lessons ?? [],
       })
       svc.attachSessionCompletion((cb) => this.onSessionComplete((evt) => { if (evt.workspaceId === workspace.id) cb(evt) }))
       svc.setDistiller((prompt) => this.runMemoryDistillOneShot(workspace, prompt))

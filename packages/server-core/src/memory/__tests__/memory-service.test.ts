@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'bun:test'
-import { MemoryService, parseDistillResult, redactSecrets } from '../MemoryService'
+import { MemoryService, parseDistillResult, redactSecrets, type SessionCompletionLike } from '../MemoryService'
 import { LessonStore } from '../LessonStore'
 import { MemoryFileStore } from '../MemoryFileStore'
-import type { DistillResult, Lesson, MemoryConfig, SkillCandidate } from '@craft-agent/shared/memory/types'
+import type { DistillResult, Lesson, LessonPromptUsage, MemoryConfig, SkillCandidate } from '@craft-agent/shared/memory/types'
 import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
 
 const MSGS: StoredMessage[] = [
@@ -33,14 +33,19 @@ async function drain(svc: MemoryService): Promise<void> {
   await svc.whenIdle()
 }
 
-function makeService(opts: { distiller?: (prompt: string) => Promise<string>; clock?: () => number; modes?: Record<string, SessionMemoryMode> } = {}) {
+function makeService(opts: {
+  distiller?: (prompt: string) => Promise<string>
+  clock?: () => number
+  modes?: Record<string, SessionMemoryMode>
+  provenance?: (sessionId: string) => LessonPromptUsage[]
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), 'memsvc-'))
   const prompts: string[] = []
   const enqueued: SkillCandidate[] = []
   const emitted: Array<[string, unknown[]]> = []
-  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30 }
+  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true }
   let autoCreate = false
-  let fire: ((evt: { sessionId: string; reason: 'complete' | 'interrupted' | 'error' | 'timeout' }) => void) | null = null
+  let fire: ((evt: SessionCompletionLike) => void) | null = null
   const wsFiles = new MemoryFileStore('workspace', root)
   const wsLessons = new LessonStore(wsFiles.lessonsPath, 'workspace')
   const globalLessons = new LessonStore(new MemoryFileStore('global', root, join(root, 'global-config')).lessonsPath, 'global')
@@ -61,6 +66,7 @@ function makeService(opts: { distiller?: (prompt: string) => Promise<string>; cl
     getConfig: () => config,
     isSkillAutoCreateEnabled: () => autoCreate,
     getSessionMode: (sessionId) => opts.modes?.[sessionId] ?? 'persistent',
+    readSessionProvenance: opts.provenance,
   })
   svc.attachSessionCompletion((cb) => {
     fire = cb
@@ -82,6 +88,8 @@ function makeService(opts: { distiller?: (prompt: string) => Promise<string>; cl
     complete: (sessionId = 's1') => fire!({ sessionId, reason: 'complete' }),
     interrupted: (sessionId = 's1') => fire!({ sessionId, reason: 'interrupted' }),
     timeout: (sessionId = 's1') => fire!({ sessionId, reason: 'timeout' }),
+    branch: (sessionId = 's1') => fire!({ sessionId, reason: 'branch' }),
+    error: (sessionId = 's1') => fire!({ sessionId, reason: 'error' }),
   }
 }
 
@@ -433,3 +441,167 @@ describe('session memory modes (F3)', () => {
     expect(h.prompts).toHaveLength(1)
   })
 })
+
+describe('feedback loop (L1)', () => {
+  const T0 = 1_757_000_000_000
+  const seedLesson = (rule: string, scope: LessonPromptUsage['scope']): Lesson => ({
+    ts: '2026-01-01T00:00:00.000Z',
+    rule,
+    category: 'workflow',
+    scope,
+    source: { sessionId: 'seed', trigger: 'explicit' },
+  })
+
+  /** Service with one lesson per scope + provenance pointing at both. */
+  function makeConflictFixture(opts: {
+    modes?: Record<string, SessionMemoryMode>
+    provenance?: (sessionId: string) => LessonPromptUsage[]
+    distiller?: (prompt: string) => Promise<string>
+  } = {}) {
+    const h = makeService({
+      clock: () => T0,
+      modes: opts.modes,
+      distiller: opts.distiller,
+      provenance:
+        opts.provenance ??
+        (() => [
+          { rule: 'Never push to main', scope: 'workspace' },
+          { rule: 'Prefer bun over npm', scope: 'global' },
+        ]),
+    })
+    tmpRoots.push(h.root)
+    h.wsLessons.add(seedLesson('Never push to main', 'workspace'), 'rpc')
+    h.globalLessons.add(seedLesson('Prefer bun over npm', 'global'), 'rpc')
+    return h
+  }
+
+  it('branch completion attributes a branch conflict to every provenance lesson, per scope', async () => {
+    const h = makeConflictFixture()
+    h.branch()
+    await drain(h.svc)
+    const ts = new Date(T0).toISOString()
+    expect(h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toEqual([
+      { sessionId: 's1', ts, reason: 'branch' },
+    ])
+    expect(h.globalLessons.list().find((l) => l.rule === 'Prefer bun over npm')?.conflicts).toEqual([
+      { sessionId: 's1', ts, reason: 'branch' },
+    ])
+    // The distill still enqueued, with the branch trigger.
+    expect(h.prompts).toHaveLength(1)
+    expect(h.wsLessons.list().find((l) => l.rule === 'Run tests before shipping')?.source.trigger).toBe('branch')
+  })
+
+  it('reason mapping: interrupted→interrupted, error|timeout→error', async () => {
+    for (const [kind, expected] of [
+      ['interrupted', 'interrupted'],
+      ['error', 'error'],
+      ['timeout', 'error'],
+    ] as const) {
+      const h = makeConflictFixture()
+      if (kind === 'interrupted') h.interrupted()
+      else if (kind === 'error') h.error()
+      else h.timeout()
+      await drain(h.svc)
+      const ws = h.wsLessons.list().find((l) => l.rule === 'Never push to main')
+      expect(ws?.conflicts).toEqual([{ sessionId: 's1', ts: new Date(T0).toISOString(), reason: expected }])
+    }
+  })
+
+  it('complete completion records no conflicts', async () => {
+    const h = makeConflictFixture()
+    h.complete()
+    await drain(h.svc)
+    expect(h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+    expect(h.globalLessons.list().find((l) => l.rule === 'Prefer bun over npm')?.conflicts).toBeUndefined()
+    expect(h.prompts).toHaveLength(1)
+  })
+
+  it('conflict is attributed BEFORE the distiller runs', async () => {
+    let conflictsAtDistill = 0 // 0 = distiller saw no conflicts (or never ran)
+    const h = makeConflictFixture({
+      distiller: async () => {
+        conflictsAtDistill = h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts?.length ?? 0
+        return JSON.stringify(OK)
+      },
+    })
+    h.interrupted()
+    await drain(h.svc)
+    expect(conflictsAtDistill).toBe(1)
+  })
+
+  it('no provenance dep → distill proceeds, no conflicts recorded', async () => {
+    const h = makeService({ clock: () => T0 }) // provenance dep absent entirely
+    tmpRoots.push(h.root)
+    h.wsLessons.add(seedLesson('Never push to main', 'workspace'), 'rpc')
+    h.interrupted()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(1)
+    expect(h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+  })
+
+  it('empty or unmatched provenance → no conflicts, distill proceeds', async () => {
+    const empty = makeConflictFixture({ provenance: () => [] })
+    empty.interrupted()
+    await drain(empty.svc)
+    expect(empty.prompts).toHaveLength(1)
+    expect(empty.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+
+    // Provenance referencing rules absent from the stores must not throw
+    // (recordConflict returns null) nor block the distill.
+    const ghost = makeConflictFixture({
+      provenance: () => [
+        { rule: 'Ghost workspace rule', scope: 'workspace' },
+        { rule: 'Ghost global rule', scope: 'global' },
+      ],
+    })
+    ghost.interrupted()
+    await drain(ghost.svc)
+    expect(ghost.prompts).toHaveLength(1)
+    expect(ghost.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+  })
+
+  it('incognito/temporary sessions record no conflicts (mode guard)', async () => {
+    for (const mode of ['incognito', 'temporary'] as const) {
+      const h = makeConflictFixture({ modes: { s1: mode } })
+      h.interrupted()
+      await drain(h.svc)
+      expect(h.prompts).toHaveLength(0)
+      expect(h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+    }
+  })
+
+  it('memory.enabled=false records no conflicts and enqueues nothing', async () => {
+    const h = makeConflictFixture()
+    h.config.enabled = false
+    h.branch()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(0)
+    expect(h.wsLessons.list().find((l) => l.rule === 'Never push to main')?.conflicts).toBeUndefined()
+  })
+})
+
+describe('negative-first distillation (L5)', () => {
+  const NEG_INSTRUCTION = 'Prefer negative formulations (never/MUST NOT) for constraint-type lessons where idiomatic.'
+
+  it('adds the negative-first instruction to full and lightweight prompts by default', async () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    h.complete()
+    await drain(h.svc)
+    h.interrupted()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(2)
+    for (const prompt of h.prompts) expect(prompt).toContain(NEG_INSTRUCTION)
+  })
+
+  it('memory.negativeFirst=false omits the instruction', async () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    h.config.negativeFirst = false
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(1)
+    expect(h.prompts[0]).not.toContain(NEG_INSTRUCTION)
+  })
+})
+
