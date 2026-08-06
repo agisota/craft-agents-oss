@@ -52,7 +52,9 @@ export async function conformanceSuite(
   });
 
   await record('run reaches a terminal state', async () => {
-    const final = await waitFor(provider, spec.id, (s) => s.state !== 'queued' && s.state !== 'running', 30_000);
+    // Marker-polled gateways (10s alarm ticks, real LLM latency) legitimately
+    // take minutes for 2 subtasks; blocking execs used to finish in seconds.
+    const final = await waitFor(provider, spec.id, (s) => s.state !== 'queued' && s.state !== 'running', 300_000);
     assert(final.state === 'done', `expected done, got ${final.state} (${final.failureReason ?? ''})`);
   });
 

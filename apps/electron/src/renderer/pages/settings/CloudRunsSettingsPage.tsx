@@ -28,6 +28,7 @@ interface Config {
   enabled: boolean
   provider: Provider
   gatewayUrl?: string
+  notifyWebhookUrl?: string
   tokenConfigured: boolean
   defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
 }
@@ -121,6 +122,17 @@ export default function CloudRunsSettingsPage() {
                 const value = Number(e.target.value)
                 if (Number.isInteger(value) && value >= 60) patch({ defaultMaxWallClockSec: value })
               }}
+            />
+          </SettingsRow>
+          <SettingsRow
+            label={t('settings.cloudRuns.webhook')}
+            description={t('settings.cloudRuns.webhookHint')}
+          >
+            <Input
+              className="w-80"
+              defaultValue={config.notifyWebhookUrl ?? ''}
+              placeholder="https://example.com/cloud-runs-hook"
+              onBlur={(e) => patch({ notifyWebhookUrl: e.target.value.trim() || undefined })}
             />
           </SettingsRow>
         </SettingsCard>

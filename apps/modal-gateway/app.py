@@ -43,6 +43,8 @@ import json, os, sys, time
 from pathlib import Path
 import httpx
 
+t0 = time.monotonic()
+
 workspace = Path(sys.argv[1])
 config = json.loads((workspace / ".craft-run" / "config.json").read_text())
 subtask = config["subtask"]
@@ -62,7 +64,11 @@ body = {
     ],
 }
 resp = httpx.post(f"{base}/chat/completions", headers=headers, json=body, timeout=600)
+duration_ms = int((time.monotonic() - t0) * 1000)
 if resp.status_code != 200:
+    out = workspace / "artifacts" / subtask["id"]
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "fail.marker").write_text(json.dumps({"error": f"LLM gateway error {resp.status_code}: {resp.text[:500]}", "durationMs": duration_ms}) + "\n")
     print(f"LLM gateway error {resp.status_code}: {resp.text[:500]}", file=sys.stderr)
     sys.exit(1)
 
@@ -83,11 +89,11 @@ out.mkdir(parents=True, exist_ok=True)
 (out / "answer.md").write_text(
     f"# {subtask.get('title') or subtask['id']}\n\n## Prompt\n\n{subtask['prompt']}\n\n## Brief\n\n{content}\n"
 )
-(out / "done.marker").write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+(out / "done.marker").write_text(json.dumps({"finishedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "durationMs": duration_ms}) + "\n")
 usage_dir = workspace / "artifacts" / "_usage"
 usage_dir.mkdir(parents=True, exist_ok=True)
 (usage_dir / f"{subtask['id']}.json").write_text(
-    json.dumps(usage or {"note": "usage unavailable (SSE fallback)"}) + "\n"
+    json.dumps({**(usage or {"note": "usage unavailable (SSE fallback)"}), "durationMs": duration_ms}) + "\n"
 )
 print(f"subtask {subtask['id']} done")
 '''
@@ -109,6 +115,32 @@ def _authorized(headers) -> bool:
     want = os.environ.get("CLOUD_RUNS_TOKEN", "")
     got = (headers.get("authorization") or "").removeprefix("Bearer ")
     return bool(want) and hmac.compare_digest(got, want)
+
+
+def _maybe_expired(run_id: str) -> bool:
+    """ttlSec enforcement: finished runs age out; dict record + volume files purged."""
+    import shutil
+
+    cur = state.get(_state_key(run_id))
+    if not cur:
+        return False
+    spec: dict = {}
+    spec_path = _run_dir(run_id) / "spec.json"
+    if spec_path.exists():
+        try:
+            spec = json.loads(spec_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            pass
+    ttl = spec.get("ttlSec")
+    finished = cur.get("finishedAt")
+    if not ttl or not finished or cur.get("state") not in ("done", "failed", "cancelled"):
+        return False
+    if time.time() * 1000 < finished + ttl * 1000:
+        return False
+    shutil.rmtree(_run_dir(run_id), ignore_errors=True)
+    volume.commit()
+    state.pop(_state_key(run_id), None)
+    return True
 
 
 @app.function(volumes={"/data": volume}, secrets=[secret], timeout=3600)
@@ -196,9 +228,10 @@ def driver(spec: dict):
         if usage_file.exists():
             try:
                 usage = json.loads(usage_file.read_text())
-                cur = state.get(_state_key(run_id), {}).get("usage", {"promptTokens": 0, "completionTokens": 0})
+                cur = state.get(_state_key(run_id), {}).get("usage", {"promptTokens": 0, "completionTokens": 0, "cpuMs": 0})
                 cur["promptTokens"] += usage.get("prompt_tokens", 0)
                 cur["completionTokens"] += usage.get("completion_tokens", 0)
+                cur["cpuMs"] += usage.get("durationMs", 0)
                 set_status(usage=cur)
             except (json.JSONDecodeError, KeyError):
                 pass
@@ -246,6 +279,8 @@ def gateway_api():
 
     @api.get("/runs/{run_id}/status")
     async def status_of(run_id: str, _=Depends(auth)):
+        volume.reload()
+        _maybe_expired(run_id)
         cur = state.get(_state_key(run_id))
         if not cur:
             raise fastapi.HTTPException(status_code=404, detail="run not found")
@@ -266,6 +301,7 @@ def gateway_api():
 
     @api.get("/runs/{run_id}/artifacts")
     async def artifacts_of(run_id: str, _=Depends(auth)):
+        _maybe_expired(run_id)
         if not state.get(_state_key(run_id)):
             raise fastapi.HTTPException(status_code=404, detail="run not found")
         volume.reload()
@@ -279,6 +315,7 @@ def gateway_api():
 
     @api.get("/runs/{run_id}/artifacts/{artifact_path:path}")
     async def artifact_file(run_id: str, artifact_path: str, _=Depends(auth)):
+        _maybe_expired(run_id)
         if not state.get(_state_key(run_id)):
             raise fastapi.HTTPException(status_code=404, detail="run not found")
         if artifact_path.startswith(("/", "\\")) or ".." in artifact_path.split("/"):

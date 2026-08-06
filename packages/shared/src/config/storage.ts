@@ -62,6 +62,7 @@ export interface StoredConfig {
     defaultMaxWallClockSec?: number;
     defaultMaxLlmTokens?: number;
     defaultMaxArtifactsBytes?: number;
+    notifyWebhookUrl?: string;  // optional outbound POST on run completion (see server-core watcher)
   };
   // LLM Connections (authoritative source for auth and model config)
   llmConnections?: LlmConnection[];

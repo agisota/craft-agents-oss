@@ -103,6 +103,7 @@ const CloudRunsConfigSchema = z.object({
   defaultMaxWallClockSec: z.number().int().positive().optional(),
   defaultMaxLlmTokens: z.number().int().positive().optional(),
   defaultMaxArtifactsBytes: z.number().int().positive().optional(),
+  notifyWebhookUrl: z.string().url().optional(),
 }).passthrough();
 export const StoredConfigSchema = z.object({
   workspaces: z.array(WorkspaceSchema).min(0),

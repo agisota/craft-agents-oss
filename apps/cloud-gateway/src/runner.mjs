@@ -33,71 +33,89 @@ if (!baseUrl || !model || !subtask?.id || !subtask?.prompt) {
 }
 
 const outDir = join(workspaceRoot, 'artifacts', subtask.id);
-await mkdir(outDir, { recursive: true });
-
-const headers = { 'content-type': 'application/json' };
-if (apiKey) headers.authorization = `Bearer ${apiKey}`;
-
-const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-  method: 'POST',
-  headers,
-  body: JSON.stringify({
-    model,
-    stream: false,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a research sub-agent. Produce a thorough, source-aware markdown brief for the given subtask. Be factual, structured, cite what you can.',
-      },
-      { role: 'user', content: subtask.prompt },
-    ],
-  }),
-});
-
-if (!response.ok) {
-  const body = await response.text().catch(() => '');
-  console.error(`LLM gateway error ${response.status}: ${body.slice(0, 500)}`);
+// The DO never blocks on exec handles: outcome is signalled purely via
+// markers (done.marker success / fail.marker error) so status reads
+// never stall behind a long-running exec (spike finding §1101).
+const startedAt = Date.now();
+async function fail(message) {
+  await mkdir(outDir, { recursive: true });
+  await writeFile(
+    join(outDir, 'fail.marker'),
+    JSON.stringify({ error: String(message).slice(0, 1000), durationMs: Date.now() - startedAt }) + '\n',
+  );
   process.exit(1);
 }
 
-const contentType = response.headers.get('content-type') ?? '';
-let content;
-let usage = null;
-if (contentType.includes('text/event-stream')) {
-  // Server ignored stream:false — accumulate deltas by hand.
-  const body = await response.text();
-  content = body
-    .split('\n')
-    .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
-    .map((line) => {
-      try {
-        const chunk = JSON.parse(line.slice(6));
-        return chunk?.choices?.[0]?.delta?.content ?? '';
-      } catch {
-        return '';
-      }
-    })
-    .join('');
-} else {
-  const payload = await response.json();
-  content = payload?.choices?.[0]?.message?.content;
-  usage = payload?.usage ?? null;
-}
-if (typeof content !== 'string' || content.length === 0) {
-  console.error('LLM gateway returned no content');
-  process.exit(1);
-}
+try {
+  await mkdir(outDir, { recursive: true });
 
-await writeFile(
-  join(outDir, 'answer.md'),
-  [`# ${subtask.title ?? subtask.id}`, '', '## Prompt', '', subtask.prompt, '', '## Brief', '', content, ''].join('\n'),
-);
-await writeFile(join(outDir, 'done.marker'), new Date().toISOString() + '\n');
-// Per-subtask LLM usage ledger (PRD §G5.2) — billing telemetry, not an artifact.
-await mkdir(join(workspaceRoot, 'artifacts', '_usage'), { recursive: true });
-await writeFile(
-  join(workspaceRoot, 'artifacts', '_usage', `${subtask.id}.json`),
-  JSON.stringify(usage ?? { note: 'usage unavailable (SSE fallback)' }) + '\n',
-);
-console.log(`subtask ${subtask.id} done: ${content.length} chars`);
+  const headers = { 'content-type': 'application/json' };
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+
+  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      stream: false,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a research sub-agent. Produce a thorough, source-aware markdown brief for the given subtask. Be factual, structured, cite what you can.',
+        },
+        { role: 'user', content: subtask.prompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    await fail(`LLM gateway error ${response.status}: ${body.slice(0, 500)}`);
+  }
+
+  const contentType = response.headers.get('content-type') ?? '';
+  let content;
+  let usage = null;
+  if (contentType.includes('text/event-stream')) {
+    // Server ignored stream:false — accumulate deltas by hand.
+    const body = await response.text();
+    content = body
+      .split('\n')
+      .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
+      .map((line) => {
+        try {
+          const chunk = JSON.parse(line.slice(6));
+          return chunk?.choices?.[0]?.delta?.content ?? '';
+        } catch {
+          return '';
+        }
+      })
+      .join('');
+  } else {
+    const payload = await response.json();
+    content = payload?.choices?.[0]?.message?.content;
+    usage = payload?.usage ?? null;
+  }
+  if (typeof content !== 'string' || content.length === 0) {
+    await fail('LLM gateway returned no content');
+  }
+
+  await writeFile(
+    join(outDir, 'answer.md'),
+    [`# ${subtask.title ?? subtask.id}`, '', '## Prompt', '', subtask.prompt, '', '## Brief', '', content, ''].join('\n'),
+  );
+  await writeFile(
+    join(outDir, 'done.marker'),
+    JSON.stringify({ finishedAt: new Date().toISOString(), durationMs: Date.now() - startedAt }) + '\n',
+  );
+  // Per-subtask LLM+CPU usage ledger (PRD §G5.2) — billing telemetry, not an artifact.
+  await mkdir(join(workspaceRoot, 'artifacts', '_usage'), { recursive: true });
+  await writeFile(
+    join(workspaceRoot, 'artifacts', '_usage', `${subtask.id}.json`),
+    JSON.stringify({ ...(usage ?? { note: 'usage unavailable (SSE fallback)' }), durationMs: Date.now() - startedAt }) + '\n',
+  );
+  console.log(`subtask ${subtask.id} done: ${content.length} chars`);
+} catch (error) {
+  await fail(error instanceof Error ? error.message : String(error));
+}

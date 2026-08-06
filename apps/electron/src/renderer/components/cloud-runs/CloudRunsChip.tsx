@@ -28,7 +28,12 @@ interface ListedRun {
   createdAt: number
   topic?: string
   sessionId?: string
-  status: { state: RunState; failureReason?: string; progress?: { completed: number; total: number } } | null
+  status: {
+    state: RunState
+    failureReason?: string
+    progress?: { completed: number; total: number }
+    usage?: { promptTokens: number; completionTokens: number; cpuMs?: number }
+  } | null
 }
 
 interface CloudRunsChipProps {

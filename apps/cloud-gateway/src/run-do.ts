@@ -60,8 +60,17 @@ interface PersistedRun {
   failureDetail?: string;
   nextSubtask: number;
   createdAt: number;
-  /** Aggregated LLM usage ledger (PRD §G5.2). */
-  usage?: { promptTokens: number; completionTokens: number };
+  /** Aggregated usage ledger (PRD §G5.2): LLM tokens + runner wall time. */
+  usage?: { promptTokens: number; completionTokens: number; cpuMs: number };
+  /** Currently-execing subtask (non-blocking exec; markers drive outcome). */
+  awaitingSubtask?: PersistedAwaiting;
+  attemptOf?: Record<string, number>;
+}
+
+interface PersistedAwaiting {
+  id: string;
+  attempt: number;
+  startedAt: number;
 }
 
 const DEFAULT_WALL_CLOCK_SEC = 30 * 60;
@@ -69,6 +78,7 @@ const DEFAULT_WALL_CLOCK_SEC = 30 * 60;
 // too tight live (runner exit 143). Watchdog above bounds the whole run.
 const SUBTASK_TIMEOUT_MS = 600_000;
 const SUBTASK_MAX_ATTEMPTS = 2;
+const MARKER_POLL_MS = 10_000;
 const WORKSPACE_ROOT = "/workspace";
 const ARTIFACTS_ROOT = `${WORKSPACE_ROOT}/artifacts`;
 
@@ -120,6 +130,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   async getStatus(): Promise<object | null> {
     const run = await this.ctx.storage.get<PersistedRun>("run");
     if (!run) return null;
+    if (await this.maybeExpire(run)) return null;
     return {
       id: run.spec.id,
       state: run.state,
@@ -182,7 +193,9 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   override async alarm(): Promise<void> {
     const run = await this.ctx.storage.get<PersistedRun>("run");
-    if (!run || run.state === "done" || run.state === "failed" || run.state === "cancelled") return;
+    if (!run) return;
+    if (await this.maybeExpire(run)) return;
+    if (run.state === "done" || run.state === "failed" || run.state === "cancelled") return;
 
     const wallClockMs = (run.spec.limits?.maxWallClockSec ?? DEFAULT_WALL_CLOCK_SEC) * 1000;
     const startedAt = run.startedAt ?? Date.now();
@@ -196,11 +209,35 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       run.startedAt = startedAt;
     }
 
+    // Non-blocking state machine: exec is started and NEVER awaited, so the
+    // DO stays responsive to status/artifact reads (spike finding: a blocking
+    // exec slot starved file routes into 1101s). Outcome rides on the
+    // runner's done.marker/fail.marker across alarm ticks.
+    const awaiting = run.awaitingSubtask;
+    if (awaiting) {
+      const outcome = await this.checkAwaiting(run, awaiting);
+      if (outcome.kind === "wait") {
+        await this.ctx.storage.setAlarm(Date.now() + MARKER_POLL_MS);
+        return;
+      }
+      if (outcome.kind === "fail") {
+        await this.finish(run, "failed", "runner_error", outcome.error.slice(0, 2000));
+        return;
+      }
+      // retry: clear awaiting and let the next tick restart the exec;
+      // done: advance to the next subtask.
+      run.awaitingSubtask = undefined;
+      if (outcome.kind === "done") run.nextSubtask += 1;
+      await this.ctx.storage.put("run", run);
+      await this.ctx.storage.setAlarm(Date.now() + 1);
+      return;
+    }
+
     // Skip subtasks already completed before a crash (done.marker survives
     // in the workspace; containers are replaceable, the DO is not).
     while (
       run.nextSubtask < run.spec.subtasks.length &&
-      (await this.markerExists(run.spec.subtasks[run.nextSubtask]!.id))
+      (await this.markerExists(run.spec.subtasks[run.nextSubtask]!.id, "done.marker"))
     ) {
       run.nextSubtask += 1;
     }
@@ -211,56 +248,97 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     }
 
     const subtask = run.spec.subtasks[run.nextSubtask]!;
-    await this.ctx.storage.put("run", run); // persist running + nextSubtask before exec
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= SUBTASK_MAX_ATTEMPTS; attempt++) {
-      try {
-        await this.execSubtask(run, subtask);
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        // Transient LLM 5xx / timeouts are common enough to justify one retry;
-        // anything deterministic just fails fast on attempt 2 anyway.
+    const attempt = (run.attemptOf?.[subtask.id] ?? 0) + 1;
+    try {
+      await this.startSubtaskExec(run, subtask);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt < SUBTASK_MAX_ATTEMPTS) {
+        run.attemptOf = { ...run.attemptOf, [subtask.id]: attempt };
+        await this.ctx.storage.put("run", run);
+        await this.ctx.storage.setAlarm(Date.now() + 1);
+        return;
       }
-    }
-    if (lastError) {
-      await this.finish(run, "failed", "runner_error", lastError.message.slice(0, 2000));
+      await this.finish(run, "failed", "runner_error", message.slice(0, 2000));
       return;
     }
-
-    const fresh = await this.ctx.storage.get<PersistedRun>("run");
-    if (!fresh || fresh.state === "cancelled") return; // cancel raced the exec — cancel wins
-    fresh.nextSubtask = run.nextSubtask + 1;
-    // A subtask without its marker is a runner_error even with exit 0.
-    if (!(await this.markerExists(subtask.id))) {
-      await this.finish(fresh, "failed", "runner_error", `subtask ${subtask.id} finished without done.marker`);
-      return;
-    }
-    // LLM usage ledger (PRD §G5.2): the runner leaves usage JSON per subtask.
-    const usage = await this.readSubtaskUsage(subtask.id);
-    if (usage) {
-      fresh.usage = fresh.usage ?? { promptTokens: 0, completionTokens: 0 };
-      fresh.usage.promptTokens += usage.prompt_tokens ?? 0;
-      fresh.usage.completionTokens += usage.completion_tokens ?? 0;
-    }
-    await this.ctx.storage.put("run", fresh);
-    await this.ctx.storage.setAlarm(Date.now() + 1);
+    run.attemptOf = { ...run.attemptOf, [subtask.id]: attempt };
+    run.awaitingSubtask = { id: subtask.id, attempt, startedAt: Date.now() };
+    await this.ctx.storage.put("run", run);
+    await this.ctx.storage.setAlarm(Date.now() + MARKER_POLL_MS);
   }
 
-  private async readSubtaskUsage(subtaskId: string): Promise<{ prompt_tokens?: number; completion_tokens?: number } | null> {
+  private async checkAwaiting(
+    run: PersistedRun,
+    awaiting: PersistedAwaiting,
+  ): Promise<{ kind: "done" } | { kind: "wait" } | { kind: "retry" } | { kind: "fail"; error: string }> {
+    if (await this.markerExists(awaiting.id, "done.marker")) {
+      // LLM+CPU usage ledger (PRD §G5.2): the runner leaves usage JSON per subtask.
+      const usage = await this.readSubtaskUsage(awaiting.id);
+      if (usage) {
+        run.usage = run.usage ?? { promptTokens: 0, completionTokens: 0, cpuMs: 0 };
+        run.usage.promptTokens += usage.prompt_tokens ?? 0;
+        run.usage.completionTokens += usage.completion_tokens ?? 0;
+        run.usage.cpuMs += usage.durationMs ?? 0;
+      }
+      return { kind: "done" };
+    }
+    const fail = await this.readMarker(awaiting.id, "fail.marker");
+    if (fail) {
+      return this.retryOrFail(awaiting, fail.error ?? "runner failed (no detail)");
+    }
+    if (Date.now() - awaiting.startedAt > SUBTASK_TIMEOUT_MS) {
+      return this.retryOrFail(awaiting, "subtask timeout (no marker)");
+    }
+    return { kind: "wait" };
+  }
+
+  private retryOrFail(
+    awaiting: PersistedAwaiting,
+    error: string,
+  ): { kind: "retry" } | { kind: "fail"; error: string } {
+    return awaiting.attempt < SUBTASK_MAX_ATTEMPTS
+      ? { kind: "retry" }
+      : { kind: "fail", error: `subtask ${awaiting.id} attempt ${awaiting.attempt}: ${error}` };
+  }
+
+  /** ttlSec enforcement: finished runs age out; record + artifacts purged. */
+  private async maybeExpire(run: PersistedRun): Promise<boolean> {
+    const ttl = run.spec.ttlSec;
+    if (!ttl || !run.finishedAt) return false;
+    if (Date.now() < run.finishedAt + ttl * 1000) return false;
+    if (run.state !== "done" && run.state !== "failed" && run.state !== "cancelled") return false;
     const ws = await this.ws();
     try {
-      const raw = await ws.fs.readFile(joinPosix(ARTIFACTS_ROOT, "_usage", `${subtaskId}.json`), "utf8");
-      return JSON.parse(raw) as { prompt_tokens?: number; completion_tokens?: number };
+      await ws.fs.rm(ARTIFACTS_ROOT, { recursive: true });
+    } catch { /* already gone */ }
+    await this.ctx.storage.delete("run");
+    return true;
+  }
+
+  private async readMarker(subtaskId: string, name: string): Promise<{ error?: string } | null> {
+    return this.readJsonArtifact(`${subtaskId}/${name}`);
+  }
+
+  private async readJsonArtifact<T>(relPath: string): Promise<T | null> {
+    const ws = await this.ws();
+    try {
+      const raw = await ws.fs.readFile(joinPosix(ARTIFACTS_ROOT, relPath), "utf8");
+      return JSON.parse(raw) as T;
     } catch {
       return null;
     }
   }
 
+  private async readSubtaskUsage(
+    subtaskId: string,
+  ): Promise<{ prompt_tokens?: number; completion_tokens?: number; durationMs?: number } | null> {
+    return this.readJsonArtifact(`_usage/${subtaskId}.json`);
+  }
+
   // ---------------------------------------------------------------------
 
-  private async execSubtask(
+  private async startSubtaskExec(
     run: PersistedRun,
     subtask: { id: string; title?: string; prompt: string },
   ): Promise<void> {
@@ -269,6 +347,12 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     const ws = await this.ws();
     await ws.fs.mkdir(`${WORKSPACE_ROOT}/.craft-run`, { recursive: true });
     await ws.fs.mkdir(joinPosix(ARTIFACTS_ROOT, subtask.id), { recursive: true });
+    // Clear stale markers from previous attempts so the poll sees only this run.
+    for (const marker of ["done.marker", "fail.marker"]) {
+      try {
+        await ws.fs.rm(joinPosix(ARTIFACTS_ROOT, subtask.id, marker));
+      } catch { /* no stale marker */ }
+    }
     await ws.fs.writeFile(
       `${WORKSPACE_ROOT}/.craft-run/config.json`,
       JSON.stringify({
@@ -278,20 +362,25 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
         subtask,
       }),
     );
-    const handle = await ws.shell.exec(
-      `node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT}`,
-      { timeoutMs: SUBTASK_TIMEOUT_MS, encoding: "utf8" },
+    // The handle is NOT awaited here — the DO must stay responsive (1101
+    // finding) — but detaching would starve the spawned process of its
+    // event-stream consumer and kill it. waitUntil keeps the drain alive
+    // past the alarm tick; outcome is still read from markers.
+    const handle = await ws.shell.exec(`node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT}`, {
+      timeoutMs: SUBTASK_TIMEOUT_MS + 30_000,
+      encoding: "utf8",
+    });
+    this.ctx.waitUntil(
+      handle
+        .result()
+        .catch(() => null), // exec errors surface via markers; consume to keep the stream alive
     );
-    const result = (await handle.result()) as { exitCode?: number; stdout?: string; stderr?: string };
-    if (result.exitCode !== 0) {
-      throw new Error(`runner exit ${result.exitCode}: ${(result.stderr ?? result.stdout ?? "").slice(0, 1000)}`);
-    }
   }
 
-  private async markerExists(subtaskId: string): Promise<boolean> {
+  private async markerExists(subtaskId: string, name: string): Promise<boolean> {
     const ws = await this.ws();
     try {
-      await ws.fs.stat(joinPosix(ARTIFACTS_ROOT, subtaskId, "done.marker"));
+      await ws.fs.stat(joinPosix(ARTIFACTS_ROOT, subtaskId, name));
       return true;
     } catch {
       return false;

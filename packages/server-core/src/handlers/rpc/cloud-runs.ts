@@ -26,6 +26,7 @@ import {
   ModalProvider,
   buildResearchSpec,
   type CloudRunProvider,
+  type RunHandle,
   type RunStatus,
 } from '@craft-agent/cloud-runner';
 import type { RpcServer } from '@craft-agent/server-core/transport';
@@ -107,6 +108,20 @@ function makeProvider(settings: CloudRunsSettings): CloudRunProvider {
   return new LocalSubprocessProvider({ baseDir: join(CONFIG_DIR, 'cloud-runs', 'local') });
 }
 
+/** Fallback candidate for auto-create-flip: cloudflare ↔ modal, never local. */
+function makeFallbackProvider(settings: CloudRunsSettings): CloudRunProvider | null {
+  if (settings.provider !== 'cloudflare' && settings.provider !== 'modal') return null;
+  const flipped: CloudRunsSettings = {
+    ...settings,
+    provider: settings.provider === 'cloudflare' ? 'modal' : 'cloudflare',
+  };
+  try {
+    return makeProvider(flipped);
+  } catch {
+    return null; // fallback not configured — stay single-provider
+  }
+}
+
 // ---------------------------------------------------------------
 // Runs registry (provider-agnostic listing; cloud gateways keep no
 // global index across per-run Durable Objects)
@@ -145,6 +160,73 @@ async function resolveWorkspaceId(deps: HandlerDeps, sessionId: string): Promise
   return session.workspaceId;
 }
 
+/** Provider for a specific run: the one that owns it (post-fallback record), else the configured default. */
+function providerForRun(settings: CloudRunsSettings, runId: string): CloudRunProvider {
+  const entry = readRegistry().find((r) => r.id === runId);
+  if (!entry) return makeProvider(settings);
+  if (entry.provider !== 'cloudflare' && entry.provider !== 'modal' && entry.provider !== 'local') {
+    return makeProvider(settings);
+  }
+  return makeProvider({ ...settings, provider: entry.provider });
+}
+
+// ---------------------------------------------------------------
+// Completion watcher: polls registry runs and fires the outbound
+// webhook once per terminal transition (PRD notify follow-up).
+// In-app surface is the chip's toast; the webhook covers out-of-app
+// channels for runs that finish while the user isn't watching.
+// ---------------------------------------------------------------
+
+const WATCHER_POLL_MS = 60_000;
+let watcherStarted = false;
+
+function startCompletionWatcher(): void {
+  if (watcherStarted) return;
+  watcherStarted = true;
+  const lastState = new Map<string, string>();
+  setInterval(async () => {
+    const settings = readSettings();
+    if (!settings.enabled) return;
+    const webhook = loadStoredConfig()?.cloudRuns?.notifyWebhookUrl;
+    for (const entry of readRegistry()) {
+      const prev = lastState.get(entry.id);
+      let status: RunStatus | null = null;
+      try {
+        status = await providerForRun(settings, entry.id).getStatus(entry.id);
+      } catch {
+        continue; // provider blip — retry next tick
+      }
+      if (prev !== status.state) lastState.set(entry.id, status.state);
+      const terminal = status.state === 'done' || status.state === 'failed' || status.state === 'cancelled';
+      if (terminal && prev && prev !== status.state && prev !== 'unknown') {
+        if (webhook) {
+          try {
+            await fetch(webhook, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                event: 'cloud_run.terminal',
+                run: {
+                  id: entry.id,
+                  name: entry.name,
+                  topic: entry.topic,
+                  provider: entry.provider,
+                  state: status.state,
+                  failureReason: status.failureReason,
+                  usage: status.usage,
+                  finishedAt: status.finishedAt,
+                },
+              }),
+            });
+          } catch {
+            // Webhook delivery is best-effort; the UI poll remains authoritative.
+          }
+        }
+      }
+    }
+  }, WATCHER_POLL_MS).unref();
+}
+
 export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps): void {
   const requireEnabled = (): CloudRunsSettings => {
     const settings = readSettings();
@@ -154,9 +236,15 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     return settings;
   };
 
+  startCompletionWatcher();
+
   server.handle(RPC_CHANNELS.cloudRuns.GET_CONFIG, async () => {
     const settings = readSettings();
-    return { ...settings, tokenConfigured: Boolean(readSecretsEnv().CLOUD_RUNS_TOKEN) };
+    return {
+      ...settings,
+      notifyWebhookUrl: loadStoredConfig()?.cloudRuns?.notifyWebhookUrl,
+      tokenConfigured: Boolean(readSecretsEnv().CLOUD_RUNS_TOKEN),
+    };
   });
 
   server.handle(
@@ -164,7 +252,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     async (
       _ctx,
       patch: Partial<Pick<CloudRunsSettings, 'enabled' | 'provider' | 'gatewayUrl'>> &
-        { defaultMaxWallClockSec?: number; defaultMaxLlmTokens?: number; defaultMaxArtifactsBytes?: number },
+        { defaultMaxWallClockSec?: number; defaultMaxLlmTokens?: number; defaultMaxArtifactsBytes?: number; notifyWebhookUrl?: string },
     ) => {
       const stored = loadStoredConfig();
       if (!stored) throw new CloudRunnerError('config.json not found', 'provider_error');
@@ -185,12 +273,25 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         metadata: { sessionId: args.sessionId ?? '' },
       });
       const provider = makeProvider(settings);
-      const handle = await provider.createRun(spec);
+      // Auto-flip ONLY at createRun: a failed creation bills nothing, so the
+      // double-charge concern (PRD §G4.3) doesn't apply to this hop. Mid-run
+      // flips stay manual — status/cancel keep addressing the recorded
+      // provider for run lifetime.
+      let handle: RunHandle;
+      let usedProvider = settings.provider;
+      try {
+        handle = await provider.createRun(spec);
+      } catch (error) {
+        const fallback = makeFallbackProvider(settings);
+        if (!fallback) throw error;
+        handle = await fallback.createRun(spec);
+        usedProvider = fallback.providerId as typeof usedProvider;
+      }
       const registry = readRegistry();
       registry.push({
         id: handle.id,
         name: spec.name,
-        provider: settings.provider,
+        provider: usedProvider,
         createdAt: handle.createdAt,
         sessionId: args.sessionId,
         topic: args.topic,
@@ -202,13 +303,12 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
 
   server.handle(RPC_CHANNELS.cloudRuns.LIST, async () => {
     const settings = readSettings();
-    const provider = makeProvider(settings);
     const entries = readRegistry();
     const runs = await Promise.all(
       entries.map(async (entry) => {
         let status: RunStatus | null = null;
         try {
-          status = await provider.getStatus(entry.id);
+          status = await providerForRun(settings, entry.id).getStatus(entry.id);
         } catch {
           status = null; // registry ghost or provider blip — still list the entry
         }
@@ -219,21 +319,21 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
   });
 
   server.handle(RPC_CHANNELS.cloudRuns.GET_STATUS, async (_ctx, id: string) => {
-    return makeProvider(requireEnabled()).getStatus(id);
+    return providerForRun(requireEnabled(), id).getStatus(id);
   });
 
   server.handle(RPC_CHANNELS.cloudRuns.CANCEL, async (_ctx, id: string) => {
-    await makeProvider(requireEnabled()).cancel(id);
+    await providerForRun(requireEnabled(), id).cancel(id);
     return { ok: true };
   });
 
   server.handle(RPC_CHANNELS.cloudRuns.LIST_ARTIFACTS, async (_ctx, id: string) => {
-    return makeProvider(requireEnabled()).listArtifacts(id);
+    return providerForRun(requireEnabled(), id).listArtifacts(id);
   });
 
   server.handle(RPC_CHANNELS.cloudRuns.IMPORT, async (_ctx, args: { runId: string; sessionId: string }) => {
     const settings = requireEnabled();
-    const provider = makeProvider(settings);
+    const provider = providerForRun(settings, args.runId);
     const workspaceId = await resolveWorkspaceId(deps, args.sessionId);
     const status = await provider.getStatus(args.runId);
     if (status.state !== 'done') {
@@ -264,7 +364,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     RPC_CHANNELS.cloudRuns.AGGREGATE,
     async (_ctx, args: { runId: string; sessionId: string; language?: 'en' | 'ru' }) => {
       const settings = requireEnabled();
-      const provider = makeProvider(settings);
+      const provider = providerForRun(settings, args.runId);
       const workspaceId = await resolveWorkspaceId(deps, args.sessionId);
       const status = await provider.getStatus(args.runId);
       if (status.state !== 'done') {

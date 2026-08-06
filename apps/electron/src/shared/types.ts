@@ -234,6 +234,7 @@ export interface ElectronAPI {
     enabled: boolean
     provider: 'local' | 'cloudflare' | 'modal' | 'e2b'
     gatewayUrl?: string
+    notifyWebhookUrl?: string
     tokenConfigured: boolean
     defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
   }>
@@ -244,6 +245,7 @@ export interface ElectronAPI {
     defaultMaxWallClockSec?: number
     defaultMaxLlmTokens?: number
     defaultMaxArtifactsBytes?: number
+    notifyWebhookUrl?: string
   }): Promise<{ ok: boolean }>
   submitCloudRun(args: {
     topic: string
@@ -266,6 +268,7 @@ export interface ElectronAPI {
         state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
         failureReason?: string
         progress?: { completed: number; total: number }
+        usage?: { promptTokens: number; completionTokens: number; cpuMs?: number }
       } | null
     }[]
   }>
