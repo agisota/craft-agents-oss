@@ -33,10 +33,21 @@ export function cleanupCoreClientResources(clientId: string): void {
 }
 import { registerBrowserPaneHandlers } from './browser-pane'
 
+export interface CoreRpcRegistrationOptions {
+  /**
+   * Register browser-pane:* channels (standalone/headless server needs them
+   * for the Web UI). Set to false when the host app registers its own
+   * browser-pane handlers (electron GUI) — the RpcServer rejects duplicate
+   * channel registrations and the app fails to boot.
+   */
+  browserPane?: boolean
+}
+
 export function registerCoreRpcHandlers(
   server: RpcServer,
   deps: HandlerDeps,
   serverCtx?: ServerHandlerContext,
+  options?: CoreRpcRegistrationOptions,
 ): void {
   registerAuthHandlers(server, deps)
   registerAutomationsHandlers(server, deps)
@@ -59,5 +70,5 @@ export function registerCoreRpcHandlers(
   registerWorkspaceCoreHandlers(server, deps)
   registerMessagingHandlers(server, deps)
   registerNotesHandlers(server, deps)
-  registerBrowserPaneHandlers(server, deps)
+  if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)
 }

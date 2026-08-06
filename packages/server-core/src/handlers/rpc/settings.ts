@@ -30,7 +30,6 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.appearance.GET_RICH_TOOL_DESCRIPTIONS,
   RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS,
   RPC_CHANNELS.appearance.GET_DEFAULT_ZOOM_LEVEL,
-  RPC_CHANNELS.appearance.SET_DEFAULT_ZOOM_LEVEL,
   RPC_CHANNELS.caching.GET_EXTENDED_PROMPT_CACHE,
   RPC_CHANNELS.caching.SET_EXTENDED_PROMPT_CACHE,
   RPC_CHANNELS.caching.GET_ENABLE_1M_CONTEXT,
@@ -303,12 +302,6 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
   server.handle(RPC_CHANNELS.appearance.GET_DEFAULT_ZOOM_LEVEL, async () => {
     const { getDefaultZoomLevel } = await import('@craft-agent/shared/config/storage')
     return getDefaultZoomLevel()
-  })
-
-  // Set default zoom level setting
-  server.handle(RPC_CHANNELS.appearance.SET_DEFAULT_ZOOM_LEVEL, async (_ctx, level: number) => {
-    const { setDefaultZoomLevel } = await import('@craft-agent/shared/config/storage')
-    setDefaultZoomLevel(level)
   })
 
   // ============================================================
