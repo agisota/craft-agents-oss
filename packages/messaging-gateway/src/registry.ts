@@ -901,6 +901,8 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
     }
     const cleaned = phoneNumber.replace(/[^\d]/g, '')
     if (cleaned.length < 8) throw new Error('Phone number looks too short')
+    await state.whatsapp.requestPairingCode(cleaned)
+  }
 
   private async startWhatsAppAdapter(
     workspaceId: string,
