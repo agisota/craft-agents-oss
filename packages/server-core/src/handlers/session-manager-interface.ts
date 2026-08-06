@@ -133,6 +133,7 @@ export interface ISessionManager {
   ): () => void
   /** Read a session's final assistant message text (Conductor output reader). */
   getSessionFinalText(sessionId: string): string | undefined
+  undoLastUserMessage(sessionId: string): Promise<{ success: boolean; userMessage?: string }>
   addMessageAnnotation(sessionId: string, messageId: string, annotation: AnnotationV1): void
   removeMessageAnnotation(sessionId: string, messageId: string, annotationId: string): void
   updateMessageAnnotation(
