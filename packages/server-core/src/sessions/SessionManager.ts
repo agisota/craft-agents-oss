@@ -1851,6 +1851,54 @@ export class SessionManager implements ISessionManager {
     }
   }
 
+  /**
+   * One-shot LLM runner for MemoryService distillation. Mirrors
+   * generateRemoteTransferSummary: spawns a scratch backend agent on the
+   * workspace's default connection/mini model, single mini completion, destroy.
+   * Returns null-tolerant text ('' on failure is fine — the service drops).
+   */
+  private async runMemoryDistillOneShot(
+    workspace: { id: string; rootPath: string },
+    prompt: string,
+  ): Promise<string> {
+    const wsConfig = loadWorkspaceConfig(workspace.rootPath)
+    const backendContext = resolveBackendContext({
+      sessionConnectionSlug: undefined,
+      workspaceDefaultConnectionSlug: wsConfig?.defaults?.defaultLlmConnection,
+      managedModel: wsConfig?.defaults?.model,
+    })
+    const miniModel = backendContext.connection
+      ? (getMiniModel(backendContext.connection) ?? backendContext.connection.defaultModel ?? getDefaultSummarizationModel())
+      : getDefaultSummarizationModel()
+    const agent = createBackendFromResolvedContext({
+      context: backendContext,
+      hostRuntime: buildBackendHostRuntimeContext(),
+      coreConfig: {
+        workspace: workspace as Workspace,
+        session: {
+          id: `memory-distill-${Date.now()}`,
+          workspaceRootPath: workspace.rootPath,
+          createdAt: Date.now(),
+          lastUsedAt: Date.now(),
+          workingDirectory: workspace.rootPath,
+          model: wsConfig?.defaults?.model,
+          permissionMode: 'allow-all',
+        },
+        miniModel,
+        envOverrides: { CRAFT_WORKSPACE_PATH: workspace.rootPath },
+        isHeadless: true,
+      },
+      providerOptions: { piAuthProvider: backendContext.connection?.piAuthProvider },
+    })
+    try {
+      const text = await agent.runMiniCompletion(prompt)
+      if (text == null) throw new Error('runMiniCompletion returned null')
+      return text
+    } finally {
+      agent.destroy()
+    }
+  }
+
   private broadcastSourcesChanged(workspaceId: string, sources: LoadedSource[]): void {
     if (!this.eventSink) return
     this.eventSink(RPC_CHANNELS.sources.CHANGED, { to: 'workspace', workspaceId }, workspaceId, sources)
@@ -1881,6 +1929,7 @@ export class SessionManager implements ISessionManager {
         logger: { warn: (msg, err) => sessionLog.warn(`memory: ${msg}`, err) },
       })
       svc.attachSessionCompletion((cb) => this.onSessionComplete((evt) => { if (evt.workspaceId === workspace.id) cb(evt) }))
+      svc.setDistiller((prompt) => this.runMemoryDistillOneShot(workspace, prompt))
       svc.start()
       this.memoryServices.set(workspace.rootPath, svc)
     } catch (err) {
