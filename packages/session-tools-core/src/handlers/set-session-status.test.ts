@@ -108,7 +108,7 @@ describe("handleSetSessionStatus", () => {
   });
 
   it("rejects unknown status fast and lists available IDs", async () => {
-    const setSessionStatus = mock(async () => {});
+    const setSessionStatus = mock(async (_sessionId: string, _status: string) => {});
     const ctx = {
       ...baseCtx(),
       setSessionStatus,
@@ -129,7 +129,7 @@ describe("handleSetSessionStatus", () => {
   });
 
   it("resolves display-name input to canonical ID before persisting", async () => {
-    const setSessionStatus = mock(async () => {});
+    const setSessionStatus = mock(async (_sessionId: string, _status: string) => {});
     const ctx = {
       ...baseCtx(),
       setSessionStatus,
@@ -149,7 +149,7 @@ describe("handleSetSessionStatus", () => {
   });
 
   it("targets a specific session when sessionId is provided", async () => {
-    const setSessionStatus = mock(async () => {});
+    const setSessionStatus = mock(async (_sessionId: string, _status: string) => {});
     const ctx = {
       ...baseCtx(),
       setSessionStatus,
@@ -164,7 +164,7 @@ describe("handleSetSessionStatus", () => {
   });
 
   it("without resolveStatus, passes the status through (legacy fallback)", async () => {
-    const setSessionStatus = mock(async () => {});
+    const setSessionStatus = mock(async (_sessionId: string, _status: string) => {});
     const ctx = {
       ...baseCtx(),
       setSessionStatus,
