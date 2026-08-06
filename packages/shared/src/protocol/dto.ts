@@ -16,7 +16,7 @@ import type {
 } from '@craft-agent/core/types'
 import type { PermissionMode } from '../agent/mode-types'
 import type { ThinkingLevel } from '../agent/thinking-levels'
-import type { CustomEndpointConfig } from '../config/llm-connections'
+import type { CustomEndpointConfig, LlmProviderType } from '../config/llm-connections'
 import type {
   AuthRequest as SharedAuthRequest,
   CredentialInputMode as SharedCredentialInputMode,
@@ -575,6 +575,10 @@ export interface ClaudeOAuthIdentityDto {
 export interface LlmConnectionSetup {
   slug: string
   credential?: string
+  /** Explicit display name (used for backend-driven providers like 'omp'). */
+  name?: string
+  /** Explicit provider type override — bypasses slug/baseUrl-based inference. */
+  providerType?: LlmProviderType
   baseUrl?: string | null
   defaultModel?: string | null
   models?: string[] | null

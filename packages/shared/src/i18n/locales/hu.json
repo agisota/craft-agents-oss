@@ -681,6 +681,7 @@
   "onboarding.providerSelect.githubCopilot": "GitHub Copilot",
   "onboarding.providerSelect.githubCopilotDesc": "Használd a GitHub Copilot előfizetésedet a Craft Agents működtetéséhez.",
   "onboarding.providerSelect.localModel": "Helyi modell",
+  "onboarding.providerSelect.ompDesc": "Helyi oh-my-pi ügynök-futtatókörnyezet (omp CLI) — saját modellkonfigurációt használ.",
   "onboarding.providerSelect.otherProvider": "Más szolgáltatót használok",
   "onboarding.providerSelect.setupLater": "Beállítás később",
   "onboarding.providerSelect.title": "Üdvözlünk a Craft Agents-ben",

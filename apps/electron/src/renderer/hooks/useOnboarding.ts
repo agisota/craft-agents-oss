@@ -635,7 +635,7 @@ export function useOnboarding({
 
   // Map ProviderChoice → ApiSetupMethod and navigate to the right step
   const handleSelectProvider = useCallback((choice: ProviderChoice) => {
-    const CHOICE_TO_METHOD: Record<Exclude<ProviderChoice, 'local'>, ApiSetupMethod> = {
+    const CHOICE_TO_METHOD: Record<Exclude<ProviderChoice, 'local' | 'omp'>, ApiSetupMethod> = {
       claude: 'claude_oauth',
       chatgpt: 'pi_chatgpt_oauth',
       copilot: 'pi_copilot_oauth',
@@ -645,6 +645,38 @@ export function useOnboarding({
     if (choice === 'local') {
       // Local uses anthropic_api_key with custom endpoint (Ollama doesn't need an API key)
       setState(s => ({ ...s, step: 'local-model', apiSetupMethod: 'anthropic_api_key', credentialStatus: 'idle', errorMessage: undefined }))
+      return
+    }
+
+    if (choice === 'omp') {
+      // OMP (oh-my-pi) backend runs via the local `omp` CLI and reads its own
+      // auth from ~/.omp/agent — no craft-side credentials needed. Create the
+      // connection directly and go straight to completion.
+      void (async () => {
+        setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined, completionStatus: 'saving' }))
+        let slug = 'omp'
+        let n = 2
+        while (existingSlugs.has(slug)) slug = `omp-${n++}`
+        const result = await window.electronAPI.setupLlmConnection({
+          slug,
+          name: 'OMP (oh-my-pi)',
+          providerType: 'omp',
+        })
+        if (!result.success) {
+          setState(s => ({ ...s, credentialStatus: 'error', errorMessage: result.error || 'Failed to create OMP connection' }))
+          return
+        }
+        const testResult = await window.electronAPI.testLlmConnection(slug)
+        if (testResult.success) {
+          setState(s => ({ ...s, credentialStatus: 'success', step: 'complete' }))
+        } else {
+          setState(s => ({
+            ...s,
+            credentialStatus: 'error',
+            errorMessage: testResult.error || 'OMP connection test failed — check `omp` CLI and its model config',
+          }))
+        }
+      })()
       return
     }
 

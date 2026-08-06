@@ -16,16 +16,26 @@
  *   - Switching between allow-all and non-allow-all requires a respawn (the flag
  *     is spawn-time). setPermissionMode() kills the subprocess mid-flip; the
  *     next chat() respawns with the new policy.
- * - Session: spawned with `--no-session` so OMP does not persist/restore a
- *   session file across processes. craft owns conversation persistence; the
- *   craft config.session.id remains the identity. (OMP's `branch {entryId}` RPC
- *   exists but branching is NOT implemented — supportsBranching = false.)
+ * - Session mirror: OMP persists its own transcript with `--session-dir
+ *   <workspace>/sessions/<craftSessionId>/omp` (per-craft-session isolation).
+ *   History is thus stored in BOTH stores without conflict; craft remains the
+ *   owner of conversation history — resuming from the OMP store is
+ *   intentionally NOT implemented. (OMP's `branch {entryId}` RPC exists but
+ *   branching is NOT implemented — supportsBranching = false.)
+ * - Host tools bridge: after `ready` craft registers its session-scoped tools
+ *   (spawn_session, call_llm, browser_tool, mcp__session__*; see
+ *   getSessionToolProxyDefs) via the `set_host_tools` RPC. When the OMP model
+ *   invokes one, OMP emits `host_tool_call`; craft executes it with the same
+ *   semantics as PiAgent.handleToolExecute and answers `host_tool_result`.
+ *   MCP source-proxy tools from the pool are NOT bridged in v1.
  */
 
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { getSessionPath } from '../sessions/storage.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
@@ -44,7 +54,24 @@ import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
 
 import { BaseAgent } from './base-agent.ts';
 import type { Workspace } from '../config/storage.ts';
+import { getBrowserToolEnabled } from '../config/storage.ts';
 import { parseError } from './errors.ts';
+
+// Host-tool bridge: same defs/executor semantics as PiAgent (register_tools +
+// routeToolCall), exposed to OMP via the `set_host_tools` / `host_tool_call` RPC.
+import { getSessionToolProxyDefs, SESSION_TOOL_NAMES } from './backend/pi/session-tool-defs.ts';
+import {
+  SESSION_TOOL_REGISTRY,
+  type ToolResult as SessionToolResult,
+} from '@craft-agent/session-tools-core';
+import { createClaudeContext, type SessionToolContext } from './claude-context.ts';
+import { attachSessionSelfManagementBindings } from './session-self-management-bindings.ts';
+import {
+  setLastPlanFilePath,
+  getSessionScopedToolCallbacks,
+} from './session-scoped-tools.ts';
+import { executeBrowserToolCommand } from './browser-tool-runtime.ts';
+import { saveBinaryResponse } from '../utils/binary-detection.ts';
 
 // ============================================================
 // Constants
@@ -55,6 +82,62 @@ const OMP_ONESHOT_TIMEOUT_MS = 60_000;
 
 /** Timeout awaiting an RPC command response. */
 const OMP_COMMAND_TIMEOUT_MS = 15_000;
+
+/** Craft-side execution timeout for a single host tool call (OMP waits). */
+const OMP_HOST_TOOL_TIMEOUT_MS = 120_000;
+
+/**
+ * Runtime context briefing appended to OMP's system prompt at spawn.
+ * NOTE: multi-line text is passed verbatim (OMP's resolvePromptInput treats
+ * input containing '\n' as literal text, not a file path).
+ */
+const OMP_CRAFT_CONTEXT_PROMPT = [
+  'You are running inside the Craft Agents desktop app as an embedded agent backend.',
+  'In addition to your built-in tools, Craft exposes host tools (mcp__session__*):',
+  '- mcp__session__spawn_session — create independent child sessions that run in parallel,',
+  '  optionally with their own model, connection, sources and an initial prompt.',
+  '  Use it to delegate subtasks instead of doing everything yourself.',
+  '- mcp__session__call_llm — one-shot call to a fast auxiliary LLM (a default mini',
+  '  model is preconfigured; omit the model parameter to use it).',
+  '- mcp__session__browser_tool — control browser panes of the desktop app',
+  '  (open windows, navigate, click, evaluate, screenshots).',
+  'Session state (tags, statuses, user preferences) is managed by Craft — use the',
+  'mcp__session__* session tools for it instead of editing files directly.',
+  'Your transcript is mirrored by both Craft and OMP (OMP writes its session file',
+  'inside the Craft session folder); never edit or delete session files.',
+  'When Craft is in "Выполнение" (Execute / allow-all) mode, tools run without',
+  'prompts; otherwise the user confirms sensitive calls via a dialog and a denial',
+  'is final for that call.',
+].join('\n');
+
+/**
+ * Map a transport `err.code` to an agent-facing string for `browser_tool`
+ * failures (copied from pi-agent.ts to keep both backends independent).
+ */
+function mapBrowserToolErrorCode(code: string): string | null {
+  switch (code) {
+    case 'BROWSER_NO_CAPABLE_CLIENT':
+    case 'CAPABILITY_UNAVAILABLE':
+      return 'No connected desktop client supports browser tools, or no client is currently connected. ' +
+        'Ask the user to open this workspace from the Craft Agent desktop app.';
+    case 'CLIENT_DISCONNECTED':
+      return 'The desktop client that owned this browser session disconnected. ' +
+        'Ask the user to reconnect and retry.';
+    case 'CLIENT_REQUEST_TIMEOUT':
+      return 'Browser operation timed out (>30s). The desktop client may be unresponsive.';
+    case 'BROWSER_INSTANCE_NOT_OWNED':
+      return 'That browser instance ID doesn\'t belong to this session. ' +
+        'Use `windows` to list owned instances, or `open` to create a new one.';
+    case 'BROWSER_REMOTE_UPLOAD_NOT_SUPPORTED':
+      return 'File upload from a remote agent is not supported. ' +
+        'Ask the user to attach the file to the session.';
+    case 'BROWSER_REMOTE_EVALUATE_BLOCKED':
+      return 'JavaScript evaluation is disabled on this desktop client. ' +
+        'Ask the user to enable it in settings.';
+    default:
+      return null;
+  }
+}
 
 /** Craft ThinkingLevel → OMP thinking level string (cwd `--thinking` whitelist). */
 function mapThinkingLevel(level: ThinkingLevel): string {
@@ -133,6 +216,11 @@ export class OmpAgent extends BaseAgent {
   private pendingRequests = new Map<string, PendingRequest>();
   private pendingPermissions = new Map<string, PendingPermission>();
 
+  // Host-tool bridge state
+  private pendingHostToolCalls = new Map<string, { cancelled: boolean }>();
+  private pendingHostToolPermissions = new Map<string, (allowed: boolean) => void>();
+  private _sessionToolContext: SessionToolContext | null = null;
+
   // Event stream
   private eventQueue = new EventQueue();
   private _isProcessing = false;
@@ -189,10 +277,30 @@ export class OmpAgent extends BaseAgent {
     this.autoApproveAtSpawn = this.permissionManager.getPermissionMode() === 'allow-all';
 
     // --mode rpc: JSONL protocol (docs/omp-rpc-notes.md).
-    // --no-session: OMP must not persist/restore sessions; craft owns history.
+    // --session-dir: OMP persists its own transcript inside the craft session
+    //   folder (<workspace>/sessions/<craftSessionId>/omp) — per-craft-session
+    //   isolation, history kept in both stores (mirror; craft owns history).
+    // --append-system-prompt: craft runtime context (host tools, mirror policy).
     // --approval-mode yolo: craft permission mode 'allow-all' → full yolo
     //   (OMP's strongest auto mode: zero approval prompts, incl. destructive).
-    const args = ['--mode', 'rpc', '--no-session'];
+    const args = ['--mode', 'rpc'];
+    const craftSessionId = this.config.session?.id || this._sessionId || '';
+    if (craftSessionId) {
+      const ompSessionDir = join(
+        getSessionPath(this.config.workspace.rootPath, craftSessionId),
+        'omp',
+      );
+      try {
+        mkdirSync(ompSessionDir, { recursive: true });
+        args.push('--session-dir', ompSessionDir);
+      } catch (error) {
+        this.debug(`Failed to create OMP session dir ${ompSessionDir} (${error}); falling back to --no-session`);
+        args.push('--no-session');
+      }
+    } else {
+      args.push('--no-session');
+    }
+    args.push('--append-system-prompt', OMP_CRAFT_CONTEXT_PROMPT);
     if (this.autoApproveAtSpawn) {
       args.push('--approval-mode', 'yolo');
     }
@@ -263,6 +371,12 @@ export class OmpAgent extends BaseAgent {
         }
       })
       .catch((err) => this.debug(`get_state after ready failed: ${err}`));
+
+    // Bridge craft session tools (spawn_session, call_llm, browser_tool, …)
+    // into OMP via set_host_tools; best effort — the session still works
+    // without them, tools just won't be visible to the OMP model.
+    this.registerHostTools()
+      .catch((err) => this.debug(`set_host_tools failed: ${err instanceof Error ? err.message : err}`));
   }
 
   /**
@@ -357,6 +471,9 @@ export class OmpAgent extends BaseAgent {
 
     // Deny pending permissions so the UI unblocks.
     this.pendingPermissions.clear();
+    for (const [, resolve] of this.pendingHostToolPermissions) resolve(false);
+    this.pendingHostToolPermissions.clear();
+    this.pendingHostToolCalls.clear();
   }
 
   // ============================================================
@@ -441,6 +558,17 @@ export class OmpAgent extends BaseAgent {
       case 'extension_ui_request':
         this.handleExtensionUiRequest(msg);
         break;
+
+      case 'host_tool_call':
+        this.handleHostToolCall(msg);
+        break;
+
+      case 'host_tool_cancel': {
+        const targetId = String(msg.targetId ?? '');
+        const entry = this.pendingHostToolCalls.get(targetId);
+        if (entry) entry.cancelled = true;
+        break;
+      }
 
       case 'agent_start':
         break;
@@ -567,9 +695,283 @@ export class OmpAgent extends BaseAgent {
 
   respondToPermission(requestId: string, allowed: boolean, _alwaysAllow?: boolean): void {
     const pending = this.pendingPermissions.get(requestId);
-    if (!pending) return;
-    this.pendingPermissions.delete(requestId);
-    this.respondExtensionUi(pending.uiRequestId, allowed, allowed);
+    if (pending) {
+      this.pendingPermissions.delete(requestId);
+      this.respondExtensionUi(pending.uiRequestId, allowed, allowed);
+      return;
+    }
+    const hostResolve = this.pendingHostToolPermissions.get(requestId);
+    if (hostResolve) {
+      this.pendingHostToolPermissions.delete(requestId);
+      hostResolve(allowed);
+    }
+  }
+
+  // ============================================================
+  // Host Tools Bridge (set_host_tools / host_tool_call RPC)
+  // ============================================================
+
+  /**
+   * Build the host tool set for OMP and register it via set_host_tools.
+   *
+   * Reuses the exact same defs as the Pi backend (getSessionToolProxyDefs:
+   * spawn_session, call_llm, browser_tool and the mcp__session__* session MCP
+   * tools), deduplicated by name, converted to RpcHostToolDefinition
+   * ({name, label?, description, parameters}).
+   *
+   * NOT included in v1: MCP source-proxy tools from the mcpPool (Pi registers
+   * those separately from a live pool connection; OmpAgent has no pool). The
+   * OMP model therefore cannot call source tools directly in this backend.
+   */
+  private async registerHostTools(): Promise<void> {
+    let defs = getSessionToolProxyDefs();
+
+    // Same gate as PiAgent: hide browser_tool when the user disabled it.
+    if (!getBrowserToolEnabled()) {
+      defs = defs.filter((d) => d.name !== 'mcp__session__browser_tool');
+    }
+
+    // Same patch as PiAgent: hint the mini model for call_llm.
+    if (this.config.miniModel) {
+      const callLlmDef = defs.find((d) => d.name === 'mcp__session__call_llm');
+      if (callLlmDef) {
+        callLlmDef.description += `\n\nDefault fast model for this session: ${this.config.miniModel}. Omit the model parameter to use it automatically.`;
+      }
+    }
+
+    // Dedupe by name (first wins).
+    const seen = new Set<string>();
+    const unique = defs.filter((d) => {
+      if (seen.has(d.name)) return false;
+      seen.add(d.name);
+      return true;
+    });
+
+    const tools = unique.map((d) => ({
+      name: d.name,
+      label: d.name,
+      description: d.description,
+      parameters: d.inputSchema as Record<string, unknown>,
+      // 'essential' pins them into the model's primary tool schema; the OMP
+      // default ('discoverable') would hide them behind the xd:// device
+      // discovery layer where craft tools are not reachable (v1 bridge).
+      loadMode: 'essential' as const,
+    }));
+
+    const data = (await this.sendCommand('set_host_tools', { tools })) as
+      | { toolNames?: string[] }
+      | null;
+    this.debug(`Registered OMP host tools: ${(data?.toolNames ?? []).join(', ') || `(sent ${tools.length})`}`);
+  }
+
+  /**
+   * OMP needs craft to execute a registered host tool. Arrives mid-turn:
+   * MUST resolve without making RPC calls back into OMP (deadlock).
+   */
+  private handleHostToolCall(msg: Record<string, unknown>): void {
+    const frameId = String(msg.id ?? '');
+    const toolName = String(msg.toolName ?? 'tool');
+    const args = (msg.arguments as Record<string, unknown> | undefined) ?? {};
+    if (!frameId) return;
+
+    this.debug(`host_tool_call: ${toolName} (frame ${frameId})`);
+    void this.executeHostToolCall(frameId, toolName, args).catch((error) => {
+      this.debug(`host_tool_call ${toolName} crashed: ${error instanceof Error ? error.message : error}`);
+    });
+  }
+
+  private async executeHostToolCall(
+    frameId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<void> {
+    const entry = { cancelled: false };
+    this.pendingHostToolCalls.set(frameId, entry);
+
+    const finish = (text: string, isError: boolean): void => {
+      this.pendingHostToolCalls.delete(frameId);
+      if (entry.cancelled) return; // OMP already moved on (host_tool_cancel)
+      this.send({
+        type: 'host_tool_result',
+        id: frameId,
+        result: { content: [{ type: 'text', text }] },
+        ...(isError ? { isError: true } : {}),
+      });
+    };
+
+    try {
+      // Permission gate: yolo (craft allow-all) executes immediately;
+      // ask/safe routes through craft's permission dialog like OMP's own
+      // extension_ui permission prompts.
+      if (!this.autoApproveAtSpawn && this.onPermissionRequest) {
+        const allowed = await new Promise<boolean>((resolve) => {
+          const requestId = `omp-host-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          this.pendingHostToolPermissions.set(requestId, resolve);
+          this.onPermissionRequest!({
+            requestId,
+            toolName,
+            description: `OMP agent wants to run craft tool '${toolName}'`,
+            type: 'admin_approval',
+          });
+          // Fail-safe: never hang the turn if the dialog answer is lost.
+          setTimeout(() => {
+            if (this.pendingHostToolPermissions.delete(requestId)) resolve(false);
+          }, OMP_HOST_TOOL_TIMEOUT_MS);
+        });
+        if (!allowed) {
+          finish(`Denied by user: craft declined to execute '${toolName}'.`, true);
+          return;
+        }
+      }
+
+      const execution = this.executeHostSessionTool(toolName, args);
+      const timeout = new Promise<{ content: string; isError: boolean }>((resolve) => {
+        setTimeout(
+          () => resolve({ content: `Host tool '${toolName}' timed out after ${Math.floor(OMP_HOST_TOOL_TIMEOUT_MS / 1000)}s`, isError: true }),
+          OMP_HOST_TOOL_TIMEOUT_MS,
+        );
+      });
+      const result = await Promise.race([execution, timeout]);
+      finish(result.content, result.isError);
+    } catch (error) {
+      finish(error instanceof Error ? error.message : String(error), true);
+    }
+  }
+
+  /**
+   * Route + execute a host tool with the same semantics as
+   * PiAgent.routeToolCall/handleToolExecute. MCP pool proxy tools are not
+   * reachable here (v1 — see registerHostTools).
+   */
+  private async executeHostSessionTool(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<{ content: string; isError: boolean }> {
+    const strippedName = toolName.startsWith('mcp__session__')
+      ? toolName.slice('mcp__session__'.length)
+      : toolName;
+
+    if (!SESSION_TOOL_NAMES.has(strippedName)) {
+      return { content: `Unknown host tool: ${toolName}`, isError: true };
+    }
+
+    try {
+      // call_llm — shared BaseAgent pre-execution pipeline (uses this.queryLlm)
+      if (strippedName === 'call_llm') {
+        try {
+          const result = await this.preExecuteCallLlm(args);
+          return { content: result.text || '(Model returned empty response)', isError: false };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return { content: `call_llm failed: ${msg}`, isError: true };
+        }
+      }
+
+      // spawn_session — shared BaseAgent pre-execution pipeline (uses onSpawnSession)
+      if (strippedName === 'spawn_session') {
+        try {
+          const result = await this.preExecuteSpawnSession(args);
+          return { content: JSON.stringify(result, null, 2), isError: false };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return { content: `spawn_session failed: ${msg}`, isError: true };
+        }
+      }
+
+      // browser_tool — desktop browser pane callbacks from the session registry
+      if (strippedName === 'browser_tool') {
+        const callbacks = getSessionScopedToolCallbacks(this._sessionId);
+        const browserFns = callbacks?.browserPaneFns;
+        if (!browserFns) {
+          return { content: 'Browser window controls are not available. This tool requires the desktop app.', isError: true };
+        }
+        try {
+          const result = await executeBrowserToolCommand({
+            command: (args.command as string | string[]) ?? '',
+            fns: browserFns,
+            sessionId: this._sessionId,
+          });
+
+          let content = result.output;
+          if (result.image) {
+            const sessionPath = getSessionPath(this.config.workspace.rootPath, this._sessionId);
+            const imageBuffer = Buffer.from(result.image.data, 'base64');
+            const ext = result.image.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+            const saved = saveBinaryResponse(sessionPath, `browser-screenshot.${ext}`, imageBuffer, result.image.mimeType);
+
+            if (saved.type === 'file_download') {
+              content += [
+                '',
+                `Saved screenshot: ${saved.path}`,
+                '',
+                '```image-preview',
+                JSON.stringify({ src: saved.path, title: 'Browser Screenshot' }, null, 2),
+                '```',
+              ].join('\n');
+            } else {
+              content += `\n\n[Screenshot captured (${Math.round(result.image.sizeBytes / 1024)}KB ${result.image.mimeType}) but failed to save: ${saved.error}]`;
+            }
+          }
+
+          return { content, isError: false };
+        } catch (error) {
+          const rawCode = (error as { code?: unknown } | null)?.code;
+          const code = typeof rawCode === 'string' ? rawCode : '';
+          const msg = error instanceof Error ? error.message : String(error);
+          const friendly = mapBrowserToolErrorCode(code) ?? msg;
+          return { content: friendly, isError: true };
+        }
+      }
+
+      const def = SESSION_TOOL_REGISTRY.get(strippedName);
+      if (!def) {
+        return { content: `Unknown session tool: ${strippedName}`, isError: true };
+      }
+      if (!def.handler) {
+        return {
+          content: `Session tool '${strippedName}' is backend-executed (${def.executionMode}) but has no OmpAgent adapter implementation.`,
+          isError: true,
+        };
+      }
+
+      const ctx = this.getSessionToolContext();
+      const result: SessionToolResult = await def.handler(ctx, args);
+      const text = result.content.map((c) => c.text).join('\n');
+      return { content: text, isError: !!result.isError };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.debug(`Host session tool ${strippedName} failed: ${msg}`);
+      return { content: `Session tool error: ${msg}`, isError: true };
+    }
+  }
+
+  /**
+   * SessionToolContext for registry-executed tools — same construction as
+   * PiAgent.getSessionToolContext, cached per agent instance.
+   */
+  private getSessionToolContext(): SessionToolContext {
+    if (this._sessionToolContext) return this._sessionToolContext;
+
+    const sessionId = this.config.session?.id || '';
+    const workspacePath = this.config.workspace.rootPath;
+    const workspaceId = this.config.workspace.id;
+
+    this._sessionToolContext = createClaudeContext({
+      sessionId,
+      workspacePath,
+      workspaceId,
+      onPlanSubmitted: (planPath: string) => {
+        setLastPlanFilePath(sessionId, planPath);
+        this.onPlanSubmitted?.(planPath);
+      },
+      onAuthRequest: (request: unknown) => {
+        this.onAuthRequest?.(request as never);
+      },
+    });
+
+    attachSessionSelfManagementBindings(this._sessionToolContext, sessionId);
+
+    return this._sessionToolContext;
   }
 
   // ============================================================
@@ -690,6 +1092,19 @@ export class OmpAgent extends BaseAgent {
     this._isProcessing = false;
     this.eventQueue.enqueue(usage ? { type: 'complete', usage } : { type: 'complete' });
     this.eventQueue.complete();
+
+    // Session mirror debug: after each turn, log the OMP-side session state /
+    // transcript path so it's traceable where OMP persisted its mirror files.
+    this.sendCommand('get_state', {})
+      .then((data) => {
+        const state = (data ?? {}) as { sessionId?: string; sessionFile?: string; sessionName?: string };
+        this.debug(
+          `Post-turn OMP session state: sessionId=${state.sessionId ?? '?'}` +
+          (state.sessionFile ? ` file=${state.sessionFile}` : '') +
+          (state.sessionName ? ` name=${state.sessionName}` : ''),
+        );
+      })
+      .catch((error) => this.debug(`Post-turn get_state failed: ${error instanceof Error ? error.message : error}`));
   }
 
   // ============================================================
@@ -1013,6 +1428,9 @@ export class OmpAgent extends BaseAgent {
     }
     this.pendingRequests.clear();
     this.pendingPermissions.clear();
+    for (const [, resolve] of this.pendingHostToolPermissions) resolve(false);
+    this.pendingHostToolPermissions.clear();
+    this.pendingHostToolCalls.clear();
 
     this.killSubprocessSync();
     this.debug('OmpAgent destroyed');

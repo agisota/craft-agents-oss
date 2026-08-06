@@ -681,6 +681,7 @@
   "onboarding.providerSelect.githubCopilot": "GitHub Copilot",
   "onboarding.providerSelect.githubCopilotDesc": "使用 GitHub Copilot 订阅驱动 Craft Agents。",
   "onboarding.providerSelect.localModel": "本地模型",
+  "onboarding.providerSelect.ompDesc": "本地 oh-my-pi 代理运行时（omp CLI）— 使用其自己的模型配置。",
   "onboarding.providerSelect.otherProvider": "使用其他提供商",
   "onboarding.providerSelect.setupLater": "稍后设置",
   "onboarding.providerSelect.title": "欢迎使用 Craft Agents",

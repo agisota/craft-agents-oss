@@ -85,8 +85,23 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
       }
 
       const updates: Partial<LlmConnection> = {}
+
+      // Explicit provider override (backend-driven providers like 'omp' carry
+      // no credential and must bypass slug/baseUrl-based inference entirely).
+      if (setup.providerType) {
+        updates.providerType = setup.providerType
+        if (setup.providerType === 'omp') {
+          updates.authType = 'none'
+        }
+        if (setup.name !== undefined && isNewConnection) {
+          updates.name = setup.name
+        }
+      } else if (setup.name !== undefined && isNewConnection) {
+        updates.name = setup.name
+      }
+
       const hasConfiguredBaseUrl = !!setup.baseUrl?.trim()
-      if (setup.baseUrl !== undefined) {
+      if (setup.baseUrl !== undefined && !setup.providerType) {
         updates.baseUrl = setup.baseUrl?.trim() || undefined
 
         // Only mutate providerType for API key connections (not OAuth connections)

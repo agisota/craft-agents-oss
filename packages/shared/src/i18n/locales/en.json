@@ -681,6 +681,7 @@
   "onboarding.providerSelect.githubCopilot": "GitHub Copilot",
   "onboarding.providerSelect.githubCopilotDesc": "Use your GitHub Copilot subscription to power Craft Agents.",
   "onboarding.providerSelect.localModel": "Local model",
+  "onboarding.providerSelect.ompDesc": "Local oh-my-pi agent runtime (omp CLI) — uses its own model config.",
   "onboarding.providerSelect.otherProvider": "I use other provider",
   "onboarding.providerSelect.setupLater": "Setup later",
   "onboarding.providerSelect.title": "Welcome to Craft Agents",

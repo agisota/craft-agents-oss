@@ -681,6 +681,7 @@
   "onboarding.providerSelect.githubCopilot": "GitHub Copilot",
   "onboarding.providerSelect.githubCopilotDesc": "GitHub Copilotのサブスクリプションを使用してCraft Agentsを利用します。",
   "onboarding.providerSelect.localModel": "ローカルモデル",
+  "onboarding.providerSelect.ompDesc": "ローカル oh-my-pi エージェントランタイム（omp CLI）— 独自のモデル設定を使用します。",
   "onboarding.providerSelect.otherProvider": "他のプロバイダーを使用",
   "onboarding.providerSelect.setupLater": "後で設定",
   "onboarding.providerSelect.title": "Craft Agentsへようこそ",
