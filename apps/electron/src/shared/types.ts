@@ -21,6 +21,7 @@ import type {
   ToolDisplayMeta,
   AnnotationV1,
   RemoteServerConfig,
+  SessionMemoryMode,
 } from '@craft-agent/core/types';
 
 // Mode types from dedicated subpath export (avoids pulling in SDK)
@@ -273,6 +274,7 @@ export interface ElectronAPI {
     gatewayUrl?: string
     notifyWebhookUrl?: string
     tokenConfigured: boolean
+    estimatedRunTokens?: number | null
     defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
   }>
   setCloudRunsConfig(patch: {
@@ -288,8 +290,12 @@ export interface ElectronAPI {
     topic: string
     sessionId?: string
     language?: 'en' | 'ru'
+    kind?: 'research' | 'competitor' | 'literature' | 'vendor'
     model?: { connectionSlug?: string; modelId?: string }
   }): Promise<{ id: string; provider: string; createdAt: number }>
+  resumeCloudRun(args: { runId: string }): Promise<{ ok: boolean }>
+  sessionTopicCloudRun(args: { sessionId: string }): Promise<{ topic: string }>
+  readCloudRunArtifact(args: { runId: string; path: string }): Promise<{ content: string }>
   listCloudRuns(): Promise<{
     enabled: boolean
     provider: string
@@ -388,6 +394,8 @@ export interface ElectronAPI {
   getPendingPlanExecution(sessionId: string): Promise<{ planPath: string; draftInputSnapshot?: string; awaitingCompaction: boolean; executionDispatched: boolean } | null>
   // Permission mode reconciliation
   getSessionPermissionModeState(sessionId: string): Promise<PermissionModeState | null>
+  // Self-learning memory mode (spec F3): persistent | incognito | temporary
+  setMemoryMode(sessionId: string, mode: SessionMemoryMode): Promise<void>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>

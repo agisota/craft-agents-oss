@@ -87,7 +87,7 @@ import { restoreFiles } from '@craft-agent/shared/utils/bundle-files'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient, McpClientPool, McpPoolServer } from '@craft-agent/shared/mcp'
 import { type Session, type SessionEvent, type FileAttachment, type SendMessageOptions, type UnreadSummary, type RemoteSessionTransferPayload, type ImportRemoteSessionTransferResult, RPC_CHANNELS, generateMessageId } from '@craft-agent/shared/protocol'
-import { messageToStored, storedToMessage, type Message, type StoredAttachment, type ToolDisplayMeta, type TokenUsage } from '@craft-agent/core/types'
+import { messageToStored, storedToMessage, type Message, type StoredAttachment, type ToolDisplayMeta, type TokenUsage, type SessionMemoryMode } from '@craft-agent/core/types'
 import { formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrlAsync, getEmojiIcon, resetSummarizationClient, resolveToolIcon, readFileAttachment, selectSpreadMessages, normalizePath } from '@craft-agent/shared/utils'
 import { loadAllSkills, loadSkillBySlug, invalidateSkillsCache, type LoadedSkill } from '@craft-agent/shared/skills'
 import { invalidateContextFileCache } from '@craft-agent/shared/prompts/system'
@@ -893,6 +893,8 @@ interface ManagedSession {
   permissionMode?: PermissionMode
   /** Previous permission mode (preserved across restarts for session_state modeTransition context) */
   previousPermissionMode?: PermissionMode
+  /** Self-learning memory mode for this session (default 'persistent' when absent) */
+  memoryMode?: SessionMemoryMode
   /** Centralized MCP client pool for this session's source connections */
   mcpPool?: McpClientPool
   /** HTTP MCP server exposing pool tools to external SDK subprocesses */
@@ -1620,6 +1622,12 @@ export class SessionManager implements ISessionManager {
       changed = true
     }
 
+    // Memory mode (no dedicated event — reconcile + persist; broadcast below)
+    if ((managed.memoryMode ?? 'persistent') !== (header.memoryMode ?? 'persistent')) {
+      managed.memoryMode = header.memoryMode
+      changed = true
+    }
+
     if (changed) {
       sessionLog.info(`External metadata change detected for session ${sessionId}`)
 
@@ -1937,6 +1945,10 @@ export class SessionManager implements ISessionManager {
           else if (channel === 'skillsPending:changed') this.eventSink(RPC_CHANNELS.skillsPending.CHANGED, { to: 'workspace', workspaceId: workspace.id }, args[0])
         },
         logger: { warn: (msg, err) => sessionLog.warn(`memory: ${msg}`, err) },
+        // F3: per-session memory-mode lookup — incognito/temporary sessions skip
+        // all memory writes (distill/branch/idle triggers). Unknown sessions default
+        // to 'persistent' so a session being torn down never loses lessons it earned.
+        getSessionMode: (sessionId) => this.sessions.get(sessionId)?.memoryMode ?? 'persistent',
       })
       svc.attachSessionCompletion((cb) => this.onSessionComplete((evt) => { if (evt.workspaceId === workspace.id) cb(evt) }))
       svc.setDistiller((prompt) => this.runMemoryDistillOneShot(workspace, prompt))
@@ -3790,8 +3802,9 @@ export class SessionManager implements ISessionManager {
         coreConfig: {
         workspace: managed.workspace,
         // Self-learning memory prompt blocks (lessons + workspace memory), resolved
-        // lazily per session start. Undefined when memory.enabled is false.
-        memoryBlocks: this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(),
+        // lazily per session start. Undefined when memory.enabled is false, or when the
+        // session runs in 'temporary' memory mode (no read, no write — spec F3).
+        memoryBlocks: managed.memoryMode === 'temporary' ? undefined : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(),
         miniModel,
         thinkingLevel: managed.thinkingLevel,
         session: sessionConfig,
@@ -7761,6 +7774,26 @@ export class SessionManager implements ISessionManager {
       // Self-writes don't re-emit through the file watcher (taskNodeCount isn't in the header
       // signature), so push a live metadata event so the progress denominator updates immediately.
       this.sendEvent({ type: 'session_metadata_changed', sessionId, changes: { taskNodeCount: count } }, managed.workspace.id)
+      const watcher = this.configWatchers.get(managed.workspace.rootPath)
+      watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
+    }
+  }
+
+  /**
+   * Set the self-learning memory mode for a session ('persistent' | 'incognito' | 'temporary').
+   * 'persistent' is the default and clears the field (absent = persistent).
+   */
+  async setSessionMemoryMode(sessionId: string, mode: SessionMemoryMode): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.memoryMode = mode === 'persistent' ? undefined : mode
+      this.setMetadataWriteGuard(managed)
+
+      this.persistSession(managed)
+      await this.flushSession(managed.id)
+      // Same rationale as kanbanColumn — push a live metadata event so open renderers
+      // (including other windows on the same workspace) refresh the header toggle.
+      this.sendEvent({ type: 'session_metadata_changed', sessionId, changes: { memoryMode: mode } }, managed.workspace.id)
       const watcher = this.configWatchers.get(managed.workspace.rootPath)
       watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
     }

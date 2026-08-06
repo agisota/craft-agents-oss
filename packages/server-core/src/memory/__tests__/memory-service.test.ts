@@ -6,7 +6,7 @@ import { MemoryService, parseDistillResult, redactSecrets } from '../MemoryServi
 import { LessonStore } from '../LessonStore'
 import { MemoryFileStore } from '../MemoryFileStore'
 import type { DistillResult, Lesson, MemoryConfig, SkillCandidate } from '@craft-agent/shared/memory/types'
-import type { StoredMessage } from '@craft-agent/core/types'
+import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
 
 const MSGS: StoredMessage[] = [
   { id: 'm1', type: 'user', content: 'use key AKIAIOSFODNN7EXAMPLE and api_key=abc123 here' },
@@ -33,7 +33,7 @@ async function drain(svc: MemoryService): Promise<void> {
   await svc.whenIdle()
 }
 
-function makeService(opts: { distiller?: (prompt: string) => Promise<string>; clock?: () => number } = {}) {
+function makeService(opts: { distiller?: (prompt: string) => Promise<string>; clock?: () => number; modes?: Record<string, SessionMemoryMode> } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'memsvc-'))
   const prompts: string[] = []
   const enqueued: SkillCandidate[] = []
@@ -60,6 +60,7 @@ function makeService(opts: { distiller?: (prompt: string) => Promise<string>; cl
     readMessages: () => MSGS,
     getConfig: () => config,
     isSkillAutoCreateEnabled: () => autoCreate,
+    getSessionMode: (sessionId) => opts.modes?.[sessionId] ?? 'persistent',
   })
   svc.attachSessionCompletion((cb) => {
     fire = cb
@@ -336,5 +337,54 @@ describe('applyResult output redaction (mem-sec-002)', () => {
     expect(rules).not.toContain('ghp_aaaa')
     expect(wsFiles.readContext()).not.toContain('AKIAIOSFODNN7EXAMPLE')
     expect(wsFiles.readHistory(new Date().toISOString().slice(0, 10))).not.toContain('api_key=abc123')
+  })
+})
+describe('session memory modes (F3)', () => {
+  it("incognito session skips completion-triggered distillation", async () => {
+    const h = makeService({ modes: { s1: 'incognito' } })
+    tmpRoots.push(h.root)
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(0)
+    expect(h.wsLessons.list()).toHaveLength(0)
+  })
+  it("temporary session skips completion + branch + message-count triggers", async () => {
+    const h = makeService({ modes: { s1: 'temporary' } })
+    tmpRoots.push(h.root)
+    h.complete()
+    h.svc.notifyBranchCorrection('s1', 'm2')
+    for (let i = 1; i <= 30; i++) h.svc.notifyMessageCount('s1', i)
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(0)
+    expect(h.wsLessons.list()).toHaveLength(0)
+  })
+  it("incognito session skips idle distillation", async () => {
+    let now = 1_000_000
+    const h = makeService({ modes: { s1: 'incognito' }, clock: () => now })
+    tmpRoots.push(h.root)
+    h.svc.notifyMessageCount('s1', 1) // records activity but enqueues nothing
+    now += 4 * 3_600_000 // past the 3h idle threshold
+    h.svc.checkIdle(now)
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(0)
+  })
+  it("persistent session (default) still distills normally", async () => {
+    const h = makeService({ modes: {} })
+    tmpRoots.push(h.root)
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(1)
+  })
+  it("mode flip mid-session is honored per trigger", async () => {
+    const modes: Record<string, SessionMemoryMode> = { s1: 'incognito' }
+    const h = makeService({ modes })
+    tmpRoots.push(h.root)
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(0)
+    modes.s1 = 'persistent' // user flips back in the header toggle
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(1)
   })
 })

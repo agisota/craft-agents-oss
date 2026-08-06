@@ -11,7 +11,7 @@
 
 import type { PermissionMode } from '../agent/mode-manager.ts';
 import type { ThinkingLevel } from '../agent/thinking-levels.ts';
-import type { StoredAttachment, MessageRole, ToolStatus, AuthRequestType, AuthStatus, CredentialInputMode, StoredMessage } from '@craft-agent/core/types';
+import type { StoredAttachment, MessageRole, ToolStatus, AuthRequestType, AuthStatus, CredentialInputMode, StoredMessage, SessionMemoryMode } from '@craft-agent/core/types';
 
 /**
  * Session fields that persist to disk.
@@ -33,7 +33,7 @@ export const SESSION_PERSISTENT_FIELDS = [
   // Read tracking
   'lastReadMessageId', 'hasUnread',
   // Config
-  'enabledSourceSlugs', 'permissionMode', 'previousPermissionMode', 'workingDirectory',
+  'enabledSourceSlugs', 'permissionMode', 'previousPermissionMode', 'memoryMode', 'workingDirectory',
   // Model/Connection
   'model', 'llmConnection', 'connectionLocked', 'thinkingLevel',
   // Sharing
@@ -127,6 +127,8 @@ export interface SessionConfig {
   permissionMode?: PermissionMode;
   /** Previous permission mode (used to preserve modeTransition context across restarts) */
   previousPermissionMode?: PermissionMode;
+  /** Self-learning memory mode for this session (default 'persistent' when absent) */
+  memoryMode?: SessionMemoryMode;
   /** User-controlled session status - determines inbox vs completed */
   sessionStatus?: SessionStatus;
   /** Labels applied to this session (bare IDs or "id::value" entries) */
@@ -264,6 +266,8 @@ export interface SessionHeader {
   permissionMode?: PermissionMode;
   /** Previous permission mode (used to preserve modeTransition context across restarts) */
   previousPermissionMode?: PermissionMode;
+  /** Self-learning memory mode for this session (default 'persistent' when absent) */
+  memoryMode?: SessionMemoryMode;
   /** User-controlled session status - determines inbox vs completed */
   sessionStatus?: SessionStatus;
   /** Labels applied to this session (bare IDs or "id::value" entries) */
@@ -377,6 +381,8 @@ export interface SessionMetadata {
   permissionMode?: PermissionMode;
   /** Previous permission mode (used to preserve modeTransition context across restarts) */
   previousPermissionMode?: PermissionMode;
+  /** Self-learning memory mode for this session (default 'persistent' when absent) */
+  memoryMode?: SessionMemoryMode;
   /** Number of plan files for this session */
   planCount?: number;
   /** Shared viewer URL (if shared via viewer) */

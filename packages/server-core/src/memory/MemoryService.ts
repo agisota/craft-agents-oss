@@ -30,7 +30,7 @@ import {
   formatWorkspaceMemoryForPrompt,
 } from '@craft-agent/shared/prompts/system'
 import { buildTransferredSessionContext } from '@craft-agent/shared/agent/conversation-summary'
-import type { StoredMessage } from '@craft-agent/core/types'
+import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
 import type {
   DistillResult,
   Lesson,
@@ -81,6 +81,12 @@ export interface MemoryServiceDeps {
   /** Config reader (defaults to shared config storage helpers). */
   getConfig?: () => MemoryConfig
   isSkillAutoCreateEnabled?: () => boolean
+  /**
+   * Per-session memory-mode lookup (spec F3). 'incognito' | 'temporary' sessions
+   * skip ALL memory writes (distill/branch/idle triggers); 'persistent' (and
+   * absent/unknown sessions) write as before. Injectable for tests.
+   */
+  getSessionMode?: (sessionId: string) => SessionMemoryMode
 }
 
 /**
@@ -169,12 +175,24 @@ export class MemoryService {
     return this.deps.getConfig?.() ?? getMemoryConfig()
   }
 
+  /**
+   * F3: incognito/temporary sessions skip every memory WRITE trigger
+   * (completion/distill/branch/idle) but still record activity, so flipping
+   * back to 'persistent' doesn't instantly stale-fire an idle distill.
+   * Explicit RPC adds (addLesson etc.) bypass this — user intent wins.
+   */
+  private skipsWrites(sessionId: string): boolean {
+    const mode = this.deps.getSessionMode?.(sessionId) ?? 'persistent'
+    return mode === 'incognito' || mode === 'temporary'
+  }
+
   /** Subscribe to SessionManager.onSessionComplete. Returns unsubscribe. Never throws. */
   attachSessionCompletion(subscribeFn: (cb: (evt: SessionCompletionLike) => void) => () => void): () => void {
     return subscribeFn((evt) => {
       try {
         this.recordActivity(evt.sessionId)
         if (!this.config.enabled) return
+        if (this.skipsWrites(evt.sessionId)) return
         if (evt.reason === 'complete') {
           this.enqueue({ sessionId: evt.sessionId, full: true, trigger: 'distillation' })
         } else {
@@ -194,6 +212,7 @@ export class MemoryService {
   notifyMessageCount(sessionId: string, count: number): void {
     this.recordActivity(sessionId)
     if (!this.config.enabled) return
+    if (this.skipsWrites(sessionId)) return
     const interval = this.config.distillMsgCount
     const last = this.lastCounts.get(sessionId) ?? 0
     // Fire exactly once per crossed interval boundary.
@@ -209,6 +228,7 @@ export class MemoryService {
   notifyBranchCorrection(sessionId: string, _messageId: string): void {
     this.recordActivity(sessionId)
     if (!this.config.enabled) return
+    if (this.skipsWrites(sessionId)) return
     this.enqueue({ sessionId, full: false, trigger: 'branch' })
   }
 
@@ -237,6 +257,7 @@ export class MemoryService {
     const idleMs = this.config.distillIdleHours * 3_600_000
     for (const [sessionId, lastAt] of this.lastActivity) {
       if (this.idleDistilled.has(sessionId)) continue
+      if (this.skipsWrites(sessionId)) continue
       if (now - lastAt >= idleMs) {
         this.idleDistilled.add(sessionId)
         this.enqueue({ sessionId, full: true, trigger: 'distillation' })

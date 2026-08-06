@@ -1,7 +1,7 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join } from 'path'
 import { RPC_CHANNELS, type FileAttachment, type SendMessageOptions, type SessionEvent } from '@craft-agent/shared/protocol'
-import type { StoredAttachment } from '@craft-agent/core/types'
+import type { StoredAttachment, SessionMemoryMode } from '@craft-agent/core/types'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import { perf } from '@craft-agent/shared/utils'
 import { isValidThinkingLevel, THINKING_LEVEL_IDS } from '@craft-agent/shared/agent/thinking-levels'
@@ -117,6 +117,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sessions.COMMAND,
   RPC_CHANNELS.sessions.GET_PENDING_PLAN_EXECUTION,
   RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE,
+  RPC_CHANNELS.sessions.SET_MEMORY_MODE,
   RPC_CHANNELS.sessions.SEARCH_CONTENT,
   RPC_CHANNELS.sessions.GET_FILES,
   RPC_CHANNELS.sessions.GET_NOTES,
@@ -402,6 +403,16 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
     sessionId: string
   ) => {
     return sessionManager.getSessionPermissionModeState(sessionId)
+  })
+
+  // Set the self-learning memory mode for a session (spec F3).
+  // Persists to the session header and broadcasts session_metadata_changed.
+  server.handle(RPC_CHANNELS.sessions.SET_MEMORY_MODE, async (
+    _ctx,
+    sessionId: string,
+    mode: SessionMemoryMode
+  ) => {
+    return sessionManager.setSessionMemoryMode(sessionId, mode)
   })
 
   // ============================================================

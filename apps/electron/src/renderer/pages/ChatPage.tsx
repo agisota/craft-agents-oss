@@ -8,7 +8,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info, Pencil } from 'lucide-react'
+import { AlertCircle, Globe, Copy, RefreshCw, Link2Off, Info, Pencil, Eye, EyeOff, SquareSlash } from 'lucide-react'
 import { ChatDisplay, type ChatDisplayHandle } from '@/components/app-shell/ChatDisplay'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { SessionMenu } from '@/components/app-shell/SessionMenu'
@@ -687,13 +687,42 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     )
   }, [isTaskOrchestrator, handleEditTask, t])
 
+  // Self-learning memory mode toggle (spec F3): persistent → incognito → temporary.
+  // Value lives on session.memoryMode; updates arrive via session_metadata_changed.
+  const memoryModeButton = React.useMemo(() => {
+    const mode = session?.memoryMode ?? 'persistent'
+    const nextMode = mode === 'persistent' ? 'incognito' : mode === 'incognito' ? 'temporary' : 'persistent'
+    const label = t(`memory.mode.${mode}`)
+    const icon = mode === 'persistent'
+      ? <Eye className="h-4 w-4" />
+      : mode === 'incognito'
+        ? <EyeOff className="h-4 w-4" />
+        : <SquareSlash className="h-4 w-4" />
+    return (
+      <PanelHeaderCenterButton
+        icon={icon}
+        tooltip={label}
+        className={mode === 'persistent' ? undefined : 'text-accent'}
+        onClick={() => {
+          void window.electronAPI.setMemoryMode(sessionId, nextMode)
+        }}
+      />
+    )
+  }, [session?.memoryMode, sessionId, t])
+
   const primaryHeaderAction = isCompactMode ? compactInfoButton : shareButton
   const headerActions = editTaskButton ? (
     <div className="flex items-center gap-1.5">
       {editTaskButton}
+      {memoryModeButton}
       {primaryHeaderAction}
     </div>
-  ) : primaryHeaderAction
+  ) : (
+    <div className="flex items-center gap-1.5">
+      {memoryModeButton}
+      {primaryHeaderAction}
+    </div>
+  )
 
   // Build title menu content for chat sessions using shared SessionMenu.
   // Desktop uses Radix DropdownMenu via PanelHeader; compact mode uses a

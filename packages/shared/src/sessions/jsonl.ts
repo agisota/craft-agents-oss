@@ -58,6 +58,10 @@ function normalizeHeaderPermissionModes<T extends SessionHeader>(header: T): T {
   const permissionMode = normalizePermissionMode(header.permissionMode);
   const previousPermissionMode = normalizePermissionMode(header.previousPermissionMode);
 
+  if (header.memoryMode && !['persistent', 'incognito', 'temporary'].includes(header.memoryMode)) {
+    delete (header as Partial<SessionHeader>).memoryMode;
+  }
+
   if (permissionMode) {
     header.permissionMode = permissionMode;
   } else {
