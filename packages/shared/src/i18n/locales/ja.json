@@ -1680,5 +1680,15 @@
   "workspace.selectWorkspaceDesc": "このサーバー上のWorkspaceを選択するか、新規作成してください。",
   "workspace.selectWorkspacePlaceholder": "Workspaceを選択...",
   "workspace.serverAuthToken": "サーバー認証トークン",
-  "workspace.underDefaultFolder": ".craft-agentフォルダ内"
+  "workspace.underDefaultFolder": ".craft-agentフォルダ内",
+  "label.default.automation": "Automation",
+  "label.default.bug": "Bug",
+  "label.default.code": "Code",
+  "label.default.content": "Content",
+  "label.default.design": "Design",
+  "label.default.development": "Development",
+  "label.default.priority": "Priority",
+  "label.default.project": "Project",
+  "label.default.research": "Research",
+  "label.default.writing": "Writing"
 }

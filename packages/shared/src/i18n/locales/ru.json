@@ -1692,5 +1692,15 @@
   "workspace.selectWorkspaceDesc": "Выберите рабочее пространство на этом сервере или создайте новое.",
   "workspace.selectWorkspacePlaceholder": "Выберите рабочее пространство...",
   "workspace.serverAuthToken": "Токен аутентификации сервера",
-  "workspace.underDefaultFolder": "в папке .craft-agent"
+  "workspace.underDefaultFolder": "в папке .craft-agent",
+  "label.default.automation": "Автоматизация",
+  "label.default.bug": "Баг",
+  "label.default.code": "Код",
+  "label.default.content": "Контент",
+  "label.default.design": "Дизайн",
+  "label.default.development": "Разработка",
+  "label.default.priority": "Приоритет",
+  "label.default.project": "Проект",
+  "label.default.research": "Исследование",
+  "label.default.writing": "Тексты"
 }

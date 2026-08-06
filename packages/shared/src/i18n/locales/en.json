@@ -1680,5 +1680,15 @@
   "workspace.selectWorkspaceDesc": "Choose a workspace on this server, or create a new one.",
   "workspace.selectWorkspacePlaceholder": "Select a workspace...",
   "workspace.serverAuthToken": "Server authentication token",
-  "workspace.underDefaultFolder": "under .craft-agent folder"
+  "workspace.underDefaultFolder": "under .craft-agent folder",
+  "label.default.automation": "Automation",
+  "label.default.bug": "Bug",
+  "label.default.code": "Code",
+  "label.default.content": "Content",
+  "label.default.design": "Design",
+  "label.default.development": "Development",
+  "label.default.priority": "Priority",
+  "label.default.project": "Project",
+  "label.default.research": "Research",
+  "label.default.writing": "Writing"
 }
