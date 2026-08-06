@@ -85,6 +85,11 @@ describe('getDefaultModelForConnection', () => {
     const defaultModel = getDefaultModelForConnection('pi_compat')
     expect(defaultModel).toBe('')
   })
+
+  it('returns empty string for anthropic_compat (dynamic provider)', () => {
+    const defaultModel = getDefaultModelForConnection('anthropic_compat')
+    expect(defaultModel).toBe('')
+  })
 })
 
 // ============================================================
@@ -94,6 +99,10 @@ describe('getDefaultModelForConnection', () => {
 describe('isCompatProvider', () => {
   it('returns true for pi_compat', () => {
     expect(isCompatProvider('pi_compat')).toBe(true)
+  })
+
+  it('returns true for anthropic_compat', () => {
+    expect(isCompatProvider('anthropic_compat')).toBe(true)
   })
 
   it('returns false for anthropic', () => {
@@ -110,6 +119,10 @@ describe('isAnthropicProvider', () => {
     expect(isAnthropicProvider('anthropic')).toBe(true)
   })
 
+  it('returns true for anthropic_compat', () => {
+    expect(isAnthropicProvider('anthropic_compat')).toBe(true)
+  })
+
   it('returns false for pi', () => {
     expect(isAnthropicProvider('pi')).toBe(false)
   })
@@ -122,6 +135,10 @@ describe('isPiProvider', () => {
 
   it('returns true for pi_compat', () => {
     expect(isPiProvider('pi_compat')).toBe(true)
+  })
+
+  it('returns false for anthropic_compat', () => {
+    expect(isPiProvider('anthropic_compat')).toBe(false)
   })
 
   it('returns false for anthropic', () => {

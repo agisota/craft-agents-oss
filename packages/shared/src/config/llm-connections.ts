@@ -44,15 +44,17 @@ export function registerPiModelResolver(resolver: PiModelResolver): void {
  *
  * - 'anthropic': Direct Anthropic API (api.anthropic.com) — uses Claude Agent SDK
  * - 'pi': Pi unified LLM API (20+ providers via @earendil-works/pi-ai)
- * - 'pi_compat': Pi with custom endpoint (Ollama, self-hosted models, Anthropic-compat endpoints)
+ * - 'pi_compat': OpenAI-compatible custom endpoints (Ollama, vLLM, relays, self-hosted gateways)
+ * - 'anthropic_compat': Anthropic Messages-compatible custom endpoints
  *
- * Legacy values (bedrock, vertex, anthropic_compat) are migrated on startup
+ * Legacy values (bedrock, vertex) are migrated on startup
  * by migrateLegacyProviderTypes() in storage.ts.
  */
 export type LlmProviderType =
   | 'anthropic'
   | 'pi'
   | 'pi_compat'
+  | 'anthropic_compat'
   | 'omp';
 
 /**
@@ -423,20 +425,20 @@ export function authTypeRequiresEndpoint(authType: LlmAuthType): boolean {
  * Check if a provider type is a "compat" provider.
  * Compat providers use custom endpoints and require explicit model lists.
  * @param providerType - Provider type to check
- * @returns true if this is a compat provider (pi_compat)
+ * @returns true if this is a compat provider
  */
 export function isCompatProvider(providerType: LlmProviderType): boolean {
-  return providerType === 'pi_compat';
+  return providerType === 'pi_compat' || providerType === 'anthropic_compat';
 }
 
 /**
  * Check if a provider type uses the Anthropic Claude Agent SDK.
- * Only direct Anthropic API connections use the Claude SDK.
+ * Direct Anthropic and Anthropic-compatible custom endpoints use the Claude SDK.
  * @param providerType - Provider type to check
  * @returns true if this provider uses the Anthropic SDK
  */
 export function isAnthropicProvider(providerType: LlmProviderType): boolean {
-  return providerType === 'anthropic';
+  return providerType === 'anthropic' || providerType === 'anthropic_compat';
 }
 
 /**
@@ -454,9 +456,9 @@ export function isLocalConnection(conn: Pick<LlmConnection, 'baseUrl'>): boolean
 }
 
 /**
- * Check if a provider type uses Pi unified API.
+ * Check if a provider type uses the Pi route family.
  * @param providerType - Provider type to check
- * @returns true if this provider uses Pi
+ * @returns true if this provider belongs to the Pi family
  */
 export function isPiProvider(providerType: LlmProviderType): boolean {
   return providerType === 'pi' || providerType === 'pi_compat';
@@ -487,7 +489,7 @@ export function isOmpProvider(providerType: LlmProviderType): boolean {
  *   Default to queue for predictability.
  */
 export function defaultMidStreamBehavior(providerType: LlmProviderType): MidStreamBehavior {
-  if (providerType === 'anthropic' || providerType === 'omp') return 'queue';
+  if (isAnthropicProvider(providerType) || providerType === 'omp') return 'queue';
   return 'steer';
 }
 
@@ -500,7 +502,7 @@ export function defaultMidStreamBehavior(providerType: LlmProviderType): MidStre
  * provider-appropriate default.
  */
 export function resolveMidStreamBehavior(
-  connection: Pick<LlmConnection, 'midStreamBehavior' | 'providerType'>,
+  connection: Pick<LlmConnection, 'midStreamBehavior' | 'providerType' | 'customEndpoint'>,
 ): MidStreamBehavior {
   if (connection.midStreamBehavior === 'steer' || connection.midStreamBehavior === 'queue') {
     return connection.midStreamBehavior;
@@ -549,16 +551,16 @@ export function setModelSupportsImages(
 /**
  * Resolve whether a given model on a connection accepts image input.
  *
- * For `pi_compat` (custom-endpoint) connections this mirrors the precedence used
- * by Pi's `buildCustomEndpointModelDef`:
+ * For compat custom-endpoint connections this mirrors the precedence used by
+ * the custom-endpoint model definitions:
  *   per-model `supportsImages` override
  *   ?? connection-level `customEndpoint.supportsImages` default
  *   ?? false
  *
- * For non-`pi_compat` connections the renderer doesn't own the catalog — Pi SDK's
+ * For non-compat connections the renderer doesn't own the catalog — Pi SDK's
  * bundled provider definitions and Anthropic's API do. This helper conservatively
  * returns `true` there (we don't know better; the upstream decides). The
- * pre-flight banner gates on `pi_compat` separately, so this just reports what
+ * pre-flight banner gates on compat providers separately, so this just reports what
  * the renderer can know with confidence.
  */
 export function modelSupportsImages(
@@ -662,7 +664,7 @@ export function getDefaultModelsForConnection(providerType: LlmProviderType, piA
     }
     return models;
   }
-  if (providerType === 'pi_compat') return [];  // Dynamic — user specifies
+  if (isCompatProvider(providerType)) return [];  // Dynamic — user specifies
   if (providerType === 'omp') return [];  // Dynamic — OMP CLI owns its model catalog
   // anthropic
   return ANTHROPIC_MODELS;
@@ -749,6 +751,7 @@ export function isValidProviderAuthCombination(
 ): boolean {
   const validCombinations: Record<LlmProviderType, LlmAuthType[]> = {
     anthropic: ['api_key', 'oauth'],
+    anthropic_compat: ['api_key_with_endpoint', 'none'],
     pi: ['api_key', 'oauth', 'iam_credentials', 'environment', 'none'],
     pi_compat: ['api_key_with_endpoint', 'none'],
     // OMP reads its own credentials from ~/.omp/agent config — craft stores nothing
