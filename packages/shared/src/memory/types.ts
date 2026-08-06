@@ -21,6 +21,49 @@ export interface Lesson {
     sessionId?: string
     trigger: LessonTrigger
   }
+  // — Lesson schema v2 (spec F1). All optional: v1 files load without migration. —
+  /** How many times this lesson was included in an assembled prompt (touchUsed). */
+  usageCount?: number
+  /** ISO timestamp of the last prompt inclusion. */
+  lastUsedAt?: string
+  /** Violations of this lesson (feedback loop), capped at the most recent 20. */
+  conflicts?: LessonConflict[]
+  /** Marker set when the lesson was promoted from workspace to global scope. */
+  promoted?: {
+    fromScope: 'workspace'
+    workspaceIds: string[]
+    ts: string
+  }
+  /** true when written by distillation (vs an explicit user/branch rule). */
+  generated?: boolean
+}
+
+/** One recorded violation of a lesson (spec F1). */
+export interface LessonConflict {
+  sessionId: string
+  /** ISO timestamp */
+  ts: string
+  reason: 'branch' | 'interrupted' | 'error'
+}
+
+export type AuditActor = 'ui' | 'distill' | 'rpc' | 'queue'
+
+export type AuditAction = 'add' | 'update' | 'delete' | 'promote' | 'conflict' | 'approved' | 'dismissed'
+
+/**
+ * One append-only audit line in {scope}/memory/audit.jsonl (spec F2).
+ * Written by LessonStore mutations, MemoryService.applyResult and
+ * SkillPendingQueue approve/dismiss.
+ */
+export interface AuditEntry {
+  /** ISO timestamp */
+  ts: string
+  actor: AuditActor
+  action: AuditAction
+  /** Rule text for lessons, slug for skills, 'context.md' for memory updates. */
+  target: string
+  detail?: string
+  scope: LessonScope
 }
 
 export interface MemoryConfig {
@@ -44,6 +87,8 @@ export const LESSON_LIMITS = {
   total: 200,
   /** max lessons injected into a prompt context */
   context: 50,
+  /** max conflict events kept per lesson (spec F1: cap last 20) */
+  conflicts: 20,
 } as const
 
 export interface SkillCandidate {

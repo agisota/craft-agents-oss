@@ -43,6 +43,7 @@ import type {
 import { LessonStore } from './LessonStore'
 import { MemoryFileStore } from './MemoryFileStore'
 import { SkillPendingQueue } from './SkillPendingQueue'
+import { AuditLog } from './AuditLog'
 
 /** Max chars of serialized conversation window sent to the distiller (front-truncated). */
 const DISTILL_WINDOW_CHARS = 160_000
@@ -260,6 +261,11 @@ export class MemoryService {
     return (this.deps.fileStore ??= new MemoryFileStore('workspace', this.deps.workspaceRoot))
   }
 
+  private auditLog: AuditLog | null = null
+  private get audit(): AuditLog {
+    return (this.auditLog ??= new AuditLog('workspace', this.deps.workspaceRoot))
+  }
+
   private defaultLessonStore(scope: LessonScope): LessonStore {
     const store = new MemoryFileStore(scope, this.deps.workspaceRoot)
     return new LessonStore(store.lessonsPath, scope)
@@ -369,7 +375,7 @@ export class MemoryService {
           negative: lesson.negative,
           source: { sessionId: job.sessionId, trigger: job.trigger },
         }
-        store.add(entry)
+        store.add(entry, 'distill')
         wroteMemory = true
       }
       if (result.history_entry) {
@@ -380,6 +386,11 @@ export class MemoryService {
         const existing = this.fileStore.readContext()
         if (!existing.includes(result.memory_update)) {
           this.fileStore.writeContext(existing ? `${existing}\n\n${result.memory_update}` : result.memory_update)
+          try {
+            this.audit.append({ actor: 'distill', action: 'update', target: 'context.md' })
+          } catch {
+            // auditing is best-effort; the write already landed
+          }
           wroteMemory = true
         }
       }

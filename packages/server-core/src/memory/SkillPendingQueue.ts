@@ -31,6 +31,7 @@ import {
 import { join } from 'path'
 import type { PendingSkill, SkillCandidate } from '@craft-agent/shared/memory/types'
 import { invalidateSkillsCache } from '@craft-agent/shared/skills/storage'
+import { AuditLog } from './AuditLog'
 
 const PENDING_DIR = '.pending'
 const DISMISSED_LOG = '.dismissed.jsonl'
@@ -86,10 +87,13 @@ export class SkillPendingQueue {
   readonly skillsDir: string
   /** {workspaceRoot}/skills/.pending */
   readonly pendingDir: string
+  /** Workspace-scope audit log ({workspaceRoot}/memory/audit.jsonl, spec F2). */
+  private readonly audit: AuditLog
 
   constructor(workspaceRoot: string) {
     this.skillsDir = join(workspaceRoot, 'skills')
     this.pendingDir = join(this.skillsDir, PENDING_DIR)
+    this.audit = new AuditLog('workspace', workspaceRoot)
   }
 
   private get dismissedPath(): string {
@@ -208,6 +212,11 @@ export class SkillPendingQueue {
     // Make the approved skill visible to loadAllSkills immediately instead of
     // waiting on the ConfigWatcher debounce or TTL.
     invalidateSkillsCache()
+    try {
+      this.audit.append({ actor: 'queue', action: 'approved', target: slug })
+    } catch {
+      // auditing is best-effort; the approval already landed
+    }
   }
 
   /** Remove the candidate and log it to .dismissed.jsonl for anti-repeat. */
@@ -233,6 +242,11 @@ export class SkillPendingQueue {
     }
     appendFileSync(this.dismissedPath, JSON.stringify(entry) + '\n')
     invalidateSkillsCache()
+    try {
+      this.audit.append({ actor: 'queue', action: 'dismissed', target: slug })
+    } catch {
+      // auditing is best-effort; the dismissal already landed
+    }
   }
 
   /** Dismissed-log entries, oldest first, corrupt lines skipped. */
