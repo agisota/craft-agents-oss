@@ -112,7 +112,7 @@ export function TelegramAccessSection({ workspaceId, accessMode, onAccessModeCha
       await window.electronAPI.setMessagingPlatformOwners('telegram', next)
       setOwners(next)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove owner')
+      toast.error(err instanceof Error ? err.message : t('settings.messaging.telegram.access.failedToRemoveOwner'))
     }
   }
 
@@ -134,9 +134,9 @@ export function TelegramAccessSection({ workspaceId, accessMode, onAccessModeCha
       setPending((prev) =>
         prev.filter((p) => !sameRow(p, sender)),
       )
-      toast.success(`Allowed ${sender.displayName || sender.username || sender.userId}`)
+      toast.success(t('settings.messaging.telegram.access.senderAllowed', { name: sender.displayName || sender.username || sender.userId }))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to allow sender')
+      toast.error(err instanceof Error ? err.message : t('settings.messaging.telegram.access.failedToAllowSender'))
     }
   }
 
@@ -152,7 +152,7 @@ export function TelegramAccessSection({ workspaceId, accessMode, onAccessModeCha
       )
       setPending((prev) => prev.filter((p) => !sameRow(p, sender)))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to dismiss sender')
+      toast.error(err instanceof Error ? err.message : t('settings.messaging.telegram.access.failedToDismissSender'))
     }
   }
 

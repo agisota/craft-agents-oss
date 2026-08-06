@@ -99,21 +99,21 @@ const ANTHROPIC_PRESETS: Preset[] = [
   { key: 'openai-us', label: 'OpenAI US', url: 'https://us.api.openai.com/v1', placeholder: 'sk-...' },
   { key: 'google', label: 'Google AI Studio', url: 'https://generativelanguage.googleapis.com/v1beta', placeholder: 'AIza...' },
   { key: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', placeholder: 'sk-or-...' },
-  { key: 'azure-openai-responses', label: 'Azure OpenAI', url: '', placeholder: 'Paste your key here...' },
+  { key: 'azure-openai-responses', label: 'Azure OpenAI', url: '', placeholder: '__pasteKeyHere__' },
   { key: 'amazon-bedrock', label: 'Amazon Bedrock', url: 'https://bedrock-runtime.us-east-1.amazonaws.com', placeholder: 'AKIA...' },
   { key: 'groq', label: 'Groq', url: 'https://api.groq.com/openai/v1', placeholder: 'gsk_...' },
-  { key: 'mistral', label: 'Mistral', url: 'https://api.mistral.ai/v1', placeholder: 'Paste your key here...' },
+  { key: 'mistral', label: 'Mistral', url: 'https://api.mistral.ai/v1', placeholder: '__pasteKeyHere__' },
   { key: 'deepseek', label: 'DeepSeek', url: 'https://api.deepseek.com', placeholder: 'sk-...' },
   { key: 'xai', label: 'xAI (Grok)', url: 'https://api.x.ai/v1', placeholder: 'xai-...' },
   { key: 'cerebras', label: 'Cerebras', url: 'https://api.cerebras.ai/v1', placeholder: 'csk-...' },
-  { key: 'zai', label: 'z.ai (GLM)', url: 'https://api.z.ai/api/coding/paas/v4', placeholder: 'Paste your key here...' },
+  { key: 'zai', label: 'z.ai (GLM)', url: 'https://api.z.ai/api/coding/paas/v4', placeholder: '__pasteKeyHere__' },
   { key: 'huggingface', label: 'Hugging Face', url: 'https://router.huggingface.co/v1', placeholder: 'hf_...' },
-  { key: 'minimax-global', label: 'Minimax Global', url: 'https://api.minimax.io/anthropic', placeholder: 'Paste your key here...' },
-  { key: 'minimax-cn', label: 'Minimax CN', url: 'https://api.minimaxi.com/anthropic', placeholder: 'Paste your key here...' },
+  { key: 'minimax-global', label: 'Minimax Global', url: 'https://api.minimax.io/anthropic', placeholder: '__pasteKeyHere__' },
+  { key: 'minimax-cn', label: 'Minimax CN', url: 'https://api.minimaxi.com/anthropic', placeholder: '__pasteKeyHere__' },
   { key: 'kimi-coding', label: 'Kimi (Coding)', url: 'https://api.kimi.com/coding', placeholder: 'sk-kimi-...' },
-  { key: 'vercel-ai-gateway', label: 'Vercel AI Gateway', url: 'https://ai-gateway.vercel.sh', placeholder: 'Paste your key here...' },
+  { key: 'vercel-ai-gateway', label: 'Vercel AI Gateway', url: 'https://ai-gateway.vercel.sh', placeholder: '__pasteKeyHere__' },
   { key: 'manifest', label: 'Manifest', url: 'https://app.manifest.build/v1', placeholder: 'mnfst_...' },
-  { key: 'custom', label: 'Custom', url: '', placeholder: 'Paste your key here...' },
+  { key: 'custom', label: 'Custom', url: '', placeholder: '__pasteKeyHere__' },
 ]
 
 /**
@@ -233,11 +233,12 @@ export function ApiKeyInput({
 
   // Provider-specific placeholders from the active preset
   const activePresetObj = presets.find(p => p.key === activePreset)
-  const apiKeyPlaceholder = activePresetObj?.placeholder
+  const rawPresetPlaceholder = activePresetObj?.placeholder
     ?? (providerType === 'google' ? 'AIza...'
     : providerType === 'pi' ? 'pi-...'
     : providerType === 'openai' ? 'sk-...'
-    : 'Paste your key here...')
+    : '__pasteKeyHere__')
+  const apiKeyPlaceholder = rawPresetPlaceholder === '__pasteKeyHere__' ? t('apiSetup.pasteKeyHere') : rawPresetPlaceholder
 
   // Fetch Pi SDK models when a provider is selected in pi_api_key flow.
   // Returns all models sorted by cost (expensive-first) for the searchable tier dropdowns.
@@ -360,11 +361,11 @@ export function ApiKeyInput({
     // Submit with auth method and optional IAM credentials.
     if (isBedrock) {
       if (bedrockAuthMethod === 'iam_credentials' && !awsAccessKeyId.trim()) {
-        setModelError('Access Key ID is required for IAM authentication.')
+        setModelError(t('apiSetup.iamAccessKeyRequired'))
         return
       }
       if (bedrockAuthMethod === 'iam_credentials' && !awsSecretAccessKey.trim()) {
-        setModelError('Secret Access Key is required for IAM authentication.')
+        setModelError(t('apiSetup.iamSecretKeyRequired'))
         return
       }
       const parsedModels = parseModelList(connectionDefaultModel)
@@ -393,7 +394,7 @@ export function ApiKeyInput({
     const isUsingDefaultEndpoint = isDefaultProviderPreset || !effectiveBaseUrl
     const requiresModel = !isDefaultProviderPreset && !!effectiveBaseUrl
     if (requiresModel && parsedModels.length === 0) {
-      setModelError('Default model is required for custom endpoints.')
+      setModelError(t('apiSetup.defaultModelRequired'))
       return
     }
 
@@ -422,11 +423,11 @@ export function ApiKeyInput({
   }
 
   const tierConfigs = [
-    { label: 'Best', desc: 'most capable', value: bestModel, onChange: setBestModel },
-    { label: 'Balanced', desc: 'good for everyday use', value: defaultModel, onChange: setDefaultModel },
-    { label: 'Fast', desc: 'summarization & utility', value: cheapModel, onChange: setCheapModel },
+    { id: 'best', label: t('apiSetup.modelTier.best'), desc: t('apiSetup.modelTier.bestDesc'), value: bestModel, onChange: setBestModel },
+    { id: 'balanced', label: t('apiSetup.modelTier.balanced'), desc: t('apiSetup.modelTier.balancedDesc'), value: defaultModel, onChange: setDefaultModel },
+    { id: 'fast', label: t('apiSetup.modelTier.fast'), desc: t('apiSetup.modelTier.fastDesc'), value: cheapModel, onChange: setCheapModel },
   ]
-  const activeTierConfig = openTier ? tierConfigs.find(t => t.label === openTier) : null
+  const activeTierConfig = openTier ? tierConfigs.find(t => t.id === openTier) : null
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-6">
@@ -522,8 +523,8 @@ export function ApiKeyInput({
             isDisabled && "opacity-50 pointer-events-none"
           )}>
             {([
-              { value: 'openai-completions' as const, label: 'OpenAI Compatible' },
-              { value: 'anthropic-messages' as const, label: 'Anthropic Compatible' },
+              { value: 'openai-completions' as const, label: t('apiSetup.format.openaiCompatible') },
+              { value: 'anthropic-messages' as const, label: t('apiSetup.format.anthropicCompatible') },
             ]).map(({ value, label }) => (
               <button
                 key={value}
@@ -542,7 +543,7 @@ export function ApiKeyInput({
             ))}
           </div>
           <p className="text-xs text-foreground/30">
-            Most third-party APIs (Ollama, vLLM, DashScope) use OpenAI Compatible.
+            {t('apiSetup.protocolThirdPartyHint')}
           </p>
         </div>
       )}
@@ -552,15 +553,15 @@ export function ApiKeyInput({
         <>
           {/* Auth Method Toggle */}
           <div className="space-y-2">
-            <Label>Authentication</Label>
+            <Label>{t('apiSetup.authentication')}</Label>
             <div className={cn(
               "flex rounded-md shadow-minimal overflow-hidden",
               "bg-foreground-2",
               isDisabled && "opacity-50 pointer-events-none"
             )}>
               {([
-                { value: 'iam_credentials' as const, label: 'IAM Credentials' },
-                { value: 'environment' as const, label: 'Environment (AWS CLI)' },
+                { value: 'iam_credentials' as const, label: t('apiSetup.credentials.iam') },
+                { value: 'environment' as const, label: t('apiSetup.credentials.environment') },
               ]).map(({ value, label }) => (
                 <button
                   key={value}
@@ -585,7 +586,7 @@ export function ApiKeyInput({
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="aws-access-key-id" className="text-muted-foreground font-normal text-xs">
-                  Access Key ID
+                  {t('apiSetup.accessKeyId')}
                 </Label>
                 <div className={cn("rounded-md shadow-minimal transition-colors", "bg-foreground-2 focus-within:bg-background")}>
                   <Input
@@ -602,7 +603,7 @@ export function ApiKeyInput({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="aws-secret-key" className="text-muted-foreground font-normal text-xs">
-                  Secret Access Key
+                  {t('apiSetup.secretAccessKey')}
                 </Label>
                 <div className={cn("relative rounded-md shadow-minimal transition-colors", "bg-foreground-2 focus-within:bg-background")}>
                   <Input
@@ -626,7 +627,7 @@ export function ApiKeyInput({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="aws-session-token" className="text-muted-foreground font-normal text-xs">
-                  Session Token <span className="text-foreground/30">· optional</span>
+                  Session Token <span className="text-foreground/30">· {t('apiSetup.optionalField')}</span>
                 </Label>
                 <div className={cn("rounded-md shadow-minimal transition-colors", "bg-foreground-2 focus-within:bg-background")}>
                   <Input
@@ -682,8 +683,8 @@ export function ApiKeyInput({
             </div>
           ) : (
             <>
-              {tierConfigs.map(({ label, desc, value }) => (
-                <div key={label} className="space-y-1.5">
+              {tierConfigs.map(({ id, label, desc, value }) => (
+                <div key={id} className="space-y-1.5">
                   <Label className="text-muted-foreground font-normal text-xs">
                     {label}{' '}
                     <span className="text-foreground/30">· {desc}</span>
@@ -692,13 +693,13 @@ export function ApiKeyInput({
                     type="button"
                     disabled={isDisabled}
                     onClick={(e) => {
-                      if (openTier === label) {
+                      if (openTier === id) {
                         setOpenTier(null)
                         setTierFilter('')
                       } else {
                         const rect = e.currentTarget.getBoundingClientRect()
                         setTierDropdownPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width })
-                        setOpenTier(label)
+                        setOpenTier(id)
                         setTierFilter('')
                         setTimeout(() => tierFilterInputRef.current?.focus(), 0)
                       }
@@ -711,7 +712,7 @@ export function ApiKeyInput({
                     )}
                   >
                     <span className="truncate text-foreground">
-                      {piModels.find(m => m.id === value)?.name ?? 'Select model...'}
+                      {piModels.find(m => m.id === value)?.name ?? t('apiSetup.selectModel')}
                     </span>
                     <ChevronDown className="size-3 opacity-50 shrink-0" />
                   </button>
@@ -785,9 +786,9 @@ export function ApiKeyInput({
       ) : !isDefaultProviderPreset && (
         <div className="space-y-2">
           <Label htmlFor="connection-default-model" className="text-muted-foreground font-normal">
-            Default Model{' '}
+            {t('apiSetup.defaultModelLabel')}{' '}
             <span className="text-foreground/30">
-              · {!isBedrock && baseUrl.trim() ? 'required' : 'optional'}
+              · {!isBedrock && baseUrl.trim() ? t('onboarding.localModel.required') : t('apiSetup.optionalField')}
             </span>
           </Label>
           <div className={cn(

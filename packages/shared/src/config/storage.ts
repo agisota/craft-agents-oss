@@ -2520,6 +2520,80 @@ export function migrateOrphanedDefaultConnections(): void {
 }
 
 /**
+ * Seed the default LLM connection on first run.
+ *
+ * When the config has no LLM connections at all (fresh install), a single
+ * "rox-kimi" connection is created pointing at the Rox gateway
+ * (https://api.rox.one/v1, OpenAI-completions protocol) with kimi-K3 as the
+ * default model, and it becomes the global default for new sessions.
+ *
+ * The API key is NOT baked into the repo. It is stored in the encrypted
+ * credential store when available from the ROX_API_KEY environment variable
+ * at first run; otherwise the connection is created keyless and the user is
+ * asked for a key in the onboarding/settings UI.
+ *
+ * Called on app startup before migrateOrphanedDefaultConnections().
+ */
+export const ROX_DEFAULT_CONNECTION_SLUG = 'rox-kimi';
+
+export async function seedDefaultLlmConnection(): Promise<void> {
+  // A null config means a fresh install with no config.json yet — seed into a
+  // minimal config; workspace/onboarding flows will fill in the rest.
+  let config = loadStoredConfig();
+  let createdFresh = false;
+  if (!config) {
+    if (existsSync(CONFIG_FILE)) return; // unreadable/corrupt — leave it alone
+    config = { workspaces: [], activeWorkspaceId: null, activeSessionId: null };
+    createdFresh = true;
+  }
+  if (config.llmConnections && config.llmConnections.length > 0) return;
+
+  const connection: LlmConnection = {
+    slug: ROX_DEFAULT_CONNECTION_SLUG,
+    name: 'Rox (Kimi K3)',
+    providerType: 'pi_compat',
+    piAuthProvider: 'openai',
+    baseUrl: 'https://api.rox.one/v1',
+    authType: 'api_key',
+    customEndpoint: { api: 'openai-completions' },
+    models: [
+      {
+        id: 'kimi-K3',
+        name: 'Kimi K3',
+        shortName: 'Kimi K3',
+        description: 'Kimi K3 via api.rox.one gateway',
+        provider: 'pi',
+        contextWindow: 262144,
+        supportsThinking: false,
+      },
+    ],
+    defaultModel: 'kimi-K3',
+    modelSelectionMode: 'automaticallySyncedFromProvider',
+    createdAt: Date.now(),
+  };
+
+  config.llmConnections = [connection];
+  config.defaultLlmConnection = connection.slug;
+  saveConfig(config);
+  if (createdFresh) {
+    debug('[config] Seeded default rox-kimi connection into a fresh config.json');
+  } else {
+    debug('[config] Seeded default rox-kimi connection (existing config had no LLM connections)');
+  }
+
+  // Store the API key in the encrypted credential store when provided via env.
+  const envApiKey = process.env.ROX_API_KEY?.trim();
+  if (envApiKey) {
+    try {
+      await getCredentialManager().setLlmApiKey(connection.slug, envApiKey);
+      debug('[config] Seeded API key for default rox-kimi connection from ROX_API_KEY');
+    } catch (error) {
+      console.error('[config] Failed to seed API key for default connection:', error);
+    }
+  }
+}
+
+/**
  * Ensure default LLM connection is set correctly.
  * Called internally by write operations to fix inconsistent state.
  * This is NOT called on read - reads never modify config.

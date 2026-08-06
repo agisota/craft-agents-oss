@@ -32,12 +32,16 @@ export function setupI18n(
 
   instance.init({
     resources,
-    fallbackLng: "en",
+    // Default UI language is Russian; "en" remains the key-missing fallback
+    // via fallbackLng ordering (ru first, then en).
+    fallbackLng: ["ru", "en"],
     supportedLngs: [...SUPPORTED_LANGUAGE_CODES],
     interpolation: { escapeValue: false },
     initImmediate: false, // synchronous init — resources are bundled inline
     detection: {
-      order: ["localStorage", "navigator"],
+      // Explicit user choice (localStorage) wins; otherwise the default
+      // language is Russian — the OS locale (navigator) must not override it.
+      order: ["localStorage"],
       caches: ["localStorage"],
       lookupLocalStorage: "i18nextLng",
     },

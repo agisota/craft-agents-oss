@@ -34,6 +34,7 @@ import {
   migrateLegacyCredentials,
   migrateLegacyLlmConnectionsConfig,
   migrateOrphanedDefaultConnections,
+  seedDefaultLlmConnection,
   MODEL_REGISTRY,
   type Workspace,
   type WorkspaceInfo,
@@ -1926,6 +1927,9 @@ export class SessionManager implements ISessionManager {
     try {
       // Backfill missing `models` arrays on existing LLM connections
       migrateLegacyLlmConnectionsConfig()
+
+      // Seed the default Rox connection on fresh installs (before orphan fix)
+      await seedDefaultLlmConnection()
 
       // Fix defaultLlmConnection if it points to a non-existent connection
       migrateOrphanedDefaultConnections()
