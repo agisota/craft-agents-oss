@@ -30,6 +30,7 @@ import {
 } from 'fs'
 import { join } from 'path'
 import type { PendingSkill, SkillCandidate } from '@craft-agent/shared/memory/types'
+import { invalidateSkillsCache } from '@craft-agent/shared/skills/storage'
 
 const PENDING_DIR = '.pending'
 const DISMISSED_LOG = '.dismissed.jsonl'
@@ -187,6 +188,9 @@ export class SkillPendingQueue {
       }
       throw err instanceof Error ? err : new Error(String(err))
     }
+    // Make the approved skill visible to loadAllSkills immediately instead of
+    // waiting on the ConfigWatcher debounce or TTL.
+    invalidateSkillsCache()
   }
 
   /** Remove the candidate and log it to .dismissed.jsonl for anti-repeat. */
@@ -210,6 +214,7 @@ export class SkillPendingQueue {
       normalizedDescription: normalizeDescription(desc ?? ''),
     }
     appendFileSync(this.dismissedPath, JSON.stringify(entry) + '\n')
+    invalidateSkillsCache()
   }
 
   /** Dismissed-log entries, oldest first, corrupt lines skipped. */
