@@ -534,11 +534,14 @@ export function copyPiAgentServer(config: BuildConfig): void {
   // 1. Copy index.js
   copyFileSync(join(piSourceDir, 'index.js'), join(piDestDir, 'index.js'));
 
-  // 2. Copy koffi npm package (external import, resolved via node_modules at runtime)
+  // 2. Copy koffi npm package when present (external import, resolved via
+  // node_modules at runtime). Modern @earendil-works/pi-* (≥0.80.x) vendors
+  // its own native Windows VT helper and does not require koffi, so a missing
+  // package is fine — only ship it when it is actually installed.
   const koffiSource = join(rootDir, 'node_modules', 'koffi');
 
   if (!existsSync(koffiSource)) {
-    console.warn('  Warning: koffi not found in node_modules. Pi SDK sessions may not work.');
+    console.log('  Copied index.js (koffi not installed — not required by current Pi SDK)');
     return;
   }
 
