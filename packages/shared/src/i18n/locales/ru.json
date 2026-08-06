@@ -299,6 +299,8 @@
   "cloudRuns.estimate": "Обычный ран ≈ {tokens} токенов",
   "cloudRuns.finished": "Облачный ран завершён: {name}",
   "cloudRuns.footer": "Раны продолжаются, даже если приложение закрыто.",
+  "cloudRuns.fork": "Fork (углубление)",
+  "cloudRuns.forkPlaceholder": "Что уточнить или углубить?",
   "cloudRuns.import": "Импорт артефактов",
   "cloudRuns.imported": "Импортировано файлов: {count}",
   "cloudRuns.open": "Облачный рисёрч",

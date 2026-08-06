@@ -5,10 +5,10 @@
 # RunDO executes per subtask. Runner is upgraded by redeploying the
 # worker (image rebuild), not by writing through the workspace FS.
 FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.0-alpha.1 AS computerd
-FROM debian:stable-slim
+FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      fuse3 libfuse2t64 ca-certificates curl gnupg git \
+      fuse3 libfuse2 ca-certificates curl gnupg git \
  && mkdir -p /etc/apt/keyrings \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \

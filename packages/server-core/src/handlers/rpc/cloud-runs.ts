@@ -165,6 +165,34 @@ interface RunRegistryEntry {
 }
 
 const REGISTRY_PATH = join(CONFIG_DIR, 'cloud-runs-registry.json');
+const SCHEDULES_PATH = join(CONFIG_DIR, 'cloud-runs-schedules.json');
+
+// F8 scheduled runs: self-contained interval config (independent of the
+// automations DAG — those run prompts into sessions; here we need a full
+// cloud-run lifecycle with aggregation). EveryHours is the only cadence v1.
+export interface CloudRunSchedule {
+  id: string;
+  topic: string;
+  everyHours: number;
+  sessionId: string;
+  kind?: string;
+  enabled: boolean;
+  lastFireAt?: number;
+}
+
+function readSchedules(): CloudRunSchedule[] {
+  if (!existsSync(SCHEDULES_PATH)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(SCHEDULES_PATH, 'utf8')) as unknown;
+    return Array.isArray(parsed) ? (parsed as CloudRunSchedule[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeSchedules(schedules: CloudRunSchedule[]): Promise<void> {
+  await writeFile(SCHEDULES_PATH, JSON.stringify(schedules, null, 2));
+}
 
 function readRegistry(): RunRegistryEntry[] {
   if (!existsSync(REGISTRY_PATH)) return [];
@@ -216,6 +244,35 @@ function startCompletionWatcher(): void {
     const settings = readSettings();
     if (!settings.enabled) return;
     const webhook = loadStoredConfig()?.cloudRuns?.notifyWebhookUrl;
+    // F8: fire due schedules (best-effort; errors don't break the watcher).
+    const schedules = readSchedules();
+    let schedulesDirty = false;
+    for (const schedule of schedules) {
+      if (!schedule.enabled) continue;
+      const due = (schedule.lastFireAt ?? 0) + schedule.everyHours * 3600_000 <= Date.now();
+      if (!due) continue;
+      try {
+        const spec = buildResearchSpec(schedule.topic, {
+          language: 'ru',
+          limits: { ...settings.defaults },
+          metadata: { sessionId: schedule.sessionId, scheduleId: schedule.id },
+        });
+        await makeProvider(settings).createRun(spec);
+        const registry = readRegistry();
+        registry.push({
+          id: spec.id, name: spec.name, provider: settings.provider, createdAt: Date.now(),
+          sessionId: schedule.sessionId, topic: schedule.topic,
+          spec: { kind: schedule.kind ?? 'research', limits: { ...settings.defaults }, language: 'ru' },
+        });
+        await writeFile(REGISTRY_PATH, JSON.stringify(registry.slice(-200), null, 2));
+        schedule.lastFireAt = Date.now();
+        schedulesDirty = true;
+      } catch (error) {
+        console.error('[cloud-runs scheduler] fire failed:', error instanceof Error ? error.message : error);
+      }
+    }
+    if (schedulesDirty) await writeSchedules(schedules);
+
     for (const entry of readRegistry()) {
       const prev = lastState.get(entry.id);
       let status: RunStatus | null = null;
@@ -311,19 +368,32 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
 
   server.handle(
     RPC_CHANNELS.cloudRuns.SUBMIT,
-    async (_ctx, args: { topic: string; sessionId?: string; language?: 'en' | 'ru'; kind?: ResearchPackKind; personas?: boolean; model?: { connectionSlug?: string; modelId?: string } }) => {
+    async (_ctx, args: { topic: string; sessionId?: string; language?: 'en' | 'ru'; kind?: ResearchPackKind; personas?: boolean; fromRunId?: string; model?: { connectionSlug?: string; modelId?: string } }) => {
       const settings = requireEnabled();
       if (!args?.topic?.trim()) throw new CloudRunnerError('topic is required', 'invalid_spec');
       const stored = loadStoredConfig()?.cloudRuns;
+      // F7: fork narrows the pack to a single followup subtask with the
+      // parent's briefs as context (gateway copies them server-side).
       const spec = buildResearchSpec(args.topic, {
         language: args.language ?? 'ru',
         kind: args.kind,
-        personas: (args.personas ?? stored?.personas) ? DEFAULT_PERSONAS : undefined,
+        personas: args.fromRunId ? undefined : (args.personas ?? stored?.personas) ? DEFAULT_PERSONAS : undefined,
         cheapModelId: stored?.cheapModelId,
         model: args.model,
         limits: { ...settings.defaults },
-        metadata: { sessionId: args.sessionId ?? '' },
+        metadata: { sessionId: args.sessionId ?? '', parentRunId: args.fromRunId ?? '' },
       });
+      if (args.fromRunId) {
+        spec.fromRunId = args.fromRunId;
+        const registry = readRegistry();
+        const parent = registry.find((r) => r.id === args.fromRunId);
+        spec.subtasks = [{
+          id: 'followup',
+          title: `Уточнение: ${args.topic.slice(0, 60)}`,
+          prompt: args.topic + (args.language === 'en' ? ' Investigate with prior context, go deeper where previous briefs were thin.' : ' Исследуй с учётом прошлого контекста, углуби там, где прошлые брифы были поверхностны.'),
+        }];
+        spec.name = `Fork: ${parent?.name ?? args.fromRunId}`.slice(0, 80);
+      }
       const provider = makeProvider(settings);
       // Auto-flip ONLY at createRun: a failed creation bills nothing, so the
       // double-charge concern (PRD §G4.3) doesn't apply to this hop. Mid-run
@@ -353,6 +423,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
           language: args.language ?? 'ru',
           model: args.model,
         },
+        ...(args.fromRunId ? { } : {}),
       });
       await writeFile(REGISTRY_PATH, JSON.stringify(registry.slice(-200), null, 2));
       return handle;
@@ -419,6 +490,15 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     const text = typeof lastUser?.content === 'string' ? lastUser.content : '';
     const topic = (session.name && session.name !== 'New Chat' ? session.name : text).slice(0, 200).trim();
     return { topic };
+  });
+
+  server.handle(RPC_CHANNELS.cloudRuns.GET_EVENTS, async (_ctx, args: { runId: string }) => {
+    const settings = requireEnabled();
+    return (providerForRun(settings, args.runId) as CloudRunProvider & {
+      getEvents?: () => Promise<{ t: number; message: string }[]>;
+    }).getEvents
+      ? await (providerForRun(settings, args.runId) as CloudRunProvider & { getEvents: () => Promise<{ t: number; message: string }[]> }).getEvents()
+      : [];
   });
 
   server.handle(

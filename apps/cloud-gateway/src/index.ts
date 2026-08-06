@@ -58,13 +58,26 @@ export default {
     const denied = await authorize(request, env);
     if (denied) return denied;
 
-    const runMatch = url.pathname.match(/^\/runs\/([^/]+)(\/status|\/artifacts(?:\/(.*))?)?$/);
+    const runMatch = url.pathname.match(/^\/runs\/([^/]+)(\/status|\/events|\/artifacts(?:\/(.*))?)?$/);
     if (url.pathname === "/runs" && request.method === "POST") {
-      const spec = (await request.json().catch(() => null)) as { id?: string; subtasks?: unknown[] } | null;
+      const spec = (await request.json().catch(() => null)) as { id?: string; subtasks?: unknown[]; fromRunId?: string } | null;
       if (!spec?.id || !Array.isArray(spec.subtasks) || spec.subtasks.length === 0) {
         return json({ error: "spec.id and non-empty spec.subtasks are required", code: "invalid_spec" }, 400);
       }
-      return callDo(() => stubOf(env, spec.id!).createRun(spec as never));
+      // F7: fork — gather the parent's markdown briefs as context files.
+      const contextFiles: { path: string; content: string }[] = [];
+      if (spec.fromRunId) {
+        const parent = stubOf(env, spec.fromRunId);
+        const parentArtifacts = (await parent.listArtifacts()) as { path: string; size: number }[];
+        for (const artifact of parentArtifacts) {
+          if (!artifact.path.endsWith(".md") || artifact.path.startsWith("_usage/")) continue;
+          if (artifact.size > 200_000) continue;
+          try {
+            contextFiles.push({ path: artifact.path, content: await parent.fetchArtifact(artifact.path) });
+          } catch { /* skip unreadable parent artifact */ }
+        }
+      }
+      return callDo(() => stubOf(env, spec.id!).createRun(spec as never, contextFiles as never));
     }
 
     if (!runMatch) return new Response("not found", { status: 404 });
@@ -73,6 +86,9 @@ export default {
 
     if (request.method === "GET" && sub === "/status") {
       return callDo(() => stub.getStatus());
+    }
+    if (request.method === "GET" && sub === "/events") {
+      return callDo(() => stub.getEvents());
     }
     if (request.method === "DELETE" && sub === undefined) {
       return callDo(async () => {

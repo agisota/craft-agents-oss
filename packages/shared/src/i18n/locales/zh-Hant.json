@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "一般執行 ≈ {tokens} 權杖",
   "cloudRuns.finished": "雲端執行已完成：{name}",
   "cloudRuns.footer": "即使應用程式關閉，執行也會繼續。",
+  "cloudRuns.fork": "分叉（深入）",
+  "cloudRuns.forkPlaceholder": "要進一步澄清或深入什麼？",
   "cloudRuns.import": "匯入產出物",
   "cloudRuns.imported": "已匯入 {count} 個檔案",
   "cloudRuns.open": "雲端研究",

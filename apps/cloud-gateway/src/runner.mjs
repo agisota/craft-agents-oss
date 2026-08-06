@@ -48,8 +48,29 @@ await mkdir(usageDir, { recursive: true });
 const API = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
 const authHeaders = () => (apiKey ? { authorization: `Bearer ${apiKey}` } : {});
 
-const SYSTEM_PROMPT =
+const BASE_SYSTEM_PROMPT =
   'You are a research sub-agent. Investigate the subtask with the given tools, then answer thoroughly. Be factual, structured, cite sources.';
+
+// F7: prior-run briefs in <workspaceRoot>/context — short digest into the prompt.
+async function loadContextDigest(root) {
+  try {
+    const { readdir } = await import('node:fs/promises');
+    const dir = join(root, 'context');
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.md')).slice(0, 12);
+    if (files.length === 0) return '';
+    const parts = [];
+    for (const file of files) {
+      const content = (await readFile(join(dir, file), 'utf8')).slice(0, 1500);
+      parts.push(`### ${file}\n${content}`);
+    }
+    return `\n\nPRIOR RESEARCH CONTEXT (from a related previous run — build on it, do not repeat it):\n\n${parts.join('\n\n---\n\n')}`.slice(0, 20000);
+  } catch {
+    return '';
+  }
+}
+
+const contextDigest = await loadContextDigest(workspaceRoot);
+const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + contextDigest;
 
 const TOOLS = [
   {

@@ -31,7 +31,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
-import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
+import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -296,11 +296,34 @@ export interface ElectronAPI {
     language?: 'en' | 'ru'
     kind?: 'research' | 'competitor' | 'literature' | 'vendor'
     personas?: boolean
+    fromRunId?: string
     model?: { connectionSlug?: string; modelId?: string }
   }): Promise<{ id: string; provider: string; createdAt: number }>
   resumeCloudRun(args: { runId: string }): Promise<{ ok: boolean }>
   sessionTopicCloudRun(args: { sessionId: string }): Promise<{ topic: string }>
   readCloudRunArtifact(args: { runId: string; path: string }): Promise<{ content: string }>
+  getCloudRunEvents(args: { runId: string }): Promise<{ t: number; message: string }[]>
+  listCloudRunSchedules(): Promise<{
+    id: string
+    topic: string
+    everyHours: number
+    sessionId: string
+    kind?: string
+    enabled: boolean
+    lastFireAt?: number
+  }[]>
+  saveCloudRunSchedule(args: {
+    schedule: {
+      id: string
+      topic: string
+      everyHours: number
+      sessionId: string
+      kind?: string
+      enabled: boolean
+      lastFireAt?: number
+    }
+  }): Promise<{ ok: boolean }>
+  deleteCloudRunSchedule(args: { id: string }): Promise<{ ok: boolean }>
   listCloudRuns(): Promise<{
     enabled: boolean
     provider: string
@@ -660,8 +683,9 @@ export interface ElectronAPI {
   onSkillsChanged(callback: (workspaceId: string, skills: LoadedSkill[]) => void): () => void
   // Pending skill candidates (self-learning distillation queue)
   listPendingSkills(workspaceId: string): Promise<PendingSkill[]>
-  approvePendingSkill(workspaceId: string, slug: string): Promise<boolean>
+  approvePendingSkill(workspaceId: string, slug: string, force?: boolean): Promise<boolean>
   dismissPendingSkill(workspaceId: string, slug: string, description?: string): Promise<boolean>
+  diffPendingSkill(workspaceId: string, slug: string): Promise<PendingSkillDiff>
   onSkillsPendingChanged(callback: (workspaceId: string) => void): () => void
   // Memory (self-learning lessons, context, history)
   listMemoryLessons(scope: LessonScope | 'both', workspaceId?: string): Promise<Lesson[]>

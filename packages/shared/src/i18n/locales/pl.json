@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "Typowe uruchomienie ≈ {tokens} tokenów",
   "cloudRuns.finished": "Uruchomienie w chmurze zakończone: {name}",
   "cloudRuns.footer": "Uruchomienia trwają nawet po zamknięciu aplikacji.",
+  "cloudRuns.fork": "Fork (pogłębienie)",
+  "cloudRuns.forkPlaceholder": "Co doprecyzować lub pogłębić?",
   "cloudRuns.import": "Importuj artefakty",
   "cloudRuns.imported": "Zaimportowano {count} plików",
   "cloudRuns.open": "Badania w chmurze",

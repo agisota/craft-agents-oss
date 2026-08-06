@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "Tipikus futtatás ≈ {tokens} token",
   "cloudRuns.finished": "Felhőfuttatás kész: {name}",
   "cloudRuns.footer": "A futtatások az app bezárása után is folytatódnak.",
+  "cloudRuns.fork": "Fork (mélyítés)",
+  "cloudRuns.forkPlaceholder": "Mit tisztázzunk vagy mélyítsünk?",
   "cloudRuns.import": "Artefaktumok importálása",
   "cloudRuns.imported": "{count} fájl importálva",
   "cloudRuns.open": "Felhőkutatás",

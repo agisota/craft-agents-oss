@@ -75,6 +75,8 @@ interface PersistedRun {
   execIds?: Record<string, string>;
   /** F3: subtasks observed done (drives progress + done-condition). */
   completedIds?: string[];
+  /** F14: capped event log for the events route (latest last). */
+  eventLog?: { t: number; message: string }[];
 }
 
 
@@ -125,7 +127,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   // ---- RPC surface (invoked by the Worker) --------------------------
 
-  async createRun(spec: RunSpec): Promise<{ id: string; createdAt: number }> {
+  async createRun(spec: RunSpec, contextFiles?: { path: string; content: string }[]): Promise<{ id: string; createdAt: number }> {
     const existing = await this.ctx.storage.get<PersistedRun>("run");
     if (existing) {
       if (existing.state === "failed" || existing.state === "cancelled") {
@@ -153,6 +155,20 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       createdAt: Date.now(),
     };
     await this.ctx.storage.put("run", run);
+    // F7 forking: prior run's briefs land in /workspace/context BEFORE the
+    // first exec; the runner digests them into the system prompt.
+    if (contextFiles && contextFiles.length > 0) {
+      const ws = await this.ws();
+      await ws.fs.mkdir(`${WORKSPACE_ROOT}/context`, { recursive: true });
+      for (const file of contextFiles) {
+        const safe = file.path.replace(/[^A-Za-z0-9_.\-\/]/g, "_");
+        const segments = safe.split("/");
+        if (segments.length > 1) {
+          await ws.fs.mkdir(`${WORKSPACE_ROOT}/context/${segments.slice(0, -1).join("/")}`, { recursive: true });
+        }
+        await ws.fs.writeFile(`${WORKSPACE_ROOT}/context/${safe}`, file.content);
+      }
+    }
     await this.ctx.storage.setAlarm(Date.now() + 1);
     return { id: spec.id, createdAt: run.createdAt };
   }
@@ -250,6 +266,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     if (run.state === "queued") {
       run.state = "running";
       run.startedAt = startedAt;
+      this.logEvent(run, "run started");
     }
 
     // ---- Resolve in-flight subtasks via markers (non-blocking) ----
@@ -269,10 +286,12 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
         if (outcome.error.includes("503") || outcome.error.includes("resource pressure")) {
           run.effectiveConcurrency = 1;
         }
+        this.logEvent(run, `subtask ${item.id}: attempt ${item.attempt} failed (${outcome.error.slice(0, 100)}), retry scheduled`);
         this.execHandles.delete(item.id);
         continue;
       }
       run.completedIds = [...new Set([...(run.completedIds ?? []), item.id])];
+      this.logEvent(run, `subtask ${item.id} done`);
       delete run.execIds?.[item.id];
       this.execHandles.delete(item.id);
     }
@@ -304,6 +323,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       if (pending.length > 0) {
         try {
           const packId = `${Date.now()}-p${pending.length}`;
+          this.logEvent(run, `pack exec started: ${pending.map((s) => s.id).join(", ")}`);
           const execId = await this.startPackExec(run, pending, packId);
           for (const subtask of pending) {
             const attempt = (run.attemptOf?.[subtask.id] ?? 0) + 1;
@@ -470,7 +490,19 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     run.finishedAt = Date.now();
     run.failureReason = failureReason;
     run.failureDetail = failureDetail;
+    this.logEvent(run, `${state}${failureDetail ? `: ${failureDetail.slice(0, 120)}` : ""}`);
     await this.ctx.storage.put("run", run);
+  }
+
+  private logEvent(run: PersistedRun, message: string): void {
+    run.eventLog = [...(run.eventLog ?? []).slice(-49), { t: Date.now(), message }];
+  }
+
+  /** F14: capped event log for live UI tails. */
+  async getEvents(): Promise<{ t: number; message: string }[]> {
+    const run = await this.ctx.storage.get<PersistedRun>("run");
+    if (!run) throw new Error("not_found");
+    return run.eventLog ?? [];
   }
 
   private async requireRun(): Promise<PersistedRun> {

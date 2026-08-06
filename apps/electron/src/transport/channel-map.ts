@@ -23,7 +23,11 @@ export const CHANNEL_MAP = {
   submitCloudRun: invoke(RPC_CHANNELS.cloudRuns.SUBMIT),
   resumeCloudRun: invoke(RPC_CHANNELS.cloudRuns.RESUME),
   sessionTopicCloudRun: invoke(RPC_CHANNELS.cloudRuns.SESSION_TOPIC),
+  listCloudRunSchedules: invoke(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES),
+  saveCloudRunSchedule: invoke(RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE),
+  deleteCloudRunSchedule: invoke(RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE),
   readCloudRunArtifact: invoke(RPC_CHANNELS.cloudRuns.READ_ARTIFACT),
+  getCloudRunEvents: invoke(RPC_CHANNELS.cloudRuns.GET_EVENTS),
   listCloudRuns: invoke(RPC_CHANNELS.cloudRuns.LIST),
   getCloudRunStatus: invoke(RPC_CHANNELS.cloudRuns.GET_STATUS),
   cancelCloudRun: invoke(RPC_CHANNELS.cloudRuns.CANCEL),
@@ -293,6 +297,7 @@ export const CHANNEL_MAP = {
   listPendingSkills: invoke(RPC_CHANNELS.skillsPending.LIST),
   approvePendingSkill: invoke(RPC_CHANNELS.skillsPending.APPROVE),
   dismissPendingSkill: invoke(RPC_CHANNELS.skillsPending.DISMISS),
+  diffPendingSkill: invoke(RPC_CHANNELS.skillsPending.DIFF),
   onSkillsPendingChanged: listener(RPC_CHANNELS.skillsPending.CHANGED),
 
   // Memory (self-learning)

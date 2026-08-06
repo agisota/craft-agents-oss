@@ -56,6 +56,10 @@ export interface RunSpec {
   ttlSec?: number;
   /** F16: extra deliverables, e.g. ['slides'] (CF provider only). */
   outputs?: string[];
+  /** F7: fork — parent run id; its briefs land in the new run's context. */
+  fromRunId?: string;
+  /** F4 switch: agentic tool-loop (default true); false = one-shot LLM per subtask. */
+  agentic?: boolean;
   /** Free-form linkage back to the originating session/workspace. */
   metadata?: Record<string, string>;
 }

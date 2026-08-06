@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "Ejecución típica ≈ {tokens} tokens",
   "cloudRuns.finished": "Ejecución en la nube terminada: {name}",
   "cloudRuns.footer": "Las ejecuciones continúan aunque la app esté cerrada.",
+  "cloudRuns.fork": "Fork (profundizar)",
+  "cloudRuns.forkPlaceholder": "¿Qué aclarar o profundizar?",
   "cloudRuns.import": "Importar artefactos",
   "cloudRuns.imported": "{count} archivos importados",
   "cloudRuns.open": "Investigación en la nube",

@@ -82,6 +82,13 @@ export class CloudflareComputerProvider implements CloudRunProvider {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /** F14: capped server-side event log (transitions, pack starts, retries). */
+  async getEvents(id: string): Promise<{ t: number; message: string }[]> {
+    const res = await this.request('GET', `/runs/${encodeURIComponent(id)}/events`);
+    if (!res.ok) return [];
+    return (await res.json()) as { t: number; message: string }[];
+  }
+
   async *subscribeEvents(id: string): AsyncIterable<RunEvent> {
     let lastState: RunStatus['state'] | null = null;
     let lastCompleted = -1;

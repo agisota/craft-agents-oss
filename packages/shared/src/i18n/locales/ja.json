@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "標準的な実行 ≈ {tokens} トークン",
   "cloudRuns.finished": "クラウド実行が完了しました: {name}",
   "cloudRuns.footer": "アプリを閉じても実行は継続します。",
+  "cloudRuns.fork": "フォーク（深掘り）",
+  "cloudRuns.forkPlaceholder": "何を明確化・深掘りしますか？",
   "cloudRuns.import": "成果物をインポート",
   "cloudRuns.imported": "{count} 件をインポート",
   "cloudRuns.open": "クラウドリサーチ",

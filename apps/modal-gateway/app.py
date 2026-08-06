@@ -64,6 +64,21 @@ def fail(msg):
     sys.exit(1)
 
 SYSTEM = "You are a research sub-agent. Investigate with the tools, then answer thoroughly, factually, citing sources."
+
+def load_context(ws):
+    ctx_dir = ws / "context"
+    if not ctx_dir.exists():
+        return ""
+    parts = []
+    for md in sorted(ctx_dir.rglob("*"))[:12]:
+        if md.is_file():
+            parts.append(f"### {md.name}\n{md.read_text()[:1500]}")
+    if not parts:
+        return ""
+    return ("\n\nPRIOR RESEARCH CONTEXT (from a related previous run — build on it, do not repeat it):\n\n"
+            + "\n\n---\n\n".join(parts))[:20000]
+
+SYSTEM = SYSTEM + load_context(workspace)
 TOOLS = [
     {"type": "function", "function": {"name": "web_search", "description": "Search the web.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {"name": "fetch_url", "description": "Fetch a page, return plain text (~8000 chars).", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
@@ -262,7 +277,19 @@ def driver(spec: dict):
 
     def set_status(**fields):
         cur = dict(state.get(_state_key(run_id), {}))
+        # F14: capped event log on meaningful state transitions
+        if "state" in fields and fields["state"] != cur.get("state"):
+            log = cur.get("eventLog", [])
+            log.append({"t": int(time.time() * 1000), "message": fields["state"]})
+            cur["eventLog"] = log[-50:]
         cur.update(fields)
+        state[_state_key(run_id)] = cur
+
+    def log_event(message):
+        cur = dict(state.get(_state_key(run_id), {}))
+        log = cur.get("eventLog", [])
+        log.append({"t": int(time.time() * 1000), "message": message})
+        cur["eventLog"] = log[-50:]
         state[_state_key(run_id)] = cur
 
     set_status(id=run_id, state="running", startedAt=int(time.time() * 1000))
@@ -341,6 +368,7 @@ def driver(spec: dict):
                 except (json.JSONDecodeError, KeyError):
                     pass
             completed[0] += 1
+            log_event(f"subtask {subtask['id']} done")
             set_status(progress={"completed": completed[0], "total": len(subtasks)})
 
     completed = [0]
@@ -396,6 +424,20 @@ def gateway_api():
         run_id = spec.get("id")
         if not run_id or ".." in run_id or "/" in run_id or not spec.get("subtasks"):
             raise fastapi.HTTPException(status_code=400, detail="invalid_spec")
+        # F7 fork: copy parent briefs into the child's context dir
+        # (same volume — cheap local copy, no cross-service call).
+        parent_id = spec.get("fromRunId")
+        if parent_id:
+            import shutil
+            volume.reload()
+            parent_art = _run_dir(parent_id) / "artifacts"
+            if parent_art.exists():
+                target_dir = _run_dir(run_id) / "context"
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for md_file in parent_art.rglob("*.md"):
+                    rel = md_file.relative_to(parent_art)
+                    shutil.copyfile(md_file, target_dir / str(rel).replace("/", "__"))
+                volume.commit()
         key = _state_key(run_id)
         existing = state.get(key)
         if existing:
@@ -422,6 +464,13 @@ def gateway_api():
         if not cur:
             raise fastapi.HTTPException(status_code=404, detail="run not found")
         return cur
+
+    @api.get("/runs/{run_id}/events")
+    async def events_of(run_id: str, _=Depends(auth)):
+        cur = state.get(_state_key(run_id))
+        if not cur:
+            raise fastapi.HTTPException(status_code=404, detail="run not found")
+        return cur.get("eventLog", [])
 
     @api.delete("/runs/{run_id}")
     async def delete_run(run_id: str, _=Depends(auth)):

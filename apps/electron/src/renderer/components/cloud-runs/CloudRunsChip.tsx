@@ -10,6 +10,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Cloud, Download, FileText, RefreshCw, Rocket, XCircle } from 'lucide-react'
+import { Markdown } from '@craft-agent/ui'
 import {
   Dialog,
   DialogContent,
@@ -79,6 +80,9 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
   const [personas, setPersonas] = React.useState(false)
   const [estimatedTokens, setEstimatedTokens] = React.useState<number | null>(null)
   const [preview, setPreview] = React.useState<{ title: string; content: string } | null>(null)
+  const [forkTarget, setForkTarget] = React.useState<string | null>(null)
+  const [forkQuestion, setForkQuestion] = React.useState('')
+  const [eventsByRun, setEventsByRun] = React.useState<Record<string, { t: number; message: string }[]>>({})
   const [busy, setBusy] = React.useState<string | null>(null)
   useRegisterModal(open, () => setOpen(false))
 
@@ -103,6 +107,18 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
     const timer = setInterval(() => void refresh(), POLL_MS)
     return () => clearInterval(timer)
   }, [open, refresh])
+
+  // F14: pull event tails for rows currently running (cheap, follows the 5s dialog poll).
+  React.useEffect(() => {
+    if (!open) return
+    const running = runs.filter((r) => r.status && (r.status.state === 'running' || r.status.state === 'queued'))
+    for (const run of running) {
+      window.electronAPI
+        .getCloudRunEvents({ runId: run.id })
+        .then((events) => setEventsByRun((prev) => ({ ...prev, [run.id]: events })))
+        .catch(() => null)
+    }
+  }, [open, runs])
 
   // Background poll while the app is open: surfaces active runs on the
   // chip and toasts when a run finishes (PRD: resumption after close
@@ -248,6 +264,11 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                     <span className="text-xs text-muted-foreground">{progress.completed}/{progress.total}</span>
                   )}
                   <span className="text-xs text-muted-foreground">{t(`cloudRuns.state.${state ?? 'unknown'}`)}</span>
+                  {(state === 'running' || state === 'queued') && (eventsByRun[run.id]?.length ?? 0) > 0 && (
+                    <span className="max-w-48 truncate text-xs text-muted-foreground/70" title={eventsByRun[run.id]?.map((e) => e.message).join('\n')}>
+                      {eventsByRun[run.id]?.[eventsByRun[run.id]!.length - 1]?.message}
+                    </span>
+                  )}
                   {(state === 'running' || state === 'queued') && (
                     <Button
                       size="sm"
@@ -293,6 +314,18 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                   )}
                   {state === 'done' && (
                     <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === run.id}
+                        title={t('cloudRuns.fork')}
+                        onClick={() => {
+                          setForkTarget(run.id)
+                          setForkQuestion('')
+                        }}
+                      >
+                        <Rocket className="h-4 w-4 rotate-90" />
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -346,6 +379,39 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
             })}
           </div>
 
+          {forkTarget && (
+            <div className="flex gap-2">
+              <Input
+                value={forkQuestion}
+                onChange={(e) => setForkQuestion(e.target.value)}
+                placeholder={t('cloudRuns.forkPlaceholder')}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && forkQuestion.trim()) {
+                    void act('fork', async () => {
+                      await window.electronAPI.submitCloudRun({ topic: forkQuestion.trim(), sessionId, fromRunId: forkTarget })
+                      setForkTarget(null)
+                      toast.success(t('cloudRuns.submitted'))
+                    })
+                  }
+                  if (e.key === 'Escape') setForkTarget(null)
+                }}
+              />
+              <Button
+                size="sm"
+                disabled={!forkQuestion.trim() || busy === 'fork'}
+                onClick={() =>
+                  void act('fork', async () => {
+                    await window.electronAPI.submitCloudRun({ topic: forkQuestion.trim(), sessionId, fromRunId: forkTarget })
+                    setForkTarget(null)
+                    toast.success(t('cloudRuns.submitted'))
+                  })
+                }
+              >
+                {t('cloudRuns.submit')}
+              </Button>
+            </div>
+          )}
           <DialogFooter>
             <span className="text-xs text-muted-foreground">{t('cloudRuns.footer')}</span>
           </DialogFooter>
@@ -357,7 +423,9 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
           <DialogHeader>
             <DialogTitle>{preview?.title}</DialogTitle>
           </DialogHeader>
-          <pre className="whitespace-pre-wrap font-sans text-sm">{preview?.content}</pre>
+          <div className="text-sm">
+            <Markdown mode="minimal">{preview?.content ?? ''}</Markdown>
+          </div>
         </DialogContent>
       </Dialog>
     </>

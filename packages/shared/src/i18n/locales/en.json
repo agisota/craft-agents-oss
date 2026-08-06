@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "Typical run ≈ {tokens} tokens",
   "cloudRuns.finished": "Cloud run finished: {name}",
   "cloudRuns.footer": "Runs continue even when the app is closed.",
+  "cloudRuns.fork": "Fork (deeper dive)",
+  "cloudRuns.forkPlaceholder": "What to clarify or deepen?",
   "cloudRuns.import": "Import artifacts",
   "cloudRuns.imported": "Imported {count} files",
   "cloudRuns.open": "Cloud research",

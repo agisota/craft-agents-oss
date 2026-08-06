@@ -297,6 +297,8 @@
   "cloudRuns.estimate": "典型运行 ≈ {tokens} 词元",
   "cloudRuns.finished": "云端运行已完成：{name}",
   "cloudRuns.footer": "即使应用关闭，运行也会继续。",
+  "cloudRuns.fork": "分叉（深入）",
+  "cloudRuns.forkPlaceholder": "要进一步澄清或深入什么？",
   "cloudRuns.import": "导入产物",
   "cloudRuns.imported": "已导入 {count} 个文件",
   "cloudRuns.open": "云端研究",
