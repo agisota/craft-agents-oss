@@ -33,7 +33,7 @@ interface GatewayError {
 }
 
 export class CloudflareComputerProvider implements CloudRunProvider {
-  readonly providerId = 'cloudflare';
+  readonly providerId: string = 'cloudflare';
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly pollMs: number;

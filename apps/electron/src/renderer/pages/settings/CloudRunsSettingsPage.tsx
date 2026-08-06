@@ -78,9 +78,10 @@ export default function CloudRunsSettingsPage() {
             >
               <option value="local">{t('settings.cloudRuns.providerLocal')}</option>
               <option value="cloudflare">Cloudflare</option>
+              <option value="modal">Modal</option>
             </select>
           </SettingsRow>
-          {config.provider === 'cloudflare' && (
+          {(config.provider === 'cloudflare' || config.provider === 'modal') && (
             <>
               <SettingsRow
                 label={t('settings.cloudRuns.gatewayUrl')}

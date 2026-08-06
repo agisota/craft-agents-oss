@@ -63,6 +63,7 @@ if (!response.ok) {
 
 const contentType = response.headers.get('content-type') ?? '';
 let content;
+let usage = null;
 if (contentType.includes('text/event-stream')) {
   // Server ignored stream:false — accumulate deltas by hand.
   const body = await response.text();
@@ -81,6 +82,7 @@ if (contentType.includes('text/event-stream')) {
 } else {
   const payload = await response.json();
   content = payload?.choices?.[0]?.message?.content;
+  usage = payload?.usage ?? null;
 }
 if (typeof content !== 'string' || content.length === 0) {
   console.error('LLM gateway returned no content');
@@ -92,4 +94,10 @@ await writeFile(
   [`# ${subtask.title ?? subtask.id}`, '', '## Prompt', '', subtask.prompt, '', '## Brief', '', content, ''].join('\n'),
 );
 await writeFile(join(outDir, 'done.marker'), new Date().toISOString() + '\n');
+// Per-subtask LLM usage ledger (PRD §G5.2) — billing telemetry, not an artifact.
+await mkdir(join(workspaceRoot, 'artifacts', '_usage'), { recursive: true });
+await writeFile(
+  join(workspaceRoot, 'artifacts', '_usage', `${subtask.id}.json`),
+  JSON.stringify(usage ?? { note: 'usage unavailable (SSE fallback)' }) + '\n',
+);
 console.log(`subtask ${subtask.id} done: ${content.length} chars`);

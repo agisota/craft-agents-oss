@@ -82,6 +82,8 @@ export interface RunStatus {
   failureReason?: RunFailureReason;
   /** Optional progress signal surfaced to the UI. */
   progress?: { completed: number; total: number };
+  /** Aggregated LLM usage ledger (PRD §G5.2). */
+  usage?: { promptTokens: number; completionTokens: number };
 }
 
 // ============================================================

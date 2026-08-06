@@ -23,6 +23,7 @@ import {
   CloudflareComputerProvider,
   CloudRunnerError,
   LocalSubprocessProvider,
+  ModalProvider,
   buildResearchSpec,
   type CloudRunProvider,
   type RunStatus,
@@ -86,17 +87,22 @@ function readSecretsEnv(): Record<string, string> {
 }
 
 function makeProvider(settings: CloudRunsSettings): CloudRunProvider {
-  if (settings.provider === 'cloudflare') {
+  if (settings.provider === 'cloudflare' || settings.provider === 'modal') {
     const secrets = readSecretsEnv();
-    const baseUrl = settings.gatewayUrl ?? secrets.CLOUD_RUNS_GATEWAY_URL;
+    // Per-provider URL env beats the generic one, so flipping the
+    // provider setting doesn't require re-editing URLs.
+    const envKey = settings.provider === 'modal' ? 'MODAL_GATEWAY_URL' : 'CLOUDFLARE_GATEWAY_URL';
+    const baseUrl = secrets[envKey] ?? settings.gatewayUrl ?? secrets.CLOUD_RUNS_GATEWAY_URL;
     const token = secrets.CLOUD_RUNS_TOKEN;
     if (!baseUrl || !token) {
       throw new CloudRunnerError(
-        'cloudflare provider requires cloudRuns.gatewayUrl and CLOUD_RUNS_TOKEN in <configDir>/cloud-runs.env',
+        `${settings.provider} provider requires ${envKey}/cloudRuns.gatewayUrl and CLOUD_RUNS_TOKEN in <configDir>/cloud-runs.env`,
         'provider_error',
       );
     }
-    return new CloudflareComputerProvider({ baseUrl, token });
+    return settings.provider === 'modal'
+      ? new ModalProvider({ baseUrl, token })
+      : new CloudflareComputerProvider({ baseUrl, token });
   }
   return new LocalSubprocessProvider({ baseDir: join(CONFIG_DIR, 'cloud-runs', 'local') });
 }
@@ -240,7 +246,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     let totalBytes = 0;
     const cap = settings.defaults.maxArtifactsBytes;
     for (const artifact of artifacts) {
-      if (artifact.path.endsWith('done.marker')) continue;
+      if (artifact.path.endsWith('done.marker') || artifact.path.startsWith('_usage/')) continue;
       totalBytes += artifact.size;
       if (totalBytes > cap) {
         throw new CloudRunnerError(`artifacts exceed ${cap} bytes cap`, 'artifact_too_large');
@@ -268,7 +274,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
       await mkdir(imported, { recursive: true });
       const artifacts = await provider.listArtifacts(args.runId);
       for (const artifact of artifacts) {
-        if (artifact.path.endsWith('done.marker')) continue;
+        if (artifact.path.endsWith('done.marker') || artifact.path.startsWith('_usage/')) continue;
         const bytes = await provider.fetchArtifact(args.runId, artifact.path);
         const target = join(imported, artifact.path);
         await mkdir(dirname(target), { recursive: true });

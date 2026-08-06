@@ -60,6 +60,8 @@ interface PersistedRun {
   failureDetail?: string;
   nextSubtask: number;
   createdAt: number;
+  /** Aggregated LLM usage ledger (PRD §G5.2). */
+  usage?: { promptTokens: number; completionTokens: number };
 }
 
 const DEFAULT_WALL_CLOCK_SEC = 30 * 60;
@@ -122,6 +124,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       finishedAt: run.finishedAt,
       failureReason: run.failureReason,
       failureDetail: run.failureDetail,
+      usage: run.usage,
       progress: {
         completed: run.state === "done" ? run.spec.subtasks.length : run.nextSubtask,
         total: run.spec.subtasks.length,
@@ -222,8 +225,25 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       await this.finish(fresh, "failed", "runner_error", `subtask ${subtask.id} finished without done.marker`);
       return;
     }
+    // LLM usage ledger (PRD §G5.2): the runner leaves usage JSON per subtask.
+    const usage = await this.readSubtaskUsage(subtask.id);
+    if (usage) {
+      fresh.usage = fresh.usage ?? { promptTokens: 0, completionTokens: 0 };
+      fresh.usage.promptTokens += usage.prompt_tokens ?? 0;
+      fresh.usage.completionTokens += usage.completion_tokens ?? 0;
+    }
     await this.ctx.storage.put("run", fresh);
     await this.ctx.storage.setAlarm(Date.now() + 1);
+  }
+
+  private async readSubtaskUsage(subtaskId: string): Promise<{ prompt_tokens?: number; completion_tokens?: number } | null> {
+    const ws = await this.ws();
+    try {
+      const raw = await ws.fs.readFile(joinPosix(ARTIFACTS_ROOT, "_usage", `${subtaskId}.json`), "utf8");
+      return JSON.parse(raw) as { prompt_tokens?: number; completion_tokens?: number };
+    } catch {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------
