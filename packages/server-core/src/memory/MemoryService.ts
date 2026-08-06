@@ -49,11 +49,18 @@ import { SkillPendingQueue } from './SkillPendingQueue'
 import { AuditLog } from './AuditLog'
 import { search as ftsSearch } from './fts-index'
 import { compactWorkspaceHistory } from './decay'
+import { EpisodicMemory, withTimeout as episodicWithTimeout } from './episodic-memory'
 
 /** Max chars of serialized conversation window sent to the distiller (front-truncated). */
 const DISTILL_WINDOW_CHARS = 160_000
 /** M3: history decay runs at most this often (24h), off the 60s idle tick. */
 const DECAY_INTERVAL_MS = 24 * 3_600_000
+/**
+ * M2: max time the prompt path may spend on episodic recall before skipping
+ * the tail. A cold local embedding model (first-use download) takes far
+ * longer; session start must never wait for it.
+ */
+const EPISODIC_PROMPT_BUDGET_MS = 2_000
 /** How many messages trigger a lightweight distillation (overridable per config). */
 
 export interface SessionCompletionLike {
@@ -70,6 +77,12 @@ interface DistillJob {
   sessionId: string
   full: boolean
   trigger: LessonTrigger
+  /**
+   * Session-completion reason when the job came from attachSessionCompletion;
+   * absent for mid-session distillations (message-count / idle triggers).
+   * M2 maps it to the episodic kind: complete → success, anything else → failure.
+   */
+  reason?: SessionCompletionLike['reason']
 }
 
 export interface MemoryServiceDeps {
@@ -82,6 +95,12 @@ export interface MemoryServiceDeps {
   fileStore?: MemoryFileStore
   /** Pending-skill queue. Injectable for tests. */
   skillQueue?: SkillPendingQueue
+  /**
+   * M2: episodic-memory store (used only when config memory.semantic is true).
+   * Default: EpisodicMemory over the workspace memory dir (lazy local model).
+   * Injectable for tests (fake embedder / forced model-load failure).
+   */
+  episodicMemory?: EpisodicMemory
   clock?: () => number
   /** LLM one-shot: prompt → raw text (expected strict JSON). Default: throws. */
   distiller?: (prompt: string) => Promise<string>
@@ -261,7 +280,7 @@ export class MemoryService {
         if (!this.config.enabled) return
         if (this.skipsWrites(evt.sessionId)) return
         if (evt.reason === 'complete') {
-          this.enqueue({ sessionId: evt.sessionId, full: true, trigger: 'distillation' })
+          this.enqueue({ sessionId: evt.sessionId, full: true, trigger: 'distillation', reason: 'complete' })
         } else {
           // L1 feedback loop: a bad ending is evidence the injected lessons
           // failed this session. Attribute the conflict to every lesson the
@@ -270,6 +289,7 @@ export class MemoryService {
           this.enqueue({
             sessionId: evt.sessionId,
             full: false,
+            reason: evt.reason,
             trigger:
               evt.reason === 'interrupted'
                 ? 'interrupted'
@@ -372,8 +392,13 @@ export class MemoryService {
    * M1: `opts.query` (session tail — the last user messages) swaps the recency
    * bundles for FTS-ranked subsets; any index error or a fully empty result
    * keeps the recency path intact.
+   * M2: with memory.semantic enabled and a query present, the workspace-memory
+   * block gains a '## Related past sessions' tail (top-3 episodes, score ≥ 0.78).
+   * Async because episodic recall embeds on demand; recall is budgeted
+   * (EPISODIC_PROMPT_BUDGET_MS) and fail-soft so a cold model download or any
+   * episodic error only means the tail is omitted — never a broken prompt.
    */
-  buildMemoryBlocks(opts?: { query?: string }): MemoryPromptBlocks | undefined {
+  async buildMemoryBlocks(opts?: { query?: string }): Promise<MemoryPromptBlocks | undefined> {
     if (!this.config.enabled) return undefined
     const globalStore = this.deps.lessonStoreFactory?.('global') ?? this.defaultLessonStore('global')
     const workspaceStore = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
@@ -400,12 +425,28 @@ export class MemoryService {
     } catch (err) {
       this.logger.warn('MemoryService: touchUsed failed', err)
     }
-    return {
+    const blocks: MemoryPromptBlocks = {
       lessonsBlock: lessons.length ? formatLessonsForPrompt(lessons) : undefined,
       memoryBlock: formatWorkspaceMemoryForPrompt(memory) || undefined,
       // Provenance (spec F4): exactly the lessons handed to formatLessonsForPrompt.
       used: lessons.map(l => ({ rule: l.rule, scope: l.scope })),
     }
+    // M2: semantic (episodic) recall tail (spec §M2). Opt-in via memory.semantic;
+    // needs a query to match against. Budgeted and fully fail-soft.
+    if (this.config.semantic && query) {
+      try {
+        const episodes = await episodicWithTimeout(this.episodic.search(query), EPISODIC_PROMPT_BUDGET_MS)
+        if (episodes.length > 0) {
+          const tail = ['\n## Related past sessions']
+          for (const ep of episodes) tail.push(`- ${ep.kind}: ${ep.text}`)
+          tail.push('')
+          blocks.memoryBlock = (blocks.memoryBlock ?? '') + tail.join('\n')
+        }
+      } catch (err) {
+        this.logger.warn('MemoryService: episodic recall failed', err)
+      }
+    }
+    return blocks
   }
 
   /**
@@ -457,6 +498,10 @@ export class MemoryService {
 
   private get fileStore(): MemoryFileStore {
     return (this.deps.fileStore ??= new MemoryFileStore('workspace', this.deps.workspaceRoot))
+  }
+
+  private get episodic(): EpisodicMemory {
+    return (this.deps.episodicMemory ??= new EpisodicMemory(this.fileStore.memoryDir))
   }
 
   private auditLog: AuditLog | null = null
@@ -611,6 +656,18 @@ export class MemoryService {
       }
       if (result.history_entry) {
         this.fileStore.appendDailyHistory(result.history_entry)
+        // M2: episodic memory — opt-in via memory.semantic. Kind maps from the
+        // session-completion reason (complete → success, bad endings →
+        // failure); mid-session distillations (no reason yet) count as
+        // success-neutral, and the terminal completion event records its own
+        // episode with the final outcome. addEpisode is fail-soft by contract.
+        if (this.config.semantic) {
+          this.episodic.addEpisode({
+            kind: job.reason && job.reason !== 'complete' ? 'failure' : 'success',
+            sessionId: job.sessionId,
+            text: result.history_entry,
+          })
+        }
         wroteMemory = true
       }
       if (result.memory_update) {

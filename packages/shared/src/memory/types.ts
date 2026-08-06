@@ -137,6 +137,17 @@ export interface MemoryConfig {
    * (memory.getContext with a query). Default 20.
    */
   ftsLimit: number
+  /**
+   * M2: semantic (episodic) memory layer — opt-in. When true, distilled
+   * session summaries are stored as success/failure episodes
+   * ({workspace}/memory/episodic.jsonl) and the prompt's workspace-memory
+   * block gains a '## Related past sessions' tail with the vector top-3
+   * (topical overlap ≥ 0.78) for the current query. Enabling triggers a
+   * one-time lazy download of the local embedding model
+   * (Xenova/all-MiniLM-L6-v2, ~90MB) into {configDir}/models; without the
+   * model the layer degrades to keyword-overlap matching. Default false.
+   */
+  semantic: boolean
 }
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
@@ -146,6 +157,7 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   negativeFirst: true,
   redactExtraPatterns: [],
   ftsLimit: 20,
+  semantic: false,
 }
 
 /** Hard limits (mirror KiroCrew learn.py) */
@@ -293,4 +305,31 @@ export interface SkillExportResult {
   path: string
   /** Target already existed with identical content — nothing was copied. */
   alreadyExisted: boolean
+}
+
+// ---------------------------------------------------------------
+// Y1: dashboard insights card (memory:insights)
+// ---------------------------------------------------------------
+
+/**
+ * Aggregated memory metrics for the Memory tab insights card (spec Y1).
+ * 7-day counters merge the global and the workspace audit.jsonl; categories
+ * and totals come from the current lesson stores (audit lines carry no
+ * category, so per-category chips are derived from live lessons).
+ */
+export interface MemoryInsights {
+  /** Lessons added in the last 7 days (audit 'add'), global + workspace. */
+  lessonsAdded7d: number
+  /** Conflict verdicts recorded in the last 7 days (audit 'conflict'). */
+  conflicts7d: number
+  /** Current size of the workspace pending-skill queue (0 without a workspace). */
+  pendingCount: number
+  /** Pending candidates approved in the last 7 days (audit 'approved'). */
+  approved7d: number
+  /** Lesson count by category across both scopes (0-count categories omitted). */
+  categories: Record<string, number>
+  /** Total lessons across global + workspace (Y4 onboarding emptiness check). */
+  totalLessons: number
+  /** Y4: onboarding seed dialog already shown ({configDir}/memory/.onboarded). */
+  onboarded: boolean
 }

@@ -85,4 +85,17 @@ describe('getMemoryConfig merge (P1 redactExtraPatterns / M1 ftsLimit)', () => {
     )
     expect(cfg.redactExtraPatterns).toEqual([])
   })
+
+  it('M2 semantic defaults to false and merges an explicit opt-in', () => {
+    const off = JSON.parse(runEval(setupConfigDir(), 'console.log(JSON.stringify(getMemoryConfig()))'))
+    expect(off.semantic).toBe(false)
+    const on = JSON.parse(
+      runEval(setupConfigDir({ semantic: true }), 'console.log(JSON.stringify(getMemoryConfig()))'),
+    )
+    expect(on.semantic).toBe(true)
+    const falsy = JSON.parse(
+      runEval(setupConfigDir({ semantic: 1 }), 'console.log(JSON.stringify(getMemoryConfig()))'),
+    )
+    expect(falsy.semantic).toBe(false) // non-boolean values fall back to the default
+  })
 })

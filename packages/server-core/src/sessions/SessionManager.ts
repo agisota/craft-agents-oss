@@ -3845,7 +3845,7 @@ export class SessionManager implements ISessionManager {
         .trim()
       const memoryBlocks = managed.memoryMode === 'temporary'
         ? undefined
-        : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(memoryQuery ? { query: memoryQuery } : undefined)
+        : await this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(memoryQuery ? { query: memoryQuery } : undefined)
       // Provenance (spec F4): persist which lessons were injected so the feedback
       // loop and usage UI can attribute behavior later. BackendConfig.memoryBlocks
       // is a constructor-time snapshot, so this record refreshes per session start

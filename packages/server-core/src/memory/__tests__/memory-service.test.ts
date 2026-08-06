@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { MemoryService, parseDistillResult, redactSecrets, type SessionCompletionLike } from '../MemoryService'
 import { LessonStore } from '../LessonStore'
 import { MemoryFileStore } from '../MemoryFileStore'
+import { EpisodicMemory, type Embedder } from '../episodic-memory'
 import { closeAll } from '../fts-index'
 import type { DistillResult, Lesson, LessonPromptUsage, MemoryConfig, SkillCandidate } from '@craft-agent/shared/memory/types'
 import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
@@ -40,17 +41,21 @@ function makeService(opts: {
   modes?: Record<string, SessionMemoryMode>
   provenance?: (sessionId: string) => LessonPromptUsage[]
   messages?: StoredMessage[]
+  semantic?: boolean
+  episodicEmbedder?: Embedder
+  episodicMemory?: EpisodicMemory
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'memsvc-'))
   const prompts: string[] = []
   const enqueued: SkillCandidate[] = []
   const emitted: Array<[string, unknown[]]> = []
-  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true, redactExtraPatterns: [], ftsLimit: 20 }
+  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true, redactExtraPatterns: [], ftsLimit: 20, semantic: opts.semantic ?? false }
   let autoCreate = false
   let fire: ((evt: SessionCompletionLike) => void) | null = null
   const wsFiles = new MemoryFileStore('workspace', root)
   const wsLessons = new LessonStore(wsFiles.lessonsPath, 'workspace')
   const globalLessons = new LessonStore(new MemoryFileStore('global', root, join(root, 'global-config')).lessonsPath, 'global')
+  const episodicMemory = opts.episodicMemory ?? new EpisodicMemory(wsFiles.memoryDir, { embedder: opts.episodicEmbedder ?? (async (texts) => texts.map(() => [0])) })
   const svc = new MemoryService({
     workspaceRoot: root,
     workspaceId: 'ws-1',
@@ -58,6 +63,7 @@ function makeService(opts: {
     lessonStoreFactory: (scope) => (scope === 'global' ? globalLessons : wsLessons),
     fileStore: wsFiles,
     skillQueue: { enqueue: (c: SkillCandidate) => (enqueued.push(c), true) } as never,
+    episodicMemory,
     distiller: async (prompt) => {
       prompts.push(prompt)
       return opts.distiller ? opts.distiller(prompt) : JSON.stringify(OK)
@@ -83,6 +89,7 @@ function makeService(opts: {
     wsFiles,
     wsLessons,
     globalLessons,
+    episodicMemory,
     root,
     setAutoCreate: (v: boolean) => {
       autoCreate = v
@@ -325,7 +332,7 @@ describe('MemoryService', () => {
     expect(new LessonStore(h.wsFiles.lessonsPath, 'workspace').list()).toHaveLength(0)
   })
 
-  it('buildMemoryBlocks merges global+workspace lessons and workspace memory', () => {
+  it('buildMemoryBlocks merges global+workspace lessons and workspace memory', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     h.globalLessons.add({
@@ -342,14 +349,14 @@ describe('MemoryService', () => {
       scope: 'workspace',
       source: { trigger: 'explicit' },
     } as Lesson)
-    const blocks = h.svc.buildMemoryBlocks()
+    const blocks = await h.svc.buildMemoryBlocks()
     expect(blocks?.lessonsBlock).toContain('global rule')
     expect(blocks?.lessonsBlock).toContain('ws rule')
     h.config.enabled = false
-    expect(h.svc.buildMemoryBlocks()).toBeUndefined()
+    expect(await h.svc.buildMemoryBlocks()).toBeUndefined()
   })
 
-  it('buildMemoryBlocks reports used lessons with scopes (F4) and counts usage (F1)', () => {
+  it('buildMemoryBlocks reports used lessons with scopes (F4) and counts usage (F1)', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     h.globalLessons.add({
@@ -366,7 +373,7 @@ describe('MemoryService', () => {
       scope: 'workspace',
       source: { trigger: 'explicit' },
     } as Lesson)
-    const blocks = h.svc.buildMemoryBlocks()
+    const blocks = await h.svc.buildMemoryBlocks()
     expect(blocks?.used).toEqual([
       { rule: 'global rule', scope: 'global' },
       { rule: 'ws rule', scope: 'workspace' },
@@ -376,20 +383,20 @@ describe('MemoryService', () => {
     expect(h.globalLessons.list()[0].lastUsedAt).toBeTruthy()
     expect(h.wsLessons.list()[0].usageCount).toBe(1)
     // A second assembly increments again.
-    h.svc.buildMemoryBlocks()
+    await h.svc.buildMemoryBlocks()
     expect(h.globalLessons.list()[0].usageCount).toBe(2)
     expect(h.wsLessons.list()[0].usageCount).toBe(2)
     // Disabled memory: no blocks, no usage accounting (stays at 2 from above).
     h.config.enabled = false
-    expect(h.svc.buildMemoryBlocks()).toBeUndefined()
+    expect(await h.svc.buildMemoryBlocks()).toBeUndefined()
     expect(h.globalLessons.list()[0].usageCount).toBe(2)
     expect(h.wsLessons.list()[0].usageCount).toBe(2)
   })
 
-  it('buildMemoryBlocks with no lessons returns used: [] and touches nothing', () => {
+  it('buildMemoryBlocks with no lessons returns used: [] and touches nothing', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
-    const blocks = h.svc.buildMemoryBlocks()
+    const blocks = await h.svc.buildMemoryBlocks()
     expect(blocks?.lessonsBlock).toBeUndefined()
     expect(blocks?.used).toEqual([])
   })
@@ -416,11 +423,11 @@ describe('buildMemoryBlocks query-scoped (M1)', () => {
     h.wsFiles.appendDailyHistory('watered the office plants', '2026-08-02')
   }
 
-  it('recency path (no query) merges all lessons + recent history', () => {
+  it('recency path (no query) merges all lessons + recent history', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     seed(h)
-    const blocks = h.svc.buildMemoryBlocks()
+    const blocks = await h.svc.buildMemoryBlocks()
     expect(blocks?.lessonsBlock).toContain('never store secrets')
     expect(blocks?.lessonsBlock).toContain('vercel')
     expect(blocks?.memoryBlock).toContain('gardening')
@@ -428,11 +435,11 @@ describe('buildMemoryBlocks query-scoped (M1)', () => {
     expect(blocks?.used).toHaveLength(2)
   })
 
-  it('query path filters lessons and memory to ranked hits', () => {
+  it('query path filters lessons and memory to ranked hits', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     seed(h)
-    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel deploy' })
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'vercel deploy' })
     expect(blocks?.used).toEqual([{ rule: 'deploy previews go through vercel', scope: 'workspace' }])
     expect(blocks?.lessonsBlock).toContain('vercel')
     expect(blocks?.lessonsBlock).not.toContain('secrets')
@@ -444,7 +451,7 @@ describe('buildMemoryBlocks query-scoped (M1)', () => {
     expect(h.globalLessons.list()[0].usageCount).toBeUndefined()
   })
 
-  it('memory.ftsLimit caps the ranked lesson set', () => {
+  it('memory.ftsLimit caps the ranked lesson set', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     seed(h)
@@ -456,31 +463,93 @@ describe('buildMemoryBlocks query-scoped (M1)', () => {
       source: { trigger: 'explicit' },
     } as Lesson)
     h.config.ftsLimit = 1
-    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel' })
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'vercel' })
     expect(blocks?.used).toHaveLength(1)
     expect(blocks?.used?.[0]?.rule).toContain('vercel')
   })
 
-  it('query with zero hits falls back to the recency path', () => {
+  it('query with zero hits falls back to the recency path', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     seed(h)
-    const blocks = h.svc.buildMemoryBlocks({ query: 'zzz-unindexed-term' })
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'zzz-unindexed-term' })
     expect(blocks?.used).toHaveLength(2)
     expect(blocks?.memoryBlock).toContain('office plants')
   })
 
-  it('query path falls back to recency on index errors', () => {
+  it('query path falls back to recency on index errors', async () => {
     const h = makeService()
     tmpRoots.push(h.root)
     seed(h)
     closeAll()
     writeFileSync(join(dirname(h.globalLessons.filePath), 'index.db'), 'not a sqlite database')
     writeFileSync(join(h.wsFiles.memoryDir, 'index.db'), 'not a sqlite database')
-    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel' })
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'vercel' })
     expect(blocks?.used).toHaveLength(2)
     expect(blocks?.lessonsBlock).toContain('never store secrets')
     expect(blocks?.memoryBlock).toContain('office plants')
+  })
+})
+
+describe('semantic episodic memory (M2)', () => {
+  function episodeLines(h: { wsFiles: MemoryFileStore }): Array<{ kind: string; sessionId: string; text: string }> {
+    const path = join(h.wsFiles.memoryDir, 'episodic.jsonl')
+    if (!existsSync(path)) return []
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l))
+  }
+
+  it('semantic=false → no episodic writes and no prompt tail', async () => {
+    const h = makeService({ semantic: false })
+    tmpRoots.push(h.root)
+    h.complete('s1')
+    await drain(h.svc)
+    expect(episodeLines(h)).toEqual([])
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'session wrapped up' })
+    expect(blocks?.memoryBlock ?? '').not.toContain('Related past sessions')
+  })
+
+  it('semantic=true → complete writes a success episode, bad endings write failure', async () => {
+    const h = makeService({ semantic: true })
+    tmpRoots.push(h.root)
+    h.complete('s1')
+    await drain(h.svc)
+    h.interrupted('s2')
+    await drain(h.svc)
+    const lines = episodeLines(h)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toMatchObject({ kind: 'success', sessionId: 's1', text: 'Session wrapped up' })
+    expect(lines[1]).toMatchObject({ kind: 'failure', sessionId: 's2' })
+  })
+
+  it('semantic=true → prompt memoryBlock gains Related past sessions tail above threshold', async () => {
+    const vectors: Record<string, number[]> = {
+      'Session wrapped up': [1, 0, 0],
+      'db migration broke everything': [0, 1, 0],
+      'wrapping session work': [1, 0, 0],
+    }
+    const h = makeService({ semantic: true, episodicEmbedder: async (texts) => texts.map((t) => vectors[t] ?? [0, 0, 1]) })
+    tmpRoots.push(h.root)
+    h.complete('s1')
+    await drain(h.svc) // writes success episode 'Session wrapped up' (embeds lazily at search)
+    h.episodicMemory.addEpisode({ kind: 'failure', sessionId: 's0', text: 'db migration broke everything' })
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'wrapping session work' })
+    expect(blocks?.memoryBlock).toContain('## Related past sessions')
+    expect(blocks?.memoryBlock).toContain('- success: Session wrapped up')
+    expect(blocks?.memoryBlock).not.toContain('db migration')
+  })
+
+  it('semantic=true → episodic recall errors never break prompt assembly', async () => {
+    const h = makeService({
+      semantic: true,
+      episodicMemory: { search: () => Promise.reject(new Error('episodic exploded')) } as unknown as EpisodicMemory,
+    })
+    tmpRoots.push(h.root)
+    const blocks = await h.svc.buildMemoryBlocks({ query: 'anything' })
+    expect(blocks).toBeDefined()
+    expect(blocks?.memoryBlock ?? '').not.toContain('Related past sessions')
   })
 })
 

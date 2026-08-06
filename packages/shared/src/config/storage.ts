@@ -105,6 +105,7 @@ export interface StoredConfig {
     negativeFirst?: boolean;     // distill prompts prefer negative/MUST-NOT lesson formulations (default: true)
     redactExtraPatterns?: string[]; // extra literal strings masked by redactSecrets (project names, paths, …), case-insensitive (default: [])
     ftsLimit?: number;           // top-K results from memory FTS queries (default: 20)
+    semantic?: boolean;          // M2: semantic (episodic) memory via local embeddings model, lazy-downloaded to {configDir}/models (default: false)
   };
   // Skills pipeline switches.
   skills?: {
@@ -640,6 +641,7 @@ export function getMemoryConfig(): MemoryConfig {
       typeof raw.ftsLimit === 'number' && Number.isFinite(raw.ftsLimit) && raw.ftsLimit > 0
         ? Math.floor(raw.ftsLimit)
         : DEFAULT_MEMORY_CONFIG.ftsLimit,
+    semantic: raw.semantic !== undefined ? raw.semantic === true : DEFAULT_MEMORY_CONFIG.semantic,
   };
 }
 
