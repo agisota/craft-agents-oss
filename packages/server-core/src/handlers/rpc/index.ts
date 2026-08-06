@@ -9,8 +9,10 @@ import { registerLlmConnectionsHandlers } from './llm-connections'
 import { registerOAuthHandlers } from './oauth'
 import { registerResourcesHandlers } from './resources'
 import { registerOnboardingHandlers } from './onboarding'
-import { registerSessionsHandlers } from './sessions'
+import { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
+import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
+export { cleanupNotesWatchForClient } from './notes'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -25,6 +27,10 @@ import { registerTasksHandlers } from './tasks'
 import { registerTransferHandlers } from './transfer'
 import { registerWorkspaceCoreHandlers } from './workspace'
 import { registerMessagingHandlers } from './messaging'
+export function cleanupCoreClientResources(clientId: string): void {
+  cleanupSessionFileWatchForClient(clientId)
+  cleanupNotesWatchForClient(clientId)
+}
 
 export function registerCoreRpcHandlers(
   server: RpcServer,
@@ -51,4 +57,5 @@ export function registerCoreRpcHandlers(
   registerTransferHandlers(server)
   registerWorkspaceCoreHandlers(server, deps)
   registerMessagingHandlers(server, deps)
+  registerNotesHandlers(server, deps)
 }
