@@ -372,7 +372,28 @@ export default function AppearanceSettingsPage() {
                   <SettingsRow label={t("settings.appearance.language")}>
                     <SettingsMenuSelect
                       value={(i18n.resolvedLanguage ?? i18n.language) as LanguageCode}
+<<<<<<< HEAD
                       onValueChange={handleLanguageChange}
+||||||| 1dc41d014
+                      onValueChange={(value) => {
+                        console.info('[i18n] Appearance dropdown change', {
+                          from: i18n.resolvedLanguage ?? null,
+                          to: value,
+                        })
+                        i18n.changeLanguage(value)
+                        window.electronAPI?.changeLanguage?.(value)
+                      }}
+=======
+                      onValueChange={(value) => {
+                        console.info('[i18n] Appearance dropdown change', {
+                          from: i18n.resolvedLanguage ?? null,
+                          to: value,
+                        })
+                        i18n.changeLanguage(value)
+                        // Syncing to main process is handled by the i18n.on('languageChanged')
+                        // listener in renderer/main.tsx, so no need to call changeLanguage here.
+                      }}
+>>>>>>> feature/pr-724-i18n-sync-startup
                       options={Object.entries(LANGUAGES).map(([code, config]) => ({
                         value: code,
                         label: config.nativeName,

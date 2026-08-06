@@ -26,7 +26,7 @@ void initialLanguageSync?.catch((error) => {
 // renderer startup. Without this push, a freshly-installed (or freshly-upgraded)
 // app would still generate titles in English until the user manually re-picks
 // the language in Appearance.
-const resolvedLanguage = i18n.resolvedLanguage
+const resolvedLanguage = i18n.resolvedLanguage || i18n.language
 // Diagnostic: console-log the bootstrap push so it shows up in DevTools and
 // (via captureConsoleIntegration) in Sentry, alongside the main-process
 // [i18n] startup hydration log. If these two diverge, the renderer's
@@ -38,6 +38,11 @@ console.info('[i18n] renderer bootstrap push', {
 if (resolvedLanguage) {
   void window.electronAPI?.changeLanguage?.(resolvedLanguage)
 }
+
+// Keep the main process i18n in sync on subsequent language changes.
+i18n.on('languageChanged', (lng: string) => {
+  void window.electronAPI?.changeLanguage?.(lng)
+})
 
 // Known-harmless console messages that should NOT be sent to Sentry.
 // These are dev-mode noise or expected warnings that aren't actionable.
