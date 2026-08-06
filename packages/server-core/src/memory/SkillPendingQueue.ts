@@ -41,6 +41,20 @@ export function normalizeDescription(description: string): string {
   return description.trim().toLowerCase()
 }
 
+/**
+ * Slugs are joined into filesystem paths in enqueue/approve/dismiss and flow
+ * in from RPC clients and from LLM distillation output (user-influenced
+ * transcripts). Anything outside this charset could traverse out of
+ * `.pending/` (CWE-22/CWE-73) — reject hard.
+ */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+function assertValidSlug(slug: string): void {
+  if (!SLUG_RE.test(slug)) {
+    throw new Error(`Invalid skill slug: ${JSON.stringify(slug)}`)
+  }
+}
+
 export interface DismissedEntry {
   slug: string
   ts: string
@@ -88,6 +102,8 @@ export class SkillPendingQueue {
    * exists, or when the slug is already an approved skill.
    */
   enqueue(candidate: SkillCandidate): boolean {
+    // LLM-produced slugs are untrusted: invalid ones are dropped, not thrown.
+    if (!SLUG_RE.test(candidate.slug)) return false
     if (this.wasDismissed(candidate.slug, candidate.description)) return false
     const dir = join(this.pendingDir, candidate.slug)
     if (existsSync(dir)) return false
@@ -165,6 +181,7 @@ export class SkillPendingQueue {
    * exists; on rename failure any partial move is rolled back.
    */
   approve(slug: string): void {
+    assertValidSlug(slug)
     const src = join(this.pendingDir, slug)
     const dest = join(this.skillsDir, slug)
     if (!existsSync(join(src, 'SKILL.md'))) {
@@ -195,6 +212,7 @@ export class SkillPendingQueue {
 
   /** Remove the candidate and log it to .dismissed.jsonl for anti-repeat. */
   dismiss(slug: string, description?: string): void {
+    assertValidSlug(slug)
     const dir = join(this.pendingDir, slug)
     let desc = description
     if (desc === undefined) {

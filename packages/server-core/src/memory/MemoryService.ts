@@ -348,6 +348,17 @@ export class MemoryService {
     const workspaceId = this.deps.workspaceId ?? this.deps.workspaceRoot
     let wroteMemory = false
     try {
+      // Defense-in-depth: the distiller reads a redacted window, but its output
+      // is still untrusted text — never persist a re-emitted secret.
+      for (const lesson of result.lessons) {
+        lesson.rule = redactSecrets(lesson.rule)
+      }
+      if (result.memory_update) result.memory_update = redactSecrets(result.memory_update)
+      if (result.history_entry) result.history_entry = redactSecrets(result.history_entry)
+      if (result.skill_candidate) {
+        result.skill_candidate.body = redactSecrets(result.skill_candidate.body)
+        result.skill_candidate.description = redactSecrets(result.skill_candidate.description)
+      }
       for (const lesson of result.lessons) {
         const store = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
         const entry: Lesson = {

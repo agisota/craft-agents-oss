@@ -319,3 +319,22 @@ describe('helpers', () => {
     expect(parseDistillResult('garbage')).toBeNull()
   })
 })
+
+describe('applyResult output redaction (mem-sec-002)', () => {
+  it('secrets in distiller OUTPUT are masked before persistence', async () => {
+    const { svc, complete, wsLessons, wsFiles } = makeService({
+      distiller: async () => JSON.stringify({
+        history_entry: 'used api_key=abc123 in the fix',
+        memory_update: 'token: AKIAIOSFODNN7EXAMPLE rotated',
+        lessons: [{ rule: 'never log ghp_' + 'a'.repeat(36), category: 'security' }],
+        skill_candidate: null,
+      }),
+    })
+    complete()
+    await drain(svc)
+    const rules = wsLessons.list().map(l => l.rule).join('\n')
+    expect(rules).not.toContain('ghp_aaaa')
+    expect(wsFiles.readContext()).not.toContain('AKIAIOSFODNN7EXAMPLE')
+    expect(wsFiles.readHistory(new Date().toISOString().slice(0, 10))).not.toContain('api_key=abc123')
+  })
+})

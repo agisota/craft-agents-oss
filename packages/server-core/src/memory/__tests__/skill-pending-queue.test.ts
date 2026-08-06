@@ -149,3 +149,23 @@ describe('normalizeDescription', () => {
     expect(normalizeDescription('  Hello World \n')).toBe('hello world')
   })
 })
+
+describe('slug traversal hardening (mem-sec-001)', () => {
+  it('rejects traversal slugs in approve and dismiss', () => {
+    expect(() => queue.approve('../../sessions')).toThrow(/Invalid skill slug/)
+    expect(() => queue.dismiss('../../sessions')).toThrow(/Invalid skill slug/)
+    expect(() => queue.approve('UPPER')).toThrow(/Invalid skill slug/)
+    expect(() => queue.approve('.hidden')).toThrow(/Invalid skill slug/)
+    expect(() => queue.approve('a/b')).toThrow(/Invalid skill slug/)
+  })
+
+  it('drops LLM-produced traversal slugs in enqueue instead of writing outside .pending', () => {
+    expect(queue.enqueue(candidate('../../../tmp/pwn'))).toBe(false)
+    expect(queue.enqueue(candidate('abs/path'))).toBe(false)
+    expect(queue.list()).toHaveLength(0)
+  })
+
+  it('accepts normal kebab slugs', () => {
+    expect(queue.enqueue(candidate('ok-slug-1'))).toBe(true)
+  })
+})
