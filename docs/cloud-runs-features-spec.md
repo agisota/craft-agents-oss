@@ -1,5 +1,8 @@
 # Spec: Cloud Runs — пакет след-фич (F1–F22)
 
+> **Статусы по 2026-08-06 (commit eef8d6891):** зашиты и live-проверены F1 (resume; gateway createRun restart семантика), F2 (cancel-kill: CF killExec + modal terminate), F3 (pack-model: НЕ multi-exec — ОДИН exec + конкурент внутри runner'а; диагноз: multi-exec на одной capnweb-сессии глохнет + config.json race; 3 сабтаска/18s), F9 (prefill topic), F10 (4 пресета), F12 (failureReason в UI), F13 (median estimate), F19 (zombie reaper в watcher 60s). Runner hard timeouts: fetch AbortSignal 570s. Остаток: F4/F21 (real runner), F5-F8, F11 (preview сделан частично — raw markdown side-dialog, без overlay-рендера), F14-F18, F20, F22.
+
+
 Статус: ready for implementation (по одобрению перечня)
 Владелец: команда форка `agisota/craft-agents-oss`
 Дата: 2026-08-06
