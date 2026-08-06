@@ -68,6 +68,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.system.HOME_DIR,
   RPC_CHANNELS.system.IS_DEBUG_MODE,
 
+  // toolchain — local config-dir downloads/install state
+  RPC_CHANNELS.toolchain.STATUS,
+  RPC_CHANNELS.toolchain.STATUS_CHANGED,
+  RPC_CHANNELS.toolchain.UPDATE,
+
   // theme — app/OS-level preferences, not workspace content
   RPC_CHANNELS.theme.GET_SYSTEM_PREFERENCE,
   RPC_CHANNELS.theme.SYSTEM_CHANGED,

@@ -18,6 +18,7 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import type { AgentEvent } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
+import { withToolchainPathPrefix } from '../toolchain-runtime.ts';
 
 import type {
   BackendConfig,
@@ -483,11 +484,11 @@ export class PiAgent extends BaseAgent {
     // Derive AWS env vars from the piAuth credential (single fetch, no race).
     const awsEnv = this.buildAwsEnv(piAuth, runtime);
 
-    // Spawn the subprocess
+    // Spawn the subprocess (env prefixed with toolchain bin-dirs for gh/jq/node/etc.)
     const child = spawn(nodePath, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
+      env: await withToolchainPathPrefix({
         ...process.env,
         ...getProxyEnvVars(),
         ...this.config.envOverrides,
@@ -496,7 +497,7 @@ export class PiAgent extends BaseAgent {
         ...(sessionDir ? { CRAFT_SESSION_DIR: sessionDir } : {}),
         // Propagate debug mode
         CRAFT_DEBUG: (process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1') ? '1' : '0',
-      },
+      }),
     });
 
     this.subprocess = child;

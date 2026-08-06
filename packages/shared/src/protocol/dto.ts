@@ -850,3 +850,6 @@ export interface DeepLinkNavigation {
   action?: string
   actionParams?: Record<string, string>
 }
+
+// Toolchain wire types (re-export for RPC payloads; source of truth: toolchain module)
+export type { ToolName, ToolPhase, ToolStatus } from '../toolchain/types'

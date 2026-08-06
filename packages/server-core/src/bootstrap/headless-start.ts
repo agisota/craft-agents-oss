@@ -311,6 +311,16 @@ export function releaseServerLock(): void {
 function bootstrapConfigArtifacts(platform: PlatformServices): void {
   ensureConfigDir()
   platform.logger.info('[bootstrap] Config artifacts initialized')
+
+  // Toolchain: fire-and-forget background install/update of missing/outdated
+  // tools (omp et al.). ensureAll returns a status snapshot immediately and
+  // continues downloading in the background; never blocks server startup.
+  void import('@craft-agent/shared/toolchain-runtime')
+    .then(({ getToolchainManager }) => getToolchainManager().ensureAll({ background: true }))
+    .then(() => platform.logger.info('[bootstrap] Toolchain ensureAll scheduled'))
+    .catch((err) => {
+      platform.logger.warn(`[bootstrap] Toolchain ensureAll failed: ${err instanceof Error ? err.message : err}`)
+    })
 }
 
 function ensureGlobalConfigExists(platform: PlatformServices): void {

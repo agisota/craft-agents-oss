@@ -5,7 +5,8 @@
  * Protocol: see docs/omp-rpc-notes.md (verified against omp v17.2.9).
  *
  * Key behaviors:
- * - Lazy spawn on first chat() — binary from OMP_CLI_PATH env or `omp` on PATH.
+ * - Lazy spawn on first chat() — binary resolved via OMP_CLI_PATH env →
+ *   toolchain/PATH (toolchain-runtime) → 'omp' on PATH (last resort).
  *   cwd = workspace root (sandbox per OMP's cwd-keyed execution).
  * - Permission mode mapping:
  * - craft 'allow-all' → spawn with `--approval-mode yolo`; OMP never asks
@@ -53,6 +54,7 @@ import { formatPreferencesForPrompt } from '../config/preferences.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
+import { resolveOmpExecutableOrExplain, withToolchainPathPrefix } from '../toolchain-runtime.ts';
 
 import { AbortReason } from './backend/types.ts';
 import type {
@@ -559,7 +561,9 @@ export class OmpAgent extends BaseAgent {
   // ============================================================
 
   private async spawnSubprocess(): Promise<void> {
-    const bin = process.env.OMP_CLI_PATH?.trim() || 'omp';
+    // OMP_CLI_PATH env → toolchain/PATH lookup → friendly error while the
+    // toolchain is still installing → last-resort 'omp' (ENOENT path preserved).
+    const bin = await resolveOmpExecutableOrExplain();
     const cwd = this.resolvedCwd();
 
     this.autoApproveAtSpawn = this.permissionManager.getPermissionMode() === 'allow-all';
@@ -596,11 +600,11 @@ export class OmpAgent extends BaseAgent {
       this.subprocessReadyResolve = resolve;
     });
 
-    const env: NodeJS.ProcessEnv = {
+    const env: NodeJS.ProcessEnv = await withToolchainPathPrefix({
       ...process.env,
       ...getProxyEnvVars(),
       ...(this.config.envOverrides ?? {}),
-    };
+    });
 
     const child = spawn(bin, args, {
       cwd,
@@ -1735,9 +1739,14 @@ export class OmpAgent extends BaseAgent {
   // One-shot LLM calls (`omp -p <prompt>`)
   // ============================================================
 
-  private runOneShot(prompt: string): Promise<string> {
-    const bin = process.env.OMP_CLI_PATH?.trim() || 'omp';
+  private async runOneShot(prompt: string): Promise<string> {
+    const bin = await resolveOmpExecutableOrExplain();
     const cwd = this.resolvedCwd();
+    const env = await withToolchainPathPrefix({
+      ...process.env,
+      ...getProxyEnvVars(),
+      ...(this.config.envOverrides ?? {}),
+    });
 
     return new Promise<string>((resolve, reject) => {
       execFile(
@@ -1745,7 +1754,7 @@ export class OmpAgent extends BaseAgent {
         ['-p', prompt],
         {
           cwd,
-          env: { ...process.env, ...getProxyEnvVars(), ...(this.config.envOverrides ?? {}) },
+          env,
           timeout: OMP_ONESHOT_TIMEOUT_MS,
           maxBuffer: 16 * 1024 * 1024,
         },

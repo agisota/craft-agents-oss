@@ -22,7 +22,8 @@ import { Spinner, FullscreenOverlayBase, Tooltip, TooltipTrigger, TooltipContent
 import { useSetAtom } from 'jotai'
 import { fullscreenOverlayOpenAtom } from '@/atoms/overlay'
 import { motion, AnimatePresence } from 'motion/react'
-import type { LlmConnectionWithStatus, ThinkingLevel, WorkspaceSettings, Workspace } from '../../../shared/types'
+import type { LlmConnectionWithStatus, ThinkingLevel, WorkspaceSettings, Workspace, ToolchainToolStatus } from '../../../shared/types'
+import { useToolchainStatus } from '@/hooks/useToolchainStatus'
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVELS } from '@craft-agent/shared/agent/thinking-levels'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import {
@@ -198,9 +199,11 @@ interface ConnectionRowProps {
   validationError?: string
   /** True when another OAuth connection resolves to the same Anthropic account (issue #838) */
   isDuplicateAccount?: boolean
+  /** Live status of the 'omp' runtime tool; shown inline for omp connections. */
+  ompToolStatus?: ToolchainToolStatus
 }
 
-function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, onSetDefault, onValidate, onReauthenticate, onEdit, onSetMidStreamBehavior, validationState, validationError, isDuplicateAccount }: ConnectionRowProps) {
+function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, onSetDefault, onValidate, onReauthenticate, onEdit, onSetMidStreamBehavior, validationState, validationError, isDuplicateAccount, ompToolStatus }: ConnectionRowProps) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [piBaseUrl, setPiBaseUrl] = useState<string | undefined>(undefined)
@@ -278,6 +281,30 @@ function ConnectionRow({ connection, isLastConnection, onRenameClick, onDelete, 
 
     // Auth status
     if (!connection.isAuthenticated) parts.push(t("settings.ai.notAuthenticated"))
+
+    // OMP connection: surface toolchain runtime state inline — the omprunner
+    // binary arrives via the first-run download manager, so a fresh install
+    // shows "Installing runtime… %" here instead of a bare provider label.
+    if (provider === 'omp' && ompToolStatus && ompToolStatus.phase !== 'ready') {
+      const { phase, downloadedBytes, totalBytes } = ompToolStatus
+      if (phase === 'downloading' || phase === 'installing') {
+        const percent =
+          phase === 'downloading' && downloadedBytes && totalBytes
+            ? Math.min(100, Math.max(0, Math.round((downloadedBytes / totalBytes) * 100)))
+            : undefined
+        parts.unshift(
+          percent != null
+            ? t('settings.ai.installingRuntime', { percent })
+            : t('settings.ai.installingRuntimeWait'),
+        )
+      } else if (phase === 'error') {
+        parts.unshift(t('settings.ai.toolchainError'))
+      } else if (phase === 'offline') {
+        parts.unshift(t('settings.ai.toolchainOffline'))
+      } else if (phase === 'missing') {
+        parts.unshift(t('settings.ai.installingRuntimeWait'))
+      }
+    }
 
     return parts.join(' · ')
   }
@@ -662,6 +689,11 @@ export default function AiSettingsPage() {
 
   // Credential health state (for startup warning banner)
   const [credentialHealthIssues, setCredentialHealthIssues] = useState<CredentialHealthIssue[]>([])
+
+  // OMP runtime readiness (toolchain download manager) — shown inline on
+  // omp connections while the runtime binary is downloading/being installed.
+  const { getTool: getToolchainTool } = useToolchainStatus()
+  const ompToolStatus = getToolchainTool('omp')
 
   // Rename dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -1138,6 +1170,7 @@ export default function AiSettingsPage() {
                         validationState={validationStates[conn.slug]?.state || 'idle'}
                         validationError={validationStates[conn.slug]?.error}
                         isDuplicateAccount={!!conn.oauthAccountUuid && duplicateAccountUuids.has(conn.oauthAccountUuid)}
+                        ompToolStatus={ompToolStatus}
                       />
                     ))
                   )}

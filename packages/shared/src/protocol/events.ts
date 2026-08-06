@@ -7,6 +7,7 @@ import type { ThemeOverrides } from '../config/index'
 import type { LoadedSource } from '../sources/types'
 import type { LoadedSkill } from '../skills/types'
 import type { LoadedProject } from '../projects/types'
+import type { ToolStatus } from '../toolchain/types'
 import { RPC_CHANNELS } from './channels'
 import type {
   SessionEvent,
@@ -27,6 +28,8 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.sources.CHANGED]: [workspaceId: string, sources: LoadedSource[]]
   [RPC_CHANNELS.labels.CHANGED]: [workspaceId: string]
   [RPC_CHANNELS.statuses.CHANGED]: [workspaceId: string]
+  // Toolchain install progress (global, local toolchain)
+  [RPC_CHANNELS.toolchain.STATUS_CHANGED]: [status: ToolStatus]
   [RPC_CHANNELS.automations.CHANGED]: [workspaceId: string]
   [RPC_CHANNELS.skills.CHANGED]: [workspaceId: string, skills: LoadedSkill[]]
   [RPC_CHANNELS.skillsPending.CHANGED]: [workspaceId: string]
