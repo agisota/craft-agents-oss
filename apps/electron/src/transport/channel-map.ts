@@ -290,6 +290,9 @@ export const CHANNEL_MAP = {
   getSkillFiles: invoke(RPC_CHANNELS.skills.GET_FILES),
   deleteSkill: invoke(RPC_CHANNELS.skills.DELETE),
   importOmpSkill: invoke(RPC_CHANNELS.skills.IMPORT_OMP),
+  getSkillUsage: invoke(RPC_CHANNELS.skills.GET_USAGE),
+  pruneSkills: invoke(RPC_CHANNELS.skills.PRUNE_UNUSED),
+  exportSkillToProject: invoke(RPC_CHANNELS.skills.EXPORT_TO_PROJECT),
   openSkillInEditor: invoke(RPC_CHANNELS.skills.OPEN_EDITOR),
   openSkillInFinder: invoke(RPC_CHANNELS.skills.OPEN_FINDER),
   onSkillsChanged: listener(RPC_CHANNELS.skills.CHANGED),
@@ -312,6 +315,8 @@ export const CHANNEL_MAP = {
   listMemoryHistory: invoke(RPC_CHANNELS.memory.LIST_HISTORY),
   listPromotionCandidates: invoke(RPC_CHANNELS.memory.PROMOTION_CANDIDATES),
   promoteLesson: invoke(RPC_CHANNELS.memory.PROMOTE_LESSON),
+  listInsights: invoke(RPC_CHANNELS.memory.INSIGHTS),
+  markMemoryOnboarded: invoke(RPC_CHANNELS.memory.MARK_ONBOARDED),
   onMemoryChanged: listener(RPC_CHANNELS.memory.CHANGED),
 
   // Statuses

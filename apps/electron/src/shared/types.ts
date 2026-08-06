@@ -31,7 +31,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
-import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate, SessionProvenance } from '@craft-agent/shared/memory/types';
+import type { AddLessonResult, Lesson, LessonCategory, LessonScope, MemoryInsights, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate, SessionProvenance, SkillExportResult, SkillPruneResult, SkillUsageMap } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -681,6 +681,19 @@ export interface ElectronAPI {
   importOmpSkill(workspaceId: string, skillSlug: string): Promise<{ slug: string; path: string; renamed: boolean }>
   openSkillInEditor(workspaceId: string, skillSlug: string): Promise<void>
   openSkillInFinder(workspaceId: string, skillSlug: string): Promise<void>
+  /**
+   * S4: per-slug usage stats aggregated from {workspace}/skills/.usage.jsonl.
+   * Empty map when no session ever mentioned a skill.
+   */
+  getSkillUsage(workspaceId: string): Promise<SkillUsageMap>
+  /**
+   * S4: archive (never delete) unused workspace skills into skills/.archive/.
+   * `slugs` is the pre-confirmed panel list; pass undefined to let the server
+   * compute candidates from `olderThanDays` (30 by default at the UI).
+   */
+  pruneSkills(workspaceId: string, olderThanDays: number, slugs?: string[]): Promise<SkillPruneResult>
+  /** T1: copy a workspace skill into {projectRoot}/.agents/skills/<slug>; refuses overwrites of differing targets. */
+  exportSkillToProject(workspaceId: string, skillSlug: string, projectRoot: string): Promise<SkillExportResult>
 
   // Skills change listener (live updates when skills are added/removed/modified)
   onSkillsChanged(callback: (workspaceId: string, skills: LoadedSkill[]) => void): () => void
@@ -702,6 +715,10 @@ export interface ElectronAPI {
   // Learning-quality surface (spec L3): cross-workspace rule promotion
   listPromotionCandidates(): Promise<PromotionCandidate[]>
   promoteLesson(workspaceId: string | null, rule: string): Promise<PromoteLessonResult | null>
+  // Y1: memory dashboard insights card (7-day audit counters + live store aggregates)
+  listInsights(workspaceId: string): Promise<MemoryInsights>
+  // Y4: stamp the one-shot onboarding marker ({configDir}/memory/.onboarded)
+  markMemoryOnboarded(): Promise<void>
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
   // Statuses (workspace-scoped)

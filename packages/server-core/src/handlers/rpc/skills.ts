@@ -162,4 +162,30 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     const skillDir = join(skillsDir, skillSlug)
     await deps.platform.showItemInFolder?.(skillDir)
   })
+
+  // S4: usage stats per slug aggregated from {workspace}/skills/.usage.jsonl
+  server.handle(RPC_CHANNELS.skills.GET_USAGE, async (_ctx, workspaceId: string): Promise<SkillUsageMap> => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+    return readUsage(workspace.rootPath)
+  })
+
+  // S4: archive (never delete) unused workspace skills. When `slugs` is
+  // provided the callers (panel) pre-confirmed the list and olderThanDays is
+  // ignored; otherwise candidates are computed from the usage ledger.
+  server.handle(RPC_CHANNELS.skills.PRUNE_UNUSED, async (_ctx, workspaceId: string, olderThanDays?: number, slugs?: string[]): Promise<SkillPruneResult> => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+    const result = pruneUnusedSkills(workspace.rootPath, { olderThanDays, slugs })
+    if (result.archived.length > 0) await broadcastSkillsChanged(workspaceId, workspace.rootPath)
+    return result
+  })
+
+  // T1: copy a workspace skill into {projectRoot}/.agents/skills/<slug>.
+  // Never overwrites a differing existing target (see lib guards).
+  server.handle(RPC_CHANNELS.skills.EXPORT_TO_PROJECT, async (_ctx, workspaceId: string, skillSlug: string, projectRoot: string): Promise<SkillExportResult> => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+    return exportSkillToProject(workspace.rootPath, skillSlug, projectRoot)
+  })
 }

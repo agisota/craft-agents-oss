@@ -348,6 +348,10 @@ export const RPC_CHANNELS = {
     PROMOTE_LESSON: 'memory:promoteLesson',
     EXPORT: 'memory:export',
     IMPORT: 'memory:import',
+    // Y1: 7-day dashboard counters aggregated from both audit.jsonl files,
+    // plus the Y4 onboarding marker state.
+    INSIGHTS: 'memory:insights',
+    MARK_ONBOARDED: 'memory:markOnboarded',
     CHANGED: 'memory:changed',
   },
   statuses: {
