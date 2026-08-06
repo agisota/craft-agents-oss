@@ -18,7 +18,7 @@
     "./handlers/rpc": "./src/handlers/rpc/index.ts",
     "./handlers/rpc/*": "./src/handlers/rpc/*.ts",
     "./sessions": "./src/sessions/index.ts",
-    "./tasks": "./src/tasks/index.ts",
+    "./tasks": "./src/tasks/index.ts"
   },
   "scripts": {
   },
@@ -31,9 +31,9 @@
     "ws": "^8.19.0",
     "sharp": "0.34.5",
     "@earendil-works/pi-ai": "0.80.7",
-    "@craft-agent/cloud-runner": "workspace:*",
+    "@craft-agent/cloud-runner": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
+    "typescript": "^5.8.2"
   }
 }
