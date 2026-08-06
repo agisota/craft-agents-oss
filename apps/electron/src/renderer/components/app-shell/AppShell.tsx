@@ -41,10 +41,11 @@ import { TopBar } from "./TopBar"
 import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { McpIcon } from "../icons/McpIcon"
 import { cn } from "@/lib/utils"
-import { isMac } from "@/lib/platform"
+import { isMac, isWebUI } from "@/lib/platform"
 import { Button } from "@/components/ui/button"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { resolveInheritedFilterParams, type FilterMode } from "./inherited-filter-params"
+import { HeaderMenu } from "@/components/ui/HeaderMenu"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay } from "@craft-agent/ui"
 import {
@@ -154,6 +155,7 @@ import {
   resolveInheritedNewSessionParams,
   type FilterMode,
 } from "./new-session-filter-inheritance"
+import { WebBrowserPanel } from "../browser/WebBrowserPanel"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -569,6 +571,29 @@ function AppShellContent({
   // and switches to single-panel mode. Works in both webui (narrow viewport) and
   // desktop (narrow window or small screen).
   const shellRef = useRef<HTMLDivElement>(null)
+  const compactHeaderOrderRef = useRef(0)
+  const [compactHeaderEntries, setCompactHeaderEntries] = useState<Record<string, {
+    render: () => React.ReactNode
+    priority: number
+    order: number
+  }>>({})
+  const registerCompactHeader = useCallback((id: string, render: () => React.ReactNode, priority: number) => {
+    const order = ++compactHeaderOrderRef.current
+    setCompactHeaderEntries(prev => ({ ...prev, [id]: { render, priority, order } }))
+  }, [])
+  const unregisterCompactHeader = useCallback((id: string) => {
+    setCompactHeaderEntries(prev => {
+      if (!prev[id]) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+  const compactHeaderRenderer = useMemo(() => {
+    const selected = Object.values(compactHeaderEntries)
+      .sort((a, b) => b.priority - a.priority || b.order - a.order)[0]
+    return selected?.render
+  }, [compactHeaderEntries])
   const shellWidth = useContainerWidth(shellRef)
   const MOBILE_THRESHOLD = 768
   const isAutoCompact = shellWidth > 0 && shellWidth < MOBILE_THRESHOLD
@@ -1710,6 +1735,11 @@ function AppShellContent({
   // Extend context value with local overrides (wrapped onDeleteSession, sources, skills, labels, enabledModes, rightSidebarOpenButton, effectiveSessionStatuses)
   const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
+    registerCompactHeader,
+    unregisterCompactHeader,
+    compactHeaderRenderer,
+    isCompactChatMode: isAutoCompact && isSessionsNavigation(navState) && !!navState.details,
+    isCompactSettingsMode: isWebUI && isAutoCompact && isSettingsNavigation(navState),
     onDeleteSession: handleDeleteSession,
     enabledSources: sources,
     skills,
@@ -1734,7 +1764,7 @@ function AppShellContent({
     automationTestResults,
     getAutomationHistory,
     onReplayAutomation: handleReplayAutomation,
-  }), [contextValue, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, isAutoCompact, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
+  }), [contextValue, registerCompactHeader, unregisterCompactHeader, compactHeaderRenderer, isAutoCompact, navState, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
 
   // Persist expanded folders to localStorage (workspace-scoped)
   React.useEffect(() => {
@@ -2014,6 +2044,15 @@ function AppShellContent({
   // The previous flow auto-created with the default name and produced ugly
   // permanent slugs (new-project, new-project-1, …).
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
+  const [webBrowserOpen, setWebBrowserOpen] = useState(false)
+
+  React.useEffect(() => {
+    if (!isWebUI) return
+    const handleOpenBrowser = () => setWebBrowserOpen(true)
+    window.addEventListener('craft:open-vps-browser', handleOpenBrowser)
+    return () => window.removeEventListener('craft:open-vps-browser', handleOpenBrowser)
+  }, [])
+
   const openAddProject = useCallback(() => {
     if (!activeWorkspace?.id) return
     setCreateProjectDialogOpen(true)
@@ -2063,6 +2102,10 @@ function AppShellContent({
   // Create a brand new dedicated browser window and focus it.
   // Intentionally unbound: this action should always create a NEW window.
   const handleNewBrowserWindow = useCallback(async () => {
+    if (isWebUI) {
+      setWebBrowserOpen(true)
+      return
+    }
     try {
       const instanceId = await window.electronAPI.browserPane.create({
         show: true,
@@ -2387,10 +2430,15 @@ function AppShellContent({
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+          compactHeaderRenderer={compactHeaderRenderer}
+          isCompactChatMode={isAutoCompact && isSessionsNavigation(navState) && !!navState.details}
+          isCompactSettingsMode={isWebUI && isAutoCompact && isSettingsNavigation(navState)}
           isCompact={isAutoCompact}
           showWorkspaceSelector={showTopBarWorkspaceSelector || isAutoCompact}
           leftInset={topBarLeftInset}
         />
+
+        {isWebUI && <WebBrowserPanel open={webBrowserOpen} onClose={() => setWebBrowserOpen(false)} />}
 
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
       <div
@@ -2702,9 +2750,9 @@ function AppShellContent({
               className="h-full flex flex-col min-w-0 relative z-panel"
             >
             <PanelHeader
-              title={isSidebarVisible ? listTitle : undefined}
-              compensateForStoplight={!isSidebarVisible}
-              badge={automationFilter?.automationType === 'scheduled' ? (
+                title={isSidebarVisible ? listTitle : undefined}
+                compensateForStoplight={!isSidebarVisible}
+                badge={automationFilter?.automationType === 'scheduled' ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-muted-foreground/50 cursor-default flex items-center titlebar-no-drag">
@@ -3464,9 +3512,12 @@ function AppShellContent({
                       onClick={openAddProject}
                     />
                   )}
+                  {isWebUI && isAutoCompact && isSettingsNavigation(navState) && (
+                    <HeaderMenu route={routes.view.settings()} />
+                  )}
                 </>
-              }
-            />
+                }
+              />
             {/* Content: SessionList, SourcesListPanel, or SettingsNavigator based on navigation state */}
             {isSourcesNavigation(navState) && (
               /* Sources List - filtered by type if sourceFilter is active */

@@ -31,6 +31,7 @@ export function cleanupCoreClientResources(clientId: string): void {
   cleanupSessionFileWatchForClient(clientId)
   cleanupNotesWatchForClient(clientId)
 }
+import { registerBrowserPaneHandlers } from './browser-pane'
 
 export function registerCoreRpcHandlers(
   server: RpcServer,
@@ -58,4 +59,5 @@ export function registerCoreRpcHandlers(
   registerWorkspaceCoreHandlers(server, deps)
   registerMessagingHandlers(server, deps)
   registerNotesHandlers(server, deps)
+  registerBrowserPaneHandlers(server, deps)
 }
