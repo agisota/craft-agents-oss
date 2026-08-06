@@ -830,6 +830,13 @@ export interface BrowserInstanceInfo {
    * and main processes that pre-date the field working unchanged.
    */
   workspaceId?: string | null
+  /**
+   * True for embedded instances composited onto the main window as an in-app
+   * panel (no separate OS window). Defaults to false for legacy windowed
+   * instances. Renderers must exclude embedded entries from the window tab
+   * strip — they live in session panels.
+   */
+  embedded?: boolean
 }
 
 export interface DeepLinkNavigation {

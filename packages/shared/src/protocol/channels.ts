@@ -280,6 +280,22 @@ export const RPC_CHANNELS = {
     IMPORT_OMP: 'skills:importOmp',
     CHANGED: 'skills:changed',
   },
+  skillsPending: {
+    LIST: 'skillsPending:list',
+    APPROVE: 'skillsPending:approve',
+    DISMISS: 'skillsPending:dismiss',
+    CHANGED: 'skillsPending:changed',
+  },
+  memory: {
+    LIST_LESSONS: 'memory:listLessons',
+    ADD_LESSON: 'memory:addLesson',
+    UPDATE_LESSON: 'memory:updateLesson',
+    DELETE_LESSON: 'memory:deleteLesson',
+    GET_CONTEXT: 'memory:getContext',
+    UPDATE_CONTEXT: 'memory:updateContext',
+    LIST_HISTORY: 'memory:listHistory',
+    CHANGED: 'memory:changed',
+  },
   statuses: {
     LIST: 'statuses:list',
     REORDER: 'statuses:reorder',
@@ -359,6 +375,8 @@ export const RPC_CHANNELS = {
   },
   browserPane: {
     CREATE: 'browser-pane:create',
+    CREATE_EMBEDDED: 'browser-pane:create-embedded',
+    SYNC_BOUNDS: 'browser-pane:sync-bounds',
     DESTROY: 'browser-pane:destroy',
     LIST: 'browser-pane:list',
     NAVIGATE: 'browser-pane:navigate',
