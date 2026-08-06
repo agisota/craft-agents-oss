@@ -324,7 +324,7 @@ export class MemoryService {
       try {
         raw = await this.distiller(buildDistillPrompt(windowText, job.full))
       } catch (err) {
-        this.logger.warn(`MemoryService: distiller failed for ${job.sessionId}`, err)
+        this.logger.warn(`MemoryService: distiller failed for ${job.sessionId}: ${err instanceof Error ? err.message : String(err)}`, err)
         return
       }
       result = parseDistillResult(raw)

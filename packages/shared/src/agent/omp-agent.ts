@@ -1740,7 +1740,9 @@ export class OmpAgent extends BaseAgent {
   // ============================================================
 
   private async runOneShot(prompt: string): Promise<string> {
+    this.debug(`runOneShot: resolving bin (prompt ${prompt.length} chars)`);
     const bin = await resolveOmpExecutableOrExplain();
+    this.debug(`runOneShot: bin=${bin}`);
     const cwd = this.resolvedCwd();
     const env = await withToolchainPathPrefix({
       ...process.env,
@@ -1748,24 +1750,35 @@ export class OmpAgent extends BaseAgent {
       ...(this.config.envOverrides ?? {}),
     });
 
+    // spawn, not execFile: under Bun execFile ignores stdio overrides, and a
+    // default piped stdin makes omp read the prompt from stdin and wait for
+    // EOF forever (title generation / one-shot completions hang to timeout).
+    // We explicitly end stdin → omp treats the argv prompt as authoritative.
+    this.debug('runOneShot: spawning -p child');
     return new Promise<string>((resolve, reject) => {
-      execFile(
-        bin,
-        ['-p', prompt],
-        {
-          cwd,
-          env,
-          timeout: OMP_ONESHOT_TIMEOUT_MS,
-          maxBuffer: 16 * 1024 * 1024,
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(new Error(`omp -p failed: ${error.message}${stderr ? ` (${String(stderr).trim().slice(0, 300)})` : ''}`));
-            return;
-          }
-          resolve(String(stdout).trim());
-        },
-      );
+      const child = spawn(bin, ['-p', prompt], { cwd, env });
+      this.debug(`runOneShot: spawned pid=${child.pid}`);
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`omp -p timed out after ${OMP_ONESHOT_TIMEOUT_MS}ms`));
+      }, OMP_ONESHOT_TIMEOUT_MS);
+      let stdout = '';
+      let stderr = '';
+      child.stdout?.on('data', (d: Buffer) => { stdout += d.toString() });
+      child.stderr?.on('data', (d: Buffer) => { stderr += d.toString() });
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(new Error(`omp -p failed: ${err.message}`));
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          reject(new Error(`omp -p failed (exit ${code})${stderr ? ` (${stderr.trim().slice(0, 300)})` : ''}`));
+          return;
+        }
+        resolve(stdout.trim());
+      });
+      child.stdin?.end();
     });
   }
 
