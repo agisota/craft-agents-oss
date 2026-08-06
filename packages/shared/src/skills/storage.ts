@@ -16,6 +16,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import matter from 'gray-matter';
 import type { LoadedSkill, SkillMetadata, SkillSource } from './types.ts';
+import { listOmpSkills } from './omp-discovery.ts';
 import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
 import {
   validateIconValue,
@@ -213,8 +214,27 @@ export function invalidateSkillsCache(): void {
  * @param workspaceRoot - Absolute path to workspace root
  * @param projectRoot - Optional project root (working directory) for project-level skills
  */
-export function loadAllSkills(workspaceRoot: string, projectRoot?: string): LoadedSkill[] {
-  const cacheKey = `${workspaceRoot}::${projectRoot ?? ''}`;
+export interface LoadAllSkillsOptions {
+  /**
+   * Include OMP skills (`~/.omp/agent/skills` + `{workspaceRoot}/.omp/skills`)
+   * in the result. OMP skills have the LOWEST priority — a craft skill with
+   * the same slug always wins (craft-wins dedupe). Default: true.
+   */
+  includeOmp?: boolean;
+  /**
+   * Also include OMP variants shadowed by a craft skill of the same slug
+   * (marked with `shadowedByCraft: true`), for UI display. Default: false.
+   */
+  includeShadowedOmp?: boolean;
+}
+
+export function loadAllSkills(workspaceRoot: string, projectRoot?: string, options?: LoadAllSkillsOptions): LoadedSkill[] {
+  // Default false: callers embedding skills into agent context (base-agent,
+  // SessionManager) must NOT inherit thousands of OMP skills. Panel/RPC code
+  // passes includeOmp: true explicitly.
+  const includeOmp = options?.includeOmp ?? false;
+  const includeShadowedOmp = options?.includeShadowedOmp ?? false;
+  const cacheKey = `${workspaceRoot}::${projectRoot ?? ''}::${includeOmp}:${includeShadowedOmp}`;
   const now = Date.now();
   const cached = skillsCache.get(cacheKey);
   if (cached && now - cached.ts < SKILLS_CACHE_TTL) {
@@ -222,26 +242,51 @@ export function loadAllSkills(workspaceRoot: string, projectRoot?: string): Load
   }
 
   const skillsBySlug = new Map<string, LoadedSkill>();
+  const shadowedOmp: LoadedSkill[] = [];
 
-  // 1. Global skills (lowest priority): ~/.agents/skills/
-  for (const skill of loadSkillsFromDir(GLOBAL_AGENT_SKILLS_DIR, 'global')) {
+  // 0. OMP skills (LOWEST priority — craft always wins on slug conflict):
+  //    ~/.omp/agent/skills/ and {workspaceRoot}/.omp/skills/
+  if (includeOmp) {
+    for (const omp of listOmpSkills(workspaceRoot)) {
+      skillsBySlug.set(omp.slug, {
+        slug: omp.slug,
+        metadata: { name: omp.name, description: omp.description },
+        content: '',
+        path: omp.path,
+        source: 'omp',
+      });
+    }
+  }
+
+  const mergeCraftSkill = (skill: LoadedSkill) => {
+    const existing = skillsBySlug.get(skill.slug);
+    if (existing?.source === 'omp') {
+      // Craft wins; remember the shadowed OMP variant for UI display.
+      skillsBySlug.delete(skill.slug);
+      if (includeShadowedOmp) shadowedOmp.push({ ...existing, shadowedByCraft: true });
+    }
     skillsBySlug.set(skill.slug, skill);
+  };
+
+  // 1. Global skills (lowest craft priority): ~/.agents/skills/
+  for (const skill of loadSkillsFromDir(GLOBAL_AGENT_SKILLS_DIR, 'global')) {
+    mergeCraftSkill(skill);
   }
 
   // 2. Workspace skills (medium priority)
   for (const skill of loadWorkspaceSkills(workspaceRoot)) {
-    skillsBySlug.set(skill.slug, skill);
+    mergeCraftSkill(skill);
   }
 
   // 3. Project skills (highest priority): {projectRoot}/.agents/skills/
   if (projectRoot) {
     const projectSkillsDir = join(projectRoot, PROJECT_AGENT_SKILLS_DIR);
     for (const skill of loadSkillsFromDir(projectSkillsDir, 'project')) {
-      skillsBySlug.set(skill.slug, skill);
+      mergeCraftSkill(skill);
     }
   }
 
-  const result = Array.from(skillsBySlug.values());
+  const result = [...skillsBySlug.values(), ...shadowedOmp];
   skillsCache.set(cacheKey, { skills: result, ts: now });
   return result;
 }

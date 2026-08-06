@@ -14,7 +14,8 @@ export type MessageRole =
   | 'info'
   | 'warning'
   | 'plan'
-  | 'auth-request';
+  | 'auth-request'
+  | 'thinking';
 
 /**
  * Credential input modes for different auth types
@@ -552,6 +553,8 @@ export type AgentEvent =
   | { type: 'info'; message: string }
   | { type: 'text_delta'; text: string; turnId?: string; parentToolUseId?: string }
   | { type: 'text_complete'; text: string; isIntermediate?: boolean; turnId?: string; parentToolUseId?: string; sdkMessageId?: string }
+  | { type: 'thinking_delta'; text: string; turnId?: string }
+  | { type: 'thinking_complete'; text: string; turnId?: string }
   | { type: 'pi_turn_anchor'; sdkMessageId: string; sdkTurnAnchor: string }
   | { type: 'tool_start'; toolName: string; toolUseId: string; input: Record<string, unknown>; intent?: string; displayName?: string; turnId?: string; parentToolUseId?: string; toolDisplayMeta?: ToolDisplayMeta }
   | { type: 'tool_result'; toolUseId: string; toolName?: string; result: string; isError: boolean; input?: Record<string, unknown>; turnId?: string; parentToolUseId?: string }

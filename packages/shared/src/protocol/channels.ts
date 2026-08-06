@@ -277,6 +277,7 @@ export const RPC_CHANNELS = {
     DELETE: 'skills:delete',
     OPEN_EDITOR: 'skills:openEditor',
     OPEN_FINDER: 'skills:openFinder',
+    IMPORT_OMP: 'skills:importOmp',
     CHANGED: 'skills:changed',
   },
   statuses: {

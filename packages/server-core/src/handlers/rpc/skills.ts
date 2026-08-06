@@ -1,5 +1,5 @@
 import { join } from 'path'
-import { existsSync, readdirSync, statSync } from 'fs'
+import { cpSync, existsSync, readdirSync, statSync } from 'fs'
 import { RPC_CHANNELS, type SkillFile } from '@craft-agent/shared/protocol'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import type { RpcServer } from '@craft-agent/server-core/transport'
@@ -11,6 +11,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.OPEN_EDITOR,
   RPC_CHANNELS.skills.OPEN_FINDER,
+  RPC_CHANNELS.skills.IMPORT_OMP,
 ] as const
 
 export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): void {
@@ -28,7 +29,9 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
       ? workingDirectory
       : undefined
     const { loadAllSkills } = await import('@craft-agent/shared/skills')
-    const skills = loadAllSkills(workspace.rootPath, effectiveWorkingDir)
+    // includeShadowedOmp: the skills panel shows OMP variants shadowed by a
+    // craft skill of the same slug as inactive (craft-wins) with an explanation.
+    const skills = loadAllSkills(workspace.rootPath, effectiveWorkingDir, { includeOmp: true, includeShadowedOmp: true })
     deps.platform.logger?.info(`SKILLS_GET: Loaded ${skills.length} skills from ${workspace.rootPath}`)
     return skills
   })
@@ -90,6 +93,35 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     const { deleteSkill } = await import('@craft-agent/shared/skills')
     deleteSkill(workspace.rootPath, skillSlug)
     deps.platform.logger?.info(`Deleted skill: ${skillSlug}`)
+  })
+
+  // Import an OMP skill into the workspace as a regular craft skill.
+  // Copies SKILL.md + all resources; on slug conflict appends `-omp` (then a counter).
+  server.handle(RPC_CHANNELS.skills.IMPORT_OMP, async (_ctx, workspaceId: string, slug: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { listOmpSkills, isOmpSkillPath, invalidateSkillsCache } = await import('@craft-agent/shared/skills')
+    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
+
+    const ompSkill = listOmpSkills(workspace.rootPath).find(s => s.slug === slug)
+    if (!ompSkill || !isOmpSkillPath(ompSkill.path, workspace.rootPath)) {
+      throw new Error(`OMP skill not found: ${slug}`)
+    }
+
+    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
+    let targetSlug = slug
+    if (existsSync(join(skillsDir, targetSlug))) {
+      targetSlug = `${slug}-omp`
+      let n = 2
+      while (existsSync(join(skillsDir, targetSlug))) targetSlug = `${slug}-omp-${n++}`
+    }
+    const targetDir = join(skillsDir, targetSlug)
+    cpSync(ompSkill.path, targetDir, { recursive: true })
+    invalidateSkillsCache()
+    deps.platform.logger?.info(`Imported OMP skill ${slug} → ${targetDir}${targetSlug !== slug ? ' (renamed, slug conflict)' : ''}`)
+
+    return { slug: targetSlug, path: targetDir, renamed: targetSlug !== slug }
   })
 
   // Open skill SKILL.md in editor

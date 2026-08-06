@@ -6223,8 +6223,8 @@ export class SessionManager implements ISessionManager {
       sessionLog.info('Got chat iterator, starting iteration...')
 
       for await (const event of chatIterator) {
-        // Log events (skip noisy text_delta)
-        if (event.type !== 'text_delta') {
+        // Log events (skip noisy text_delta / thinking_delta)
+        if (event.type !== 'text_delta' && event.type !== 'thinking_delta') {
           if (event.type === 'tool_start') {
             sessionLog.info(`tool_start: ${event.toolName} (${event.toolUseId})`)
           } else if (event.type === 'tool_result') {
@@ -7689,6 +7689,17 @@ export class SessionManager implements ISessionManager {
         this.persistSession(managed)
         break
       }
+
+      // Thinking stream (OMP reasoning models): runtime-only passthrough.
+      // Never pushed into managed.messages — thinking must not land in
+      // title-gen/summary/persisted history.
+      case 'thinking_delta':
+        this.sendEvent({ type: 'thinking_delta', sessionId, text: event.text, turnId: event.turnId }, workspaceId)
+        break
+
+      case 'thinking_complete':
+        this.sendEvent({ type: 'thinking_complete', sessionId, text: event.text, turnId: event.turnId }, workspaceId)
+        break
 
       case 'pi_turn_anchor': {
         // Follow-up to a `text_complete` from the Pi backend, carrying the

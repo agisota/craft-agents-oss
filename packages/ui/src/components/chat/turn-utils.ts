@@ -51,6 +51,8 @@ export interface AssistantTurn {
   timestamp: number
   /** Extracted from TodoWrite tool - latest todo state in this turn */
   todos?: TodoItem[]
+  /** Runtime-only reasoning stream (OMP thinking_* events) — never persisted */
+  thinking?: ResponseContent
 }
 
 /** Represents a user message */
@@ -427,6 +429,29 @@ export function groupMessagesByTurn(messages: Message[], options: GroupTurnsOpti
   }
 
   for (const message of sortedMessages) {
+    // Runtime-only thinking messages (OMP reasoning stream) attach to the
+    // current turn as its thinking card content. Never an activity, never
+    // persisted — a reload simply shows no card (events are optional).
+    if (message.role === 'thinking') {
+      if (!currentTurn) {
+        currentTurn = {
+          type: 'assistant',
+          turnId: message.turnId || message.id,
+          activities: [],
+          response: undefined,
+          intent: undefined,
+          isStreaming: !!message.isPending || !!message.isStreaming,
+          isComplete: false,
+          timestamp: message.timestamp,
+        }
+      }
+      currentTurn.thinking = {
+        text: message.content,
+        isStreaming: !!message.isPending || !!message.isStreaming,
+      }
+      continue
+    }
+
     // Auth-request messages are standalone turns (credential input, OAuth flows)
     if (message.role === 'auth-request') {
       // If there's a current turn, it's complete (something follows it)

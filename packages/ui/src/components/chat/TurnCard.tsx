@@ -38,6 +38,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '../tooltip'
 import { parseDiffFromFile, type FileContents } from '@pierre/diffs'
 import { getDiffStats, getUnifiedDiffStats } from '../code-viewer'
 import { TurnCardActionsMenu } from './TurnCardActionsMenu'
+import { ThinkingCard } from './ThinkingCard'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, deriveTurnPhase, shouldShowThinkingIndicator, type ActivityGroup, type AssistantTurn } from './turn-utils'
 import { extractAnnotationSelectedText } from './follow-up-helpers'
 import {
@@ -298,6 +299,8 @@ export interface TurnCardProps {
   activities: ActivityItem[]
   /** Final response content (may be streaming) */
   response?: ResponseContent
+  /** Reasoning stream content (OMP thinking events), runtime-only */
+  thinking?: ResponseContent
   /** Primary intent/goal for this turn (shown in collapsed preview) */
   intent?: string
   /** Whether content is still being received */
@@ -2768,6 +2771,7 @@ export const TurnCard = React.memo(function TurnCard({
   turnId,
   activities,
   response,
+  thinking,
   intent,
   isStreaming,
   isComplete,
@@ -3167,6 +3171,13 @@ export const TurnCard = React.memo(function TurnCard({
         </div>
       ))}
 
+      {/* Reasoning card - above the response text, same for both branches */}
+      {thinking && thinking.text && (
+        <div className={cn("select-text", hasActivities && "mt-2")}>
+          <ThinkingCard thinking={thinking} />
+        </div>
+      )}
+
       {/* Response Section - only shown when not buffering */}
       {/* Animated version for playground demos */}
       {animateResponse && (
@@ -3270,6 +3281,9 @@ export const TurnCard = React.memo(function TurnCard({
 
   // Re-render when response object changes (e.g., annotation updates)
   if (prev.response !== next.response) return false
+
+  // Re-render when reasoning content object changes (thinking stream)
+  if (prev.thinking !== next.thinking) return false
 
   // Re-render when external annotation-open requests change
   if (prev.openAnnotationRequest !== next.openAnnotationRequest) return false

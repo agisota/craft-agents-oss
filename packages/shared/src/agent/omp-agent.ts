@@ -231,6 +231,10 @@ export class OmpAgent extends BaseAgent {
   private subTurnCounter = 0;
   private messageSubTurnId: string | null = null;
   private hasStreamedDeltas = false;
+  /** Sub-turn id for the current thinking block (`${prefix}` scheme shared with text). */
+  private thinkingSubTurnId: string | null = null;
+  /** Accumulated thinking text for the in-flight thinking block. */
+  private thinkingText = '';
   private lastUsage: AgentEventUsage | undefined;
 
   // OMP session identity (reported via get_state after ready)
@@ -581,6 +585,8 @@ export class OmpAgent extends BaseAgent {
         this.subTurnCounter = 0;
         this.messageSubTurnId = null;
         this.hasStreamedDeltas = false;
+        this.thinkingSubTurnId = null;
+        this.thinkingText = '';
         break;
 
       case 'turn_end': {
@@ -983,11 +989,48 @@ export class OmpAgent extends BaseAgent {
   }
 
   private handleMessageUpdate(msg: Record<string, unknown>): void {
-    const amEvent = msg.assistantMessageEvent as { type?: string; delta?: string } | undefined;
+    const amEvent = msg.assistantMessageEvent as { type?: string; delta?: string; content?: string } | undefined;
     if (!amEvent) return;
 
     if (amEvent.type === 'text_start' && !this.messageSubTurnId) {
       this.messageSubTurnId = this.nextSubTurnId('m');
+    }
+
+    // Thinking blocks (kimi-k3 reasoning etc.) stream as thinking_* events.
+    // Runtime stream only — thinking never lands in history/title-gen/summary
+    // (extractMessageText filters to type==='text' entries, and thinking
+    // deltas are enqueued as separate thinking_* AgentEvents, not Message).
+    if (amEvent.type === 'thinking_start') {
+      this.thinkingSubTurnId = this.nextSubTurnId('t');
+      this.thinkingText = '';
+      return;
+    }
+
+    if (amEvent.type === 'thinking_delta' && amEvent.delta) {
+      if (!this.thinkingSubTurnId) {
+        this.thinkingSubTurnId = this.nextSubTurnId('t');
+      }
+      this.thinkingText += amEvent.delta;
+      this.eventQueue.enqueue({
+        type: 'thinking_delta',
+        text: amEvent.delta,
+        turnId: this.thinkingSubTurnId,
+      });
+      return;
+    }
+
+    if (amEvent.type === 'thinking_end') {
+      const text = (amEvent.content ?? this.thinkingText) || this.thinkingText;
+      if (text) {
+        this.eventQueue.enqueue({
+          type: 'thinking_complete',
+          text,
+          turnId: this.thinkingSubTurnId ?? this.nextSubTurnId('t'),
+        });
+      }
+      this.thinkingSubTurnId = null;
+      this.thinkingText = '';
+      return;
     }
 
     if (amEvent.type === 'text_delta' && amEvent.delta) {
@@ -1001,7 +1044,7 @@ export class OmpAgent extends BaseAgent {
         turnId: this.messageSubTurnId,
       });
     }
-    // thinking_* and toolcall_* have no craft AgentEvent counterpart
+    // toolcall_* has no craft AgentEvent counterpart
     // (see PiEventAdapter parity in pi-agent.ts) — skipped.
   }
 

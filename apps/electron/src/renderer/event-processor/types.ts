@@ -51,6 +51,28 @@ export interface TextCompleteEvent {
 }
 
 /**
+ * Thinking delta event - streaming reasoning content (OMP reasoning models)
+ *
+ * Runtime-only: never persisted to session.jsonl. Parallel to TextDeltaEvent.
+ */
+export interface ThinkingDeltaEvent {
+  type: 'thinking_delta'
+  sessionId: string
+  text: string
+  turnId?: string
+}
+
+/**
+ * Thinking complete event - finalizes the streaming reasoning block
+ */
+export interface ThinkingCompleteEvent {
+  type: 'thinking_complete'
+  sessionId: string
+  text: string
+  turnId?: string
+}
+
+/**
  * Tool start event - begins tool execution
  * Field names match SessionEvent from shared/types.ts
  */
@@ -517,6 +539,8 @@ export interface UsageUpdateEvent {
 export type AgentEvent =
   | TextDeltaEvent
   | TextCompleteEvent
+  | ThinkingDeltaEvent
+  | ThinkingCompleteEvent
   | ToolStartEvent
   | ToolResultEvent
   | CompleteEvent

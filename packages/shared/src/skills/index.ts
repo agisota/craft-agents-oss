@@ -19,3 +19,11 @@ export {
   skillNeedsIconDownload,
   downloadSkillIcon,
 } from './storage.ts';
+export {
+  OMP_GLOBAL_SKILLS_DIR,
+  OMP_WORKSPACE_SKILLS_DIR,
+  listOmpSkills,
+  isOmpSkillPath,
+  invalidateOmpSkillsCache,
+  type OmpSkillInfo,
+} from './omp-discovery.ts';
