@@ -2,7 +2,7 @@
 
 - **Дата:** 2026-08-06
 - **Ветка:** `feature/branch-chat-groups` (worktree `~/Projects/_craft_worktrees/branch-chat-groups`)
-- **Статус:** на ревью
+- **Статус:** реализовано (2026-08-06, HEAD ветки)
 
 ## Контекст
 
