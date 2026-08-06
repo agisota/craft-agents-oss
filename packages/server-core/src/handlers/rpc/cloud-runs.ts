@@ -44,6 +44,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.cloudRuns.LIST_ARTIFACTS,
   RPC_CHANNELS.cloudRuns.IMPORT,
   RPC_CHANNELS.cloudRuns.AGGREGATE,
+  RPC_CHANNELS.cloudRuns.RESUME,
+  RPC_CHANNELS.cloudRuns.SESSION_TOPIC,
+  RPC_CHANNELS.cloudRuns.READ_ARTIFACT,
 ] as const;
 
 // ---------------------------------------------------------------

@@ -246,6 +246,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sessions.UNREAD_SUMMARY_CHANGED,
   RPC_CHANNELS.sessions.CREATE,
   RPC_CHANNELS.sessions.DELETE,
+  RPC_CHANNELS.sessions.SET_MEMORY_MODE,
+  RPC_CHANNELS.sessions.GET_PROVENANCE,
   RPC_CHANNELS.sessions.GET_MESSAGES,
   RPC_CHANNELS.sessions.SEND_MESSAGE,
   RPC_CHANNELS.sessions.CANCEL,
@@ -489,6 +491,20 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // resources — workspace resource export/import
   RPC_CHANNELS.resources.EXPORT,
   RPC_CHANNELS.resources.IMPORT,
+
+  // cloudRuns — background research runs execute on the workspace-owning server
+  RPC_CHANNELS.cloudRuns.GET_CONFIG,
+  RPC_CHANNELS.cloudRuns.SET_CONFIG,
+  RPC_CHANNELS.cloudRuns.SUBMIT,
+  RPC_CHANNELS.cloudRuns.RESUME,
+  RPC_CHANNELS.cloudRuns.SESSION_TOPIC,
+  RPC_CHANNELS.cloudRuns.READ_ARTIFACT,
+  RPC_CHANNELS.cloudRuns.LIST,
+  RPC_CHANNELS.cloudRuns.GET_STATUS,
+  RPC_CHANNELS.cloudRuns.CANCEL,
+  RPC_CHANNELS.cloudRuns.LIST_ARTIFACTS,
+  RPC_CHANNELS.cloudRuns.IMPORT,
+  RPC_CHANNELS.cloudRuns.AGGREGATE,
 
   // messaging — gateway channels run on workspace server
   RPC_CHANNELS.messaging.WA_REGISTER,
