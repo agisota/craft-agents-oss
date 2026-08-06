@@ -76,6 +76,7 @@ import { useLinkInterceptor, type FilePreviewState } from '@/hooks/useLinkInterc
 import { useTransportConnectionState } from '@/hooks/useTransportConnectionState'
 import { useStaleSessionRecovery } from '@/hooks/useStaleSessionRecovery'
 import { TransportConnectionBanner, shouldShowTransportConnectionBanner } from '@/components/app-shell/TransportConnectionBanner'
+import { ToolchainStatusBanner } from '@/components/app-shell/ToolchainStatusBanner'
 import {
   markBackgroundTaskSignal,
   markLiveBackgroundTasksOrphaned,
@@ -2081,6 +2082,7 @@ export default function App() {
                 onRetry={handleReconnectTransport}
               />
             )}
+            <ToolchainStatusBanner />
             <div className="flex-1 min-h-0">
               {sessionLoadError ? (
                 <SessionLoadErrorScreen
