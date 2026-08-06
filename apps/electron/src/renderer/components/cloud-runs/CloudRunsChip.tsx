@@ -37,21 +37,41 @@ interface CloudRunsChipProps {
 
 const POLL_MS = 5_000
 
+/** Compact "12.3k tok · 4.2k out · 3m40s" ledger line for the runs list. */
+function formatUsage(promptTokens: number, completionTokens: number, cpuMs?: number): string {
+  const tok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+  const cpu = cpuMs && cpuMs > 0 ? ` · ${Math.floor(cpuMs / 60000)}m${Math.round((cpuMs % 60000) / 1000)}s` : ''
+  return `${tok(promptTokens)}+${tok(completionTokens)} tok${cpu}`
+}
+
+/**
+ * Outer probe: NO modal/electronAPI dependencies may live here — a sync throw
+ * at this level trips InputErrorBoundary and kills the whole composer
+ * (chat.inputFailedTitle). electronAPI is optional-chained exactly like
+ * main.tsx conventions; inner mounts only when the feature is confirmed on.
+ */
 export function CloudRunsChip({ sessionId }: CloudRunsChipProps) {
-  const { t } = useTranslation()
   const [enabled, setEnabled] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    try {
+      void Promise.resolve(window.electronAPI?.getCloudRunsConfig?.())
+        .then((cfg) => setEnabled(cfg?.enabled === true))
+        .catch(() => setEnabled(false))
+    } catch {
+      setEnabled(false)
+    }
+  }, [])
+  if (enabled !== true) return null
+  return <CloudRunsChipInner sessionId={sessionId} />
+}
+
+function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
   const [runs, setRuns] = React.useState<ListedRun[]>([])
   const [topic, setTopic] = React.useState('')
   const [busy, setBusy] = React.useState<string | null>(null)
   useRegisterModal(open, () => setOpen(false))
-
-  React.useEffect(() => {
-    window.electronAPI
-      .getCloudRunsConfig()
-      .then((cfg) => setEnabled(cfg.enabled))
-      .catch(() => setEnabled(false))
-  }, [])
 
   const refresh = React.useCallback(async () => {
     try {
@@ -72,7 +92,6 @@ export function CloudRunsChip({ sessionId }: CloudRunsChipProps) {
   // is covered because the list survives server-side).
   const lastStates = React.useRef<Map<string, RunState>>(new Map())
   React.useEffect(() => {
-    if (enabled !== true) return
     const timer = setInterval(async () => {
       try {
         const result = await window.electronAPI.listCloudRuns()
@@ -88,9 +107,7 @@ export function CloudRunsChip({ sessionId }: CloudRunsChipProps) {
       } catch { /* non-fatal */ }
     }, 30_000)
     return () => clearInterval(timer)
-  }, [enabled, open, t])
-
-  if (enabled !== true) return null
+  }, [open, t])
 
   const activeCount = runs.filter((r) => r.status && (r.status.state === 'running' || r.status.state === 'queued')).length
   const doneCount = runs.filter((r) => r.status?.state === 'done').length
@@ -165,6 +182,14 @@ export function CloudRunsChip({ sessionId }: CloudRunsChipProps) {
               return (
                 <div key={run.id} className="flex items-center gap-2 rounded-md border border-border/50 px-2 py-1.5 text-sm">
                   <span className="min-w-0 flex-1 truncate" title={run.topic}>{run.name}</span>
+                  {run.status?.usage && (
+                    <span
+                      className="shrink-0 text-xs text-muted-foreground"
+                      title={t('cloudRuns.usageHint')}
+                    >
+                      {formatUsage(run.status.usage.promptTokens, run.status.usage.completionTokens, run.status.usage.cpuMs)}
+                    </span>
+                  )}
                   {progress && state === 'running' && (
                     <span className="text-xs text-muted-foreground">{progress.completed}/{progress.total}</span>
                   )}
@@ -178,6 +203,22 @@ export function CloudRunsChip({ sessionId }: CloudRunsChipProps) {
                       onClick={() => void act(run.id, () => window.electronAPI.cancelCloudRun(run.id))}
                     >
                       <XCircle className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {state === 'failed' && run.topic && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy === run.id}
+                      title={t('cloudRuns.retry')}
+                      onClick={() =>
+                        void act(run.id, async () => {
+                          await window.electronAPI.submitCloudRun({ topic: run.topic!, sessionId })
+                          toast.success(t('cloudRuns.submitted'))
+                        })
+                      }
+                    >
+                      <RefreshCw className="h-4 w-4" />
                     </Button>
                   )}
                   {state === 'done' && (
