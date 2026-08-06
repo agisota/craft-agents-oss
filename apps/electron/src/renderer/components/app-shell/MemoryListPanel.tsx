@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAtomValue } from 'jotai'
 import { Brain, Pencil, Trash2, Check, Plus, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, ProjectMemoryDto, PromotionCandidate } from '@craft-agent/shared/memory/types'
+import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, MemoryInsights, ProjectMemoryDto, PromotionCandidate } from '@craft-agent/shared/memory/types'
 import { useNavigation, routes } from '@/contexts/NavigationContext'
 import { activeSessionIdAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 
@@ -45,6 +45,8 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   const [historyContent, setHistoryContent] = React.useState('')
   // L3: rules used in ≥2 workspaces, candidates for global promotion
   const [promotionCandidates, setPromotionCandidates] = React.useState<PromotionCandidate[]>([])
+  // Y1: 7-day audit counters + live store aggregates for the insights card
+  const [insights, setInsights] = React.useState<MemoryInsights | null>(null)
   // L2: conflicts reported by ADD_LESSON for the just-added rule (panel stays in the form)
   const [addConflicts, setAddConflicts] = React.useState<{
     rule: string
@@ -92,6 +94,15 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       .catch(() => setPromotionCandidates([]))
   }, [])
 
+  // Y1: the server accepts an optional workspace id — without one the card
+  // falls back to global-only aggregates (audit reads are best-effort).
+  const loadInsights = React.useCallback(() => {
+    window.electronAPI
+      .listInsights(workspaceId)
+      .then(setInsights)
+      .catch(() => setInsights(null))
+  }, [workspaceId])
+
   const loadProjectMemory = React.useCallback(() => {
     if (!workspaceId || !activeProjectId) { setProjectMemory(null); return }
     window.electronAPI
@@ -106,6 +117,7 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
     loadHistoryDates()
     loadPromotionCandidates()
     loadProjectMemory()
+    loadInsights()
     setHistoryDate(null)
     setHistoryContent('')
     setAddConflicts(null)
@@ -115,9 +127,12 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       loadHistoryDates()
       loadPromotionCandidates()
       loadProjectMemory()
+      loadInsights()
     })
-    return off
-  }, [loadLessons, loadContext, loadHistoryDates, loadPromotionCandidates, loadProjectMemory])
+    // Y1: pendingCount lives in the card, so pending-queue changes refresh it too.
+    const offPending = window.electronAPI.onSkillsPendingChanged(() => loadInsights())
+    return () => { off(); offPending() }
+  }, [loadLessons, loadContext, loadHistoryDates, loadPromotionCandidates, loadProjectMemory, loadInsights])
 
   const openDate = (date: string) => {
     if (!workspaceId) return
@@ -404,8 +419,44 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
     </div>
   )
 
+  // Y1: hiding the card entirely when there is nothing to report keeps the
+  // fresh-install panel calm (and matches the onboarding dialog's stage).
+  const insightsQuiet = !insights || (
+    insights.lessonsAdded7d === 0 &&
+    insights.conflicts7d === 0 &&
+    insights.pendingCount === 0 &&
+    insights.approved7d === 0
+  )
+  const insightCategories = insights ? Object.entries(insights.categories).sort(([a], [b]) => a.localeCompare(b)) : []
+
   return (
     <div className={`flex flex-col gap-2 px-1 pb-4 overflow-y-auto ${className ?? ''}`} data-list-role="memory">
+      {/* Y1: insights card — 7-day counters + per-category chips */}
+      {!insightsQuiet && insights && (
+        <div className="mx-1 space-y-1 rounded-[8px] border border-foreground/10 bg-foreground/[0.03] p-2" data-list-role="memory-insights">
+          <div className="px-0.5 text-[11px] leading-snug text-muted-foreground">
+            {t('memory.insightsLine', {
+              lessonsAdded7d: insights.lessonsAdded7d,
+              conflicts7d: insights.conflicts7d,
+              pendingCount: insights.pendingCount,
+              approved7d: insights.approved7d,
+            })}
+          </div>
+          {insightCategories.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {insightCategories.map(([category, count]) => (
+                <span
+                  key={category}
+                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-muted-foreground"
+                >
+                  {t('memory.insightsChip', { label: t(`memory.category.${category}`), count })}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* L3: rules repeated across workspaces → promote to global */}
       {visibleCandidates.length > 0 && (
         <div className="mx-1 rounded-[8px] border border-accent/20 bg-accent/[0.06] p-2">

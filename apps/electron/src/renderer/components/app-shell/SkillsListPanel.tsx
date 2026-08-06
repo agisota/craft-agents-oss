@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Zap, PackageOpen, Check, ChevronDown, ChevronRight, X, Network, FolderX, KeyRound, TriangleAlert, RefreshCw } from 'lucide-react'
+import { useAtomValue } from 'jotai'
+import { Zap, PackageOpen, Check, ChevronDown, ChevronRight, X, Network, FolderX, KeyRound, TriangleAlert, RefreshCw, Archive, FolderOutput } from 'lucide-react'
 import { toast } from 'sonner'
 import { SkillAvatar } from '@/components/ui/skill-avatar'
 import { EntityPanel } from '@/components/ui/entity-panel'
@@ -9,10 +10,13 @@ import { skillSelection } from '@/hooks/useEntitySelection'
 import { SkillMenu } from './SkillMenu'
 import { SendResourceToWorkspaceDialog } from './SendResourceToWorkspaceDialog'
 import { EditPopover, getEditConfig } from '@/components/ui/EditPopover'
+import { HeaderIconButton } from '@/components/ui/HeaderIconButton'
 import { useActiveWorkspace, useAppShellContext } from '@/context/AppShellContext'
 import { getFileManagerName } from '@/lib/platform'
 import { detectSkillRiskFlags, lineDiff, RISK_FLAG_I18N_KEY, VIOLATION_I18N_KEY, type SkillRiskFlag } from '@/lib/skill-risk'
-import type { PendingSkill, PendingSkillDiff } from '@craft-agent/shared/memory/types'
+import type { PendingSkill, PendingSkillDiff, SkillUsageMap } from '@craft-agent/shared/memory/types'
+import { activeSessionIdAtom, sessionMetaMapAtom } from '@/atoms/sessions'
+import { projectsAtom } from '@/atoms/projects'
 import type { LoadedSkill } from '../../../shared/types'
 
 const RISK_FLAG_ICON: Record<SkillRiskFlag, typeof Network> = {
@@ -58,11 +62,27 @@ export function SkillsListPanel({
   const [expandedPendingSlug, setExpandedPendingSlug] = React.useState<string | null>(null)
   // S3: diff payload for the currently expanded update candidate.
   const [pendingDiff, setPendingDiff] = React.useState<{ slug: string; data: PendingSkillDiff } | null>(null)
+  // S4: per-skill prompt-hit counters (null until the first successful read —
+  // a failed read must not mark every skill as prunable).
+  const [skillUsage, setSkillUsage] = React.useState<SkillUsageMap | null>(null)
+  const [pruneConfirmOpen, setPruneConfirmOpen] = React.useState(false)
+  const [pruneBusy, setPruneBusy] = React.useState(false)
   const effectiveWorkspaceId = workspaceId ?? activeWorkspaceId
+
+  // T1: export target = the project the active session is bound to.
+  const activeSessionId = useAtomValue(activeSessionIdAtom)
+  const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+  const projects = useAtomValue(projectsAtom)
+  const activeProjectId = activeSessionId ? sessionMetaMap.get(activeSessionId)?.projectId : undefined
+  const activeProjectRoot = React.useMemo(() => {
+    if (!activeProjectId) return undefined
+    return projects.find((p) => p.config.id === activeProjectId)?.folderPath
+  }, [projects, activeProjectId])
 
   React.useEffect(() => {
     if (!effectiveWorkspaceId) {
       setPendingSkills([])
+      setSkillUsage(null)
       return
     }
     let cancelled = false
@@ -71,6 +91,11 @@ export function SkillsListPanel({
         .listPendingSkills(effectiveWorkspaceId)
         .then((items) => { if (!cancelled) setPendingSkills(items) })
         .catch(() => { if (!cancelled) setPendingSkills([]) })
+      // S4: usage counters ride the same refresh trigger as the pending queue.
+      window.electronAPI
+        .getSkillUsage(effectiveWorkspaceId)
+        .then((map) => { if (!cancelled) setSkillUsage(map) })
+        .catch(() => { if (!cancelled) setSkillUsage(null) })
     }
     load()
     // Refetch when the pending queue or the approved skills list change —
@@ -139,6 +164,45 @@ export function SkillsListPanel({
     }
   }
 
+  // S4: prune candidates = workspace-scope skills the prompt never mentioned.
+  // Skills are archived (never deleted) server-side; unknown usage (read
+  // failure) disqualifies everything rather than the other way round.
+  const pruneCandidates = React.useMemo(() => {
+    if (!skillUsage) return []
+    return craftSkills.filter(
+      (s) => s.source === 'workspace' && (skillUsage[s.slug]?.used ?? 0) === 0,
+    )
+  }, [craftSkills, skillUsage])
+
+  const handlePrune = async () => {
+    if (!effectiveWorkspaceId || pruneBusy || pruneCandidates.length === 0) return
+    setPruneBusy(true)
+    try {
+      const result = await window.electronAPI.pruneSkills(effectiveWorkspaceId, 30, pruneCandidates.map((s) => s.slug))
+      setPruneConfirmOpen(false)
+      toast.success(t('skills.pruned', { count: result.archived.length }))
+    } catch (err) {
+      toast.error(t('toast.failedToPruneSkills'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setPruneBusy(false)
+    }
+  }
+
+  // T1: copy a workspace skill into the active project's .agents/skills.
+  const handleExportToProject = async (skill: LoadedSkill) => {
+    if (!effectiveWorkspaceId || !activeProjectRoot) return
+    try {
+      const result = await window.electronAPI.exportSkillToProject(effectiveWorkspaceId, skill.slug, activeProjectRoot)
+      toast.success(t('skills.exported', { slug: result.slug }))
+    } catch (err) {
+      toast.error(t('toast.failedToExportSkill'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
   // Render EntityPanel empty state only when there are no skills at all —
   // a workspace with only OMP skills shouldn't show "No skills configured".
   const emptyState = ompSkills.length > 0 ? undefined : (
@@ -164,6 +228,42 @@ export function SkillsListPanel({
 
   return (
     <>
+    {/* S4 header: prune (archive) never-used workspace skills. Hidden when
+        every workspace skill saw at least one prompt hit. */}
+    {effectiveWorkspaceId && pruneCandidates.length > 0 && (
+      <div className="mx-2 mb-1 flex items-center justify-end gap-1.5" data-list-role="skills-prune">
+        {pruneConfirmOpen ? (
+          <>
+            <span className="text-[11px] text-muted-foreground">
+              {t('skills.pruneConfirm', { count: pruneCandidates.length })}
+            </span>
+            <button
+              type="button"
+              disabled={pruneBusy}
+              onClick={() => void handlePrune()}
+              className="inline-flex items-center h-5 px-1.5 text-[10px] font-medium rounded-[6px] bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+            >
+              {t('skills.pruneButton')}
+            </button>
+            <button
+              type="button"
+              disabled={pruneBusy}
+              onClick={() => setPruneConfirmOpen(false)}
+              className="inline-flex items-center h-5 px-1.5 text-[10px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors disabled:opacity-50"
+            >
+              {t('common.cancel')}
+            </button>
+          </>
+        ) : (
+          <HeaderIconButton
+            icon={<Archive className="h-4 w-4" />}
+            tooltip={t('skills.pruneButton')}
+            aria-label={t('skills.pruneButton')}
+            onClick={() => setPruneConfirmOpen(true)}
+          />
+        )}
+      </div>
+    )}
     <EntityPanel<LoadedSkill>
       items={craftSkills}
       getId={(s) => s.slug}
@@ -186,6 +286,42 @@ export function SkillsListPanel({
             <span className="truncate">{skill.metadata.description}</span>
           </span>
         ),
+        trailing: (() => {
+          // S4: right-side usage chip; T1: export affordance only when an
+          // active project exists to receive the copy.
+          const used = skillUsage?.[skill.slug]?.used ?? 0
+          const lastUsedAt = skillUsage?.[skill.slug]?.lastUsedAt
+          const showUsage = skill.source === 'workspace' && used > 0
+          const canExportToProject = skill.source === 'workspace' && !!activeProjectRoot
+          if (!showUsage && !canExportToProject) return undefined
+          return (
+            <>
+              {showUsage && (
+                <span
+                  title={t('skills.usageChip', {
+                    count: used,
+                    date: lastUsedAt ? new Date(lastUsedAt).toLocaleDateString() : '—',
+                  })}
+                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-muted-foreground"
+                >
+                  {used}×
+                </span>
+              )}
+              {canExportToProject && (
+                <button
+                  type="button"
+                  title={t('skills.exportToProject')}
+                  aria-label={t('skills.exportToProject')}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); void handleExportToProject(skill) }}
+                  className="inline-flex items-center justify-center size-5 rounded-[6px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                >
+                  <FolderOutput className="size-3" />
+                </button>
+              )}
+            </>
+          )
+        })(),
         menu: (
           <SkillMenu
             skillSlug={skill.slug}

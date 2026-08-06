@@ -716,7 +716,7 @@ export interface ElectronAPI {
   listPromotionCandidates(): Promise<PromotionCandidate[]>
   promoteLesson(workspaceId: string | null, rule: string): Promise<PromoteLessonResult | null>
   // Y1: memory dashboard insights card (7-day audit counters + live store aggregates)
-  listInsights(workspaceId: string): Promise<MemoryInsights>
+  listInsights(workspaceId?: string): Promise<MemoryInsights>
   // Y4: stamp the one-shot onboarding marker ({configDir}/memory/.onboarded)
   markMemoryOnboarded(): Promise<void>
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
