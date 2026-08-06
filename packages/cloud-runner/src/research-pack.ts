@@ -15,6 +15,8 @@ export interface ResearchPackOptions {
   model?: { connectionSlug?: string; modelId?: string };
   limits?: RunSpec['limits'];
   language?: 'en' | 'ru';
+  /** Preset pack; default 'research'. */
+  kind?: ResearchPackKind;
 }
 
 interface SubtaskTemplate {
@@ -66,6 +68,142 @@ const RESEARCH_SUBTASKS: SubtaskTemplate[] = [
   },
 ];
 
+
+
+// ---------------------------------------------------------------------------
+// Presets (F10): topic packs beyond the default deep research.
+// ---------------------------------------------------------------------------
+
+const COMPETITOR_SUBTASKS: SubtaskTemplate[] = [
+  {
+    id: 'landscape',
+    title: { en: 'Competitors landscape', ru: 'Карта конкурентов' },
+    prompt: {
+      en: 'List the main competitors for this product/company: who they are, positioning, target segments. Subject: "%s". Structured markdown.',
+      ru: 'Перечисли основных конкурентов продукта/компании: кто они, позиционирование, целевые сегменты. Объект: "%s". Структурированный markdown.',
+    },
+  },
+  {
+    id: 'pricing',
+    title: { en: 'Pricing comparison', ru: 'Сравнение цен' },
+    prompt: {
+      en: 'Compare pricing of these competitors: plans, price points, free tiers, hidden limits. Subject: "%s". Table format.',
+      ru: 'Сравни цены конкурентов: планы, ценовые уровни, бесплатные тарифы, скрытые лимиты. Объект: "%s". Формат — таблица.',
+    },
+  },
+  {
+    id: 'weaknesses',
+    title: { en: 'Weaknesses', ru: 'Слабые места' },
+    prompt: {
+      en: 'Analyze weaknesses of these competitors: user complaints, missing features, friction points. Subject: "%s".',
+      ru: 'Разбери слабые места конкурентов: жалобы пользователей, недостающие фичи, точки трения. Объект: "%s".',
+    },
+  },
+  {
+    id: 'swot',
+    title: { en: 'SWOT', ru: 'SWOT' },
+    prompt: {
+      en: 'Build a SWOT matrix for the subject relative to this competitive field. Subject: "%s".',
+      ru: 'Построй SWOT-матрицу объекта относительно конкурентного поля. Объект: "%s".',
+    },
+  },
+  {
+    id: 'outlook',
+    title: { en: 'Outlook', ru: 'Перспективы' },
+    prompt: {
+      en: 'Where is this competitive field heading: trends, who wins/loses, what to watch. Subject: "%s".',
+      ru: 'Куда движется конкурентное поле: тренды, кто выигрывает/проигрывает, за чем следить. Объект: "%s".',
+    },
+  },
+];
+
+const LITERATURE_SUBTASKS: SubtaskTemplate[] = [
+  {
+    id: 'surveys',
+    title: { en: 'Key surveys', ru: 'Обзорные работы' },
+    prompt: {
+      en: 'List the key survey/review works on this topic with short annotations. Topic: "%s".',
+      ru: 'Перечисли ключевые обзорные работы по теме с короткими аннотациями. Тема: "%s".',
+    },
+  },
+  {
+    id: 'methods',
+    title: { en: 'Methods', ru: 'Методы' },
+    prompt: {
+      en: 'What methods/approaches dominate current research on this topic: compare with tradeoffs. Topic: "%s".',
+      ru: 'Какие методы/подходы доминируют в текущих исследованиях по теме: сравни с компромиссами. Тема: "%s".',
+    },
+  },
+  {
+    id: 'gaps',
+    title: { en: 'Research gaps', ru: 'Пробелы' },
+    prompt: {
+      en: 'Identify research gaps and underexplored angles on this topic. Topic: "%s".',
+      ru: 'Определи пробелы и неисследованные направления по теме. Тема: "%s".',
+    },
+  },
+  {
+    id: 'future',
+    title: { en: 'Future directions', ru: 'Будущие направления' },
+    prompt: {
+      en: 'What are the promising future research directions on this topic. Topic: "%s".',
+      ru: 'Какие перспективные направления исследований по теме. Тема: "%s".',
+    },
+  },
+];
+
+const VENDOR_SUBTASKS: SubtaskTemplate[] = [
+  {
+    id: 'capabilities',
+    title: { en: 'Capabilities', ru: 'Возможности' },
+    prompt: {
+      en: 'Evaluate this vendor capability map: offering, coverage, maturity. Vendor: "%s".',
+      ru: 'Оцени карту возможностей вендора: предложение, покрытие, зрелость. Вендор: "%s".',
+    },
+  },
+  {
+    id: 'pricing',
+    title: { en: 'Pricing & TCO', ru: 'Цены и TCO' },
+    prompt: {
+      en: 'Analyze vendor pricing and total cost of ownership drivers: licenses, egress, ops overhead. Vendor: "%s".',
+      ru: 'Разбери цены вендора и драйверы полной стоимости владения: лицензии, egress, накладные. Вендор: "%s".',
+    },
+  },
+  {
+    id: 'lockin',
+    title: { en: 'Lock-in risks', ru: 'Риски lock-in' },
+    prompt: {
+      en: 'Assess lock-in risks: proprietary APIs, data portability, exit costs, preview GA status. Vendor: "%s".',
+      ru: 'Оцени риски lock-in: проприетарные API, портируемость данных, стоимость выхода, статус GA. Вендор: "%s".',
+    },
+  },
+  {
+    id: 'references',
+    title: { en: 'References', ru: 'Референсы' },
+    prompt: {
+      en: 'Gather public references and production-adoption evidence for this vendor. Vendor: "%s".',
+      ru: 'Собери публичные референсы и факты прод-использования вендора. Вендор: "%s".',
+    },
+  },
+  {
+    id: 'recommendation',
+    title: { en: 'Recommendation', ru: 'Рекомендация' },
+    prompt: {
+      en: 'Formulate a pragmatic adopt/pilot/reject recommendation for this vendor with conditions. Vendor: "%s".',
+      ru: 'Сформулируй прагматичную рекомендацию adopt/pilot/reject по вендору с условиями. Вендор: "%s".',
+    },
+  },
+];
+
+export type ResearchPackKind = 'research' | 'competitor' | 'literature' | 'vendor';
+
+const PACKS: Record<ResearchPackKind, SubtaskTemplate[]> = {
+  research: RESEARCH_SUBTASKS,
+  competitor: COMPETITOR_SUBTASKS,
+  literature: LITERATURE_SUBTASKS,
+  vendor: VENDOR_SUBTASKS,
+};
+
 export function buildResearchSpec(topic: string, opts: ResearchPackOptions = {}): RunSpec {
   const trimmed = topic.trim();
   if (!trimmed) throw new Error('research topic must not be empty');
@@ -73,13 +211,13 @@ export function buildResearchSpec(topic: string, opts: ResearchPackOptions = {})
   return {
     id: opts.id ?? `research-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     name: lang === 'ru' ? `Рисёрч: ${trimmed.slice(0, 60)}` : `Research: ${trimmed.slice(0, 60)}`,
-    subtasks: RESEARCH_SUBTASKS.map((t) => ({
+    subtasks: PACKS[opts.kind ?? 'research'].map((t) => ({
       id: t.id,
       title: t.title[lang],
       prompt: t.prompt[lang].replace('%s', trimmed),
     })),
     model: opts.model,
     limits: opts.limits,
-    metadata: { kind: 'deep-research', topic: trimmed, ...opts.metadata },
+    metadata: { kind: opts.kind ?? 'research', topic: trimmed, ...opts.metadata },
   };
 }

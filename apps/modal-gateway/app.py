@@ -46,7 +46,8 @@ import httpx
 t0 = time.monotonic()
 
 workspace = Path(sys.argv[1])
-config = json.loads((workspace / ".craft-run" / "config.json").read_text())
+config_name = sys.argv[2] if len(sys.argv) > 2 else "config.json"
+config = json.loads((workspace / ".craft-run" / config_name).read_text())
 subtask = config["subtask"]
 base = config["baseUrl"].rstrip("/")
 model = config["model"]
@@ -111,6 +112,10 @@ def _cancel_key(run_id: str) -> str:
     return f"cancel:{run_id}"
 
 
+def _sandbox_key(run_id: str) -> str:
+    return f"sandboxes:{run_id}"
+
+
 def _authorized(headers) -> bool:
     want = os.environ.get("CLOUD_RUNS_TOKEN", "")
     got = (headers.get("authorization") or "").removeprefix("Bearer ")
@@ -161,81 +166,101 @@ def driver(spec: dict):
     subtasks = spec["subtasks"]
     completed = 0
 
-    for subtask in subtasks:
-        if state.get(_cancel_key(run_id)):
-            set_status(state="cancelled", failureReason="cancelled", finishedAt=int(time.time() * 1000))
-            return
-        if time.monotonic() > deadline:
-            set_status(
-                state="failed",
-                failureReason="budget_exceeded",
-                failureDetail=f"wall-clock budget {wall_clock}s exceeded",
-                finishedAt=int(time.time() * 1000),
-            )
-            return
-        volume.reload()  # sandbox-side writes land on the shared volume asynchronously
-        marker = workspace / "artifacts" / subtask["id"] / "done.marker"
-        if marker.exists():  # crash-resume: skip finished subtasks
-            completed += 1
-            continue
+    semaphore = __import__('threading').Semaphore(max(1, min(int(spec.get('concurrency') or 2), 4)))
+    errors = {}
 
-        (workspace / ".craft-run").mkdir(exist_ok=True)
-        (workspace / ".craft-run" / "config.json").write_text(json.dumps({
-            "baseUrl": os.environ["LLM_BASE_URL"],
-            "apiKey": os.environ.get("LLM_API_KEY", ""),
-            "model": spec.get("model", {}).get("modelId") or os.environ.get("LLM_MODEL", "kimi-K3"),
-            "subtask": subtask,
-        }))
-        volume.commit()
+    def run_subtask(subtask):
+        with semaphore:
+            if state.get(_cancel_key(run_id)):
+                return
+            if time.monotonic() > deadline:
+                errors['budget'] = True
+                return
+            volume.reload()
+            marker = workspace / "artifacts" / subtask["id"] / "done.marker"
+            if marker.exists():
+                return
+            (workspace / ".craft-run").mkdir(exist_ok=True)
+            (workspace / ".craft-run" / f"config-{subtask['id']}.json").write_text(json.dumps({
+                "baseUrl": os.environ["LLM_BASE_URL"],
+                "apiKey": os.environ.get("LLM_API_KEY", ""),
+                "model": spec.get("model", {}).get("modelId") or os.environ.get("LLM_MODEL", "kimi-K3"),
+                "subtask": subtask,
+            }))
+            volume.commit()
 
-        exit_code = -1
-        stderr = ""
-        # One retry covers transient LLM 5xx and slow generations; the
-        # deterministic failures just fail fast on the second pass.
-        for _attempt in range(2):
-            try:
-                sb = modal.Sandbox.create(
-                    "python", "-c", RUNNER_SOURCE, str(workspace),
-                    app=app,
-                    image=runner_image,
-                    volumes={"/data": volume},
-                    timeout=SUBTASK_TIMEOUT_SEC + 60,
-                )
-                sb.wait()
-                exit_code = sb.returncode
-                stderr = sb.stderr.read() if exit_code else ""
-                if exit_code == 0:
+            exit_code = -1
+            stderr = ""
+            for attempt in range(2):
+                try:
+                    sb = modal.Sandbox.create(
+                        "python", "-c", RUNNER_SOURCE, str(workspace), f"config-{subtask['id']}.json",
+                        app=app,
+                        image=runner_image,
+                        volumes={"/data": volume},
+                        timeout=SUBTASK_TIMEOUT_SEC + 60,
+                    )
+                    track = state.get(_sandbox_key(run_id), {})
+                    track[subtask["id"]] = sb.object_id
+                    state[_sandbox_key(run_id)] = track
+                    sb.wait()
+                    exit_code = sb.returncode
+                    stderr = sb.stderr.read() if exit_code else ""
+                    if exit_code == 0:
+                        break
+                except Exception:
                     break
-            except Exception as exc:
-                set_status(state="failed", failureReason="runner_error", failureDetail=str(exc)[:1000],
-                           finishedAt=int(time.time() * 1000))
+            if state.get(_cancel_key(run_id)):
                 return
 
-        if state.get(_cancel_key(run_id)):
-            set_status(state="cancelled", failureReason="cancelled", finishedAt=int(time.time() * 1000))
-            return
-        volume.reload()  # sandbox writes land asynchronously on the shared volume
-        if exit_code != 0 or not marker.exists():
-            set_status(
-                state="failed",
-                failureReason="runner_error",
-                failureDetail=f"subtask {subtask['id']} exit {exit_code}: {stderr[-1000:]}",
-                finishedAt=int(time.time() * 1000),
-            )
-            return
-        completed += 1
-        usage_file = workspace / "artifacts" / "_usage" / f"{subtask['id']}.json"
-        if usage_file.exists():
-            try:
-                usage = json.loads(usage_file.read_text())
-                cur = state.get(_state_key(run_id), {}).get("usage", {"promptTokens": 0, "completionTokens": 0, "cpuMs": 0})
-                cur["promptTokens"] += usage.get("prompt_tokens", 0)
-                cur["completionTokens"] += usage.get("completion_tokens", 0)
-                cur["cpuMs"] += usage.get("durationMs", 0)
-                set_status(usage=cur)
-            except (json.JSONDecodeError, KeyError):
-                pass
-        set_status(progress={"completed": completed, "total": len(subtasks)})
+            volume.reload()
+            marker = workspace / "artifacts" / subtask["id"] / "done.marker"
+            if not marker.exists():
+                fail_marker = workspace / "artifacts" / subtask["id"] / "fail.marker"
+                detail = stderr[-400:]
+                if fail_marker.exists():
+                    try:
+                        detail = (json.loads(fail_marker.read_text()).get("error") or detail)[:400]
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                errors[subtask["id"]] = f"exit {exit_code}: {detail}"
+                return
+
+            usage_file = workspace / "artifacts" / "_usage" / f"{subtask['id']}.json"
+            if usage_file.exists():
+                try:
+                    usage = json.loads(usage_file.read_text())
+                    cur = state.get(_state_key(run_id), {}).get("usage", {"promptTokens": 0, "completionTokens": 0, "cpuMs": 0})
+                    cur["promptTokens"] += usage.get("prompt_tokens", 0)
+                    cur["completionTokens"] += usage.get("completion_tokens", 0)
+                    cur["cpuMs"] += usage.get("durationMs", 0)
+                    set_status(usage=cur)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            completed[0] += 1
+            set_status(progress={"completed": completed[0], "total": len(subtasks)})
+
+    completed = [0]
+    threads = [__import__('threading').Thread(target=run_subtask, args=(s,)) for s in subtasks]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    if state.get(_cancel_key(run_id)):
+        set_status(state="cancelled", failureReason="cancelled", finishedAt=int(time.time() * 1000))
+        return
+    if errors.get('budget'):
+        set_status(state="failed", failureReason="budget_exceeded",
+                   failureDetail=f"wall-clock budget {wall_clock}s exceeded", finishedAt=int(time.time() * 1000))
+        return
+    if errors:
+        first = next(iter(errors.items()))
+        if any("503" in e or "resource pressure" in e for e in errors.values()):
+            errors['concurrency'] = True  # marker for future adaptive behavior
+        set_status(state="failed", failureReason="runner_error",
+                   failureDetail=f"subtask {first[0]}: {first[1]}"[:1000], finishedAt=int(time.time() * 1000))
+        return
 
     volume.commit()
     set_status(state="done", finishedAt=int(time.time() * 1000),
@@ -271,6 +296,15 @@ def gateway_api():
         key = _state_key(run_id)
         existing = state.get(key)
         if existing:
+            if existing.get("state") in ("failed", "cancelled"):
+                # Resume semantics (F1): restart failed/cancelled runs; done
+                # markers on the volume make finished subtasks skip. Active
+                # states keep idempotent behavior.
+                state.pop(_cancel_key(run_id), None)
+                existing = {**existing, "state": "queued", "failureReason": None, "failureDetail": None}
+                existing.pop("finishedAt", None)
+                state[key] = existing
+                driver.spawn(spec)
             return {"id": run_id, "createdAt": existing.get("createdAt", int(time.time() * 1000))}
         now = int(time.time() * 1000)
         state[key] = {"id": run_id, "state": "queued", "createdAt": now}
@@ -297,6 +331,13 @@ def gateway_api():
                 **cur, "state": "cancelled", "failureReason": "cancelled",
                 "finishedAt": int(time.time() * 1000),
             }
+            # F2: terminate live sandboxes — cancel must stop the LLM burn,
+            # not just the state flag.
+            for sb_id in (state.get(_sandbox_key(run_id)) or {}).values():
+                try:
+                    modal.Sandbox.from_id(sb_id).terminate()
+                except Exception:
+                    pass
         return {"ok": True}
 
     @api.get("/runs/{run_id}/artifacts")

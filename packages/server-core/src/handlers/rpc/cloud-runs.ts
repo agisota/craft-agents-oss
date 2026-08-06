@@ -26,6 +26,7 @@ import {
   ModalProvider,
   buildResearchSpec,
   type CloudRunProvider,
+  type ResearchPackKind,
   type RunHandle,
   type RunStatus,
 } from '@craft-agent/cloud-runner';
@@ -134,6 +135,15 @@ interface RunRegistryEntry {
   createdAt: number;
   sessionId?: string;
   topic?: string;
+  /** Persisted at submit (F1): enables resume without re-prompting the user. */
+  spec?: {
+    kind?: string;
+    limits?: { maxWallClockSec?: number; maxLlmTokens?: number; maxArtifactsBytes?: number };
+    language?: 'en' | 'ru';
+    model?: { connectionSlug?: string; modelId?: string };
+  };
+  /** Last known usage snapshot (F13): cost estimation input. */
+  lastUsage?: { promptTokens: number; completionTokens: number; cpuMs?: number };
 }
 
 const REGISTRY_PATH = join(CONFIG_DIR, 'cloud-runs-registry.json');
@@ -196,6 +206,17 @@ function startCompletionWatcher(): void {
       } catch {
         continue; // provider blip — retry next tick
       }
+      // F19 zombie reaper: running far past 2× wall-clock budget means the
+      // state machine died silently — cancel it instead of haunting the list.
+      if (status.state === 'running' && status.startedAt) {
+        const wallClock = settings.defaults.maxWallClockSec * 1000;
+        if (Date.now() - status.startedAt > 2 * wallClock) {
+          try {
+            await providerForRun(settings, entry.id).cancel(entry.id);
+          } catch { /* reap attempt is best-effort */ }
+          status = { ...status, state: 'cancelled', failureReason: 'cancelled' };
+        }
+      }
       if (prev !== status.state) lastState.set(entry.id, status.state);
       const terminal = status.state === 'done' || status.state === 'failed' || status.state === 'cancelled';
       if (terminal && prev && prev !== status.state && prev !== 'unknown') {
@@ -240,10 +261,17 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
 
   server.handle(RPC_CHANNELS.cloudRuns.GET_CONFIG, async () => {
     const settings = readSettings();
+    const usages = readRegistry()
+      .map((r) => r.lastUsage)
+      .filter((u): u is NonNullable<typeof u> => Boolean(u));
+    const estimatedRunTokens = usages.length
+      ? Math.round(usages.reduce((a, u) => a + u.promptTokens + u.completionTokens, 0) / usages.length)
+      : null;
     return {
       ...settings,
       notifyWebhookUrl: loadStoredConfig()?.cloudRuns?.notifyWebhookUrl,
       tokenConfigured: Boolean(readSecretsEnv().CLOUD_RUNS_TOKEN),
+      estimatedRunTokens,
     };
   });
 
@@ -263,11 +291,12 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
 
   server.handle(
     RPC_CHANNELS.cloudRuns.SUBMIT,
-    async (_ctx, args: { topic: string; sessionId?: string; language?: 'en' | 'ru'; model?: { connectionSlug?: string; modelId?: string } }) => {
+    async (_ctx, args: { topic: string; sessionId?: string; language?: 'en' | 'ru'; kind?: ResearchPackKind; model?: { connectionSlug?: string; modelId?: string } }) => {
       const settings = requireEnabled();
       if (!args?.topic?.trim()) throw new CloudRunnerError('topic is required', 'invalid_spec');
       const spec = buildResearchSpec(args.topic, {
         language: args.language ?? 'ru',
+        kind: args.kind,
         model: args.model,
         limits: { ...settings.defaults },
         metadata: { sessionId: args.sessionId ?? '' },
@@ -295,6 +324,12 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         createdAt: handle.createdAt,
         sessionId: args.sessionId,
         topic: args.topic,
+        spec: {
+          kind: args.kind ?? 'research',
+          limits: { ...settings.defaults },
+          language: args.language ?? 'ru',
+          model: args.model,
+        },
       });
       await writeFile(REGISTRY_PATH, JSON.stringify(registry.slice(-200), null, 2));
       return handle;
@@ -304,6 +339,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
   server.handle(RPC_CHANNELS.cloudRuns.LIST, async () => {
     const settings = readSettings();
     const entries = readRegistry();
+    let dirty = false;
     const runs = await Promise.all(
       entries.map(async (entry) => {
         let status: RunStatus | null = null;
@@ -312,11 +348,68 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         } catch {
           status = null; // registry ghost or provider blip — still list the entry
         }
+        if (status?.usage && !entry.lastUsage) {
+          entry.lastUsage = status.usage; // F13: usage snapshot feeds cost estimation
+          dirty = true;
+        }
         return { ...entry, status };
       }),
     );
+    if (dirty) await writeFile(REGISTRY_PATH, JSON.stringify(entries, null, 2));
     return { enabled: settings.enabled, provider: settings.provider, runs: runs.reverse() };
   });
+
+  server.handle(RPC_CHANNELS.cloudRuns.RESUME, async (_ctx, args: { runId: string }) => {
+    const settings = requireEnabled();
+    const registry = readRegistry();
+    const entry = registry.find((r) => r.id === args.runId);
+    if (!entry) throw new CloudRunnerError(`run not found: ${args.runId}`, 'not_found');
+    const status = await providerForRun(settings, args.runId).getStatus(args.runId);
+    if (status.state !== 'failed' && status.state !== 'cancelled') {
+      throw new CloudRunnerError(`run is ${status.state}; resume is only for failed/cancelled runs`, 'provider_error');
+    }
+    if (!entry.spec) {
+      throw new CloudRunnerError('run spec not persisted (legacy registry entry) — start a new run instead', 'invalid_spec');
+    }
+    // Idempotent resubmit with the SAME id: gateway resumes from done.markers.
+    const spec = buildResearchSpec(entry.topic ?? entry.name, {
+      id: entry.id,
+      language: entry.spec.language ?? 'ru',
+      kind: (entry.spec.kind ?? 'research') as ResearchPackKind,
+      model: entry.spec.model,
+      limits: entry.spec.limits,
+      metadata: { sessionId: entry.sessionId ?? '' },
+    });
+    const provider = providerForRun(settings, args.runId);
+    await provider.createRun(spec);
+    return { ok: true };
+  });
+
+  server.handle(RPC_CHANNELS.cloudRuns.SESSION_TOPIC, async (_ctx, args: { sessionId: string }) => {
+    // Cheap heuristic first (fast+deterministic): title + last user message.
+    // LLM formulation would cost a smol call — heuristics prove better UX
+    // for the common case (PRD F9 fallback documented).
+    const session = await deps.sessionManager.getSession(args.sessionId);
+    if (!session) throw new CloudRunnerError(`session not found: ${args.sessionId}`, 'not_found');
+    const messages = (session.messages ?? []) as { role?: string; content?: unknown }[];
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const text = typeof lastUser?.content === 'string' ? lastUser.content : '';
+    const topic = (session.name && session.name !== 'New Chat' ? session.name : text).slice(0, 200).trim();
+    return { topic };
+  });
+
+  server.handle(
+    RPC_CHANNELS.cloudRuns.READ_ARTIFACT,
+    async (_ctx, args: { runId: string; path: string }) => {
+      const settings = requireEnabled();
+      const provider = providerForRun(settings, args.runId);
+      const bytes = await provider.fetchArtifact(args.runId, args.path);
+      if (bytes.byteLength > 1024 * 1024) {
+        throw new CloudRunnerError('artifact too large for preview', 'artifact_too_large');
+      }
+      return { content: new TextDecoder().decode(bytes) };
+    },
+  );
 
   server.handle(RPC_CHANNELS.cloudRuns.GET_STATUS, async (_ctx, id: string) => {
     return providerForRun(requireEnabled(), id).getStatus(id);

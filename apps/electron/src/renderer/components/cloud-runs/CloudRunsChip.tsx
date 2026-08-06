@@ -75,6 +75,9 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
   const [open, setOpen] = React.useState(false)
   const [runs, setRuns] = React.useState<ListedRun[]>([])
   const [topic, setTopic] = React.useState('')
+  const [kind, setKind] = React.useState<'research' | 'competitor' | 'literature' | 'vendor'>('research')
+  const [estimatedTokens, setEstimatedTokens] = React.useState<number | null>(null)
+  const [preview, setPreview] = React.useState<{ title: string; content: string } | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   useRegisterModal(open, () => setOpen(false))
 
@@ -83,6 +86,14 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
       const result = await window.electronAPI.listCloudRuns()
       setRuns(result.runs)
     } catch { /* status poll failures are non-fatal */ }
+  }, [])
+
+  // F13: fetch the usage-median estimate once (cheap; dialog re-reads config).
+  React.useEffect(() => {
+    window.electronAPI
+      .getCloudRunsConfig()
+      .then((cfg) => setEstimatedTokens(cfg.estimatedRunTokens ?? null))
+      .catch(() => null)
   }, [])
 
   React.useEffect(() => {
@@ -129,6 +140,14 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
     }
   }
 
+  const prefillFromSession = () =>
+    act('prefill', async () => {
+      const result = await window.electronAPI.sessionTopicCloudRun({ sessionId })
+      if (result.topic) setTopic(result.topic)
+    })
+
+  const tokShort = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+
   return (
     <>
       <button
@@ -150,6 +169,17 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
           </DialogHeader>
 
           <div className="flex gap-2">
+            <select
+              className="rounded-md border border-border bg-background px-1.5 text-xs"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as typeof kind)}
+              title={t('cloudRuns.preset')}
+            >
+              <option value="research">{t('cloudRuns.presetResearch')}</option>
+              <option value="competitor">{t('cloudRuns.presetCompetitor')}</option>
+              <option value="literature">{t('cloudRuns.presetLiterature')}</option>
+              <option value="vendor">{t('cloudRuns.presetVendor')}</option>
+            </select>
             <Input
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
@@ -157,7 +187,7 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && topic.trim()) {
                   void act('submit', async () => {
-                    await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId })
+                    await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind })
                     setTopic('')
                     toast.success(t('cloudRuns.submitted'))
                   })
@@ -165,10 +195,19 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
               }}
             />
             <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy === 'prefill'}
+              title={t('cloudRuns.prefill')}
+              onClick={() => void prefillFromSession()}
+            >
+              ✦
+            </Button>
+            <Button
               disabled={!topic.trim() || busy === 'submit'}
               onClick={() =>
                 void act('submit', async () => {
-                  await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId })
+                  await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind })
                   setTopic('')
                   toast.success(t('cloudRuns.submitted'))
                 })
@@ -178,6 +217,11 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
               {t('cloudRuns.submit')}
             </Button>
           </div>
+          {estimatedTokens !== null && (
+            <p className="-mt-1 text-xs text-muted-foreground">
+              {t('cloudRuns.estimate', { tokens: tokShort(estimatedTokens) })}
+            </p>
+          )}
 
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {runs.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t('cloudRuns.empty')}</p>}
@@ -210,12 +254,28 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                       <XCircle className="h-4 w-4" />
                     </Button>
                   )}
+                  {state === 'failed' && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy === run.id}
+                      title={t('cloudRuns.resume')}
+                      onClick={() =>
+                        void act(run.id, async () => {
+                          await window.electronAPI.resumeCloudRun({ runId: run.id })
+                          toast.success(t('cloudRuns.resumed'))
+                        })
+                      }
+                    >
+                      <Rocket className="h-4 w-4" />
+                    </Button>
+                  )}
                   {state === 'failed' && run.topic && (
                     <Button
                       size="sm"
                       variant="ghost"
                       disabled={busy === run.id}
-                      title={t('cloudRuns.retry')}
+                      title={`${t('cloudRuns.retry')}${run.status?.failureReason ? ` — ${run.status.failureReason}` : ''}`}
                       onClick={() =>
                         void act(run.id, async () => {
                           await window.electronAPI.submitCloudRun({ topic: run.topic!, sessionId })
@@ -228,6 +288,24 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                   )}
                   {state === 'done' && (
                     <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === run.id}
+                        title={t('cloudRuns.preview')}
+                        onClick={() =>
+                          void act(run.id, async () => {
+                            const artifacts = await window.electronAPI.listCloudRunArtifacts(run.id)
+                            const md = artifacts.find((a) => a.path.endsWith('answer.md') || a.path.endsWith('.md'))
+                            if (md) {
+                              const result = await window.electronAPI.readCloudRunArtifact({ runId: run.id, path: md.path })
+                              setPreview({ title: `${run.name} — ${md.path}`, content: result.content })
+                            }
+                          })
+                        }
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -266,6 +344,15 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
           <DialogFooter>
             <span className="text-xs text-muted-foreground">{t('cloudRuns.footer')}</span>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{preview?.title}</DialogTitle>
+          </DialogHeader>
+          <pre className="whitespace-pre-wrap font-sans text-sm">{preview?.content}</pre>
         </DialogContent>
       </Dialog>
     </>

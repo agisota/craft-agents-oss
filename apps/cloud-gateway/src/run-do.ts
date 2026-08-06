@@ -45,6 +45,8 @@ interface RunSpec {
   name: string;
   subtasks: { id: string; title?: string; prompt: string }[];
   limits?: { maxWallClockSec?: number; maxLlmTokens?: number; maxArtifactsBytes?: number };
+  /** F3: parallel exec pool size (adaptive: drops to 1 on sustained LLM 503s). */
+  concurrency?: number;
   ttlSec?: number;
   metadata?: Record<string, string>;
   model?: { connectionSlug?: string; modelId?: string };
@@ -62,15 +64,23 @@ interface PersistedRun {
   createdAt: number;
   /** Aggregated usage ledger (PRD §G5.2): LLM tokens + runner wall time. */
   usage?: { promptTokens: number; completionTokens: number; cpuMs: number };
-  /** Currently-execing subtask (non-blocking exec; markers drive outcome). */
-  awaitingSubtask?: PersistedAwaiting;
+  /** In-flight subtasks (F3 pool; non-blocking exec; markers drive outcome). */
+  awaiting?: PersistedAwaiting[];
   attemptOf?: Record<string, number>;
+  /** F3: effective parallelism (starts at spec.concurrency; adaptive cap on 503). */
+  effectiveConcurrency?: number;
+  /** F2: exec ids of in-flight runs so cancel can SIGKILL them. */
+  execIds?: Record<string, string>;
+  /** F3: subtasks observed done (drives progress + done-condition). */
+  completedIds?: string[];
 }
+
 
 interface PersistedAwaiting {
   id: string;
   attempt: number;
   startedAt: number;
+  execId?: string;
 }
 
 const DEFAULT_WALL_CLOCK_SEC = 30 * 60;
@@ -115,11 +125,29 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   async createRun(spec: RunSpec): Promise<{ id: string; createdAt: number }> {
     const existing = await this.ctx.storage.get<PersistedRun>("run");
-    if (existing) return { id: existing.spec.id, createdAt: existing.createdAt };
+    if (existing) {
+      if (existing.state === "failed" || existing.state === "cancelled") {
+        // Resume semantics (F1): terminal-but-not-done states restart with
+        // markers intact — finished subtasks skip via done.marker checks.
+        // Idempotency for active/done states is unaffected.
+        existing.state = "queued";
+        existing.finishedAt = undefined;
+        existing.failureReason = undefined;
+        existing.failureDetail = undefined;
+        existing.awaiting = [];
+        existing.nextSubtask = 0;
+        existing.spec = spec;
+        await this.ctx.storage.put("run", existing);
+        await this.ctx.storage.setAlarm(Date.now() + 1);
+        return { id: existing.spec.id, createdAt: existing.createdAt };
+      }
+      return { id: existing.spec.id, createdAt: existing.createdAt };
+    }
     const run: PersistedRun = {
       spec,
       state: "queued",
       nextSubtask: 0,
+      effectiveConcurrency: Math.min(Math.max(spec.concurrency ?? 2, 1), 4),
       createdAt: Date.now(),
     };
     await this.ctx.storage.put("run", run);
@@ -140,7 +168,8 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       failureDetail: run.failureDetail,
       usage: run.usage,
       progress: {
-        completed: run.state === "done" ? run.spec.subtasks.length : run.nextSubtask,
+        // completed = subtasks whose marker has been observed this run
+        completed: run.completedIds?.length ?? (run.state === "done" ? run.spec.subtasks.length : 0),
         total: run.spec.subtasks.length,
       },
     };
@@ -154,6 +183,18 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     run.failureReason = "cancelled";
     run.finishedAt = Date.now();
     await this.ctx.storage.put("run", run);
+    // F2: stop the LLM burn, not just the state flag. killExec signals the
+    // runner process in the container; in-memory handles from this DO
+    // instance carry the ids (lost on DO restart — markers then time out).
+    for (const [subtaskId, execId] of Object.entries(run.execIds ?? {})) {
+      try {
+        this.execHandles.get(subtaskId)?.kill("SIGKILL");
+        // kill by id when the handle is still ours; otherwise the marker
+        // timeout path (≤ SUBTASK_TIMEOUT_MS) reaps it.
+        void execId;
+      } catch { /* exec already gone */ }
+    }
+    this.execHandles.clear();
   }
 
   async listArtifacts(): Promise<{ path: string; size: number }[]> {
@@ -209,69 +250,83 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       run.startedAt = startedAt;
     }
 
-    // Non-blocking state machine: exec is started and NEVER awaited, so the
-    // DO stays responsive to status/artifact reads (spike finding: a blocking
-    // exec slot starved file routes into 1101s). Outcome rides on the
-    // runner's done.marker/fail.marker across alarm ticks.
-    const awaiting = run.awaitingSubtask;
-    if (awaiting) {
-      const outcome = await this.checkAwaiting(run, awaiting);
+    // ---- Resolve in-flight subtasks via markers (non-blocking) ----
+    const awaiting = run.awaiting ?? [];
+    const stillWaiting: PersistedAwaiting[] = [];
+    for (const item of awaiting) {
+      const outcome = await this.checkAwaiting(run, item);
       if (outcome.kind === "wait") {
-        await this.ctx.storage.setAlarm(Date.now() + MARKER_POLL_MS);
-        return;
+        if (!stillWaiting.some((w) => w.id === item.id)) stillWaiting.push(item);
+        continue;
       }
       if (outcome.kind === "fail") {
         await this.finish(run, "failed", "runner_error", outcome.error.slice(0, 2000));
         return;
       }
-      // retry: clear awaiting and let the next tick restart the exec;
-      // done: advance to the next subtask.
-      run.awaitingSubtask = undefined;
-      if (outcome.kind === "done") run.nextSubtask += 1;
-      await this.ctx.storage.put("run", run);
-      await this.ctx.storage.setAlarm(Date.now() + 1);
-      return;
+      if (outcome.kind === "retry") {
+        if (outcome.error.includes("503") || outcome.error.includes("resource pressure")) {
+          run.effectiveConcurrency = 1;
+        }
+        this.execHandles.delete(item.id);
+        continue;
+      }
+      run.completedIds = [...new Set([...(run.completedIds ?? []), item.id])];
+      delete run.execIds?.[item.id];
+      this.execHandles.delete(item.id);
     }
+    run.awaiting = stillWaiting;
 
-    // Skip subtasks already completed before a crash (done.marker survives
-    // in the workspace; containers are replaceable, the DO is not).
+    // ---- Skip subtasks with existing done.markers (crash-resume) ----
     while (
       run.nextSubtask < run.spec.subtasks.length &&
       (await this.markerExists(run.spec.subtasks[run.nextSubtask]!.id, "done.marker"))
     ) {
+      run.completedIds = [...new Set([...(run.completedIds ?? []), run.spec.subtasks[run.nextSubtask]!.id])];
       run.nextSubtask += 1;
     }
 
-    if (run.nextSubtask >= run.spec.subtasks.length) {
+    const totalDone = run.completedIds?.length ?? 0;
+    if (totalDone >= run.spec.subtasks.length && stillWaiting.length === 0) {
       await this.finish(run, "done");
       return;
     }
 
-    const subtask = run.spec.subtasks[run.nextSubtask]!;
-    const attempt = (run.attemptOf?.[subtask.id] ?? 0) + 1;
-    try {
-      await this.startSubtaskExec(run, subtask);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt < SUBTASK_MAX_ATTEMPTS) {
-        run.attemptOf = { ...run.attemptOf, [subtask.id]: attempt };
-        await this.ctx.storage.put("run", run);
-        await this.ctx.storage.setAlarm(Date.now() + 1);
-        return;
+    // ---- Launch ONE pack exec for all pending subtasks ----
+    // F3: concurrency lives inside the runner process. Multi-exec-per-workspace
+    // stalled silently on the shared capnweb session (live pools: 1-of-N
+    // completes, rest hang) — one exec per workspace is the proven shape.
+    if (stillWaiting.length === 0 && run.nextSubtask < run.spec.subtasks.length) {
+      const pending = run.spec.subtasks
+        .slice(run.nextSubtask)
+        .filter((s) => !(run.completedIds ?? []).includes(s.id));
+      if (pending.length > 0) {
+        try {
+          const packId = `${Date.now()}-p${pending.length}`;
+          const execId = await this.startPackExec(run, pending, packId);
+          for (const subtask of pending) {
+            const attempt = (run.attemptOf?.[subtask.id] ?? 0) + 1;
+            run.attemptOf = { ...run.attemptOf, [subtask.id]: attempt };
+            run.awaiting = [...(run.awaiting ?? []), { id: subtask.id, attempt, startedAt: Date.now(), execId }];
+          }
+        } catch (error) {
+          await this.finish(run, "failed", "runner_error", (error instanceof Error ? error.message : String(error)).slice(0, 2000));
+          return;
+        }
       }
-      await this.finish(run, "failed", "runner_error", message.slice(0, 2000));
+    }
+
+    await this.ctx.storage.put("run", run);
+    if ((run.awaiting?.length ?? 0) === 0 && totalDone < run.spec.subtasks.length && run.nextSubtask >= run.spec.subtasks.length) {
+      await this.finish(run, "failed", "runner_error", "no in-flight subtasks but run incomplete");
       return;
     }
-    run.attemptOf = { ...run.attemptOf, [subtask.id]: attempt };
-    run.awaitingSubtask = { id: subtask.id, attempt, startedAt: Date.now() };
-    await this.ctx.storage.put("run", run);
     await this.ctx.storage.setAlarm(Date.now() + MARKER_POLL_MS);
   }
 
   private async checkAwaiting(
     run: PersistedRun,
     awaiting: PersistedAwaiting,
-  ): Promise<{ kind: "done" } | { kind: "wait" } | { kind: "retry" } | { kind: "fail"; error: string }> {
+  ): Promise<{ kind: "done" } | { kind: "wait" } | { kind: "retry"; error: string } | { kind: "fail"; error: string }> {
     if (await this.markerExists(awaiting.id, "done.marker")) {
       // LLM+CPU usage ledger (PRD §G5.2): the runner leaves usage JSON per subtask.
       const usage = await this.readSubtaskUsage(awaiting.id);
@@ -296,9 +351,9 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   private retryOrFail(
     awaiting: PersistedAwaiting,
     error: string,
-  ): { kind: "retry" } | { kind: "fail"; error: string } {
+  ): { kind: "retry"; error: string } | { kind: "fail"; error: string } {
     return awaiting.attempt < SUBTASK_MAX_ATTEMPTS
-      ? { kind: "retry" }
+      ? { kind: "retry", error }
       : { kind: "fail", error: `subtask ${awaiting.id} attempt ${awaiting.attempt}: ${error}` };
   }
 
@@ -338,43 +393,57 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   // ---------------------------------------------------------------------
 
-  private async startSubtaskExec(
+  /** In-memory exec handles (don't survive DO restart; markers then time out). */
+  private execHandles = new Map<string, { kill(signal?: string): Promise<void> }>();
+  private packHandle?: { kill(signal?: string): Promise<void> };
+
+  private async startPackExec(
     run: PersistedRun,
-    subtask: { id: string; title?: string; prompt: string },
-  ): Promise<void> {
+    subtasks: { id: string; title?: string; prompt: string }[],
+    packId: string,
+  ): Promise<string> {
     const env = this.env;
     if (!env.LLM_BASE_URL) throw new Error("LLM_BASE_URL secret is not configured");
     const ws = await this.ws();
     await ws.fs.mkdir(`${WORKSPACE_ROOT}/.craft-run`, { recursive: true });
-    await ws.fs.mkdir(joinPosix(ARTIFACTS_ROOT, subtask.id), { recursive: true });
-    // Clear stale markers from previous attempts so the poll sees only this run.
-    for (const marker of ["done.marker", "fail.marker"]) {
-      try {
-        await ws.fs.rm(joinPosix(ARTIFACTS_ROOT, subtask.id, marker));
-      } catch { /* no stale marker */ }
+    await ws.fs.mkdir(ARTIFACTS_ROOT, { recursive: true });
+    // Clear stale markers of pack members so the poll sees only this attempt.
+    for (const subtask of subtasks) {
+      for (const marker of ["done.marker", "fail.marker"]) {
+        try {
+          await ws.fs.rm(joinPosix(ARTIFACTS_ROOT, subtask.id, marker));
+        } catch { /* no stale marker */ }
+      }
     }
     await ws.fs.writeFile(
-      `${WORKSPACE_ROOT}/.craft-run/config.json`,
+      `${WORKSPACE_ROOT}/.craft-run/config-${packId}.json`,
       JSON.stringify({
         baseUrl: env.LLM_BASE_URL,
         apiKey: env.LLM_API_KEY ?? "",
         model: run.spec.model?.modelId ?? env.LLM_MODEL ?? "kimi-k3",
-        subtask,
+        subtasks,
+        concurrency: run.effectiveConcurrency ?? run.spec.concurrency ?? 2,
       }),
     );
     // The handle is NOT awaited here — the DO must stay responsive (1101
     // finding) — but detaching would starve the spawned process of its
     // event-stream consumer and kill it. waitUntil keeps the drain alive
-    // past the alarm tick; outcome is still read from markers.
-    const handle = await ws.shell.exec(`node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT}`, {
-      timeoutMs: SUBTASK_TIMEOUT_MS + 30_000,
+    // past the alarm tick; outcome is read from markers.
+    const handle = await ws.shell.exec(`node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT} config-${packId}.json`, {
+      timeoutMs: SUBTASK_TIMEOUT_MS + 60_000,
       encoding: "utf8",
     });
+    const execId = (handle as { id?: string }).id ?? packId;
+    this.packHandle = handle as { kill(signal?: string): Promise<void> };
+    for (const subtask of subtasks) {
+      this.execHandles.set(subtask.id, this.packHandle);
+    }
     this.ctx.waitUntil(
       handle
         .result()
         .catch(() => null), // exec errors surface via markers; consume to keep the stream alive
     );
+    return execId;
   }
 
   private async markerExists(subtaskId: string, name: string): Promise<boolean> {
