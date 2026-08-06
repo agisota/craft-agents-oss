@@ -101,6 +101,10 @@ export interface Session {
   isArchived?: boolean
   archivedAt?: number
   supportsBranching?: boolean
+  /** Message id this session was branched from (persisted); present on branch sessions */
+  branchFromMessageId?: string
+  /** Parent session id this session was branched from — UI lineage for family grouping in the sidebar */
+  branchFromSessionId?: string
   /** Workspace-scoped project id this session is bound to (undefined = unbound) */
   projectId?: string
   /** Parent session id — when set, this session is a subtask of the parent (undefined = top-level task) */
