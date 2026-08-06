@@ -267,6 +267,36 @@ export function SessionList({
   // --- Data pipeline (search, filtering, pagination, grouping) ---
   const scrollViewportRef = useRef<HTMLDivElement>(null)
 
+  // Session families (branch chats grouped under their root chat), computed
+  // from the full item set so lineage is stable across pagination/search.
+  // Computed BEFORE useSessionSearch: the search hook needs representatives for
+  // family-aware collapse buckets.
+  const { familyBySessionId } = useMemo(() => buildSessionFamilies(items), [items])
+
+  // sessionId → family's bucket representative (the member with max lastMessageAt,
+  // which SessionList also uses for the family's outer bucket). Keeps the whole
+  // family inside ONE collapsed bucket.
+  const bucketRepresentatives = useMemo(() => {
+    const itemById = new Map(items.map(i => [i.id, i]))
+    const bySessionId = new Map<string, SessionMeta>()
+    const seen = new Set<string>()
+    for (const family of familyBySessionId.values()) {
+      if (seen.has(family.rootId)) continue
+      seen.add(family.rootId)
+      if (family.isSingleton) continue // no-family sessions key by themselves
+      // Representative = member with max lastMessageAt; '>' keeps the FIRST on
+      // ties, matching groupIntoFamilyUnits' bucketItem selection.
+      let rep: SessionMeta | undefined
+      for (const id of family.memberIds) {
+        const item = itemById.get(id)
+        if (item && (!rep || (item.lastMessageAt ?? 0) > (rep.lastMessageAt ?? 0))) rep = item
+      }
+      if (!rep) continue
+      for (const id of family.memberIds) bySessionId.set(id, rep)
+    }
+    return bySessionId
+  }, [familyBySessionId, items])
+
   const {
     isSearchMode,
     highlightQuery,
@@ -292,12 +322,9 @@ export function SessionList({
     labelConfigs: labels,
     collapsedGroups,
     groupingMode,
+    bucketRepresentatives,
     scrollViewportRef,
   })
-
-  // Session families (branch chats grouped under their root chat), computed
-  // from the full item set so lineage is stable across pagination/search.
-  const { familyBySessionId } = useMemo(() => buildSessionFamilies(items), [items])
 
   const rowData = useMemo(() => {
     if (isSearchMode) {
