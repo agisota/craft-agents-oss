@@ -4,10 +4,12 @@
  * sha256-verify, атомарная установка, персист в state.json.
  */
 
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { downloadArtifact, HttpError, NetworkError, ShaMismatchError } from './downloader';
+import { runCommand } from './exec';
 import { cleanupOldVersions, flipCurrent, installTool } from './installer';
 import { currentPlatform, TOOLCHAIN_MANIFEST } from './manifest';
 import { createResolver } from './resolver';
@@ -37,8 +39,10 @@ async function readStateFile(stateFile: string): Promise<ToolchainStateFile> {
 
 async function writeStateFile(stateFile: string, state: ToolchainStateFile): Promise<void> {
   await fs.promises.mkdir(path.dirname(stateFile), { recursive: true });
-  const tmp = `${stateFile}.tmp-${process.pid}`;
-  await fs.promises.writeFile(tmp, JSON.stringify(state, null, 2));
+  // Случайный суффикс + O_EXCL ('wx'): предсказуемый .tmp-<pid> позволял бы
+  // чужому same-user процессу подложить symlink и перезаписать произвольный файл.
+  const tmp = `${stateFile}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  await fs.promises.writeFile(tmp, JSON.stringify(state, null, 2), { flag: 'wx' });
   await fs.promises.rename(tmp, stateFile);
 }
 
@@ -78,14 +82,24 @@ export function createManager(
     return status;
   }
 
+  // Сериализация read-modify-write записей state.json: параллельные установки
+  // иначе затирают записи друг друга (lost update).
+  let stateWriteChain: Promise<void> = Promise.resolve();
+
   async function persistTool(
     name: ToolName,
     value: ToolchainStateFile['tools'][ToolName] | undefined,
   ): Promise<void> {
-    const state = await readStateFile(paths.stateFile);
-    if (value) state.tools[name] = value;
-    else delete state.tools[name];
-    await writeStateFile(paths.stateFile, state);
+    const op = stateWriteChain.then(async () => {
+      const state = await readStateFile(paths.stateFile);
+      if (value) state.tools[name] = value;
+      else delete state.tools[name];
+      await writeStateFile(paths.stateFile, state);
+    });
+    stateWriteChain = op.catch(() => {
+      // цепочка продолжается даже при сбое одной записи
+    });
+    await op;
   }
 
   /** Установка python через toolchain/системный uv (резолвер toolchain-first). */
@@ -98,12 +112,7 @@ export function createManager(
     // stable link .pyinstall (binPaths манифеста относительны current).
     const toolRoot = path.join(paths.toolchainDir, 'python');
     const versionDir = path.join(toolRoot, entry.version);
-    const proc = Bun.spawn(
-      [uv, 'python', 'install', entry.version, '--install-dir', versionDir],
-      { stdout: 'pipe', stderr: 'pipe' },
-    );
-    const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
-    if (code !== 0) throw new Error(`uv python install failed: ${stderr.trim()}`);
+    await runCommand([uv, 'python', 'install', entry.version, '--install-dir', versionDir]);
 
     // Находим cpython-директорию (ручное имя содержит patch-версию/платформу,
     // в манифест его не зашить) и ссылаемся на неё стабильным .pyinstall.
@@ -112,7 +121,8 @@ export function createManager(
     if (!cpython) throw new Error(`uv python install: cpython dir not found in ${versionDir}`);
     const link = path.join(versionDir, '.pyinstall');
     await fs.promises.rm(link, { force: true, recursive: true });
-    await fs.promises.symlink(cpython, link);
+    // win32: без явного типа symlink каталога падает (EPERM/EINVAL) — 'junction'.
+    await fs.promises.symlink(cpython, link, process.platform === 'win32' ? 'junction' : undefined);
     await flipCurrent(toolRoot, entry.version, versionDir);
     await cleanupOldVersions(toolRoot, entry.version);
     return { installedPath: versionDir };
@@ -168,9 +178,17 @@ export function createManager(
         return;
       }
       if (error instanceof ShaMismatchError || error instanceof HttpError) {
+        // Не затираем запись о ранее рабочей установке: только помечаем
+        // lastError — иначе неудачный update ломал бы и состояние старой версии.
+        let prev: ToolchainStateFile['tools'][ToolName] | undefined;
+        try {
+          prev = (await readStateFile(paths.stateFile)).tools[entry.name];
+        } catch {
+          prev = undefined;
+        }
         await persistTool(entry.name, {
-          installedVersion: '',
-          installedPath: '',
+          installedVersion: prev?.installedVersion ?? '',
+          installedPath: prev?.installedPath ?? '',
           lastError: message,
         });
       }
@@ -183,10 +201,24 @@ export function createManager(
     const queue = [...items];
     const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
       for (let item = queue.shift(); item; item = queue.shift()) {
-        await installOne(item);
+        await installSerialized(item);
       }
     });
     await Promise.all(workers);
+  }
+
+  // Per-tool mutex: update() вручную во время фонового ensureAll не должен
+  // дублировать установку (два писателя в один partial-файл → шумный sha-fail).
+  const inflight = new Map<ToolName, Promise<void>>();
+  function installSerialized(item: WorkItem): Promise<void> {
+    const name = item.entry.name;
+    const existing = inflight.get(name);
+    if (existing) return existing;
+    const p = installOne(item).finally(() => {
+      if (inflight.get(name) === p) inflight.delete(name);
+    });
+    inflight.set(name, p);
+    return p;
   }
 
   /** Причина установки для entry или null, если актуальная версия уже стоит. */
@@ -313,8 +345,8 @@ export function createManager(
       setStatus(status);
       return status;
     }
-    // форс: игнорируем текущее состояние
-    await installOne({ entry, artifact, reason: 'outdated' });
+    // форс: игнорируем текущее состояние (через общий per-tool mutex)
+    await installSerialized({ entry, artifact, reason: 'outdated' });
     return (await buildStatusSnapshot()).find((s) => s.name === name) ?? emitter.get(name)!;
   }
 

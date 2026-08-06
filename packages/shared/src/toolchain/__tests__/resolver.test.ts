@@ -91,4 +91,71 @@ describe('resolver', () => {
     const paths = toolchainPaths(path.join(tmpDir, 'cfg6'));
     expect(createResolver(paths).toolchainDir()).toBe(paths.toolchainDir);
   });
+
+  describe('win32 (platform DI)', () => {
+    const WIN_MANIFEST: ToolEntry[] = [
+      {
+        name: 'omp',
+        version: '17.2.10',
+        displayName: 'omp',
+        artifacts: {
+          'win32-x64': {
+            url: 'file://fixture',
+            sha256: 'a'.repeat(64),
+            size: 1,
+            archive: 'tar.gz',
+            binPaths: ['bin/omp', 'bin/omp.cmd'],
+          },
+        },
+      },
+    ];
+
+    it('toolchain .cmd-resolver находит omp.cmd по базовому имени omp', async () => {
+      const paths = toolchainPaths(path.join(tmpDir, 'cfg-win1'));
+      const tcBin = path.join(paths.toolchainDir, 'omp', 'current', 'bin', 'omp.cmd');
+      putExecutable(tcBin, '@echo off\r\n');
+      const resolver = createResolver(paths, {
+        manifest: WIN_MANIFEST,
+        pathEnv: path.join(tmpDir, 'empty-path'),
+        platform: 'win32',
+      });
+      expect(await resolver.findExecutable('omp')).toBe(tcBin);
+    });
+
+    it('PATH-поиск win32 пробует .cmd после .exe', async () => {
+      const shim = path.join(tmpDir, 'win-shim');
+      putExecutable(path.join(shim, 'npx.cmd'), '@echo off\r\n');
+      const resolver = createResolver(toolchainPaths(path.join(tmpDir, 'cfg-win2')), {
+        manifest: WIN_MANIFEST,
+        pathEnv: shim,
+        platform: 'win32',
+      });
+      expect(await resolver.findExecutable('npx')).toBe(path.join(shim, 'npx.cmd'));
+    });
+
+    it('имя с расширением (.exe/.cmd) не дополняется', async () => {
+      const shim = path.join(tmpDir, 'win-shim2');
+      putExecutable(path.join(shim, 'uv.exe'), '');
+      putExecutable(path.join(shim, 'omp.cmd'), '@echo off\r\n');
+      const resolver = createResolver(toolchainPaths(path.join(tmpDir, 'cfg-win3')), {
+        manifest: WIN_MANIFEST,
+        pathEnv: shim,
+        platform: 'win32',
+      });
+      expect(await resolver.findExecutable('uv.exe')).toBe(path.join(shim, 'uv.exe'));
+      expect(await resolver.findExecutable('omp.cmd')).toBe(path.join(shim, 'omp.cmd'));
+    });
+
+    it('posix-семантика без DI не трогает .cmd', async () => {
+      const shim = path.join(tmpDir, 'posix-shim');
+      putExecutable(path.join(shim, 'something'));
+      const resolver = createResolver(toolchainPaths(path.join(tmpDir, 'cfg-win4')), {
+        manifest: WIN_MANIFEST,
+        pathEnv: shim,
+        platform: 'linux',
+      });
+      expect(await resolver.findExecutable('something')).toBe(path.join(shim, 'something'));
+      expect(await resolver.findExecutable('something.cmd')).toBeNull();
+    });
+  });
 });

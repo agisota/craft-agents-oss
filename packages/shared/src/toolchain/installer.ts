@@ -8,24 +8,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { ToolArtifact, ToolName, ToolchainPaths } from './types';
+import { runCommand, whichTool } from './exec';
+import { getNpmLock } from './npm-locks';
 
 const isWindows = process.platform === 'win32';
 
-/** Спавн системной команды; reject с stderr при ненулевом exit-code. */
-async function run(cmd: string[], opts?: { cwd?: string }): Promise<void> {
-  const proc = Bun.spawn(cmd, {
-    cwd: opts?.cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const [exitCode, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stderr).text(),
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(`command failed (${cmd.join(' ')}): ${stderr.trim()}`);
-  }
-}
+/** Спавн системной команды; reject с stderr при ненулевом exit-code. Node-only (Electron main — не Bun). */
+const run = (cmd: string[], opts?: { cwd?: string }): Promise<void> => runCommand(cmd, opts);
 
 /**
  * Распаковать архив в destDir.
@@ -47,14 +36,30 @@ export async function extractArtifact(
       return;
     case 'zip':
       if (isWindows) {
+        // Windows PowerShell Expand-Archive не санитизирует zip-slip (CWE-22):
+        // распаковываем через System.IO.Compression с явной нормализацией путей.
+        const a = archiveFile.replaceAll("'", "''");
+        const d = destDir.replaceAll("'", "''");
         await run([
           'powershell',
           '-NoProfile',
           '-Command',
-          `Expand-Archive -LiteralPath '${archiveFile.replaceAll("'", "''")}' -DestinationPath '${destDir.replaceAll("'", "''")}' -Force`,
+          `Add-Type -AssemblyName System.IO.Compression.FileSystem; ` +
+            `$dest = (Resolve-Path -LiteralPath '${d}').Path + [IO.Path]::DirectorySeparatorChar; ` +
+            `$zip = [System.IO.Compression.ZipFile]::OpenRead('${a}'); ` +
+            `foreach ($e in $zip.Entries) { ` +
+            `$out = [IO.Path]::GetFullPath([IO.Path]::Combine($dest, $e.FullName)); ` +
+            `if (-not $out.StartsWith($dest)) { $zip.Dispose(); throw "zip-slip blocked: $($e.FullName)" } ` +
+            `if ($e.FullName.EndsWith('/') -or $e.FullName.EndsWith('\\\\')) { New-Item -ItemType Directory -Path $out -Force | Out-Null } ` +
+            `else { New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($out)) -Force | Out-Null; [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $out, $true) } }; ` +
+            `$zip.Dispose()`,
         ]);
-      } else {
+      } else if (process.platform === 'darwin') {
+        // macOS tar — bsdtar (санитизирует ../ и абсолютные пути)
         await run(['tar', '-xf', archiveFile, '-C', destDir]);
+      } else {
+        // GNU tar не читает zip; unzip (Info-ZIP) санитизирует абсолютные пути
+        await run(['unzip', '-o', archiveFile, '-d', destDir]);
       }
       return;
     case 'raw':
@@ -64,6 +69,29 @@ export async function extractArtifact(
     default:
       throw new Error(`unsupported archive type: ${archive satisfies never}`);
   }
+}
+
+/**
+ * Пост-проверка распаковки: ни один symlink не должен указывать за пределы
+ * root (иначе chmod +x / cleanup могут последовать наружу). Верифицированный
+ * sha256 делает злонамеренный архив маловероятным, но защищаемся дешево.
+ */
+async function assertNoEscapes(root: string): Promise<void> {
+  const realRoot = await fs.promises.realpath(root);
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        const target = await fs.promises.realpath(p).catch(() => null);
+        if (target && target !== realRoot && !target.startsWith(realRoot + path.sep)) {
+          throw new Error(`archive symlink escapes destDir: ${p} -> ${target}`);
+        }
+      } else if (entry.isDirectory()) {
+        await walk(p);
+      }
+    }
+  }
+  await walk(realRoot);
 }
 
 /**
@@ -120,42 +148,56 @@ async function generateNpmWrappers(toolDir: string): Promise<string[]> {
 }
 
 /**
- * `bun install` в распакованном npm-пакете: поставляет зависимости артефакта
- * (в т.ч. optional native-пакеты вроде @oh-my-pi/pi-natives), без которых
- * tarball сам по себе неработоспособен. Bun: CRAFT_BUN_PATH env → toolchain
- * bun → PATH. Вызывается только для npm-пакетов (есть package/package.json bin).
+ * Установка зависимостей распакованного npm-пакета СТРОГО по pinned
+ * package-lock.json из toolchain/npm-locks.ts (npm ci проверяет integrity
+ * каждого пакета — ни один байт транзитивных deps не исполняется
+ * без верификации; supply-chain фикс обзора 2026-08-06).
+ * Lock отсутствует → установка запрещена (fail-closed).
+ * node+npm: toolchain node (omp dependsOn node) → fallback 'npm' из PATH.
  */
-async function npmInstallDeps(paths: ToolchainPaths, toolDir: string): Promise<void> {
-  const envBun = process.env.CRAFT_BUN_PATH?.trim();
-  let bunExe: string | undefined = envBun && fs.existsSync(envBun) ? envBun : undefined;
-  if (!bunExe && !isWindows) {
-    const bunRoot = path.join(paths.toolchainDir, 'bun', 'current');
-    try {
-      for (const entry of await fs.promises.readdir(bunRoot)) {
-        const candidate = path.join(bunRoot, entry, 'bun');
+async function npmInstallDeps(
+  paths: ToolchainPaths,
+  toolDir: string,
+  tool: ToolName,
+  version: string,
+): Promise<void> {
+  const lock = getNpmLock(tool, version);
+  if (!lock) {
+    throw new Error(
+      `no pinned npm lock for ${tool}@${version}: бамп версии требует нового ` +
+        'package-lock.json в toolchain/npm-locks.ts (см. header файла)',
+    );
+  }
+  const pkgDir = path.join(toolDir, 'package');
+  await fs.promises.writeFile(path.join(pkgDir, 'package-lock.json'), lock, 'utf8');
+
+  // toolchain node: npm живёт рядом с node (unix: <dir>/bin/npm; win: npm.cmd в корне).
+  let npm: string | undefined;
+  const nodeRoot = path.join(paths.toolchainDir, 'node', 'current');
+  try {
+    for (const entry of await fs.promises.readdir(nodeRoot)) {
+      for (const candidate of isWindows
+        ? [path.join(nodeRoot, entry, 'npm.cmd'), path.join(nodeRoot, entry, 'bin', 'npm.cmd')]
+        : [path.join(nodeRoot, entry, 'bin', 'npm')]) {
         if (fs.existsSync(candidate)) {
-          bunExe = candidate;
+          npm = candidate;
           break;
         }
       }
-    } catch {
-      // toolchain bun ещё не установлен
+      if (npm) break;
     }
-    bunExe ??= Bun.which('bun') ?? undefined;
+  } catch {
+    // toolchain node ещё не установлен
   }
-  if (!bunExe) {
-    throw new Error('bun not found: cannot install npm deps (CRAFT_BUN_PATH / toolchain bun / PATH)');
+  npm ??= (await whichTool(isWindows ? 'npm.cmd' : 'npm')) ?? undefined;
+  if (!npm) {
+    throw new Error('npm not found: toolchain node required (omp dependsOn node), fallback PATH npm');
   }
-  const pkgDir = path.join(toolDir, 'package');
-  const proc = Bun.spawn([bunExe, 'install', '--production'], {
-    cwd: pkgDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const [code, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
-  if (code !== 0) {
-    throw new Error(`npm deps install failed (bun install --production): ${stderr.trim()}`);
-  }
+  const env = {
+    ...process.env,
+    PATH: `${path.dirname(npm)}${path.delimiter}${process.env.PATH ?? ''}`,
+  };
+  await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: pkgDir, env });
 }
 
 /** chmod +x всем binPaths (unix). Windows не требует. */
@@ -184,8 +226,16 @@ export async function flipCurrent(toolRoot: string, version: string, versionDir:
     } else {
       await fs.promises.symlink(version, tmpLink); // относительный — переносимо
     }
-    await fs.promises.rm(currentLink, { recursive: true, force: true });
-    await fs.promises.rename(tmpLink, currentLink);
+    if (isWindows) {
+      // junction не требует прав администратора; rename поверх каталога на
+      // win не атомарен — удаляем старый (краткое окно без current, принимаем)
+      await fs.promises.rm(currentLink, { recursive: true, force: true });
+      await fs.promises.rename(tmpLink, currentLink);
+    } else {
+      // POSIX rename(2) атомарно заменяет symlink-назначение — rm не нужен,
+      // процессы всегда видят старый или новый current, но не пусто.
+      await fs.promises.rename(tmpLink, currentLink);
+    }
   } catch (error) {
     await fs.promises.rm(tmpLink, { recursive: true, force: true });
     // Windows-fallback: если symlink запрещён политикой — копируем дерево
@@ -240,11 +290,12 @@ export async function installTool(
     await fs.promises.copyFile(artifactFile, dest);
   } else {
     await extractArtifact(artifactFile, artifact.archive, versionDir);
+    await assertNoEscapes(versionDir);
     // npm-пакеты: именованные лончеры bin/<name>[.cmd] по package.json bin…
     const wrappers = await generateNpmWrappers(versionDir);
     if (wrappers.length > 0) {
       // …и npm-зависимости (pi-natives и др. — тарболл один неработоспособен).
-      await npmInstallDeps(paths, versionDir);
+      await npmInstallDeps(paths, versionDir, tool, version);
     }
   }
   await chmodBins(versionDir, artifact.binPaths);

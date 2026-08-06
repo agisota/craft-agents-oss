@@ -43,6 +43,7 @@ function buildManifest(): ToolEntry[] {
       critical: data.critical,
       displayName: data.displayName,
       artifacts: data.artifacts,
+      dependsOn: data.dependsOn,
     });
   }
   return entries;

@@ -108,23 +108,24 @@ describe('installer', () => {
 
     const configDir = path.join(tmpDir, 'cfg-npm');
     const paths = toolchainPaths(configDir);
-    const result = await installTool(paths, 'omp', '1.0.0', tarball, {
-      url: 'file://fixture',
-      sha256: 'unused',
-      size: 1,
-      archive: 'tar.gz',
-      binPaths: ['bin/demo-cli'],
-    });
-    const launcher = path.join(result.installedPath, 'bin', 'demo-cli');
+    const versionDir = path.join(paths.toolchainDir, 'omp', '1.0.0');
+    // fail-closed: без pinned package-lock (npm-locks.ts) установка npm-пакета
+    // ЗАПРЕЩЕНА — supply-chain защита. Лончеры генерируются до этого шага.
+    await expect(
+      installTool(paths, 'omp', '1.0.0', tarball, {
+        url: 'file://fixture',
+        sha256: 'unused',
+        size: 1,
+        archive: 'tar.gz',
+        binPaths: ['bin/demo-cli'],
+      }),
+    ).rejects.toThrow('no pinned npm lock');
+    const launcher = path.join(versionDir, 'bin', 'demo-cli');
     expect(fs.existsSync(launcher)).toBe(true);
     const content = fs.readFileSync(launcher, 'utf8');
     expect(content).toContain('"$DIR/../package/dist/cli.js"');
     expect(content).toContain('CRAFT_BUN_PATH');
-    if (!isWindows) {
-      assertExecBits(launcher);
-      expect(fs.lstatSync(launcher).mode & 0o755).not.toBe(0);
-    }
-    // windows-вариант генерируется всегда
-    expect(fs.existsSync(path.join(result.installedPath, 'bin', 'demo-cli.cmd'))).toBe(true);
+    if (!isWindows) assertExecBits(launcher);
+    expect(fs.existsSync(path.join(versionDir, 'bin', 'demo-cli.cmd'))).toBe(true);
   });
 });

@@ -52,8 +52,9 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
     version: '17.2.10',
     displayName: 'omp (Oh My Pi)',
     critical: true,
-    // npm-тарболл + bun install deps (pi-natives) — bun обязан стоять первым волной.
-    dependsOn: ['bun'],
+    // npm-тарболл + bun-рантайм wrapper + npm ci --locked deps (pi-natives) —
+    // bun и node обязаны стоять первыми волнами.
+    dependsOn: ['bun', 'node'],
     artifacts: {
       'darwin-arm64': {
         url: 'https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/-/pi-coding-agent-17.2.10.tgz',
