@@ -2,10 +2,9 @@
 
 > **Статусы по 2026-08-06 (commits eef8d6891 → 5e91c5e75):** зашиты и live-проверены F1,F2,F3 (pack-model),F4 (agent-loop runner v2: 6 rounds/15 tool calls live),F5 (brief.json structured, 12 claims/10 links live),F6 (cheapModelId),F8 (self-contained scheduler в watcher + schedules CRUD channels),F9,F10,F11 (preview Markdown renderer),F12,F13,F14 (eventLog + events route + dialog tail; WS отложен),F16 (marp slides CF),F19,F20,F22 (personas). **Отложено: F15 shared runs (viewer-инфра для run-bundles — отдельный дизайн), F18 E2B (нужны креды), F21 omp-runner (image delta ~150MB, отдельный spike-план есть в спеке), F17 workflow написан (.github/workflows/cloud-runs-conformance.yml) — активируется с secrets CLOUD_RUNS_{TOKEN,MODAL_GATEWAY_URL,CLOUDFLARE_GATEWAY_URL} в repo settings.**
 
-> **Р.B. от 756db073e/5e91c5e75:** зашиты и live-проверены F1 (resume; gateway createRun restart семантика), F2 (cancel-kill: CF killExec + modal terminate), F3 (pack-model: НЕ multi-exec — ОДИН exec + конкурент внутри runner'а; диагноз: multi-exec на одной capnweb-сессии глохнет + config.json race; 3 сабтаска/18s), F9 (prefill topic), F10 (4 пресета), F12 (failureReason в UI), F13 (median estimate), F19 (zombie reaper в watcher 60s). Runner hard timeouts: fetch AbortSignal 570s. Остаток: F4/F21 (real runner), F5-F8, F11 (preview сделан частично — raw markdown side-dialog, без overlay-рендера), F14-F18, F20, F22.
 
 
-Статус: ready for implementation (по одобрению перечня)
+Статус: waves 1–2 зашиты (commits eef8d6891 → 5e91c5e75); открыты: F15 (viewer-инфра), F18 (креды), F21 (omp-runner spike), F17 (активация secrets CI)
 Владелец: команда форка `agisota/craft-agents-oss`
 Дата: 2026-08-06
 Связанные документы: [cloud-runs-prd.md](cloud-runs-prd.md) (G1–G5 зашиты), TRUTH: код фаз 1–4 + follow-ups.
