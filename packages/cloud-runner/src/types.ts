@@ -60,6 +60,8 @@ export interface RunSpec {
   fromRunId?: string;
   /** F4 switch: agentic tool-loop (default true); false = one-shot LLM per subtask. */
   agentic?: boolean;
+  /** F21: runner flavor — default loop; omp = via omp CLI in CF image. */
+  agenticMode?: 'loop' | 'omp';
   /** Free-form linkage back to the originating session/workspace. */
   metadata?: Record<string, string>;
 }

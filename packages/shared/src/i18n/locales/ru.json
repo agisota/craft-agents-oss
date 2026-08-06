@@ -316,6 +316,8 @@
   "cloudRuns.resume": "Продолжить ран",
   "cloudRuns.resumed": "Ран продолжается",
   "cloudRuns.retry": "Повторить ран",
+  "cloudRuns.share": "Поделиться (скопировать ссылку)",
+  "cloudRuns.shareCopied": "Ссылка скопирована",
   "cloudRuns.state.cancelled": "отменён",
   "cloudRuns.state.done": "готов",
   "cloudRuns.state.failed": "ошибка",

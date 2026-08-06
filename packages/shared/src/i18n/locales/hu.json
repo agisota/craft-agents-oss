@@ -314,6 +314,8 @@
   "cloudRuns.resume": "Futtatás folytatása",
   "cloudRuns.resumed": "Futtatás folytatva",
   "cloudRuns.retry": "Futtatás ismétlése",
+  "cloudRuns.share": "Megosztás (nyilvános link másolása)",
+  "cloudRuns.shareCopied": "Link másolva",
   "cloudRuns.state.cancelled": "megszakítva",
   "cloudRuns.state.done": "kész",
   "cloudRuns.state.failed": "sikertelen",

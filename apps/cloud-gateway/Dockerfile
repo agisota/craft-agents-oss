@@ -19,7 +19,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 COPY src/runner.mjs /opt/craft-runner/runner.mjs
-RUN npm install -g @marp-team/marp-cli@^4 && marp --version
+RUN npm install -g @marp-team/marp-cli@^4
+# omp CLI (F21 variant) is NOT baked in: image size + QEMU-host builds said
+# no. runner-omp.mjs installs it lazily into the container on first use
+# (~30-60s once per container lifetime) and keeps the image slim.
+COPY src/runner-omp.mjs /opt/craft-runner/runner-omp.mjs
 ENV PORT=8080
 ENV MOUNT_POINT=/workspace
 ENV FUSE_MOUNT=auto

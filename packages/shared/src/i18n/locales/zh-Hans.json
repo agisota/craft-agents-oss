@@ -314,6 +314,8 @@
   "cloudRuns.resume": "继续运行",
   "cloudRuns.resumed": "运行已继续",
   "cloudRuns.retry": "重试运行",
+  "cloudRuns.share": "分享（复制公开链接）",
+  "cloudRuns.shareCopied": "链接已复制",
   "cloudRuns.state.cancelled": "已取消",
   "cloudRuns.state.done": "完成",
   "cloudRuns.state.failed": "失败",

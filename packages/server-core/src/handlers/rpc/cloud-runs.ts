@@ -495,6 +495,17 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     return { topic };
   });
 
+  server.handle(RPC_CHANNELS.cloudRuns.SHARE, async (_ctx, args: { runId: string }) => {
+    const settings = requireEnabled();
+    return (providerForRun(settings, args.runId) as CloudRunProvider & { shareRun: (id: string) => Promise<{ url: string }> }).shareRun(args.runId);
+  });
+
+  server.handle(RPC_CHANNELS.cloudRuns.REVOKE_SHARE, async (_ctx, args: { runId: string }) => {
+    const settings = requireEnabled();
+    await (providerForRun(settings, args.runId) as CloudRunProvider & { revokeShare: (id: string) => Promise<void> }).revokeShare(args.runId);
+    return { ok: true };
+  });
+
   server.handle(RPC_CHANNELS.cloudRuns.GET_EVENTS, async (_ctx, args: { runId: string }) => {
     const settings = requireEnabled();
     return (providerForRun(settings, args.runId) as CloudRunProvider & {

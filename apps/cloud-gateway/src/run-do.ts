@@ -49,6 +49,8 @@ interface RunSpec {
   concurrency?: number;
   outputs?: string[];
   agentic?: boolean;
+  /** F21: runner flavor — default 'loop' (custom tool-loop); 'omp' uses omp CLI. */
+  agenticMode?: 'loop' | 'omp';
   ttlSec?: number;
   metadata?: Record<string, string>;
   model?: { connectionSlug?: string; modelId?: string };
@@ -77,6 +79,8 @@ interface PersistedRun {
   completedIds?: string[];
   /** F14: capped event log for the events route (latest last). */
   eventLog?: { t: number; message: string }[];
+  /** F15: tokenized public share. */
+  shareToken?: string;
 }
 
 
@@ -453,7 +457,8 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     // finding) — but detaching would starve the spawned process of its
     // event-stream consumer and kill it. waitUntil keeps the drain alive
     // past the alarm tick; outcome is read from markers.
-    const handle = await ws.shell.exec(`node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT} config-${packId}.json`, {
+    const runner = run.spec.agenticMode === 'omp' ? 'runner-omp.mjs' : 'runner.mjs';
+    const handle = await ws.shell.exec(`node /opt/craft-runner/${runner} ${WORKSPACE_ROOT} config-${packId}.json`, {
       timeoutMs: SUBTASK_TIMEOUT_MS + 60_000,
       encoding: "utf8",
     });
@@ -496,6 +501,50 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   private logEvent(run: PersistedRun, message: string): void {
     run.eventLog = [...(run.eventLog ?? []).slice(-49), { t: Date.now(), message }];
+  }
+
+  /** F15: mint (or return) the public share token. Only done runs. */
+  async shareRun(): Promise<{ token: string }> {
+    const run = await this.ctx.storage.get<PersistedRun>("run");
+    if (!run) throw new Error("not_found");
+    if (run.state !== "done") throw new Error("run not finished");
+    if (!run.shareToken) {
+      run.shareToken = crypto.randomUUID();
+      await this.ctx.storage.put("run", run);
+    }
+    return { token: run.shareToken };
+  }
+
+  async revokeShare(): Promise<{ ok: boolean }> {
+    const run = await this.ctx.storage.get<PersistedRun>("run");
+    if (!run) throw new Error("not_found");
+    delete run.shareToken;
+    await this.ctx.storage.put("run", run);
+    return { ok: true };
+  }
+
+  private async assertShareToken(token: string): Promise<PersistedRun> {
+    const run = await this.ctx.storage.get<PersistedRun>("run");
+    if (!run || !run.shareToken || run.shareToken !== token) throw new Error("not_found");
+    return run;
+  }
+
+  /** F15: public, unauthenticated: minted-token read-only share page. */
+  async renderShare(token: string): Promise<string> {
+    const run = await this.assertShareToken(token);
+    const artifacts = (await this.listArtifacts()).filter((a) => a.path.endsWith(".md") && !a.path.startsWith("_usage/"));
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const sections: string[] = [];
+    for (const artifact of artifacts.slice(0, 20)) {
+      const content = await this.fetchArtifact(artifact.path);
+      sections.push(`<section><h2>${esc(artifact.path)}</h2><pre>${esc(content.slice(0, 100_000))}</pre></section>`);
+    }
+    const title = esc(run.spec.name ?? run.spec.id);
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
+<style>body{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;}pre{white-space:pre-wrap;font-family:inherit;background:#f6f6f6;padding:1rem;border-radius:8px;overflow-wrap:anywhere}h2{font-size:1rem;color:#555}header{display:flex;gap:1rem;align-items:baseline}.badge{background:#22c55e22;color:#15803d;padding:.15em .6em;border-radius:999px;font-size:.8rem}</style>
+</head><body><header><h1>${title}</h1><span class="badge">cloud research · ${run.state}</span></header>
+${sections.join("\n")}
+<footer><small>Shared read-only view · cloud-runs</small></footer></body></html>`;
   }
 
   /** F14: capped event log for live UI tails. */

@@ -303,6 +303,8 @@ export interface ElectronAPI {
   sessionTopicCloudRun(args: { sessionId: string }): Promise<{ topic: string }>
   readCloudRunArtifact(args: { runId: string; path: string }): Promise<{ content: string }>
   getCloudRunEvents(args: { runId: string }): Promise<{ t: number; message: string }[]>
+  shareCloudRun(args: { runId: string }): Promise<{ url: string }>
+  revokeCloudRunShare(args: { runId: string }): Promise<{ ok: boolean }>
   listCloudRunSchedules(): Promise<{
     id: string
     topic: string

@@ -28,6 +28,8 @@ export const CHANNEL_MAP = {
   deleteCloudRunSchedule: invoke(RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE),
   readCloudRunArtifact: invoke(RPC_CHANNELS.cloudRuns.READ_ARTIFACT),
   getCloudRunEvents: invoke(RPC_CHANNELS.cloudRuns.GET_EVENTS),
+  shareCloudRun: invoke(RPC_CHANNELS.cloudRuns.SHARE),
+  revokeCloudRunShare: invoke(RPC_CHANNELS.cloudRuns.REVOKE_SHARE),
   listCloudRuns: invoke(RPC_CHANNELS.cloudRuns.LIST),
   getCloudRunStatus: invoke(RPC_CHANNELS.cloudRuns.GET_STATUS),
   cancelCloudRun: invoke(RPC_CHANNELS.cloudRuns.CANCEL),

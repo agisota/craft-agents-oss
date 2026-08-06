@@ -314,6 +314,8 @@
   "cloudRuns.resume": "Resume run",
   "cloudRuns.resumed": "Run resumed",
   "cloudRuns.retry": "Retry run",
+  "cloudRuns.share": "Share (copy public link)",
+  "cloudRuns.shareCopied": "Share link copied",
   "cloudRuns.state.cancelled": "cancelled",
   "cloudRuns.state.done": "done",
   "cloudRuns.state.failed": "failed",

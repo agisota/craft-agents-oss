@@ -15,6 +15,8 @@ export const RPC_CHANNELS = {
     DELETE_SCHEDULE: 'cloudRuns:deleteSchedule',
     READ_ARTIFACT: 'cloudRuns:readArtifact',
     GET_EVENTS: 'cloudRuns:getEvents',
+    SHARE: 'cloudRuns:share',
+    REVOKE_SHARE: 'cloudRuns:revokeShare',
     LIST: 'cloudRuns:list',
     GET_STATUS: 'cloudRuns:getStatus',
     CANCEL: 'cloudRuns:cancel',

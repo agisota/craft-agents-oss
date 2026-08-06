@@ -240,6 +240,10 @@ def _authorized(headers) -> bool:
     return bool(want) and hmac.compare_digest(got, want)
 
 
+def _share_key(run_id: str) -> str:
+    return f"share:{run_id}"
+
+
 def _maybe_expired(run_id: str) -> bool:
     """ttlSec enforcement: finished runs age out; dict record + volume files purged."""
     import shutil
@@ -452,7 +456,7 @@ def gateway_api():
                 driver.spawn(spec)
             return {"id": run_id, "createdAt": existing.get("createdAt", int(time.time() * 1000))}
         now = int(time.time() * 1000)
-        state[key] = {"id": run_id, "state": "queued", "createdAt": now}
+        state[key] = {"id": run_id, "name": spec.get("name"), "state": "queued", "createdAt": now}
         driver.spawn(spec)
         return {"id": run_id, "createdAt": now}
 
@@ -518,6 +522,50 @@ def gateway_api():
         if not str(target).startswith(str((_run_dir(run_id) / "artifacts").resolve())) or not target.is_file():
             raise fastapi.HTTPException(status_code=404, detail="artifact not found")
         return Response(content=target.read_bytes(), media_type="application/octet-stream")
+
+    @api.post("/runs/{run_id}/share")
+    async def share(run_id: str, _=Depends(auth)):
+        cur = state.get(_state_key(run_id))
+        if not cur:
+            raise fastapi.HTTPException(status_code=404, detail="run not found")
+        if cur.get("state") != "done":
+            raise fastapi.HTTPException(status_code=400, detail="run not finished")
+        import secrets as _secrets
+        token = cur.get("shareToken") or _secrets.token_urlsafe(24)
+        state[_state_key(run_id)] = {**cur, "shareToken": token}
+        return {"token": token}
+
+    @api.post("/runs/{run_id}/revoke")
+    async def revoke(run_id: str, _=Depends(auth)):
+        cur = state.get(_state_key(run_id))
+        if not cur:
+            raise fastapi.HTTPException(status_code=404, detail="run not found")
+        cur.pop("shareToken", None)
+        state[_state_key(run_id)] = cur
+        return {"ok": True}
+
+    @api.get("/share/{run_id}/{token}")
+    async def shared_page(run_id: str, token: str):
+        cur = state.get(_state_key(run_id))
+        if not cur or cur.get("shareToken") != token:
+            raise fastapi.HTTPException(status_code=404, detail="not found")
+        volume.reload()
+        root = _run_dir(run_id) / "artifacts"
+        from html import escape
+        sections = []
+        if root.exists():
+            for md in sorted(root.rglob("*.md"))[:20]:
+                rel = str(md.relative_to(root))
+                sections.append(
+                    f"<section><h2>{escape(rel)}</h2><pre>{escape(md.read_text()[:100000])}</pre></section>"
+                )
+        title = escape(cur.get("name") or run_id)
+        html_doc = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{title}</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;}}pre{{white-space:pre-wrap;font-family:inherit;background:#f6f6f6;padding:1rem;border-radius:8px;overflow-wrap:anywhere}}h2{{font-size:1rem;color:#555}}header{{display:flex;gap:1rem;align-items:baseline}}.badge{{background:#22c55e22;color:#15803d;padding:.15em .6em;border-radius:999px;font-size:.8rem}}</style>
+</head><body><header><h1>{title}</h1><span class="badge">cloud research · {escape(cur.get("state", ""))}</span></header>
+{"".join(sections)}
+<footer><small>Shared read-only view · cloud-runs</small></footer></body></html>"""
+        return fastapi.Response(content=html_doc, media_type="text/html")
 
     @api.get("/healthz")
     async def healthz():

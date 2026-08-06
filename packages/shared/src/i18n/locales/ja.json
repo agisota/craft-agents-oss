@@ -314,6 +314,8 @@
   "cloudRuns.resume": "実行を再開",
   "cloudRuns.resumed": "実行を再開しました",
   "cloudRuns.retry": "実行をやり直す",
+  "cloudRuns.share": "共有（公開リンクをコピー）",
+  "cloudRuns.shareCopied": "リンクをコピーしました",
   "cloudRuns.state.cancelled": "キャンセル",
   "cloudRuns.state.done": "完了",
   "cloudRuns.state.failed": "失敗",

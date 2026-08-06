@@ -9,7 +9,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Cloud, Download, FileText, RefreshCw, Rocket, XCircle } from 'lucide-react'
+import { Cloud, Download, FileText, Link2, RefreshCw, Rocket, XCircle } from 'lucide-react'
 import { Markdown } from '@craft-agent/ui'
 import {
   Dialog,
@@ -343,6 +343,21 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                         }
                       >
                         <FileText className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === run.id}
+                        title={t('cloudRuns.share')}
+                        onClick={() =>
+                          void act(run.id, async () => {
+                            const { url } = await window.electronAPI.shareCloudRun({ runId: run.id })
+                            await navigator.clipboard.writeText(url)
+                            toast.success(t('cloudRuns.shareCopied'))
+                          })
+                        }
+                      >
+                        <Link2 className="h-4 w-4" />
                       </Button>
                       <Button
                         size="sm"

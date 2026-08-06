@@ -82,6 +82,26 @@ export class CloudflareComputerProvider implements CloudRunProvider {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /** F15: mint the tokenized public share URL (done runs only). */
+  async shareRun(id: string): Promise<{ url: string }> {
+    const res = await this.request('POST', `/runs/${encodeURIComponent(id)}/share`);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({ error: res.statusText }))) as GatewayError;
+      this.throwGateway(res.status, body);
+    }
+    const { token } = (await res.json()) as { token: string };
+    return { url: `${this.baseUrl}/share/${encodeURIComponent(id)}/${token}` };
+  }
+
+  /** F15: revoke the public share. */
+  async revokeShare(id: string): Promise<void> {
+    const res = await this.request('POST', `/runs/${encodeURIComponent(id)}/revoke`);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({ error: res.statusText }))) as GatewayError;
+      this.throwGateway(res.status, body);
+    }
+  }
+
   /** F14: capped server-side event log (transitions, pack starts, retries). */
   async getEvents(id: string): Promise<{ t: number; message: string }[]> {
     const res = await this.request('GET', `/runs/${encodeURIComponent(id)}/events`);

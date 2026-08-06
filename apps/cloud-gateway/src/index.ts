@@ -55,10 +55,21 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") return json({ ok: true }, 200);
 
-    const denied = await authorize(request, env);
-    if (denied) return denied;
+    // F15: public tokenized share page — no auth, token IS the capability.
+    const shareMatch = url.pathname.match(/^\/share\/([^/]+)\/([0-9a-f-]+)$/);
+    if (shareMatch && request.method === "GET") {
+      try {
+        const html = await stubOf(env, shareMatch[1]!).renderShare(shareMatch[2]!);
+        return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+      } catch {
+        return new Response("not found", { status: 404 });
+      }
+    }
 
-    const runMatch = url.pathname.match(/^\/runs\/([^/]+)(\/status|\/events|\/artifacts(?:\/(.*))?)?$/);
+    const denied2 = await authorize(request, env);
+    if (denied2) return denied2;
+
+    const runMatch = url.pathname.match(/^\/runs\/([^/]+)(\/status|\/events|\/share|\/revoke|\/artifacts(?:\/(.*))?)?$/);
     if (url.pathname === "/runs" && request.method === "POST") {
       const spec = (await request.json().catch(() => null)) as { id?: string; subtasks?: unknown[]; fromRunId?: string } | null;
       if (!spec?.id || !Array.isArray(spec.subtasks) || spec.subtasks.length === 0) {
@@ -89,6 +100,13 @@ export default {
     }
     if (request.method === "GET" && sub === "/events") {
       return callDo(() => stub.getEvents());
+    }
+    if (request.method === "POST" && sub === "/share") {
+      const result = await callDo(() => stub.shareRun());
+      return result;
+    }
+    if (request.method === "POST" && sub === "/revoke") {
+      return callDo(() => stub.revokeShare());
     }
     if (request.method === "DELETE" && sub === undefined) {
       return callDo(async () => {
