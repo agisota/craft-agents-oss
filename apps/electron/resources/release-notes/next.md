@@ -13,3 +13,5 @@ This file accumulates release notes for the next unreleased version. PRs that ad
 ## Breaking Changes
 
 - Fixed Chinese IME first-character input conflicting with English auto-capitalisation. On some macOS/Electron builds the native `input` event fires before `compositionstart`, causing the auto-capitalise logic to capitalise the first pinyin letter and corrupt the IME composition session.
+
+- Fixed IME composition text being invisible and placeholder hints overlaying the input during the entire composition phase. `showPlaceholder` was computed from React state (`safeValue`) which stays `''` while `onChange` is blocked during composition, making the preedit text transparent and keeping the rotating placeholder overlay visible.
