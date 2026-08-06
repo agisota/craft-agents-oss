@@ -44,6 +44,7 @@ export const SESSION_PERSISTENT_FIELDS = [
   'isArchived', 'archivedAt',
   // Branching
   'branchFromMessageId',
+  'branchFromSessionId',
   'branchFromSdkSessionId',
   'branchFromSessionPath',
   'branchFromSdkCwd',
@@ -182,6 +183,11 @@ export interface SessionConfig {
    * Branching semantics are a hard cutoff: model context must not include parent messages after this message.
    */
   branchFromMessageId?: string;
+  /**
+   * Parent session ID this session was branched from (UI lineage).
+   * Used by the sidebar to group a session family (root + all branches).
+   */
+  branchFromSessionId?: string;
   /**
    * Parent session's SDK session ID (optional, only for provider strategies that support strict SDK-level forking).
    */

@@ -57,6 +57,8 @@ export interface UseSessionSearchOptions {
   collapsedGroups?: Set<string>
   /** Grouping mode — needed to compute group keys for collapse-aware pagination */
   groupingMode?: 'date' | 'status' | 'unread' | 'project'
+  /** sessionId → family bucket representative; keeps session families in one collapse bucket */
+  bucketRepresentatives?: Map<string, SessionMeta>
   /** Ref to the ScrollArea viewport element — used for scroll-based pagination */
   scrollViewportRef?: React.RefObject<HTMLDivElement>
 }
@@ -140,7 +142,17 @@ export function computeCollapsedPagination(
   displayLimit: number,
   collapsedGroups?: Set<string>,
   groupingMode?: 'date' | 'status' | 'unread' | 'project',
+  /**
+   * sessionId → the session family's bucket representative (max-activity member).
+   * When provided, collapse group keys are derived from the representative so a
+   * whole session family (root + branch chats) lands in ONE outer bucket and a
+   * collapsed bucket hides/shows the family together — see session-families.ts.
+   */
+  bucketRepresentatives?: Map<string, SessionMeta>,
 ): CollapsedPaginationResult {
+  const bucketKeyOf = (item: SessionMeta): string =>
+    getCollapseGroupKey(bucketRepresentatives?.get(item.id) ?? item, groupingMode)
+
   // Fast path: no collapse state → original slice
   if (!collapsedGroups || collapsedGroups.size === 0) {
     return {
@@ -150,7 +162,7 @@ export function computeCollapsedPagination(
     }
   }
 
-  const groupKeysInView = new Set(items.map(item => getCollapseGroupKey(item, groupingMode)))
+  const groupKeysInView = new Set(items.map(item => bucketKeyOf(item)))
 
   // Safety guard: don't allow collapse state to hide the entire list when only one
   // group exists in the current filtered view (there would be no meaningful collapse UX).
@@ -178,7 +190,7 @@ export function computeCollapsedPagination(
   const collapsedCounts = new Map<string, number>()
 
   for (const item of items) {
-    const groupKey = getCollapseGroupKey(item, groupingMode)
+    const groupKey = bucketKeyOf(item)
 
     if (effectiveCollapsedKeys.has(groupKey)) {
       collapsedCounts.set(groupKey, (collapsedCounts.get(groupKey) || 0) + 1)
@@ -297,6 +309,7 @@ export function useSessionSearch({
   labelConfigs,
   collapsedGroups,
   groupingMode,
+  bucketRepresentatives,
   scrollViewportRef,
 }: UseSessionSearchOptions): UseSessionSearchResult {
 
@@ -482,8 +495,8 @@ export function useSessionSearch({
   // paginatedItems (and therefore flatItems / keyboard nav). Their counts are
   // returned as collapsedGroupsMeta so the renderer can show header-only groups.
   const { paginatedItems, hasMore, collapsedGroupsMeta } = useMemo(() => {
-    return computeCollapsedPagination(searchFilteredItems, displayLimit, collapsedGroups, groupingMode)
-  }, [searchFilteredItems, displayLimit, collapsedGroups, groupingMode])
+    return computeCollapsedPagination(searchFilteredItems, displayLimit, collapsedGroups, groupingMode, bucketRepresentatives)
+  }, [searchFilteredItems, displayLimit, collapsedGroups, groupingMode, bucketRepresentatives])
 
   const loadMore = useCallback(() => {
     setDisplayLimit(prev => Math.min(prev + BATCH_SIZE, searchFilteredItems.length))

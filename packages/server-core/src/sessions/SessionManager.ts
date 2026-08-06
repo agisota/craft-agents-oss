@@ -1021,6 +1021,8 @@ interface ManagedSession {
   // Whether this session is hidden from session list (e.g., mini edit sessions)
   hidden?: boolean
   branchFromMessageId?: string
+  // Parent session id (UI lineage) — persisted via SESSION_PERSISTENT_FIELDS
+  branchFromSessionId?: string
   // Branch context strategy:
   // - sdk-fork: provider-level fork from parent SDK session
   // - seeded-fresh-session: fresh backend session seeded with transcript up to branch cutoff
@@ -3136,6 +3138,7 @@ export class SessionManager implements ISessionManager {
       }
 
       branchedStored.branchFromMessageId = validatedBranch.sourceMessageId
+      branchedStored.branchFromSessionId = validatedBranch.sourceSessionId
       if (validatedBranch.branchContextStrategy === 'sdk-fork') {
         branchedStored.branchFromSdkSessionId = validatedBranch.branchFromSdkSessionId
         branchedStored.branchFromSessionPath = validatedBranch.branchFromSessionPath
@@ -3214,6 +3217,7 @@ export class SessionManager implements ISessionManager {
       systemPromptPreset: options?.systemPromptPreset,
       enabledSourceSlugs: defaultEnabledSourceSlugs,
       branchFromMessageId: validatedBranch?.sourceMessageId,
+      branchFromSessionId: validatedBranch?.sourceSessionId,
       branchContextStrategy: validatedBranch?.branchContextStrategy,
       branchFromSdkSessionId: validatedBranch?.branchFromSdkSessionId,
       branchFromSessionPath: validatedBranch?.branchFromSessionPath,

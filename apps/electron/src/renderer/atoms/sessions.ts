@@ -89,6 +89,8 @@ export interface SessionMeta {
   taskNodeId?: string
   /** Tasks Conductor: total DAG node count (orchestrator only) — stable board progress denominator while children spawn lazily */
   taskNodeCount?: number
+  /** Parent session id this session was branched from — UI lineage; roots session families in the sidebar (undefined = not a branch or legacy branch) */
+  branchFromSessionId?: string
   /** Tasks Conductor: a generate-time draft orchestrator, hidden from the board until adopted by createTask. */
   taskDraft?: boolean
 }

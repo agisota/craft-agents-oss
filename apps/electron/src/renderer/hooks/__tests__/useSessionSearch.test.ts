@@ -66,4 +66,61 @@ describe('computeCollapsedPagination', () => {
     expect(result.paginatedItems.map(s => s.id)).toEqual(['a', 'b'])
     expect(result.collapsedGroupsMeta).toEqual([])
   })
+
+  it('family-aware buckets: collapsing the family bucket hides the whole family', () => {
+    // Root active 2026-03-04, branch active 2026-03-05 — without family
+    // awareness collapsing the 03-05 bucket would hide only the branch and
+    // leave the root as a plain standalone session (spec violation).
+    const root = makeSession('root', { lastMessageAt: Date.parse('2026-03-04T10:00:00.000Z') })
+    const branch = makeSession('branch', {
+      lastMessageAt: Date.parse('2026-03-05T10:00:00.000Z'),
+      branchFromSessionId: 'root',
+    })
+    const other = makeSession('other', { lastMessageAt: Date.parse('2026-03-06T10:00:00.000Z') })
+    const sessions = [branch, other, root]
+    const representatives = new Map<string, SessionMeta>([
+      ['root', branch], // family's max-activity member is the branch
+      ['branch', branch],
+    ])
+
+    const result = computeCollapsedPagination(
+      sessions,
+      50,
+      new Set(['2026-03-05T00:00:00.000Z']),
+      'date',
+      representatives,
+    )
+
+    // The whole family (root + branch) keys to the family's latest-activity
+    // bucket (03-05): both hidden, count reflects both.
+    expect(result.paginatedItems.map(s => s.id)).toEqual(['other'])
+    expect(result.collapsedGroupsMeta).toEqual([{ key: '2026-03-05T00:00:00.000Z', count: 2 }])
+  })
+
+  it('family-aware buckets: collapsing a non-family bucket leaves the family intact', () => {
+    const root = makeSession('root', { lastMessageAt: Date.parse('2026-03-04T10:00:00.000Z') })
+    const branch = makeSession('branch', {
+      lastMessageAt: Date.parse('2026-03-05T10:00:00.000Z'),
+      branchFromSessionId: 'root',
+    })
+    const other = makeSession('other', { lastMessageAt: Date.parse('2026-03-06T10:00:00.000Z') })
+    const sessions = [branch, other, root]
+    const representatives = new Map<string, SessionMeta>([
+      ['root', branch],
+      ['branch', branch],
+    ])
+
+    const result = computeCollapsedPagination(
+      sessions,
+      50,
+      new Set(['2026-03-06T00:00:00.000Z']),
+      'date',
+      representatives,
+    )
+
+    // Collapsing 03-06 hides only 'other'; root + branch stay (both visible
+    // under the family's 03-05 bucket key).
+    expect(result.paginatedItems.map(s => s.id)).toEqual(['branch', 'root'])
+    expect(result.collapsedGroupsMeta).toEqual([{ key: '2026-03-06T00:00:00.000Z', count: 1 }])
+  })
 })
