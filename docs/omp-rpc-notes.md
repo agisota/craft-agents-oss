@@ -44,6 +44,21 @@ All commands: `{id: N, type: <cmd>, ...}`. Response: `{id, type:"response", comm
 
 `get_state.data.sessionId` + `sessionFile` identify the OMP session. Sessions persist across processes in OMP's session dir (per cwd); `new_session` starts fresh, `switch_session {sessionPath}` resumes, `--continue <id>` CLI flag continues a previous session at spawn.
 
+NOTE (verified 2026-08-06, probe D): respawning `omp --mode rpc` with the **same** `--session-dir` does NOT auto-resume — it starts a fresh session (messageCount 0, new sessionId/file). `switch_session` is required to attach to an existing transcript.
+
+## Branching (G3, verified 2026-08-06 with live probes)
+
+**Entry id format.** Wire events (`message_start`/`message_end`/`get_messages`/`get_state`) expose **no entry ids**. Ids exist only in the session JSONL transcript (path = `get_state.data.sessionFile`). Each line is an entry `{type, id, parentId, ...}` where `id` is a short **8-hex** string (`"3af736d6"`) and `parentId` chains entries (`session`/`model_change`/`thinking_level_change`/`title`/`custom` entries interleave with `type:"message"` ones). Assistant message entries also carry `responseId` (a provider UUID — NOT the branchable id).
+
+**`branch {entryId}` semantics (source-verified in agent-session.ts + probed):**
+- `entryId` MUST be the id of a **user** message entry. An assistant entry id or unknown id → response `success:false`, error `"Invalid entry ID for branching"` (probed: assistant id and bogus id both fail identically).
+- The fork cuts the new session at `selectedEntry.parentId` — i.e. branch history = everything before that user message. Response: `{text, images, cancelled}` where `text` is the selected user message's own text (for UI re-prompt) and `cancelled:true` only if an extension `session_before_branch` hook cancels.
+- `switch_session {sessionPath}` then `branch {entryId}` from a DIFFERENT process works: the new forked transcript `<ts>_<newSessionId>.jsonl` is written into the running process's own `--session-dir`; **the parent transcript file is not modified** (verified byte-identical after fork + follow-up turn).
+- Tail fork (branch after the LAST assistant message — no user entry follows it): copy the parent transcript file into the child's session-dir and `switch_session` to the copy. Full history retained, follow-up turns append to the copy, parent file untouched. The copied session keeps the same OMP `sessionId`.
+- Verified end-to-end: 2-turn parent (fruits BANANA+MANGO); mid-history cut before turn 2 → branch recalls only BANANA; tail-copy → branch recalls both.
+
+**Craft wiring (G3).** Per final assistant message, OmpAgent reads the transcript at `message_end` (OMP appends entries synchronously at `message_end` — see session-manager.ts "message_end persists the finished message"), takes the last assistant entry id, and emits `omp_turn_anchor {turnId, entryId}`; SessionManager persists `craftMessageId → entryId` into `<session>/meta/omp-turn-anchors.json`. At branch time the child OmpAgent resolves the cut: the first `user` entry AFTER the anchor becomes the `branch` arg; if none, the tail-copy strategy is used. Legacy sessions / messages without an anchor fail branch creation loudly (no silent wrong-context fork).
+
 ## Print mode (one-shot)
 
 `omp -p "<text>"` runs one prompt non-interactively and prints the answer on stdout (verified: ~6 s for trivial prompts on rox gateway). Used for `runMiniCompletion`/`queryLlm`.

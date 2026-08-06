@@ -556,6 +556,13 @@ export type AgentEvent =
   | { type: 'thinking_delta'; text: string; turnId?: string }
   | { type: 'thinking_complete'; text: string; turnId?: string }
   | { type: 'pi_turn_anchor'; sdkMessageId: string; sdkTurnAnchor: string }
+  /**
+   * OMP branching anchor: emitted after a non-intermediate (final) assistant
+   * text_complete, carrying the OMP transcript entry id of that assistant
+   * message. SessionManager correlates by turnId (the same sub-turn id used
+   * on the text_complete) and persists it to the omp-turn-anchors sidecar.
+   */
+  | { type: 'omp_turn_anchor'; turnId: string; entryId: string }
   | { type: 'tool_start'; toolName: string; toolUseId: string; input: Record<string, unknown>; intent?: string; displayName?: string; turnId?: string; parentToolUseId?: string; toolDisplayMeta?: ToolDisplayMeta }
   | { type: 'tool_result'; toolUseId: string; toolName?: string; result: string; isError: boolean; input?: Record<string, unknown>; turnId?: string; parentToolUseId?: string }
   | {

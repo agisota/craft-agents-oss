@@ -20,8 +20,18 @@
  *   <workspace>/sessions/<craftSessionId>/omp` (per-craft-session isolation).
  *   History is thus stored in BOTH stores without conflict; craft remains the
  *   owner of conversation history — resuming from the OMP store is
- *   intentionally NOT implemented. (OMP's `branch {entryId}` RPC exists but
- *   branching is NOT implemented — supportsBranching = false.)
+ *   intentionally NOT implemented.
+ * - Branching: supported. Anchor model — every final assistant reply is
+ *   anchored to its OMP transcript entry id (8-hex `id` in the session JSONL,
+ *   see docs/omp-rpc-notes.md §Branching); SessionManager persists the
+ *   craft-message-id → entry-id mapping in `omp-turn-anchors.json` (same
+ *   pattern as pi-turn-anchors.json). A branch child spawns its own omp
+ *   process in the branch session-dir, `switch_session`s onto the parent
+ *   transcript and issues `branch {entryId}` where entryId is the USER entry
+ *   following the anchor (OMP's branch cuts at that entry's parentId —
+ *   assistant entries are rejected per VERIFIED probe). For a branch at the
+ *   tail (no following user entry) the parent transcript is copied into the
+ *   branch session-dir and switched to directly (full-history fork).
  * - Host tools bridge: after `ready` craft registers its session-scoped tools
  *   (spawn_session, call_llm, browser_tool, mcp__session__*; see
  *   getSessionToolProxyDefs) via the `set_host_tools` RPC. When the OMP model
@@ -34,7 +44,7 @@ import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, copyFileSync } from 'node:fs';
 import { getSessionPath } from '../sessions/storage.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
@@ -161,8 +171,19 @@ function normalizeModelId(id: string): string {
   return id.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-interface OmpUsage {
-  input?: number;
+/**
+ * OMP session transcript entry (one JSONL line of the session file).
+ * `id` is a short 8-hex entry id; `parentId` chains entries. Verified in
+ * docs/omp-rpc-notes.md §Branching.
+ */
+interface OmpTranscriptEntry {
+  type?: string;
+  id?: string;
+  parentId?: string | null;
+  message?: { role?: string };
+}
+
+interface OmpUsage {  input?: number;
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
@@ -252,19 +273,38 @@ export class OmpAgent extends BaseAgent {
 
   // OMP session identity (reported via get_state after ready)
   private ompSessionId: string | null = null;
+  /** Path of the active OMP transcript (get_state.data.sessionFile); best effort. */
+  private ompSessionFile: string | null = null;
+  /** Number of branch anchors emitted this process run (supportsBranching gate). */
+  private emittedAnchorCount = 0;
+  /** Turn awaiting OMP-transcript anchor resolution (deferred to agent_end — transcript flushes after message_end). */
+  private pendingAnchorTurnId: string | null = null;
+  /** Whether the branch-fork handshake already ran for this agent instance. */
+  private branchHandshakeApplied = false;
 
   constructor(config: BackendConfig) {
     super(config, config.model || '');
 
-    // OMP has a `branch {entryId}` RPC command but the branch-entry UX
-    // contract (message-id anchors from normalized transcripts) is not wired;
-    // branching is intentionally unsupported for now.
-    this._supportsBranching = false;
+    // OMP branching (G3): supported via transcript entry anchors. The live
+    // gate is the supportsBranching getter below — a branch needs at least
+    // one anchor (fresh completed turn this run) or an initialized OMP
+    // session identity from previous persisted state.
     this.ompSessionId = config.session?.sdkSessionId || null;
 
     if (!config.isHeadless) {
       this.startConfigWatcher();
     }
+  }
+
+  /**
+   * OMP supports branching only when there is something to anchor the branch
+   * point to: a completed assistant turn this run (anchor captured from the
+   * OMP transcript JSONL), or a session identity persisted from earlier turns
+   * (anchors for its messages live in the omp-turn-anchors sidecar).
+   */
+  override get supportsBranching(): boolean {
+    return this._supportsBranching
+      && (this.emittedAnchorCount > 0 || !!this.ompSessionId || !!this.config.session?.branchFromMessageId);
   }
 
   // ============================================================
@@ -282,10 +322,186 @@ export class OmpAgent extends BaseAgent {
     if (this.subprocess && this.subprocessReady) {
       await this.subprocessReady;
       if (this.spawnError) throw this.spawnError;
-      return;
+    } else {
+      await this.spawnSubprocess();
     }
-    await this.spawnSubprocess();
+    // Branch fork: after spawn, attach to the parent OMP transcript and cut
+    // it at the persisted anchor. Runs exactly once per agent instance.
+    await this.applyOmpBranchHandshake();
   }
+
+  // ============================================================
+  // Branching (G3)
+  // ============================================================
+
+  /** OMP transcript directory for a craft session (`<session>/omp`). */
+  private getOmpSessionDir(craftSessionId: string): string {
+    return join(getSessionPath(this.config.workspace.rootPath, craftSessionId), 'omp');
+  }
+
+  /**
+   * Latest OMP transcript file in a session dir.
+   * Filenames carry a timestamp + sessionId suffix (`<ts>_<sessionId>.jsonl`,
+   * docs/omp-rpc-notes.md §Branching): prefer an exact sessionId match,
+   * otherwise fall back to the newest by name (timestamp-prefixed ⇒ sorted).
+   */
+  private resolveOmpTranscriptFile(ompDir: string, sessionId: string | null | undefined): string | null {
+    let names: string[];
+    try {
+      names = readdirSync(ompDir).filter((n) => n.endsWith('.jsonl')).sort();
+    } catch {
+      return null;
+    }
+    if (names.length === 0) return null;
+    if (sessionId) {
+      const match = names.filter((n) => n.includes(sessionId)).at(-1);
+      if (match) return join(ompDir, match);
+    }
+    const last = names.at(-1);
+    return last ? join(ompDir, last) : null;
+  }
+
+  /**
+   * Tolerantly parse an OMP session JSONL transcript into entry chain order.
+   */
+  private parseOmpTranscript(path: string): OmpTranscriptEntry[] {
+    const entries: OmpTranscriptEntry[] = [];
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        entries.push(JSON.parse(trimmed) as OmpTranscriptEntry);
+      } catch {
+        this.debug(`Skipped malformed OMP transcript line in ${path}`);
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * Entry-id of the last assistant message entry in the OMP transcript.
+   * OMP persists each message entry synchronously at message_end (verified in
+   * session-manager.ts comment: "`message_end` persists the finished message"),
+   * so at our message_end handler the just-finished reply is already on disk.
+   */
+  private readLastAssistantEntryId(): string | null {
+    const file = this.ompSessionFile
+      ?? (this.config.session?.id
+        ? this.resolveOmpTranscriptFile(this.getOmpSessionDir(this.config.session.id), this.ompSessionId)
+        : null);
+    if (!file) return null;
+    try {
+      const entries = this.parseOmpTranscript(file);
+      for (const e of [...entries].reverse()) {
+        if (e.type === 'message' && e.message?.role === 'assistant' && e.id) return e.id;
+      }
+    } catch (error) {
+      this.debug(`Failed reading OMP transcript for anchor: ${error}`);
+    }
+    return null;
+  }
+
+  /**
+   * SessionManager preflight for branched sessions (createSession →
+   * getOrCreateAgent → ensureBranchReady): spawn the subprocess and apply the
+   * fork. Throws (rollback-worthy) on any failure — an OMP branch must never
+   * silently start with the wrong context.
+   */
+  override async ensureBranchReady(): Promise<void> {
+    if (!this.config.session?.branchFromMessageId) return;
+    await this.ensureSubprocess(); // includes applyOmpBranchHandshake
+  }
+
+  /**
+   * Fork the branch session from the parent OMP transcript at the persisted
+   * anchor (branchFromSdkTurnId = assistant transcript entry id).
+   *
+   * OMP's `branch` RPC accepts only a USER message entry id and cuts the new
+   * session at that entry's parentId (VERIFIED probes, docs/omp-rpc-notes.md
+   * §Branching):
+   * - mid-history branch: the cut entry is the user entry directly after the
+   *   anchor; we `switch_session` to the parent transcript then `branch` —
+   *   OMP writes a NEW file into OUR session-dir (parent file untouched).
+   * - tail branch (no user entry after the anchor): copy the parent
+   *   transcript into our session-dir and `switch_session` to the copy
+   *   (full-history fork; new turns append to the copy only).
+   */
+  private async applyOmpBranchHandshake(): Promise<void> {
+    if (this.branchHandshakeApplied) return;
+    const session = this.config.session;
+    if (!session?.branchFromMessageId) return;
+
+    const parentSessionPath = session.branchFromSessionPath;
+    const anchorId = session.branchFromSdkTurnId;
+    if (!parentSessionPath) {
+      throw new Error('OMP branch preflight failed: missing branchFromSessionPath metadata');
+    }
+    if (!anchorId) {
+      throw new Error('OMP branch preflight failed: missing branchFromSdkTurnId metadata (no OMP transcript anchor for the branch message)');
+    }
+    if (!this.subprocess) {
+      throw new Error('OMP branch preflight failed: subprocess unavailable for fork handshake');
+    }
+
+    const parentFile = this.resolveOmpTranscriptFile(
+      join(parentSessionPath, 'omp'),
+      session.branchFromSdkSessionId,
+    );
+    if (!parentFile) {
+      throw new Error(`OMP branch preflight failed: parent OMP transcript not found under ${join(parentSessionPath, 'omp')}`);
+    }
+
+    const entries = this.parseOmpTranscript(parentFile);
+    const anchorIdx = entries.findIndex((e) => e.type === 'message' && e.id === anchorId);
+    if (anchorIdx === -1) {
+      throw new Error(`OMP branch preflight failed: anchor entry ${anchorId} not found in parent transcript (rewritten by compaction?)`);
+    }
+    const cutUserEntry = entries
+      .slice(anchorIdx + 1)
+      .find((e) => e.type === 'message' && e.message?.role === 'user' && e.id);
+
+    if (cutUserEntry) {
+      await this.sendCommand('switch_session', { sessionPath: parentFile });
+      const result = (await this.sendCommand('branch', { entryId: cutUserEntry.id }, 30_000)) as
+        | { text?: string; cancelled?: boolean }
+        | null;
+      if (result?.cancelled) {
+        throw new Error('OMP branch preflight failed: branch request was cancelled');
+      }
+      this.debug(
+        `OMP branch applied: forked at entry ${anchorId} (cut before user entry ${cutUserEntry.id})`,
+      );
+    } else {
+      const ownDir = this.getOmpSessionDir(session.id);
+      const copyPath = join(ownDir, `branched-${Date.now()}.jsonl`);
+      try {
+        copyFileSync(parentFile, copyPath);
+      } catch (error) {
+        throw new Error(`OMP branch preflight failed: cannot copy parent transcript: ${error}`);
+      }
+      await this.sendCommand('switch_session', { sessionPath: copyPath });
+      this.debug(`OMP branch applied: tail fork via transcript copy (anchor ${anchorId} is the last message entry)`);
+    }
+
+    // Capture the forked session identity (branch() allocates a fresh sessionId).
+    try {
+      const state = (await this.sendCommand('get_state', {})) as
+        | { sessionId?: string; sessionFile?: string }
+        | null;
+      if (state?.sessionFile) this.ompSessionFile = state.sessionFile;
+      if (state?.sessionId && state.sessionId !== this.ompSessionId) {
+        this.ompSessionId = state.sessionId;
+        this.config.onSdkSessionIdUpdate?.(state.sessionId);
+      }
+    } catch (error) {
+      this.debug(`get_state after branch handshake failed: ${error}`);
+    }
+    this.branchHandshakeApplied = true;
+  }
+
+  // ============================================================
+  // Subprocess spawn
+  // ============================================================
 
   private async spawnSubprocess(): Promise<void> {
     const bin = process.env.OMP_CLI_PATH?.trim() || 'omp';
@@ -302,11 +518,8 @@ export class OmpAgent extends BaseAgent {
     //   (OMP's strongest auto mode: zero approval prompts, incl. destructive).
     const args = ['--mode', 'rpc'];
     const craftSessionId = this.config.session?.id || this._sessionId || '';
-    if (craftSessionId) {
-      const ompSessionDir = join(
-        getSessionPath(this.config.workspace.rootPath, craftSessionId),
-        'omp',
-      );
+    const ompSessionDir = craftSessionId ? this.getOmpSessionDir(craftSessionId) : null;
+    if (ompSessionDir) {
       try {
         mkdirSync(ompSessionDir, { recursive: true });
         args.push('--session-dir', ompSessionDir);
@@ -381,11 +594,13 @@ export class OmpAgent extends BaseAgent {
     // Capture the OMP session id for getSessionId(); best effort.
     this.sendCommand('get_state', {})
       .then((data) => {
-        const sid = (data as { sessionId?: string } | null)?.sessionId;
+        const state = (data as { sessionId?: string; sessionFile?: string } | null);
+        const sid = state?.sessionId;
         if (sid && sid !== this.ompSessionId) {
           this.ompSessionId = sid;
           this.config.onSdkSessionIdUpdate?.(sid);
         }
+        if (state?.sessionFile) this.ompSessionFile = state.sessionFile;
       })
       .catch((err) => this.debug(`get_state after ready failed: ${err}`));
 
@@ -1126,6 +1341,15 @@ export class OmpAgent extends BaseAgent {
         isIntermediate: message.stopReason === 'toolUse',
         turnId,
       });
+
+      // Branch anchoring (G3): mark the final message of a turn for anchor
+      // capture. The OMP transcript jsonl flushes AFTER message_end events,
+      // so resolving the entry id here races the mirror write (observed: the
+      // first turn after spawn loses its anchor, later turns by accident find
+      // entries from prior turns). Resolution happens in handleAgentEnd.
+      if (message.stopReason !== 'toolUse') {
+        this.pendingAnchorTurnId = turnId;
+      }
     }
 
     this.messageSubTurnId = null;
@@ -1179,6 +1403,22 @@ export class OmpAgent extends BaseAgent {
     const usage = this.lastUsage;
     this.lastUsage = undefined;
     this._isProcessing = false;
+
+    // Branch anchoring (G3): by agent_end OMP has flushed its transcript —
+    // resolve the pending anchor now (craft → omp-turn-anchors sidecar role,
+    // same as pi_turn_anchor).
+    if (this.pendingAnchorTurnId) {
+      const turnId = this.pendingAnchorTurnId;
+      this.pendingAnchorTurnId = null;
+      const entryId = this.readLastAssistantEntryId();
+      if (entryId) {
+        this.emittedAnchorCount += 1;
+        this.eventQueue.enqueue({ type: 'omp_turn_anchor', turnId, entryId });
+      } else {
+        this.debug('No OMP transcript entry found for anchor — this turn is unbranchable');
+      }
+    }
+
     this.eventQueue.enqueue(usage ? { type: 'complete', usage } : { type: 'complete' });
     this.eventQueue.complete();
 

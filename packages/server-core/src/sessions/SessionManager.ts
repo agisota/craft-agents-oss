@@ -279,6 +279,73 @@ export async function copyPiTurnAnchorsForBranch(
   )
 }
 
+// OMP turn anchors: craft message id → OMP transcript entry id (8-hex,
+// see docs/omp-rpc-notes.md §Branching). Same sidecar mechanics as the Pi
+// anchors; the anchor is the id of the ASSISTANT message entry — the child
+// OmpAgent resolves the cut (following user entry, or tail-copy) at fork time.
+const OMP_TURN_ANCHORS_VERSION = 1
+const OMP_TURN_ANCHORS_FILE = 'omp-turn-anchors.json'
+
+function getOmpTurnAnchorsPath(sessionPath: string): string {
+  return join(sessionPath, 'meta', OMP_TURN_ANCHORS_FILE)
+}
+
+export async function loadOmpTurnAnchors(sessionPath: string): Promise<PiTurnAnchorsIndex> {
+  const filePath = getOmpTurnAnchorsPath(sessionPath)
+  try {
+    const parsed = JSON.parse(await readFile(filePath, 'utf-8')) as Partial<PiTurnAnchorsIndex>
+    const normalized: Record<string, string> = {}
+    for (const [messageId, anchor] of Object.entries(parsed.anchors ?? {})) {
+      if (typeof messageId === 'string' && typeof anchor === 'string' && messageId && anchor) {
+        normalized[messageId] = anchor
+      }
+    }
+    return { version: OMP_TURN_ANCHORS_VERSION, anchors: normalized }
+  } catch {
+    return { version: OMP_TURN_ANCHORS_VERSION, anchors: {} }
+  }
+}
+
+async function getOmpTurnAnchor(sessionPath: string, messageId: string): Promise<string | undefined> {
+  if (!messageId) return undefined
+  const index = await loadOmpTurnAnchors(sessionPath)
+  return index.anchors[messageId]
+}
+
+export async function saveOmpTurnAnchor(sessionPath: string, messageId: string, anchorId: string): Promise<void> {
+  if (!messageId || !anchorId) return
+
+  const index = await loadOmpTurnAnchors(sessionPath)
+  if (index.anchors[messageId] === anchorId) return
+
+  index.anchors[messageId] = anchorId
+  await mkdir(join(sessionPath, 'meta'), { recursive: true })
+  await writeFile(getOmpTurnAnchorsPath(sessionPath), JSON.stringify(index), 'utf-8')
+}
+
+export async function copyOmpTurnAnchorsForBranch(
+  sourceSessionPath: string,
+  branchSessionPath: string,
+  branchedMessageIds: Iterable<string>,
+): Promise<void> {
+  const index = await loadOmpTurnAnchors(sourceSessionPath)
+  if (Object.keys(index.anchors).length === 0) return
+  const idSet = new Set(branchedMessageIds)
+  const filtered: Record<string, string> = {}
+  for (const [messageId, anchor] of Object.entries(index.anchors)) {
+    if (idSet.has(messageId)) {
+      filtered[messageId] = anchor
+    }
+  }
+  if (Object.keys(filtered).length === 0) return
+  await mkdir(join(branchSessionPath, 'meta'), { recursive: true })
+  await writeFile(
+    getOmpTurnAnchorsPath(branchSessionPath),
+    JSON.stringify({ version: OMP_TURN_ANCHORS_VERSION, anchors: filtered }),
+    'utf-8',
+  )
+}
+
 const CLAUDE_TURN_ANCHORS_VERSION = 1
 const CLAUDE_TURN_ANCHORS_FILE = 'claude-turn-anchors.json'
 
@@ -2840,6 +2907,25 @@ export class SessionManager implements ISessionManager {
               })
             }
           }
+        } else if (sourceBackendContext.provider === 'omp') {
+          // OMP: assistant transcript entry id persisted in the omp-turn-anchors
+          // sidecar. Unlike Pi there is no safe "full-history fork" fallback —
+          // without the anchor the child cannot cut at the requested message,
+          // and OMP's branch RPC requires a precise user-entry cut, so a missing
+          // anchor (legacy session, unanchored message, or a transcript rewritten
+          // by OMP compaction) fails the branch loudly via the subsequent
+          // branchFromSdkTurnId === undefined check below.
+          if (branchFromSessionPath) {
+            branchFromSdkTurnId = await getOmpTurnAnchor(branchFromSessionPath, options.branchFromMessageId)
+            if (!branchFromSdkTurnId) {
+              sessionLog.warn('OMP branch anchor missing; branch will fail preflight', {
+                workspaceId,
+                branchFromSessionId: options.branchFromSessionId,
+                branchFromMessageId: options.branchFromMessageId,
+              })
+              throw new Error('Cannot create branch: this message has no OMP branch anchor. OMP branching requires a completed assistant reply whose transcript entry is known (branch from that message instead).')
+            }
+          }
         } else if (sourceBackendContext.provider === 'anthropic') {
           if (branchFromSessionPath && branchFromSdkSessionId) {
             const anchor = await getClaudeTurnAnchor(branchFromSessionPath, options.branchFromMessageId)
@@ -2982,6 +3068,26 @@ export class SessionManager implements ISessionManager {
           )
         } catch (err) {
           sessionLog.warn('Failed to copy Pi turn-anchors sidecar to branch', {
+            err,
+            sourceSessionId: validatedBranch.sourceSessionId,
+            branchSessionId: storedSession.id,
+          })
+        }
+      }
+
+      // Same propagation for OMP anchors — branch-of-branch stays cuttable.
+      if (
+        validatedBranch.branchContextStrategy === 'sdk-fork' &&
+        validatedBranch.sourceProvider === 'omp'
+      ) {
+        try {
+          await copyOmpTurnAnchorsForBranch(
+            sourceDir,
+            branchDir,
+            branchedStored.messages.map((m) => m.id),
+          )
+        } catch (err) {
+          sessionLog.warn('Failed to copy OMP turn-anchors sidecar to branch', {
             err,
             sourceSessionId: validatedBranch.sourceSessionId,
             branchSessionId: storedSession.id,
@@ -7718,6 +7824,26 @@ export class SessionManager implements ISessionManager {
           await savePiTurnAnchor(sessionPath, craftMessageId, event.sdkTurnAnchor)
         } catch (error) {
           sessionLog.warn(`Failed to persist Pi turn anchor for session ${sessionId}:`, error)
+        }
+        break
+      }
+
+      case 'omp_turn_anchor': {
+        // Follow-up to an OMP backend text_complete (same turnId), carrying
+        // the parent transcript entry id of the assistant message — the OMP
+        // branch() RPC anchor (docs/omp-rpc-notes.md §Branching).
+        const anchorMessage = [...managed.messages].reverse().find(
+          (m) => m.role === 'assistant' && m.turnId === event.turnId,
+        )
+        if (!anchorMessage) {
+          sessionLog.debug(`omp_turn_anchor for unknown turnId=${event.turnId}; ignoring`)
+          break
+        }
+        const sessionPath = getSessionStoragePath(managed.workspace.rootPath, sessionId)
+        try {
+          await saveOmpTurnAnchor(sessionPath, anchorMessage.id, event.entryId)
+        } catch (error) {
+          sessionLog.warn(`Failed to persist OMP turn anchor for session ${sessionId}:`, error)
         }
         break
       }
