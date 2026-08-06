@@ -133,6 +133,8 @@ const EXPECTED_CHANNELS: string[] = [
   'memory:getContext',
   'memory:listHistory',
   'memory:listLessons',
+  'memory:promoteLesson',
+  'memory:promotionCandidates',
   'memory:updateContext',
   'memory:updateLesson',
   'menu:copy',

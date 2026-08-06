@@ -235,6 +235,9 @@ export interface ISessionManager {
   getSessionPath(sessionId: string): string | null
   /** Memory provenance (spec F4): lessons/skills injected into the session's prompts; null when absent. */
   getSessionProvenance(sessionId: string): SessionProvenance | null
+  /** One-shot mini completion against the workspace's default connection (self-learning
+   *  spec L2 conflict checks). Resolves the workspace by id — throws when unknown. */
+  runDistillOneShot(workspaceId: string, prompt: string): Promise<string>
   refreshTitle(sessionId: string): Promise<{ success: boolean; title?: string; error?: string }>
   refreshBadge(): void
   getUnreadSummary(): UnreadSummary

@@ -1918,6 +1918,18 @@ export class SessionManager implements ISessionManager {
     }
   }
 
+  /**
+   * Public one-shot LLM seam for non-distill memory checks (spec L2 conflict
+   * detection on add). Thin wrapper over the private distill runner: resolves
+   * the workspace by id (throws when unknown). Callers must treat failures as
+   * skippable — this spawns a scratch backend agent per call.
+   */
+  async runDistillOneShot(workspaceId: string, prompt: string): Promise<string> {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error(`runDistillOneShot: unknown workspace '${workspaceId}'`)
+    return this.runMemoryDistillOneShot({ id: workspace.id, rootPath: workspace.rootPath }, prompt)
+  }
+
   private broadcastSourcesChanged(workspaceId: string, sources: LoadedSource[]): void {
     if (!this.eventSink) return
     this.eventSink(RPC_CHANNELS.sources.CHANGED, { to: 'workspace', workspaceId }, workspaceId, sources)

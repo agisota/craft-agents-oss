@@ -20,6 +20,7 @@ const configDir = process.env.CRAFT_CONFIG_DIR!
 mock.module('@craft-agent/shared/config', () => ({
   getWorkspaceByNameOrId: (id: string) =>
     id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: workspaceRoot } : null,
+  getWorkspaces: () => [{ id: 'ws1', name: 'ws1', rootPath: workspaceRoot }],
 }))
 
 import { registerMemoryHandlers } from './memory'
@@ -87,7 +88,8 @@ describe('memory handlers', () => {
       category: 'workflow',
       scope: 'global',
     })
-    expect(added.source.trigger).toBe('explicit')
+    expect(added.lesson.source.trigger).toBe('explicit')
+    expect(added.conflicts).toEqual([])
     expect(pushCalls.at(-1)).toMatchObject({
       channel: RPC_CHANNELS.memory.CHANGED,
       target: { to: 'all' },

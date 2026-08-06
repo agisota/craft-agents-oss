@@ -333,6 +333,8 @@ export const RPC_CHANNELS = {
     GET_CONTEXT: 'memory:getContext',
     UPDATE_CONTEXT: 'memory:updateContext',
     LIST_HISTORY: 'memory:listHistory',
+    PROMOTION_CANDIDATES: 'memory:promotionCandidates',
+    PROMOTE_LESSON: 'memory:promoteLesson',
     CHANGED: 'memory:changed',
   },
   statuses: {

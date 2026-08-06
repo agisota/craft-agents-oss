@@ -1,11 +1,13 @@
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { PushTarget } from '@craft-agent/shared/protocol'
-import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
+import { getWorkspaceByNameOrId, getWorkspaces } from '@craft-agent/shared/config'
 import type { Lesson, LessonCategory, LessonScope, WorkspaceMemory } from '@craft-agent/shared/memory/types'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import { pushTyped } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
-import { LessonStore } from '../../memory/LessonStore'
+import { LessonStore, lessonKey } from '../../memory/LessonStore'
+import { buildConflictPrompt, parseConflicts, promoteLessonToGlobal, scanPromotionCandidates } from '../../memory/lesson-graph'
+import type { LessonConflictVerdict } from '../../memory/lesson-graph'
 import { MemoryFileStore } from '../../memory/MemoryFileStore'
 
 export const HANDLED_CHANNELS = [
@@ -16,6 +18,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.memory.GET_CONTEXT,
   RPC_CHANNELS.memory.UPDATE_CONTEXT,
   RPC_CHANNELS.memory.LIST_HISTORY,
+  RPC_CHANNELS.memory.PROMOTION_CANDIDATES,
+  RPC_CHANNELS.memory.PROMOTE_LESSON,
 ] as const
 
 export interface LessonInput {
@@ -23,6 +27,14 @@ export interface LessonInput {
   category: LessonCategory
   negative?: boolean
   scope: LessonScope
+}
+
+/** ADD_LESSON result (spec L2): the stored lesson plus conflicts detected
+ *  post-write against existing rules. `conflicts` is [] whenever the LLM
+ *  check is unavailable or fails — it never blocks the write. */
+export interface AddLessonResult {
+  lesson: Lesson
+  conflicts: LessonConflictVerdict[]
 }
 
 export interface MemoryContextDto {
@@ -57,6 +69,35 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
     pushTyped(server, RPC_CHANNELS.memory.CHANGED, target, workspaceId, scope)
   }
 
+  // L2: post-write, best-effort LLM check of the new rule against existing
+  // rules (same scope; workspace adds also check global rules). One attempt,
+  // any failure (no workspaces configured, no distiller wired, LLM error,
+  // unparseable reply) degrades to [] — the write always stands.
+  const detectLessonConflicts = async (
+    workspaceId: string | null,
+    scope: LessonScope,
+    store: LessonStore,
+    newLesson: Lesson,
+  ): Promise<LessonConflictVerdict[]> => {
+    try {
+      const run = deps.sessionManager?.runDistillOneShot
+      if (typeof run !== 'function') return []
+      const existing = store.list().filter(l => lessonKey(l.rule) !== lessonKey(newLesson.rule))
+      if (scope === 'workspace') {
+        existing.push(...new LessonStore(new MemoryFileStore('global').lessonsPath, 'global').list())
+      }
+      if (existing.length === 0) return []
+      const llmWorkspaceId = workspaceId ?? getWorkspaces()[0]?.id
+      if (!llmWorkspaceId) return []
+      const rules = existing.map(l => l.rule)
+      const text = await run.call(deps.sessionManager, llmWorkspaceId, buildConflictPrompt(newLesson.rule, rules))
+      return parseConflicts(text, rules)
+    } catch (err) {
+      deps.platform.logger?.warn('MEMORY_ADD_LESSON: conflict check failed, skipping', err)
+      return []
+    }
+  }
+
   // List lessons for one scope or both.
   server.handle(RPC_CHANNELS.memory.LIST_LESSONS, async (_ctx, scope: LessonScope | 'both', workspaceId?: string) => {
     const scopes: LessonScope[] = scope === 'both' ? ['global', 'workspace'] : [scope]
@@ -72,8 +113,10 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
     return lessons
   })
 
-  // Add a lesson from the UI (explicit trigger).
-  server.handle(RPC_CHANNELS.memory.ADD_LESSON, async (_ctx, workspaceId: string | null, input: LessonInput) => {
+  // Add a lesson from the UI (explicit trigger). Returns {lesson, conflicts}:
+  // the L2 conflict list is best-effort and empty whenever the check is
+  // unavailable (no LLM, parse failure) — it never blocks the write.
+  server.handle(RPC_CHANNELS.memory.ADD_LESSON, async (_ctx, workspaceId: string | null, input: LessonInput): Promise<AddLessonResult> => {
     const scope: LessonScope = input.scope ?? 'global'
     const store = lessonStoreFor(scope, workspaceId ?? undefined)
     if (!store) throw new Error('Workspace not found')
@@ -86,7 +129,8 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
       source: { trigger: 'explicit' },
     })
     broadcastChanged(scope === 'global' ? null : workspaceId, scope)
-    return lesson
+    const conflicts = await detectLessonConflicts(workspaceId, scope, store, lesson)
+    return { lesson, conflicts }
   })
 
   // Patch a lesson by rule text or index.
@@ -109,6 +153,20 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
     const deleted = store.delete(match)
     if (deleted) broadcastChanged(scope === 'global' ? null : workspaceId, scope)
     return deleted
+  })
+
+  // L3: rules repeated as workspace lessons in ≥2 distinct workspaces →
+  // candidates for promotion to the global scope (Memory tab banner).
+  server.handle(RPC_CHANNELS.memory.PROMOTION_CANDIDATES, async () => scanPromotionCandidates(getWorkspaces()))
+
+  // L3: copy a workspace rule into the global store, marked promoted
+  // {fromScope:'workspace', workspaceIds, ts}; an already-global rule is
+  // re-marked in place (dedup). Broadcasts memory.changed(global).
+  server.handle(RPC_CHANNELS.memory.PROMOTE_LESSON, async (_ctx, _workspaceId: string | null, rule: string) => {
+    const result = promoteLessonToGlobal(getWorkspaces(), rule)
+    if (!result) return null
+    broadcastChanged(null, 'global')
+    return result
   })
 
   // Global preferences.md + workspace context.md (+ workspace memory bundle).
