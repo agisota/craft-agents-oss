@@ -31,7 +31,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
-import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
+import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate, SessionProvenance } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -424,6 +424,9 @@ export interface ElectronAPI {
   getSessionPermissionModeState(sessionId: string): Promise<PermissionModeState | null>
   // Self-learning memory mode (spec F3): persistent | incognito | temporary
   setMemoryMode(sessionId: string, mode: SessionMemoryMode): Promise<void>
+  // Memory provenance (spec F4/Y2): lessons/skills injected into the session's
+  // prompts. Null for unknown sessions or sessions with no provenance record.
+  getSessionProvenance(sessionId: string): Promise<SessionProvenance | null>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>

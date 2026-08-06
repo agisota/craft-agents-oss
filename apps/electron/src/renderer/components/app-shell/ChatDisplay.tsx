@@ -65,6 +65,7 @@ import {
 } from "@craft-agent/ui"
 import { MemoizedAuthRequestCard } from "@/components/chat/AuthRequestCard"
 import { ChatInputZone, type StructuredInputState, type StructuredResponse, type PermissionResponse, type AdminApprovalResponse } from "./input"
+import { MemoryProvenanceStrip } from "./MemoryProvenanceStrip"
 import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
 import { useTurnCardExpansion } from "@/hooks/useTurnCardExpansion"
@@ -1742,6 +1743,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
                     // Check if this is the last response (for Accept Plan button visibility)
                     const isLastResponse = index === turns.length - 1 || !turns.slice(index + 1).some(t => t.type === 'user')
+                    // Memory provenance strip (Y2/Y3) renders under the newest assistant turn only
+                    const isLatestAssistantTurn = !turns.slice(index + 1).some(t => t.type === 'assistant')
 
                     // Assistant turns - render with TurnCard (buffered streaming)
                     const assistantUiKey = getAssistantTurnUiKey(turn, index)
@@ -1939,6 +1942,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                           }
                         }}
                       />
+                      {session.memoryMode !== 'temporary' && (
+                        <MemoryProvenanceStrip
+                          sessionId={session.id}
+                          isLatestAssistant={isLatestAssistantTurn}
+                          messageText={turn.response?.text ?? ''}
+                        />
+                      )}
                       </div>
                     )
                   })}

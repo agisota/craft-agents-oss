@@ -68,6 +68,7 @@ export const CHANNEL_MAP = {
   getPendingPlanExecution: invoke(RPC_CHANNELS.sessions.GET_PENDING_PLAN_EXECUTION),
   getSessionPermissionModeState: invoke(RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE),
   setMemoryMode: invoke(RPC_CHANNELS.sessions.SET_MEMORY_MODE),
+  getSessionProvenance: invoke(RPC_CHANNELS.sessions.GET_PROVENANCE),
 
   // Event listeners
   onSessionEvent: listener(RPC_CHANNELS.sessions.EVENT),
