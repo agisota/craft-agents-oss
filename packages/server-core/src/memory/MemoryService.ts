@@ -1,0 +1,402 @@
+/**
+ * MemoryService — the self-learning memory orchestrator (spec §3).
+ *
+ * One instance per workspace, lazily created by SessionManager. Wires the
+ * in-process session-completion seam to an async distillation queue:
+ *
+ *   complete    → full distill (trigger 'distillation')
+ *   interrupted → lightweight distill (trigger 'interrupted')
+ *   error/timeout → lightweight distill (trigger 'error')
+ *   branch      → lightweight distill (trigger 'branch')
+ *   every N messages → lightweight distill (skill candidates dropped)
+ *   idle > distillIdleHours → full distill (once per idle period)
+ *
+ * Distiller DI: the default distiller intentionally throws
+ * ("no distiller configured"). A real one-shot LLM runner is attached later
+ * by server bootstrap via setDistiller() — running a full headless agent
+ * here would pull provider runtime back into the session layer.
+ *
+ * All storage goes through the existing stores:
+ *   LessonStore.add / MemoryFileStore.appendDailyHistory / writeContext /
+ *   SkillPendingQueue.enqueue (gated by skills.autoCreateFromSessions).
+ * Results are broadcast as 'memory:changed' / 'skillsPending:changed' via
+ * the injected emitter (SessionManager eventSink).
+ */
+import { readSessionMessages } from '@craft-agent/shared/sessions/jsonl'
+import { getSessionFilePath } from '@craft-agent/shared/sessions/storage'
+import { getMemoryConfig, getSkillsAutoCreateFromSessions } from '@craft-agent/shared/config/storage'
+import {
+  formatLessonsForPrompt,
+  formatWorkspaceMemoryForPrompt,
+} from '@craft-agent/shared/prompts/system'
+import { buildTransferredSessionContext } from '@craft-agent/shared/agent/conversation-summary'
+import type { StoredMessage } from '@craft-agent/core/types'
+import type {
+  DistillResult,
+  Lesson,
+  LessonScope,
+  LessonTrigger,
+  MemoryConfig,
+  MemoryPromptBlocks,
+  SkillCandidate,
+} from '@craft-agent/shared/memory/types'
+import { LessonStore } from './LessonStore'
+import { MemoryFileStore } from './MemoryFileStore'
+import { SkillPendingQueue } from './SkillPendingQueue'
+
+/** Max chars of serialized conversation window sent to the distiller (front-truncated). */
+const DISTILL_WINDOW_CHARS = 160_000
+/** How many messages trigger a lightweight distillation (overridable per config). */
+
+export interface SessionCompletionLike {
+  sessionId: string
+  reason: 'complete' | 'interrupted' | 'error' | 'timeout'
+}
+
+interface DistillJob {
+  sessionId: string
+  full: boolean
+  trigger: LessonTrigger
+}
+
+export interface MemoryServiceDeps {
+  workspaceRoot: string
+  /** Workspace id used as the broadcast target. */
+  workspaceId?: string
+  /** Store factory per scope — injectable for tests. */
+  lessonStoreFactory?: (scope: LessonScope) => LessonStore
+  /** Workspace-scope file store (context.md / history). Injectable for tests. */
+  fileStore?: MemoryFileStore
+  /** Pending-skill queue. Injectable for tests. */
+  skillQueue?: SkillPendingQueue
+  clock?: () => number
+  /** LLM one-shot: prompt → raw text (expected strict JSON). Default: throws. */
+  distiller?: (prompt: string) => Promise<string>
+  /** Broadcast emitter: (channel, args) — wired to SessionManager's eventSink. */
+  emit?: (channel: string, args: unknown[]) => void
+  logger?: { warn: (msg: string, err?: unknown) => void; info?: (msg: string) => void }
+  /** Message reader (defaults to readSessionMessages over session.jsonl). */
+  readMessages?: (sessionId: string) => StoredMessage[]
+  /** Config reader (defaults to shared config storage helpers). */
+  getConfig?: () => MemoryConfig
+  isSkillAutoCreateEnabled?: () => boolean
+}
+
+/**
+ * Redact secrets from the serialized window before it leaves the machine for
+ * the distiller. Defense-in-depth: the store layer never should have held
+ * raw secrets, but long sessions inevitably do.
+ */
+export function redactSecrets(text: string): string {
+  let out = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY BLOCK]')
+  out = out.replace(/AKIA[0-9A-Z]{16}/g, '[REDACTED AWS KEY]')
+  out = out.replace(/sk-[A-Za-z0-9]{20,}/g, '[REDACTED OPENAI KEY]')
+  out = out.replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED GITHUB TOKEN]')
+  out = out.replace(/xox[baprs]-[A-Za-z0-9-]+/g, '[REDACTED SLACK TOKEN]')
+  out = out.replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
+  return out
+}
+
+/** Parse a strict-JSON DistillResult, tolerating ```json fences. Returns null on failure. */
+export function parseDistillResult(raw: string): DistillResult | null {
+  const stripped = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+  try {
+    const parsed = JSON.parse(stripped) as Partial<DistillResult>
+    return {
+      history_entry: parsed.history_entry ?? null,
+      memory_update: parsed.memory_update ?? null,
+      lessons: Array.isArray(parsed.lessons) ? parsed.lessons : [],
+      skill_candidate: parsed.skill_candidate ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Anything sensitive-looking in a candidate slug/body blocks auto-creation. */
+const SENSITIVE_RE = /\.ssh|\.pem$|\.key$|credential|secret/i
+
+function buildDistillPrompt(windowText: string, full: boolean): string {
+  return (
+    `You are the memory distiller for a coding agent. Distill the session conversation window below into durable knowledge.\n` +
+    `Return ONLY valid JSON of the shape:\n` +
+    `{"history_entry": string|null, "memory_update": string|null, "lessons": [{"rule": string, "category": "preference"|"workflow"|"knowledge"|"correction", "negative"?: boolean}], "skill_candidate": {"slug": string, "description": string, "body": string}|null}\n` +
+    (full
+      ? `This is a FULL distillation: extract all durable lessons and, if the session shows a repeated, generalizable workflow, propose one skill_candidate.\n`
+      : `This is a LIGHTWEIGHT distillation: extract only clearly durable lessons; always set skill_candidate to null.\n`) +
+    `history_entry: one-line session summary for the dated history log, or null if nothing worth logging.\n` +
+    `memory_update: a paragraph to append to the workspace context document if it contains information not already there, else null.\n\n` +
+    buildTransferredSessionContext(windowText)
+  )
+}
+
+export class MemoryService {
+  private readonly deps: MemoryServiceDeps
+  private readonly clock: () => number
+  private readonly emit: (channel: string, args: unknown[]) => void
+  private readonly logger: { warn: (msg: string, err?: unknown) => void; info?: (msg: string) => void }
+  private distiller: (prompt: string) => Promise<string>
+  private queue: DistillJob[] = []
+  private draining = false
+  private stopped = false
+  private idleTimer: NodeJS.Timeout | null = null
+  private readonly lastCounts = new Map<string, number>()
+  private readonly lastActivity = new Map<string, number>()
+  private readonly idleDistilled = new Set<string>()
+  private idleWaiters: Array<() => void> = []
+
+  constructor(deps: MemoryServiceDeps) {
+    this.deps = deps
+    this.clock = deps.clock ?? (() => Date.now())
+    this.emit = deps.emit ?? (() => {})
+    this.logger = deps.logger ?? { warn: () => {} }
+    this.distiller =
+      deps.distiller ??
+      (() => Promise.reject(new Error('MemoryService: no distiller configured — call setDistiller() during server bootstrap')))
+  }
+
+  /** Attach the real one-shot distiller (lazy bootstrap wiring). */
+  setDistiller(distiller: (prompt: string) => Promise<string>): void {
+    this.distiller = distiller
+  }
+
+  private get config(): MemoryConfig {
+    return this.deps.getConfig?.() ?? getMemoryConfig()
+  }
+
+  /** Subscribe to SessionManager.onSessionComplete. Returns unsubscribe. Never throws. */
+  attachSessionCompletion(subscribeFn: (cb: (evt: SessionCompletionLike) => void) => () => void): () => void {
+    return subscribeFn((evt) => {
+      try {
+        this.recordActivity(evt.sessionId)
+        if (!this.config.enabled) return
+        if (evt.reason === 'complete') {
+          this.enqueue({ sessionId: evt.sessionId, full: true, trigger: 'distillation' })
+        } else {
+          this.enqueue({
+            sessionId: evt.sessionId,
+            full: false,
+            trigger: evt.reason === 'interrupted' ? 'interrupted' : 'error', // timeout → 'error'
+          })
+        }
+      } catch (err) {
+        this.logger.warn(`MemoryService: completion handler failed for ${evt.sessionId}`, err)
+      }
+    })
+  }
+
+  /** Called from the per-session message persist path with the current message count. */
+  notifyMessageCount(sessionId: string, count: number): void {
+    this.recordActivity(sessionId)
+    if (!this.config.enabled) return
+    const interval = this.config.distillMsgCount
+    const last = this.lastCounts.get(sessionId) ?? 0
+    // Fire exactly once per crossed interval boundary.
+    if (Math.floor(count / interval) > Math.floor(last / interval)) {
+      this.lastCounts.set(sessionId, count)
+      this.enqueue({ sessionId, full: false, trigger: 'distillation' })
+    } else if (count > last) {
+      this.lastCounts.set(sessionId, count)
+    }
+  }
+
+  /** User branched a session — a strong correction signal. */
+  notifyBranchCorrection(sessionId: string, _messageId: string): void {
+    this.recordActivity(sessionId)
+    if (!this.config.enabled) return
+    this.enqueue({ sessionId, full: false, trigger: 'branch' })
+  }
+
+  /** Start the 60s idle check. */
+  start(): void {
+    if (this.idleTimer || this.stopped) return
+    this.idleTimer = setInterval(() => this.checkIdle(this.clock()), 60_000)
+    if (typeof this.idleTimer.unref === 'function') this.idleTimer.unref()
+  }
+
+  /** Stop the idle timer. Does not drain enqueued jobs. */
+  stop(): void {
+    this.stopped = true
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer)
+      this.idleTimer = null
+    }
+  }
+
+  /**
+   * Trigger full distillation for sessions idle longer than distillIdleHours.
+   * Fires once per idle period (activity resets the once-flag).
+   */
+  checkIdle(now: number): void {
+    if (!this.config.enabled || this.stopped) return
+    const idleMs = this.config.distillIdleHours * 3_600_000
+    for (const [sessionId, lastAt] of this.lastActivity) {
+      if (this.idleDistilled.has(sessionId)) continue
+      if (now - lastAt >= idleMs) {
+        this.idleDistilled.add(sessionId)
+        this.enqueue({ sessionId, full: true, trigger: 'distillation' })
+      }
+    }
+  }
+
+  /** Prompt blocks for BackendConfig.memoryBlocks. Returns undefined when disabled. */
+  buildMemoryBlocks(): MemoryPromptBlocks | undefined {
+    if (!this.config.enabled) return undefined
+    const globalStore = this.deps.lessonStoreFactory?.('global') ?? this.defaultLessonStore('global')
+    const workspaceStore = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
+    const lessons = [...globalStore.forContext(), ...workspaceStore.forContext()]
+    const memory = this.fileStore.loadWorkspaceMemory()
+    return {
+      lessonsBlock: lessons.length ? formatLessonsForPrompt(lessons) : undefined,
+      memoryBlock: formatWorkspaceMemoryForPrompt(memory) || undefined,
+    }
+  }
+
+  private get fileStore(): MemoryFileStore {
+    return (this.deps.fileStore ??= new MemoryFileStore('workspace', this.deps.workspaceRoot))
+  }
+
+  private defaultLessonStore(scope: LessonScope): LessonStore {
+    const store = new MemoryFileStore(scope, this.deps.workspaceRoot)
+    return new LessonStore(store.lessonsPath, scope)
+  }
+
+  private recordActivity(sessionId: string): void {
+    const now = this.clock()
+    const prev = this.lastActivity.get(sessionId)
+    // New activity resets the idle once-flag.
+    if (prev !== undefined && now > prev) this.idleDistilled.delete(sessionId)
+    this.lastActivity.set(sessionId, Math.max(prev ?? 0, now))
+  }
+
+  private enqueue(job: DistillJob): void {
+    if (this.queue.length >= 50) return // backpressure: drop rather than grow forever
+    this.queue.push(job)
+    // Async drain — the event handler must never await.
+    void Promise.resolve()
+      .then(() => this.drain())
+      .catch((err) => this.logger.warn('MemoryService: drain failed', err))
+  }
+
+  private async drain(): Promise<void> {
+    if (this.draining) return
+    this.draining = true
+    try {
+      for (let job = this.queue.shift(); job; job = this.queue.shift()) {
+        await this.runDistill(job)
+      }
+    } finally {
+      this.draining = false
+      // Jobs enqueued during drain: schedule another pass.
+      if (this.queue.length > 0 && !this.stopped) {
+        this.enqueue(this.queue.shift()!)
+      } else {
+        const idle = this.idleWaiters
+        this.idleWaiters = []
+        for (const resolve of idle) resolve()
+      }
+    }
+  }
+
+  /** Resolves once every currently-enqueued job has been processed (test/drain seam). */
+  whenIdle(): Promise<void> {
+    if (!this.draining && this.queue.length === 0) return Promise.resolve()
+    const { promise, resolve } = Promise.withResolvers<void>()
+    this.idleWaiters.push(resolve)
+    return promise
+  }
+
+  private async runDistill(job: DistillJob): Promise<void> {
+    let result: DistillResult | null = null
+    try {
+      const messages = (this.deps.readMessages ?? ((id) => readSessionMessages(getSessionFilePath(this.deps.workspaceRoot, id))))(
+        job.sessionId,
+      )
+      const serialized = messages.map((m) => `${m.type}: ${m.content ?? ''}`).join('\n')
+      const windowText = redactSecrets(
+        serialized.length > DISTILL_WINDOW_CHARS ? serialized.slice(-DISTILL_WINDOW_CHARS) : serialized,
+      )
+      let raw: string | null = null
+      try {
+        raw = await this.distiller(buildDistillPrompt(windowText, job.full))
+      } catch (err) {
+        this.logger.warn(`MemoryService: distiller failed for ${job.sessionId}`, err)
+        return
+      }
+      result = parseDistillResult(raw)
+      if (!result) {
+        // One retry with a harder JSON-only instruction.
+        raw = await this.distiller(buildDistillPrompt(windowText, job.full) + '\nReturn only valid JSON')
+        result = parseDistillResult(raw ?? '')
+        if (!result) {
+          this.logger.warn(`MemoryService: distiller returned invalid JSON twice for ${job.sessionId}`)
+          return
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`MemoryService: runDistill failed for ${job.sessionId}`, err)
+      return
+    }
+    this.applyResult(job, result)
+  }
+
+  private applyResult(job: DistillJob, result: DistillResult): void {
+    const workspaceId = this.deps.workspaceId ?? this.deps.workspaceRoot
+    let wroteMemory = false
+    try {
+      for (const lesson of result.lessons) {
+        const store = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
+        const entry: Lesson = {
+          ts: new Date(this.clock()).toISOString(),
+          rule: lesson.rule,
+          category: lesson.category,
+          scope: 'workspace',
+          negative: lesson.negative,
+          source: { sessionId: job.sessionId, trigger: job.trigger },
+        }
+        store.add(entry)
+        wroteMemory = true
+      }
+      if (result.history_entry) {
+        this.fileStore.appendDailyHistory(result.history_entry)
+        wroteMemory = true
+      }
+      if (result.memory_update) {
+        const existing = this.fileStore.readContext()
+        if (!existing.includes(result.memory_update)) {
+          this.fileStore.writeContext(existing ? `${existing}\n\n${result.memory_update}` : result.memory_update)
+          wroteMemory = true
+        }
+      }
+      if (result.skill_candidate && job.full) {
+        const autoCreate = (this.deps.isSkillAutoCreateEnabled ?? getSkillsAutoCreateFromSessions)()
+        const cand = result.skill_candidate
+        if (!autoCreate) {
+          // gated off by default — drop
+        } else if (SENSITIVE_RE.test(cand.slug) || SENSITIVE_RE.test(cand.body)) {
+          this.logger.warn(`MemoryService: dropped sensitive skill candidate '${cand.slug}'`)
+        } else {
+          const candidate: SkillCandidate = {
+            slug: cand.slug,
+            description: cand.description,
+            body: cand.body,
+            source: { sessionId: job.sessionId, ts: new Date(this.clock()).toISOString() },
+          }
+          const queue = this.deps.skillQueue ?? new SkillPendingQueue(this.deps.workspaceRoot)
+          if (queue.enqueue(candidate)) {
+            this.emit('skillsPending:changed', [workspaceId])
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`MemoryService: failed to apply distill result for ${job.sessionId}`, err)
+    }
+    if (wroteMemory) {
+      this.emit('memory:changed', [workspaceId, 'both'])
+    }
+  }
+}

@@ -42,6 +42,7 @@ import type { Workspace, AuthType } from '@craft-agent/core/types';
 
 // Import LLM connection types and constants
 import type { LlmConnection } from './llm-connections.ts';
+import { DEFAULT_MEMORY_CONFIG, type MemoryConfig } from '../memory/types.ts';
 import { isValidProviderAuthCombination, getDefaultModelsForConnection, getDefaultModelForConnection, isPiProvider, toBedrockNativeId, type LlmProviderType } from './llm-connections.ts';
 import {
   getModelProvider,
@@ -83,6 +84,16 @@ export interface StoredConfig {
   enable1MContext?: boolean;  // Enable 1M context window for supported models (default: false — opt-in; requires Anthropic Tier 4+)
   // Token optimization
   rtkEnabled?: boolean;  // Route Bash commands through rtk to compress tool output (default: false). https://github.com/rtk-ai/rtk
+  // Self-learning memory (distillation triggers). Missing keys fall back to DEFAULT_MEMORY_CONFIG.
+  memory?: {
+    enabled?: boolean;           // master switch (default: true)
+    distillIdleHours?: number;   // idle hours before full distillation (default: 3)
+    distillMsgCount?: number;    // messages between lightweight distillations (default: 30)
+  };
+  // Skills pipeline switches.
+  skills?: {
+    autoCreateFromSessions?: boolean;  // gate skill candidates produced by distillation (default: false — candidates are dropped)
+  };
   // Network proxy
   networkProxy?: import('./types.ts').NetworkProxySettings;
   // Windows: path to Git Bash (bash.exe) for the SDK subprocess
@@ -553,6 +564,33 @@ export function setAllowRemoteEvaluate(allowed: boolean): void {
 export function getEnable1MContext(): boolean {
   const config = loadStoredConfig();
   return config?.enable1MContext === true;
+}
+
+/**
+ * Self-learning memory triggers, resolved with DEFAULT_MEMORY_CONFIG fallbacks
+ * (missing keys / missing config file both yield the defaults).
+ */
+export function getMemoryConfig(): MemoryConfig {
+  const raw = loadStoredConfig()?.memory ?? {};
+  return {
+    enabled: raw.enabled !== undefined ? raw.enabled === true : DEFAULT_MEMORY_CONFIG.enabled,
+    distillIdleHours:
+      typeof raw.distillIdleHours === 'number' && Number.isFinite(raw.distillIdleHours) && raw.distillIdleHours > 0
+        ? raw.distillIdleHours
+        : DEFAULT_MEMORY_CONFIG.distillIdleHours,
+    distillMsgCount:
+      typeof raw.distillMsgCount === 'number' && Number.isFinite(raw.distillMsgCount) && raw.distillMsgCount > 0
+        ? Math.floor(raw.distillMsgCount)
+        : DEFAULT_MEMORY_CONFIG.distillMsgCount,
+  };
+}
+
+/**
+ * Gate for auto-creating skills from distilled session candidates.
+ * Defaults to FALSE (opt-in) — when false, skill candidates from distillation are dropped.
+ */
+export function getSkillsAutoCreateFromSessions(): boolean {
+  return loadStoredConfig()?.skills?.autoCreateFromSessions === true;
 }
 
 /**

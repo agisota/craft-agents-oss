@@ -277,6 +277,12 @@ export interface CoreBackendConfig {
   enable1MContext?: boolean;
 
   /**
+   * Self-learning memory prompt blocks (lessons + workspace memory), resolved
+   * by the server (MemoryService) at session start. See BackendConfig.memoryBlocks.
+   */
+  memoryBlocks?: MemoryPromptBlocks;
+
+  /**
    * Pre-computed source configurations for initial setup.
    * Passed at construction so backends can set up sources in postInit().
    */

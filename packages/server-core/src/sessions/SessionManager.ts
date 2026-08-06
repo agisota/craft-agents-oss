@@ -24,6 +24,7 @@ import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaul
 import type { MidStreamBehavior, LlmProviderType } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
 import { isValidWorkingDirectory } from '../utils/path-validation'
+import { MemoryService } from '../memory/MemoryService'
 import { InitGate } from '@craft-agent/server-core/domain'
 import { i18n } from '@craft-agent/shared/i18n'
 import {
@@ -1855,6 +1856,40 @@ export class SessionManager implements ISessionManager {
     this.eventSink(RPC_CHANNELS.sources.CHANGED, { to: 'workspace', workspaceId }, workspaceId, sources)
   }
 
+  // Self-learning memory services, one per workspace, created lazily.
+  private memoryServices = new Map<string, MemoryService>()
+
+  /**
+   * Lazily build the workspace's MemoryService (distill triggers, prompt
+   * blocks). Subscribes to this manager's session-completion seam and
+   * broadcasts through eventSink. Never throws — returns null on init
+   * failure and when memory.enabled is false (service keeps every trigger
+   * as a no-op internally).
+   */
+  private memoryServiceFor(workspace: { id: string; rootPath: string }): MemoryService | null {
+    let svc = this.memoryServices.get(workspace.rootPath)
+    if (svc) return svc
+    try {
+      svc = new MemoryService({
+        workspaceRoot: workspace.rootPath,
+        workspaceId: workspace.id,
+        emit: (channel, args) => {
+          if (!this.eventSink) return
+          if (channel === 'memory:changed') this.eventSink(RPC_CHANNELS.memory.CHANGED, { to: 'workspace', workspaceId: workspace.id }, args[0], args[1])
+          else if (channel === 'skillsPending:changed') this.eventSink(RPC_CHANNELS.skillsPending.CHANGED, { to: 'workspace', workspaceId: workspace.id }, args[0])
+        },
+        logger: { warn: (msg, err) => sessionLog.warn(`memory: ${msg}`, err) },
+      })
+      svc.attachSessionCompletion((cb) => this.onSessionComplete((evt) => { if (evt.workspaceId === workspace.id) cb(evt) }))
+      svc.start()
+      this.memoryServices.set(workspace.rootPath, svc)
+    } catch (err) {
+      sessionLog.error(`MemoryService init failed for ${workspace.rootPath}:`, err)
+      return null
+    }
+    return svc
+  }
+
   private broadcastStatusesChanged(workspaceId: string): void {
     if (!this.eventSink) return
     sessionLog.info(`Broadcasting statuses changed for ${workspaceId}`)
@@ -2133,6 +2168,10 @@ export class SessionManager implements ISessionManager {
       this.hydrateMessagesForColdPersist(managed)
     }
     this.enqueuePersist(managed)
+    // Self-learning memory: count-driven distill trigger (no-op when disabled).
+    try {
+      this.memoryServiceFor(managed.workspace)?.notifyMessageCount(managed.id, managed.messages.length)
+    } catch {}
   }
 
   // Cold-persist hydration. Mirrors the messages/queue-recovery half of
@@ -2834,6 +2873,15 @@ export class SessionManager implements ISessionManager {
         })
         throw new Error(`Invalid branch request: source session ${options.branchFromSessionId} not found`)
       }
+
+      // Self-learning memory: a branch off an earlier message is a strong
+      // correction signal — enqueue a lightweight distill of the source session.
+      try {
+        this.memoryServiceFor({ id: workspaceId, rootPath: workspaceRootPath })?.notifyBranchCorrection(
+          options.branchFromSessionId,
+          options.branchFromMessageId,
+        )
+      } catch {}
 
       const sourceBackendContext = resolveBackendContext({
         sessionConnectionSlug: sourceManaged?.llmConnection || sourceSession.llmConnection,
@@ -3672,6 +3720,9 @@ export class SessionManager implements ISessionManager {
         hostRuntime: buildBackendHostRuntimeContext(),
         coreConfig: {
         workspace: managed.workspace,
+        // Self-learning memory prompt blocks (lessons + workspace memory), resolved
+        // lazily per session start. Undefined when memory.enabled is false.
+        memoryBlocks: this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(),
         miniModel,
         thinkingLevel: managed.thinkingLevel,
         session: sessionConfig,
