@@ -96,7 +96,7 @@ import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/ato
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
-import { type SessionStatusId, type SessionStatus, statusConfigsToSessionStatuses } from "@/config/session-status-config"
+import { type SessionStatusId, type SessionStatus, statusConfigsToSessionStatuses, resolveStatusDisplayLabel, resolveLabelDisplayName } from "@/config/session-status-config"
 import { useStatuses } from "@/hooks/useStatuses"
 import { useLabels } from "@/hooks/useLabels"
 import { useViews } from "@/hooks/useViews"
@@ -151,10 +151,6 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
-import {
-  resolveInheritedNewSessionParams,
-  type FilterMode,
-} from "./new-session-filter-inheritance"
 import { WebBrowserPanel } from "../browser/WebBrowserPanel"
 
 /**
@@ -330,6 +326,7 @@ function FilterLabelItems({
   pinnedLabelId?: string | null
   altHeld?: boolean
 }) {
+  const { t } = useTranslation()
   /** Toggle a label filter: if active → remove, if inactive → add as 'include' (or 'exclude' with Alt) */
   const toggleLabel = (id: string, altKey = false) => {
     setLabelFilter(prev => {
@@ -2087,7 +2084,7 @@ function AppShellContent({
     setSearchQuery('')
 
     // Inherit the sole included filter into the new session when unambiguous.
-    const inherited = resolveInheritedNewSessionParams(listFilter, labelFilter, projectFilter)
+    const inherited = resolveInheritedNewSessionParams()
 
     // Delegate to NavigationContext which handles session creation
     navigate(

@@ -485,5 +485,4 @@ export const CHANNEL_MAP = {
   allowMessagingPendingSender: invoke(RPC_CHANNELS.messaging.ALLOW_PENDING_SENDER),
   setMessagingBindingAccess: invoke(RPC_CHANNELS.messaging.SET_BINDING_ACCESS),
   onMessagingPendingChanged: listener(RPC_CHANNELS.messaging.PENDING_CHANGED),
-  cancelWeChatConnect: invoke(RPC_CHANNELS.messaging.WC_CANCEL_CONNECT),
 } satisfies ChannelMap

@@ -70,6 +70,7 @@ export function StatusMenuItems({
   onSelect,
   menu,
 }: StatusMenuItemsProps) {
+  const { t } = useTranslation()
   const { MenuItem } = menu
 
   return (
@@ -131,6 +132,7 @@ export function LabelMenuItems({
   onToggle,
   menu,
 }: LabelMenuItemsProps) {
+  const { t } = useTranslation()
   const { MenuItem, Separator, Sub, SubTrigger, SubContent } = menu
   const displayLabels = React.useMemo(() => sortLabelsForDisplay(labels), [labels])
 

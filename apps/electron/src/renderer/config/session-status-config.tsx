@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { CSSProperties } from 'react'
+import type { TFunction } from "i18next"
 import type { StatusConfig } from '@craft-agent/shared/statuses'
 import { isEmoji } from '@craft-agent/shared/utils/icon-constants'
 import { resolveEntityColor, getDefaultStatusColor } from '@craft-agent/shared/colors'
@@ -131,7 +132,7 @@ const DEFAULT_STATUS_ENGLISH_LABELS: Record<string, string> = {
  */
 export function resolveStatusDisplayLabel(
   state: { id: string; label: string },
-  t: (key: string, fallback?: string) => string,
+  t: TFunction,
 ): string {
   if (DEFAULT_STATUS_IDS.has(state.id)) {
     const defaultEnglish = DEFAULT_STATUS_ENGLISH_LABELS[state.id]
@@ -169,7 +170,7 @@ const DEFAULT_LABEL_ENGLISH_NAMES: Record<string, string> = {
  */
 export function resolveLabelDisplayName(
   label: { id: string; name: string },
-  t: (key: string, fallback?: string) => string,
+  t: TFunction,
 ): string {
   const defaultEnglish = DEFAULT_LABEL_ENGLISH_NAMES[label.id]
   if (defaultEnglish && label.name === defaultEnglish) {

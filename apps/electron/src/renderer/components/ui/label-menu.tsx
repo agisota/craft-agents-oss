@@ -94,7 +94,6 @@ export function InlineLabelMenu({
 }: InlineLabelMenuProps) {
   const { t } = useTranslation()
   const menuRef = React.useRef<HTMLDivElement>(null)
-  const { t } = useTranslation()
   const listRef = React.useRef<HTMLDivElement>(null)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const filteredItems = filterItems(items, filter)

@@ -63,7 +63,6 @@ import {
   type PlatformAccessMode,
   type PlatformOwner,
 } from '@/components/messaging/access'
-import { WeChatConnectDialog } from '@/components/messaging/WeChatConnectDialog'
 import { useActiveWorkspace } from '@/context/AppShellContext'
 import { useNavigation } from '@/contexts/NavigationContext'
 import {
@@ -267,6 +266,39 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
     [allBindings, platform],
   )
 
+  // Workspace owners + per-binding access control (allow-list popover on rows).
+  const [workspaceOwners, setWorkspaceOwners] = React.useState<PlatformOwner[]>([])
+
+  React.useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const owners = await window.electronAPI.getMessagingPlatformOwners(platform)
+        if (!cancelled) setWorkspaceOwners(owners)
+      } catch {
+        // Silent — BindingAllowListPopover handles the empty list gracefully.
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [platform, platformBindings])
+
+  const handleAccessChange = React.useCallback(
+    async (bindingId: string, next: BindingAccess) => {
+      try {
+        await window.electronAPI.setMessagingBindingAccess(bindingId, {
+          mode: next.mode as BindingAccessMode,
+          ...(next.mode === 'allow-list' ? { allowedSenderIds: next.allowedSenderIds } : {}),
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to update access')
+      }
+    },
+    [],
+  )
+
   React.useEffect(() => {
     let cancelled = false
     window.electronAPI.getMessagingConfig().then((cfg) => {
@@ -457,11 +489,13 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
                   key={binding.id}
                   binding={binding}
                   sessionMetaMap={sessionMetaMap}
+                  workspaceOwners={workspaceOwners}
                   subtitle={t('settings.messaging.wechat.directSessionSubtitle', {
                     defaultValue: 'Direct message session',
                   })}
                   onOpen={() => navigateToSession(binding.sessionId)}
                   onUnbind={() => handleUnbind(binding)}
+                  onAccessChange={(next) => handleAccessChange(binding.id, next)}
                 />
               ))}
             </div>

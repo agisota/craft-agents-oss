@@ -533,6 +533,7 @@ function StatusPane({
   activeStateId?: SessionStatusId | null
   onSelect: (id: SessionStatusId) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col">
       {sessionStatuses.map((state) => {
@@ -562,6 +563,7 @@ function LabelsPane({
   appliedLabelIds: Set<string>
   onToggle: (id: string) => void
 }) {
+  const { t } = useTranslation()
   // The Labels row in RootPane is gated on `hasLabels`, so this pane is only
   // ever entered when items.length > 0 — no empty-state branch needed.
   return (

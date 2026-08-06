@@ -233,6 +233,20 @@ export default function AppearanceSettingsPage() {
     window.dispatchEvent(new CustomEvent(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, { detail: expanded }))
   }, [])
 
+  // Default zoom level (persisted in config.json and applied to every app window)
+  const [defaultZoomLevel, setDefaultZoomLevel] = useState(100)
+  useEffect(() => {
+    window.electronAPI?.getDefaultZoomLevel?.().then(setDefaultZoomLevel)
+  }, [])
+  const handleDefaultZoomLevelChange = useCallback(async (level: number) => {
+    setDefaultZoomLevel(level)
+    await window.electronAPI?.setDefaultZoomLevel?.(level)
+  }, [])
+
+  // "Background session finished" chip toggle (renderer-only appearance pref,
+  // persisted in localStorage via atomWithStorage — read by App.tsx + ChatPage).
+  const [showBackgroundFinishedChip, setShowBackgroundFinishedChip] = useAtom(showBackgroundFinishedChipAtom)
+
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
   const [richToolDescriptions, setRichToolDescriptions] = useState(true)
   useEffect(() => {
