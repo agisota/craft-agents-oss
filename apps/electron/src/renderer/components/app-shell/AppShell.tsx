@@ -169,6 +169,10 @@ interface AppShellProps {
   menuNewChatTrigger?: number
   /** Focused mode - hides sidebars, shows only the chat content */
   isFocusedMode?: boolean
+  /** When false, workspace selection is rendered outside the top bar. */
+  showTopBarWorkspaceSelector?: boolean
+  /** Left offset for a full-height rail rendered outside the top bar. */
+  topBarLeftInset?: number
 }
 
 const altClickTooltipLabel = isMac ? '⌥ click to exclude' : 'Alt click to exclude'
@@ -503,6 +507,8 @@ function AppShellContent({
   defaultCollapsed = false,
   menuNewChatTrigger,
   isFocusedMode = false,
+  showTopBarWorkspaceSelector = true,
+  topBarLeftInset = 0,
 }: AppShellProps) {
   // Destructure commonly used values from context
   // Note: sessions is NOT destructured here - we use sessionMetaMapAtom instead
@@ -2369,6 +2375,8 @@ function AppShellContent({
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
           isCompact={isAutoCompact}
+          showWorkspaceSelector={showTopBarWorkspaceSelector || isAutoCompact}
+          leftInset={topBarLeftInset}
         />
 
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
