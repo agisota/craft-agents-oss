@@ -331,10 +331,13 @@ export const RPC_CHANNELS = {
     UPDATE_LESSON: 'memory:updateLesson',
     DELETE_LESSON: 'memory:deleteLesson',
     GET_CONTEXT: 'memory:getContext',
+    GET_PROJECT_MEMORY: 'memory:getProjectMemory',
     UPDATE_CONTEXT: 'memory:updateContext',
     LIST_HISTORY: 'memory:listHistory',
     PROMOTION_CANDIDATES: 'memory:promotionCandidates',
     PROMOTE_LESSON: 'memory:promoteLesson',
+    EXPORT: 'memory:export',
+    IMPORT: 'memory:import',
     CHANGED: 'memory:changed',
   },
   statuses: {

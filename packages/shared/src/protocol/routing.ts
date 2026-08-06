@@ -335,6 +335,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.memory.LIST_HISTORY,
   RPC_CHANNELS.memory.PROMOTION_CANDIDATES,
   RPC_CHANNELS.memory.PROMOTE_LESSON,
+  RPC_CHANNELS.memory.EXPORT,
+  RPC_CHANNELS.memory.IMPORT,
   RPC_CHANNELS.memory.CHANGED,
 
   // skillsPending — pending skill approvals per workspace

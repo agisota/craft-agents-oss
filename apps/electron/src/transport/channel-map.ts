@@ -301,6 +301,7 @@ export const CHANNEL_MAP = {
   updateMemoryLesson: invoke(RPC_CHANNELS.memory.UPDATE_LESSON),
   deleteMemoryLesson: invoke(RPC_CHANNELS.memory.DELETE_LESSON),
   getMemoryContext: invoke(RPC_CHANNELS.memory.GET_CONTEXT),
+  getProjectMemory: invoke(RPC_CHANNELS.memory.GET_PROJECT_MEMORY),
   updateMemoryContext: invoke(RPC_CHANNELS.memory.UPDATE_CONTEXT),
   listMemoryHistory: invoke(RPC_CHANNELS.memory.LIST_HISTORY),
   listPromotionCandidates: invoke(RPC_CHANNELS.memory.PROMOTION_CANDIDATES),

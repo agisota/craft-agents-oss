@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { MemoryService, parseDistillResult, redactSecrets, type SessionCompletionLike } from '../MemoryService'
 import { LessonStore } from '../LessonStore'
 import { MemoryFileStore } from '../MemoryFileStore'
+import { closeAll } from '../fts-index'
 import type { DistillResult, Lesson, LessonPromptUsage, MemoryConfig, SkillCandidate } from '@craft-agent/shared/memory/types'
 import type { StoredMessage, SessionMemoryMode } from '@craft-agent/core/types'
 
@@ -38,12 +39,13 @@ function makeService(opts: {
   clock?: () => number
   modes?: Record<string, SessionMemoryMode>
   provenance?: (sessionId: string) => LessonPromptUsage[]
+  messages?: StoredMessage[]
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'memsvc-'))
   const prompts: string[] = []
   const enqueued: SkillCandidate[] = []
   const emitted: Array<[string, unknown[]]> = []
-  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true }
+  const config: MemoryConfig = { enabled: true, distillIdleHours: 3, distillMsgCount: 30, negativeFirst: true, redactExtraPatterns: [], ftsLimit: 20 }
   let autoCreate = false
   let fire: ((evt: SessionCompletionLike) => void) | null = null
   const wsFiles = new MemoryFileStore('workspace', root)
@@ -62,7 +64,7 @@ function makeService(opts: {
     },
     emit: (channel, args) => emitted.push([channel, args]),
     logger: { warn: () => {} },
-    readMessages: () => MSGS,
+    readMessages: () => opts.messages ?? MSGS,
     getConfig: () => config,
     isSkillAutoCreateEnabled: () => autoCreate,
     getSessionMode: (sessionId) => opts.modes?.[sessionId] ?? 'persistent',
@@ -183,6 +185,45 @@ describe('MemoryService', () => {
     expect(h.prompts[0]).not.toContain('AKIAIOSFODNN7EXAMPLE')
     expect(h.prompts[0]).not.toContain('abc123')
     expect(h.prompts[0]).toContain('[REDACTED AWS KEY]')
+  })
+
+  it('P1: config redactExtraPatterns mask the outgoing distill window (case-insensitive)', async () => {
+    const h = makeService({
+      messages: [
+        { id: 'm1', type: 'user', content: 'ship the ACME Corp build tonight' },
+        { id: 'm2', type: 'assistant', content: 'acme corp assets rebuilt' },
+      ],
+    })
+    tmpRoots.push(h.root)
+    h.config.redactExtraPatterns = ['ACME Corp']
+    h.complete()
+    await drain(h.svc)
+    expect(h.prompts).toHaveLength(1)
+    expect(h.prompts[0]).not.toMatch(/acme corp/i)
+    expect(h.prompts[0]).toContain('[REDACTED]')
+  })
+
+  it('P1: config redactExtraPatterns mask persisted lessons/context/history', async () => {
+    const h = makeService({
+      distiller: async () =>
+        JSON.stringify({
+          history_entry: 'Wrap-up for ACME Corp',
+          memory_update: 'ACME Corp standardizes on pnpm',
+          lessons: [{ rule: 'Never rebuild ACME Corp assets in CI', category: 'correction' }],
+          skill_candidate: null,
+        }),
+    })
+    tmpRoots.push(h.root)
+    h.config.redactExtraPatterns = ['ACME Corp']
+    h.complete()
+    await drain(h.svc)
+    const lesson = h.wsLessons.list()[0]
+    expect(lesson?.rule).toBe('Never rebuild [REDACTED] assets in CI')
+    expect(h.wsFiles.readContext()).toContain('[REDACTED] standardizes on pnpm')
+    const dates = h.wsFiles.listHistoryDates()
+    expect(dates).toHaveLength(1)
+    expect(h.wsFiles.readHistory(dates[0])).toContain('Wrap-up for [REDACTED]')
+    expect(h.wsFiles.readHistory(dates[0])).not.toContain('ACME Corp')
   })
 
   it('skill_candidate: gated off by default → no enqueue', async () => {
@@ -354,6 +395,95 @@ describe('MemoryService', () => {
   })
 })
 
+describe('buildMemoryBlocks query-scoped (M1)', () => {
+  function seed(h: { globalLessons: LessonStore; wsLessons: LessonStore; wsFiles: MemoryFileStore }): void {
+    h.globalLessons.add({
+      ts: '2026-01-01T00:00:00Z',
+      rule: 'never store secrets in code',
+      category: 'correction',
+      scope: 'global',
+      source: { trigger: 'explicit' },
+    } as Lesson)
+    h.wsLessons.add({
+      ts: '2026-01-01T00:00:01Z',
+      rule: 'deploy previews go through vercel',
+      category: 'workflow',
+      scope: 'workspace',
+      source: { trigger: 'explicit' },
+    } as Lesson)
+    h.wsFiles.writeContext('workspace context about gardening the docs')
+    h.wsFiles.appendDailyHistory('shipped the vercel rollback fix', '2026-08-01')
+    h.wsFiles.appendDailyHistory('watered the office plants', '2026-08-02')
+  }
+
+  it('recency path (no query) merges all lessons + recent history', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    seed(h)
+    const blocks = h.svc.buildMemoryBlocks()
+    expect(blocks?.lessonsBlock).toContain('never store secrets')
+    expect(blocks?.lessonsBlock).toContain('vercel')
+    expect(blocks?.memoryBlock).toContain('gardening')
+    expect(blocks?.memoryBlock).toContain('office plants')
+    expect(blocks?.used).toHaveLength(2)
+  })
+
+  it('query path filters lessons and memory to ranked hits', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    seed(h)
+    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel deploy' })
+    expect(blocks?.used).toEqual([{ rule: 'deploy previews go through vercel', scope: 'workspace' }])
+    expect(blocks?.lessonsBlock).toContain('vercel')
+    expect(blocks?.lessonsBlock).not.toContain('secrets')
+    expect(blocks?.memoryBlock).toContain('vercel rollback')
+    expect(blocks?.memoryBlock).not.toContain('office plants')
+    expect(blocks?.memoryBlock).not.toContain('gardening')
+    // Usage accounting follows the ranked subset, not the full stores.
+    expect(h.wsLessons.list()[0].usageCount).toBe(1)
+    expect(h.globalLessons.list()[0].usageCount).toBeUndefined()
+  })
+
+  it('memory.ftsLimit caps the ranked lesson set', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    seed(h)
+    h.wsLessons.add({
+      ts: '2026-01-01T00:00:02Z',
+      rule: 'vercel logs are checked after every deploy',
+      category: 'workflow',
+      scope: 'workspace',
+      source: { trigger: 'explicit' },
+    } as Lesson)
+    h.config.ftsLimit = 1
+    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel' })
+    expect(blocks?.used).toHaveLength(1)
+    expect(blocks?.used?.[0]?.rule).toContain('vercel')
+  })
+
+  it('query with zero hits falls back to the recency path', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    seed(h)
+    const blocks = h.svc.buildMemoryBlocks({ query: 'zzz-unindexed-term' })
+    expect(blocks?.used).toHaveLength(2)
+    expect(blocks?.memoryBlock).toContain('office plants')
+  })
+
+  it('query path falls back to recency on index errors', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    seed(h)
+    closeAll()
+    writeFileSync(join(dirname(h.globalLessons.filePath), 'index.db'), 'not a sqlite database')
+    writeFileSync(join(h.wsFiles.memoryDir, 'index.db'), 'not a sqlite database')
+    const blocks = h.svc.buildMemoryBlocks({ query: 'vercel' })
+    expect(blocks?.used).toHaveLength(2)
+    expect(blocks?.lessonsBlock).toContain('never store secrets')
+    expect(blocks?.memoryBlock).toContain('office plants')
+  })
+})
+
 describe('helpers', () => {
   it('redactSecrets masks common token shapes', () => {
     const input =
@@ -371,6 +501,18 @@ describe('helpers', () => {
       parseDistillResult('```json\n{"history_entry":null,"memory_update":null,"lessons":[],"skill_candidate":null}\n```'),
     ).not.toBeNull()
     expect(parseDistillResult('garbage')).toBeNull()
+  })
+
+  it('redactSecrets masks extra literal patterns case-insensitively (P1)', () => {
+    expect(redactSecrets('x ACME Corp y acme corp z', ['ACME Corp'])).toBe('x [REDACTED] y [REDACTED] z')
+    expect(redactSecrets('nothing listed here', ['ACME Corp'])).toBe('nothing listed here')
+  })
+
+  it('redactSecrets treats extra patterns as literals, not regex', () => {
+    // 'a+b' as a regex would also match 'aaab'; as a literal it must not.
+    expect(redactSecrets('price a+b and aaab', ['a+b'])).toBe('price [REDACTED] and aaab')
+    // Explicit empty list disables extras (no config fallback).
+    expect(redactSecrets('ACME Corp', [])).toBe('ACME Corp')
   })
 })
 

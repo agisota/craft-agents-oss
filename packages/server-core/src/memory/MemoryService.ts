@@ -40,14 +40,20 @@ import type {
   MemoryConfig,
   MemoryPromptBlocks,
   SkillCandidate,
+  WorkspaceMemory,
 } from '@craft-agent/shared/memory/types'
-import { LessonStore } from './LessonStore'
+import { dirname } from 'path'
+import { LessonStore, lessonKey } from './LessonStore'
 import { MemoryFileStore } from './MemoryFileStore'
 import { SkillPendingQueue } from './SkillPendingQueue'
 import { AuditLog } from './AuditLog'
+import { search as ftsSearch } from './fts-index'
+import { compactWorkspaceHistory } from './decay'
 
 /** Max chars of serialized conversation window sent to the distiller (front-truncated). */
 const DISTILL_WINDOW_CHARS = 160_000
+/** M3: history decay runs at most this often (24h), off the 60s idle tick. */
+const DECAY_INTERVAL_MS = 24 * 3_600_000
 /** How many messages trigger a lightweight distillation (overridable per config). */
 
 export interface SessionCompletionLike {
@@ -79,6 +85,11 @@ export interface MemoryServiceDeps {
   clock?: () => number
   /** LLM one-shot: prompt → raw text (expected strict JSON). Default: throws. */
   distiller?: (prompt: string) => Promise<string>
+  /**
+   * M3: one-shot text summarizer for history decay rollups (weekly/monthly).
+   * Absent → decay falls back to concat + 4000-char truncation (no LLM).
+   */
+  summarizer?: (text: string) => Promise<string>
   /** Broadcast emitter: (channel, args) — wired to SessionManager's eventSink. */
   emit?: (channel: string, args: unknown[]) => void
   logger?: { warn: (msg: string, err?: unknown) => void; info?: (msg: string) => void }
@@ -106,15 +117,51 @@ export interface MemoryServiceDeps {
  * Redact secrets from the serialized window before it leaves the machine for
  * the distiller. Defense-in-depth: the store layer never should have held
  * raw secrets, but long sessions inevitably do.
+ *
+ * P1: `extraPatterns` (config memory.redactExtraPatterns) are literal strings
+ * — project names, internal hostnames, paths — masked case-insensitively.
+ * When the argument is omitted the patterns are read from getMemoryConfig()
+ * (module-level cache keyed on the joined pattern list, so regex compilation
+ * happens once per config change, not per call).
  */
-export function redactSecrets(text: string): string {
+export function redactSecrets(text: string, extraPatterns?: readonly string[]): string {
   let out = text.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY BLOCK]')
   out = out.replace(/AKIA[0-9A-Z]{16}/g, '[REDACTED AWS KEY]')
   out = out.replace(/sk-[A-Za-z0-9]{20,}/g, '[REDACTED OPENAI KEY]')
   out = out.replace(/ghp_[A-Za-z0-9]{36}/g, '[REDACTED GITHUB TOKEN]')
   out = out.replace(/xox[baprs]-[A-Za-z0-9-]+/g, '[REDACTED SLACK TOKEN]')
   out = out.replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)\S+/gi, '$1[REDACTED]')
+  for (const re of extraPatternRegexes(extraPatterns)) {
+    out = out.replace(re, '[REDACTED]')
+  }
   return out
+}
+
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g
+let extraPatternCache: { key: string; regexes: RegExp[] } | null = null
+
+function extraPatternRegexes(extraPatterns?: readonly string[]): RegExp[] {
+  let patterns: readonly string[]
+  if (extraPatterns !== undefined) {
+    patterns = extraPatterns
+  } else {
+    try {
+      patterns = getMemoryConfig().redactExtraPatterns
+    } catch {
+      return []
+    }
+  }
+  const key = patterns.join('')
+  if (extraPatternCache?.key !== key) {
+    extraPatternCache = {
+      key,
+      regexes: patterns
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0)
+        .map((p) => new RegExp(p.replace(ESCAPE_RE, '\\$&'), 'gi')),
+    }
+  }
+  return extraPatternCache.regexes
 }
 
 /** Parse a strict-JSON DistillResult, tolerating ```json fences. Returns null on failure. */
@@ -173,6 +220,8 @@ export class MemoryService {
   private readonly lastActivity = new Map<string, number>()
   private readonly idleDistilled = new Set<string>()
   private idleWaiters: Array<() => void> = []
+  /** Last decay-job start (ms); 0 means never. */
+  private lastDecayAt = 0
 
   constructor(deps: MemoryServiceDeps) {
     this.deps = deps
@@ -259,10 +308,14 @@ export class MemoryService {
     this.enqueue({ sessionId, full: false, trigger: 'branch' })
   }
 
-  /** Start the 60s idle check. */
+  /** Start the 60s idle check. Also fires the 24h decay job (M3). */
   start(): void {
     if (this.idleTimer || this.stopped) return
-    this.idleTimer = setInterval(() => this.checkIdle(this.clock()), 60_000)
+    this.idleTimer = setInterval(() => {
+      const now = this.clock()
+      this.checkIdle(now)
+      void this.runDecayJob(now)
+    }, 60_000)
     if (typeof this.idleTimer.unref === 'function') this.idleTimer.unref()
   }
 
@@ -292,15 +345,51 @@ export class MemoryService {
     }
   }
 
-  /** Prompt blocks for BackendConfig.memoryBlocks. Returns undefined when disabled. */
-  buildMemoryBlocks(): MemoryPromptBlocks | undefined {
+  /**
+   * M3: compact workspace history (daily→weekly→monthly→drop after a year).
+   * Called from the 60s tick; a lastRun guard keeps it to at most once per
+   * 24h per service. Disabled-memory configs never decay. Fail-soft: a decay
+   * error is logged and swallowed (returns null), never breaking the tick.
+   * Returns the compaction result when it actually ran, else null.
+   */
+  async runDecayJob(now: number = this.clock()): Promise<{ deleted: number; weekly: string[]; monthly: string[] } | null> {
+    if (!this.config.enabled || this.stopped) return null
+    if (now - this.lastDecayAt < DECAY_INTERVAL_MS) return null
+    this.lastDecayAt = now
+    try {
+      return await compactWorkspaceHistory(this.deps.workspaceRoot, {
+        summarizer: this.deps.summarizer,
+        clock: this.clock,
+      })
+    } catch (err) {
+      this.logger.warn('MemoryService: decay job failed', err)
+      return null
+    }
+  }
+
+  /**
+   * Prompt blocks for BackendConfig.memoryBlocks. Returns undefined when disabled.
+   * M1: `opts.query` (session tail — the last user messages) swaps the recency
+   * bundles for FTS-ranked subsets; any index error or a fully empty result
+   * keeps the recency path intact.
+   */
+  buildMemoryBlocks(opts?: { query?: string }): MemoryPromptBlocks | undefined {
     if (!this.config.enabled) return undefined
     const globalStore = this.deps.lessonStoreFactory?.('global') ?? this.defaultLessonStore('global')
     const workspaceStore = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
-    const globalLessons = globalStore.forContext()
-    const workspaceLessons = workspaceStore.forContext()
+    let globalLessons = globalStore.forContext()
+    let workspaceLessons = workspaceStore.forContext()
+    let memory = this.fileStore.loadWorkspaceMemory()
+    const query = opts?.query?.trim()
+    if (query) {
+      const ranked = this.rankByQuery(query, globalStore, workspaceStore)
+      if (ranked) {
+        globalLessons = ranked.globalLessons
+        workspaceLessons = ranked.workspaceLessons
+        memory = ranked.memory
+      }
+    }
     const lessons = [...globalLessons, ...workspaceLessons]
-    const memory = this.fileStore.loadWorkspaceMemory()
     // Usage accounting (spec F1/F4): the lessons just assembled into the prompt
     // count as "used". Done at the very end, after both blocks were built, so a
     // throw during formatting never inflates counters. Fail-soft: usage counters
@@ -316,6 +405,53 @@ export class MemoryService {
       memoryBlock: formatWorkspaceMemoryForPrompt(memory) || undefined,
       // Provenance (spec F4): exactly the lessons handed to formatLessonsForPrompt.
       used: lessons.map(l => ({ rule: l.rule, scope: l.scope })),
+    }
+  }
+
+  /**
+   * M1 query-scoped recall: FTS-ranked top-K lessons (K = memory.ftsLimit,
+   * both stores filtered by search hits and ordered best-rank first) plus the
+   * ranked context/history subset. Returns null on ANY index error or a fully
+   * empty result — the caller then keeps the recency bundles, so the prompt
+   * never degrades below the v1 baseline.
+   */
+  private rankByQuery(
+    query: string,
+    globalStore: LessonStore,
+    workspaceStore: LessonStore,
+  ): { globalLessons: Lesson[]; workspaceLessons: Lesson[]; memory: WorkspaceMemory } | null {
+    try {
+      const limit = this.config.ftsLimit ?? 20
+      const gHits = ftsSearch(dirname(globalStore.filePath), query, { limit })
+      const wHits = ftsSearch(dirname(workspaceStore.filePath), query, { limit })
+      if (!gHits || !wHits) return null
+      const pickRanked = (store: LessonStore, hits: Array<{ rule: string; rank: number }>): Array<{ lesson: Lesson; rank: number }> => {
+        if (hits.length === 0) return []
+        const byKey = new Map(store.list().map(l => [lessonKey(l.rule), l]))
+        const out: Array<{ lesson: Lesson; rank: number }> = []
+        for (const hit of hits) {
+          const lesson = byKey.get(lessonKey(hit.rule))
+          if (lesson) out.push({ lesson, rank: hit.rank })
+        }
+        return out
+      }
+      const merged = [...pickRanked(globalStore, gHits.lessons), ...pickRanked(workspaceStore, wHits.lessons)]
+        .sort((a, b) => a.rank - b.rank)
+        .slice(0, limit)
+      const memory: WorkspaceMemory = {
+        context: wHits.context.find(h => h.kind === 'context')?.text ?? '',
+        preferences: gHits.context.find(h => h.kind === 'preferences')?.text ?? '',
+        recentHistory: wHits.history.map(h => h.text).filter(t => t.trim().length > 0).join('\n\n'),
+      }
+      if (merged.length === 0 && !memory.context && !memory.preferences && !memory.recentHistory) return null
+      return {
+        globalLessons: merged.filter(m => m.lesson.scope === 'global').map(m => m.lesson),
+        workspaceLessons: merged.filter(m => m.lesson.scope === 'workspace').map(m => m.lesson),
+        memory,
+      }
+    } catch (err) {
+      this.logger.warn('MemoryService: fts ranking failed', err)
+      return null
     }
   }
 
@@ -417,6 +553,7 @@ export class MemoryService {
       const serialized = messages.map((m) => `${m.type}: ${m.content ?? ''}`).join('\n')
       const windowText = redactSecrets(
         serialized.length > DISTILL_WINDOW_CHARS ? serialized.slice(-DISTILL_WINDOW_CHARS) : serialized,
+        this.config.redactExtraPatterns,
       )
       const negativeFirst = this.config.negativeFirst
       let raw: string | null = null
@@ -449,14 +586,15 @@ export class MemoryService {
     try {
       // Defense-in-depth: the distiller reads a redacted window, but its output
       // is still untrusted text — never persist a re-emitted secret.
+      const extraPatterns = this.config.redactExtraPatterns
       for (const lesson of result.lessons) {
-        lesson.rule = redactSecrets(lesson.rule)
+        lesson.rule = redactSecrets(lesson.rule, extraPatterns)
       }
-      if (result.memory_update) result.memory_update = redactSecrets(result.memory_update)
-      if (result.history_entry) result.history_entry = redactSecrets(result.history_entry)
+      if (result.memory_update) result.memory_update = redactSecrets(result.memory_update, extraPatterns)
+      if (result.history_entry) result.history_entry = redactSecrets(result.history_entry, extraPatterns)
       if (result.skill_candidate) {
-        result.skill_candidate.body = redactSecrets(result.skill_candidate.body)
-        result.skill_candidate.description = redactSecrets(result.skill_candidate.description)
+        result.skill_candidate.body = redactSecrets(result.skill_candidate.body, extraPatterns)
+        result.skill_candidate.description = redactSecrets(result.skill_candidate.description, extraPatterns)
       }
       for (const lesson of result.lessons) {
         const store = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')

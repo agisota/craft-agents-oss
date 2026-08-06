@@ -1,7 +1,8 @@
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { PushTarget } from '@craft-agent/shared/protocol'
 import { getWorkspaceByNameOrId, getWorkspaces } from '@craft-agent/shared/config'
-import type { Lesson, LessonCategory, LessonScope, WorkspaceMemory } from '@craft-agent/shared/memory/types'
+import { getMemoryConfig } from '@craft-agent/shared/config/storage'
+import type { Lesson, LessonCategory, LessonScope, ProjectMemoryDto, WorkspaceMemory } from '@craft-agent/shared/memory/types'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import { pushTyped } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
@@ -9,6 +10,8 @@ import { LessonStore, lessonKey } from '../../memory/LessonStore'
 import { buildConflictPrompt, parseConflicts, promoteLessonToGlobal, scanPromotionCandidates } from '../../memory/lesson-graph'
 import type { LessonConflictVerdict } from '../../memory/lesson-graph'
 import { MemoryFileStore } from '../../memory/MemoryFileStore'
+import { getProjectMemoryPath, loadProject, loadProjectById, loadProjectMemory } from '@craft-agent/shared/projects'
+import { search as ftsSearch } from '../../memory/fts-index'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.memory.LIST_LESSONS,
@@ -16,6 +19,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.memory.UPDATE_LESSON,
   RPC_CHANNELS.memory.DELETE_LESSON,
   RPC_CHANNELS.memory.GET_CONTEXT,
+  RPC_CHANNELS.memory.GET_PROJECT_MEMORY,
   RPC_CHANNELS.memory.UPDATE_CONTEXT,
   RPC_CHANNELS.memory.LIST_HISTORY,
   RPC_CHANNELS.memory.PROMOTION_CANDIDATES,
@@ -170,7 +174,11 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
   })
 
   // Global preferences.md + workspace context.md (+ workspace memory bundle).
-  server.handle(RPC_CHANNELS.memory.GET_CONTEXT, async (_ctx, workspaceId?: string): Promise<MemoryContextDto> => {
+  // M1: optional query → FTS-ranked subset of the bundle (context/preferences
+  // documents only when matched, history restricted to ranked days, top-K per
+  // memory.ftsLimit). Missing query, any index error, or zero hits fall back
+  // to the full recent bundle.
+  server.handle(RPC_CHANNELS.memory.GET_CONTEXT, async (_ctx, workspaceId?: string, query?: string): Promise<MemoryContextDto> => {
     const globalStore = new MemoryFileStore('global')
     const preferences = globalStore.readPreferences()
     if (!workspaceId) return { preferences, context: '', workspaceMemory: null }
@@ -180,10 +188,47 @@ export function registerMemoryHandlers(server: RpcServer, deps: HandlerDeps): vo
       return { preferences, context: '', workspaceMemory: null }
     }
     const wsStore = new MemoryFileStore('workspace', workspace.rootPath)
-    return {
+    const fullBundle = (): MemoryContextDto => ({
       preferences,
       context: wsStore.readContext(),
       workspaceMemory: wsStore.loadWorkspaceMemory(),
+    })
+    if (!query?.trim()) return fullBundle()
+    try {
+      const limit = getMemoryConfig().ftsLimit ?? 20
+      const wHits = ftsSearch(wsStore.memoryDir, query, { limit })
+      const gHits = ftsSearch(globalStore.memoryDir, query, { limit })
+      if (!wHits || !gHits) return fullBundle()
+      const contextDoc = wHits.context.find(h => h.kind === 'context')?.text ?? ''
+      const prefsDoc = gHits.context.find(h => h.kind === 'preferences')?.text ?? ''
+      const historyText = wHits.history.map(h => h.text).filter(t => t.trim().length > 0).join('\n\n')
+      if (!contextDoc && !prefsDoc && !historyText) return fullBundle()
+      return {
+        preferences: prefsDoc,
+        context: contextDoc,
+        workspaceMemory: { context: contextDoc, preferences: prefsDoc, recentHistory: historyText },
+      }
+    } catch {
+      return fullBundle()
+    }
+  })
+
+  // M5: project-scope memory surfaced read-only in the Memory tab. Project
+  // MEMORY.md is agent-managed (agents already inject it into prompts via
+  // ProjectPromptContext) — this endpoint only READS it for display.
+  server.handle(RPC_CHANNELS.memory.GET_PROJECT_MEMORY, async (_ctx, workspaceId: string, projectId: string): Promise<ProjectMemoryDto | null> => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) return null
+    const project = loadProjectById(workspace.rootPath, projectId) ?? loadProject(workspace.rootPath, projectId)
+    if (!project) return null
+    const slug = project.config.slug
+    return {
+      name: project.config.name,
+      slug,
+      memoryPath: getProjectMemoryPath(workspace.rootPath, slug),
+      // Generous viewer cap (the 5000-token default is sized for prompt
+      // injection, not for a read-only UI viewer).
+      memoryContent: loadProjectMemory(workspace.rootPath, slug, 20_000) ?? '',
     }
   })
 

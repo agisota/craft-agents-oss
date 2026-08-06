@@ -1948,6 +1948,15 @@ export class SessionManager implements ISessionManager {
   private memoryServiceFor(workspace: { id: string; rootPath: string }): MemoryService | null {
     let svc = this.memoryServices.get(workspace.rootPath)
     if (svc) return svc
+    // P2: workspace-level kill switch — {workspace}/config.json memory.enabled:false
+    // overrides the global memory.enabled. Read at lazy-create time so a workspace
+    // synthesized without its config on disk (tests, fresh imports) falls through
+    // to global behavior; an unreadable config must never break session start.
+    try {
+      if (loadWorkspaceConfig(workspace.rootPath)?.memory?.enabled === false) return null
+    } catch {
+      // fall through to the global default
+    }
     try {
       svc = new MemoryService({
         workspaceRoot: workspace.rootPath,
@@ -3826,7 +3835,16 @@ export class SessionManager implements ISessionManager {
       // Self-learning memory prompt blocks (lessons + workspace memory), resolved
       // lazily per session start. Undefined when memory.enabled is false, or when the
       // session runs in 'temporary' memory mode (no read, no write — spec F3).
-      const memoryBlocks = managed.memoryMode === 'temporary' ? undefined : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks()
+      // M1: the last two user messages drive FTS-ranked recall (recency fallback).
+      const memoryQuery = managed.messages
+        .filter(m => m.role === 'user')
+        .slice(-2)
+        .map(m => m.content)
+        .join('\n')
+        .trim()
+      const memoryBlocks = managed.memoryMode === 'temporary'
+        ? undefined
+        : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(memoryQuery ? { query: memoryQuery } : undefined)
       // Provenance (spec F4): persist which lessons were injected so the feedback
       // loop and usage UI can attribute behavior later. BackendConfig.memoryBlocks
       // is a constructor-time snapshot, so this record refreshes per session start

@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, join } from 'path'
 import { LESSON_LIMITS, type AuditActor, type Lesson, type LessonConflict, type LessonScope } from '@craft-agent/shared/memory/types'
 import { AuditLog, type AuditInput } from './AuditLog'
+import { removeLesson as ftsRemoveLesson, upsertLesson as ftsUpsertLesson } from './fts-index'
 
 /** Normalized dedup key for a lesson rule (case-insensitive, whitespace-trimmed). */
 export function lessonKey(rule: string): string {
@@ -113,7 +114,7 @@ export class LessonStore {
       lessons.push({ ...existing, ts: entry.ts, source: entry.source, ...(entry.generated !== undefined ? { generated: entry.generated } : {}) })
       this.rewrite(lessons)
       this.auditWrite({ actor, action: 'add', target: entry.rule, detail: entry.source.trigger })
-      return lessons[lessons.length - 1]
+      return this.indexed(lessons[lessons.length - 1])
     }
     // Append-only fast path when we're under the limit.
     if (lessons.length < LESSON_LIMITS.total) {
@@ -123,12 +124,12 @@ export class LessonStore {
         ? { mtimeMs: this.mtime(), lessons: [...lessons, entry] }
         : null
       this.auditWrite({ actor, action: 'add', target: entry.rule, detail: entry.source.trigger })
-      return entry
+      return this.indexed(entry)
     }
     lessons.push(entry)
     this.rewrite(lessons)
     this.auditWrite({ actor, action: 'add', target: entry.rule, detail: entry.source.trigger })
-    return entry
+    return this.indexed(entry)
   }
 
   /**
@@ -144,7 +145,9 @@ export class LessonStore {
     lessons[idx] = { ...lessons[idx], ...patch }
     this.rewrite(lessons)
     this.auditWrite({ actor, action: patch.promoted ? 'promote' : 'update', target, detail: Object.keys(patch).join(',') })
-    return lessons[idx]
+    // M1 FTS: the patch may have renamed the rule — drop the stale key first.
+    if (lessonKey(lessons[idx].rule) !== lessonKey(target)) this.unindexed(target)
+    return this.indexed(lessons[idx])
   }
 
   /**
@@ -159,6 +162,7 @@ export class LessonStore {
     lessons.splice(idx, 1)
     this.rewrite(lessons)
     this.auditWrite({ actor, action: 'delete', target })
+    this.unindexed(target)
     return true
   }
 
@@ -217,6 +221,25 @@ export class LessonStore {
       this.auditLog.append(input)
     } catch {
       // auditing is best-effort; the mutation already landed
+    }
+  }
+
+  /** M1 FTS: (re)index the stored lesson; the index may never break a mutation. */
+  private indexed(lesson: Lesson): Lesson {
+    try {
+      ftsUpsertLesson(dirname(this.filePath), lesson)
+    } catch {
+      // best-effort projection of the jsonl file
+    }
+    return lesson
+  }
+
+  /** M1 FTS: drop a lesson from the scope's index (matched by normalized rule). */
+  private unindexed(rule: string): void {
+    try {
+      ftsRemoveLesson(dirname(this.filePath), rule)
+    } catch {
+      // best-effort
     }
   }
 

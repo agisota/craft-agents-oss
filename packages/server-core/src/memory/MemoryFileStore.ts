@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'path'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import type { LessonScope, WorkspaceMemory } from '@craft-agent/shared/memory/types'
+import { upsertContext, upsertHistory } from './fts-index'
 
 /** How many of the most recent daily history files loadWorkspaceMemory keeps. */
 export const RECENT_HISTORY_DAYS = 7
@@ -57,6 +58,10 @@ export class MemoryFileStore {
 
   writeContext(content: string): void {
     this.writeText(join(this.memoryDir, 'context.md'), content)
+    // M1 FTS: index the new document (best-effort — indexing never blocks a write).
+    try {
+      upsertContext(this.memoryDir, 'context', content)
+    } catch {}
   }
 
   /** Read preferences.md (global scope) or '' when absent. */
@@ -66,6 +71,10 @@ export class MemoryFileStore {
 
   writePreferences(content: string): void {
     this.writeText(join(this.memoryDir, 'preferences.md'), content)
+    // M1 FTS: index the new document (best-effort — indexing never blocks a write).
+    try {
+      upsertContext(this.memoryDir, 'preferences', content)
+    } catch {}
   }
 
   /**
@@ -81,6 +90,10 @@ export class MemoryFileStore {
       ? existing.replace(/\n*$/, '\n\n') + content.replace(/\n*$/, '\n')
       : `# ${day}\n\n` + content.replace(/\n*$/, '\n')
     writeFileSync(file, section)
+    // M1 FTS: reindex the full day document (best-effort — never blocks the write).
+    try {
+      upsertHistory(this.memoryDir, day, section)
+    } catch {}
     return file
   }
 

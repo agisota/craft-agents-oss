@@ -30,6 +30,7 @@ import { registerTransferHandlers } from './transfer'
 import { registerWorkspaceCoreHandlers } from './workspace'
 import { registerMessagingHandlers } from './messaging'
 import { registerMemoryHandlers } from './memory'
+import { registerMemoryIoHandlers } from './memory-io'
 import { registerSkillsPendingHandlers } from './skills-pending'
 export function cleanupCoreClientResources(clientId: string): void {
   cleanupSessionFileWatchForClient(clientId)
@@ -76,6 +77,7 @@ export function registerCoreRpcHandlers(
   registerWorkspaceCoreHandlers(server, deps)
   registerMessagingHandlers(server, deps)
   registerMemoryHandlers(server, deps)
+  registerMemoryIoHandlers(server, deps)
   registerSkillsPendingHandlers(server, deps)
   registerNotesHandlers(server, deps)
   if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)

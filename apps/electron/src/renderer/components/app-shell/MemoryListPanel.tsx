@@ -1,9 +1,11 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAtomValue } from 'jotai'
 import { Brain, Pencil, Trash2, Check, Plus, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, PromotionCandidate } from '@craft-agent/shared/memory/types'
+import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, ProjectMemoryDto, PromotionCandidate } from '@craft-agent/shared/memory/types'
 import { useNavigation, routes } from '@/contexts/NavigationContext'
+import { activeSessionIdAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 
 export interface MemoryListPanelProps {
   workspaceId?: string
@@ -32,6 +34,12 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   const [lessons, setLessons] = React.useState<Lesson[]>([])
   const [preferences, setPreferences] = React.useState('')
   const [context, setContext] = React.useState('')
+  // M5: read-only project MEMORY.md of the project the active session is bound
+  // to (project memory is already prompt-injected by the agents; this only shows it).
+  const activeSessionId = useAtomValue(activeSessionIdAtom)
+  const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+  const activeProjectId = activeSessionId ? sessionMetaMap.get(activeSessionId)?.projectId : undefined
+  const [projectMemory, setProjectMemory] = React.useState<ProjectMemoryDto | null>(null)
   const [historyDates, setHistoryDates] = React.useState<string[]>([])
   const [historyDate, setHistoryDate] = React.useState<string | null>(null)
   const [historyContent, setHistoryContent] = React.useState('')
@@ -84,11 +92,20 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       .catch(() => setPromotionCandidates([]))
   }, [])
 
+  const loadProjectMemory = React.useCallback(() => {
+    if (!workspaceId || !activeProjectId) { setProjectMemory(null); return }
+    window.electronAPI
+      .getProjectMemory(workspaceId, activeProjectId)
+      .then(setProjectMemory)
+      .catch(() => setProjectMemory(null))
+  }, [workspaceId, activeProjectId])
+
   React.useEffect(() => {
     loadLessons()
     loadContext()
     loadHistoryDates()
     loadPromotionCandidates()
+    loadProjectMemory()
     setHistoryDate(null)
     setHistoryContent('')
     setAddConflicts(null)
@@ -97,9 +114,10 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       loadContext()
       loadHistoryDates()
       loadPromotionCandidates()
+      loadProjectMemory()
     })
     return off
-  }, [loadLessons, loadContext, loadHistoryDates, loadPromotionCandidates])
+  }, [loadLessons, loadContext, loadHistoryDates, loadPromotionCandidates, loadProjectMemory])
 
   const openDate = (date: string) => {
     if (!workspaceId) return
@@ -557,6 +575,33 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
           )}
         </div>
       </div>
+
+      {/* Project (M5): read-only view of the project MEMORY.md the active
+          session is bound to. Agents already inject this into their prompts;
+          this section only surfaces it. */}
+      {workspaceId && activeProjectId && projectMemory && (
+        <div className="border-t border-foreground/5 pt-1.5">
+          <div className={sectionTitleClass()}>{t('memory.projectSection')}</div>
+          <div className="mx-1 mb-0.5 px-1">
+            <button
+              type="button"
+              onClick={() => navigate(routes.view.projects(projectMemory.slug))}
+              title={t('memory.projectOpen')}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+            >
+              <Link2 className="size-3" />
+              {projectMemory.name}
+            </button>
+          </div>
+          {projectMemory.memoryContent ? (
+            <pre className="mx-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
+              {projectMemory.memoryContent}
+            </pre>
+          ) : (
+            <div className="px-2 pb-1 text-xs text-muted-foreground/70">{t('memory.projectEmpty')}</div>
+          )}
+        </div>
+      )}
 
       {/* History */}
       {workspaceId && (

@@ -103,6 +103,8 @@ export interface StoredConfig {
     distillIdleHours?: number;   // idle hours before full distillation (default: 3)
     distillMsgCount?: number;    // messages between lightweight distillations (default: 30)
     negativeFirst?: boolean;     // distill prompts prefer negative/MUST-NOT lesson formulations (default: true)
+    redactExtraPatterns?: string[]; // extra literal strings masked by redactSecrets (project names, paths, …), case-insensitive (default: [])
+    ftsLimit?: number;           // top-K results from memory FTS queries (default: 20)
   };
   // Skills pipeline switches.
   skills?: {
@@ -631,6 +633,13 @@ export function getMemoryConfig(): MemoryConfig {
         ? Math.floor(raw.distillMsgCount)
         : DEFAULT_MEMORY_CONFIG.distillMsgCount,
     negativeFirst: raw.negativeFirst !== undefined ? raw.negativeFirst === true : DEFAULT_MEMORY_CONFIG.negativeFirst,
+    redactExtraPatterns: Array.isArray(raw.redactExtraPatterns)
+      ? raw.redactExtraPatterns.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      : DEFAULT_MEMORY_CONFIG.redactExtraPatterns,
+    ftsLimit:
+      typeof raw.ftsLimit === 'number' && Number.isFinite(raw.ftsLimit) && raw.ftsLimit > 0
+        ? Math.floor(raw.ftsLimit)
+        : DEFAULT_MEMORY_CONFIG.ftsLimit,
   };
 }
 

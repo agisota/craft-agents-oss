@@ -31,7 +31,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
-import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
+import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -669,6 +669,7 @@ export interface ElectronAPI {
   updateMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number, patch: Partial<Omit<Lesson, 'scope'>>): Promise<Lesson | null>
   deleteMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number): Promise<boolean>
   getMemoryContext(workspaceId?: string): Promise<{ preferences: string; context: string }>
+  getProjectMemory(workspaceId: string, projectId: string): Promise<ProjectMemoryDto | null>
   updateMemoryContext(workspaceId: string | null, scope: LessonScope, content: string): Promise<boolean>
   listMemoryHistory(workspaceId: string, date?: string): Promise<{ dates: string[]; date: string | null; content: string }>
   // Learning-quality surface (spec L3): cross-workspace rule promotion
