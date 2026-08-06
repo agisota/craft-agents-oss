@@ -77,8 +77,9 @@ import {
 } from '@craft-agent/ui'
 import { useLinkInterceptor, type FilePreviewState } from '@/hooks/useLinkInterceptor'
 import { useTransportConnectionState } from '@/hooks/useTransportConnectionState'
+import { useSshConnectionStatus } from '@/hooks/useSshConnectionStatus'
 import { useStaleSessionRecovery } from '@/hooks/useStaleSessionRecovery'
-import { TransportConnectionBanner, shouldShowTransportConnectionBanner } from '@/components/app-shell/TransportConnectionBanner'
+import { TransportConnectionBanner, shouldShowTransportConnectionBanner, shouldShowSshBanner } from '@/components/app-shell/TransportConnectionBanner'
 import {
   markBackgroundTaskSignal,
   markLiveBackgroundTasksOrphaned,
@@ -1757,7 +1758,17 @@ export default function App() {
   })
 
   const connectionState = useTransportConnectionState()
-  const showTransportConnectionBanner = shouldShowTransportConnectionBanner(connectionState)
+  // SSH-backed workspace: surface SSH-level status in front of the ws transport
+  // so the banner never shows a raw ws error for the (ephemeral) forwarded port.
+  const windowSshHostId = useMemo(() => {
+    if (!windowWorkspaceId) return null
+    const workspace = workspaces.find(w => w.id === windowWorkspaceId)
+    return workspace?.remoteServer?.sshHostId ?? null
+  }, [windowWorkspaceId, workspaces])
+  const sshConnectionStatus = useSshConnectionStatus(windowSshHostId)
+  const showTransportConnectionBanner =
+    shouldShowTransportConnectionBanner(connectionState) || shouldShowSshBanner(sshConnectionStatus)
+
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth)
@@ -2139,6 +2150,7 @@ export default function App() {
               {showTransportConnectionBanner && connectionState && (
                 <TransportConnectionBanner
                   state={connectionState}
+                  sshStatus={sshConnectionStatus}
                   onRetry={handleReconnectTransport}
                 />
               )}

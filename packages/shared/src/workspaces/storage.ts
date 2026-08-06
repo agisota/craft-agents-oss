@@ -23,6 +23,7 @@ import { getDefaultStatusConfig, saveStatusConfig, ensureDefaultIconFiles } from
 import { getDefaultLabelConfig, saveLabelConfig } from '../labels/storage.ts';
 import { loadConfigDefaults } from '../config/storage.ts';
 import { CONFIG_DIR } from '../config/paths.ts';
+import { generateSlug } from '../utils/slug.ts';
 import { parsePermissionMode, PERMISSION_MODE_ORDER } from '../agent/mode-types.ts';
 import { normalizeThinkingLevel } from '../agent/thinking-levels.ts';
 import type {
@@ -238,22 +239,8 @@ export function getWorkspaceSummary(rootPath: string): WorkspaceSummary | null {
 // Create/Delete Operations
 // ============================================================
 
-/**
- * Generate URL-safe slug from name
- */
-export function generateSlug(name: string): string {
-  let slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
-
-  if (!slug) {
-    slug = 'workspace';
-  }
-
-  return slug;
-}
+/** Generate a URL-safe slug (shared impl in ../utils/slug.ts; re-exported for compat). */
+export { generateSlug } from '../utils/slug.ts';
 
 /**
  * Generate a unique folder path for a workspace by appending a numeric suffix

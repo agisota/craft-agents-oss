@@ -16,6 +16,9 @@ export interface RemoteServerConfig {
   url: string;              // ws://host:port or wss://host:port
   token: string;            // Auth token for the remote server
   remoteWorkspaceId: string; // ID of the workspace on the remote server
+  /** When set, reached over an SSH tunnel: sshHostId + the host store are the durable
+   * identity, so url/token are ephemeral and re-resolved before every dial. */
+  sshHostId?: string;
 }
 
 /**

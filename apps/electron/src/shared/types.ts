@@ -20,6 +20,7 @@ import type {
   ContentBadge,
   ToolDisplayMeta,
   AnnotationV1,
+  RemoteServerConfig,
 } from '@craft-agent/core/types';
 
 // Mode types from dedicated subpath export (avoids pulling in SDK)
@@ -50,6 +51,32 @@ export type {
 import type { AuthState, SetupNeeds } from '@craft-agent/shared/auth/types';
 import type { AuthType } from '@craft-agent/shared/config/types';
 export type { AuthState, SetupNeeds, AuthType };
+
+import type {
+  SshHostConfig,
+  SshHostInput,
+  SshConfigImportSuggestion,
+} from '@craft-agent/shared/config';
+export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
+
+/** Renderer-safe copies of the SSH defaults (the renderer bundle can't value-import
+ * the Node-only shared config); parity is asserted in ssh-tunnel.test.ts. */
+export const DEFAULT_SSH_PORT = 22;
+export const DEFAULT_REMOTE_SERVER_PORT = 9100;
+
+// SSH wire types — type-only re-exports from the main-process modules (erased at
+// build, so the renderer bundle never pulls in Node-only code).
+import type { BootstrapPhase as SshBootstrapPhase } from '../main/ssh-tunnel/server-bootstrap';
+import type { SshConnectionPhase, SshConnectionStatus } from '../main/ssh-tunnel/connection-resolver';
+export type { SshBootstrapPhase, SshConnectionPhase, SshConnectionStatus };
+
+/** Progress event pushed to the renderer during one-click bootstrap (main adds hostId). */
+export interface SshBootstrapProgress {
+  hostId: string;
+  phase: SshBootstrapPhase;
+  /** Human-readable detail (never contains secrets). */
+  detail?: string;
+}
 
 // Credential health types
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
@@ -279,6 +306,21 @@ export interface ElectronAPI {
   removeWorkspace(workspaceId: string): Promise<boolean>
   invokeOnServer(url: string, token: string, channel: string, ...args: any[]): Promise<any>
 
+  // SSH remote hosts + tunnels (Remote-SSH style bootstrap to a remote server)
+  sshListHosts(): Promise<SshHostConfig[]>
+  sshAddHost(input: SshHostInput): Promise<SshHostConfig>
+  sshUpdateHost(id: string, updates: Partial<SshHostConfig>): Promise<SshHostConfig | undefined>
+  sshDeleteHost(id: string): Promise<boolean>
+  sshImportFromConfig(): Promise<SshConfigImportSuggestion[]>
+  sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
+  /** One-click: install (if needed) + start a managed server, then tunnel. */
+  sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string; hostId: string }>
+  /** Resolve a persisted RemoteServerConfig into a live { url, token } before dialing:
+   * plain-ws passes through, SSH-backed (re)establishes a fresh tunnel + server. */
+  sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
+  onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
+  onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void
+
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>
   onTransferProgress(callback: (progress: { sessionIndex: number; sessionCount: number; chunkSent: number; chunkTotal: number }) => void): () => void
@@ -296,7 +338,7 @@ export interface ElectronAPI {
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
-  createWorkspace(folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string }): Promise<Workspace>
+  createWorkspace(folderPath: string, name: string, remoteServer?: RemoteServerConfig): Promise<Workspace>
   checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
   updateWorkspaceRemoteServer(workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }): Promise<{ success: boolean }>
 

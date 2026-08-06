@@ -41,7 +41,8 @@ import {
 import type { ConfirmDialogSpec, FileDialogSpec, BrowserCapabilityRequest } from '@craft-agent/server-core/transport'
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
-import type { ElectronAPI } from '../shared/types'
+import type { ElectronAPI, SshBootstrapProgress, SshConnectionStatus } from '../shared/types'
+import { isSshBacked } from '../shared/ssh'
 
 // ---------------------------------------------------------------------------
 // Client interface — common surface for both RoutedClient and WsRpcClient
@@ -114,21 +115,34 @@ if (isClientOnly) {
     clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
   })
 
-  // Check if the current workspace is remote (synchronous IPC during preload eval)
-  const remoteConfig: RemoteServerConfig | null = ipcRenderer.sendSync('__get-workspace-remote-config')
-
-  let initialWorkspaceClient: WsRpcClient
-  if (remoteConfig && typeof remoteConfig.url === 'string') {
-    // Workspace is remote — create a direct connection to the remote server
-    initialWorkspaceClient = new WsRpcClient(remoteConfig.url, {
-      token: remoteConfig.token,
-      workspaceId: remoteConfig.remoteWorkspaceId,
+  // Build a workspace client for a RemoteServerConfig. SSH-backed configs get a
+  // `resolveTarget` hook that re-establishes the tunnel + a fresh url/token per connect.
+  const makeRemoteClient = (rc: RemoteServerConfig): WsRpcClient =>
+    new WsRpcClient(rc.url, {
+      token: rc.token,
+      workspaceId: rc.remoteWorkspaceId,
       webContentsId,
       autoReconnect: true,
       mode: 'remote',
       clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
       tlsRejectUnauthorized: false,
+      ...(isSshBacked(rc)
+        ? {
+            resolveTarget: async () => {
+              const resolved = await ipcRenderer.invoke('ssh:resolveWorkspaceConnection', rc)
+              return { url: resolved.url, token: resolved.token }
+            },
+          }
+        : {}),
     })
+
+  // Check if the current workspace is remote (synchronous IPC during preload eval)
+  const remoteConfig: RemoteServerConfig | null = ipcRenderer.sendSync('__get-workspace-remote-config')
+
+  let initialWorkspaceClient: WsRpcClient
+  if (remoteConfig && typeof remoteConfig.url === 'string') {
+    // Workspace is remote — create a connection (SSH-backed resolves a fresh port).
+    initialWorkspaceClient = makeRemoteClient(remoteConfig)
     initialWorkspaceClient.connect()
   } else {
     // Workspace is local — workspace client IS the local client
@@ -142,18 +156,9 @@ if (isClientOnly) {
     routedClient.setWorkspaceMapping(workspaceId, remoteConfig.remoteWorkspaceId)
   }
 
-  // Factory for creating remote workspace clients on switch
-  routedClient.setClientFactory((remoteServer: RemoteServerConfig) => {
-    return new WsRpcClient(remoteServer.url, {
-      token: remoteServer.token,
-      workspaceId: remoteServer.remoteWorkspaceId,
-      webContentsId,
-      autoReconnect: true,
-      mode: 'remote',
-      clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
-      tlsRejectUnauthorized: false,
-    })
-  })
+  // Factory for creating remote workspace clients on switch (SSH-backed configs
+  // resolve a fresh forwarded port on connect via makeRemoteClient's hook).
+  routedClient.setClientFactory((remoteServer: RemoteServerConfig) => makeRemoteClient(remoteServer))
 
   localClient.connect()
   client = routedClient
@@ -463,6 +468,29 @@ client.onConnectionStateChanged((state) => {
   const handler = (_e: any, progress: { sessionIndex: number; sessionCount: number; chunkSent: number; chunkTotal: number }) => cb(progress)
   ipcRenderer.on('transfer:progress', handler)
   return () => { ipcRenderer.removeListener('transfer:progress', handler) }
+}
+
+// SSH remote hosts + tunnels — direct IPC (Electron-only, not WS RPC)
+;(api as ElectronAPI).sshListHosts = () => ipcRenderer.invoke('ssh:listHosts')
+;(api as ElectronAPI).sshAddHost = (input) => ipcRenderer.invoke('ssh:addHost', input)
+;(api as ElectronAPI).sshUpdateHost = (id: string, updates) =>
+  ipcRenderer.invoke('ssh:updateHost', id, updates)
+;(api as ElectronAPI).sshDeleteHost = (id: string) => ipcRenderer.invoke('ssh:deleteHost', id)
+;(api as ElectronAPI).sshImportFromConfig = () => ipcRenderer.invoke('ssh:importFromConfig')
+;(api as ElectronAPI).sshConnect = (hostId: string) => ipcRenderer.invoke('ssh:connect', hostId)
+;(api as ElectronAPI).sshBootstrapConnect = (hostId: string) =>
+  ipcRenderer.invoke('ssh:bootstrapConnect', hostId)
+;(api as ElectronAPI).sshResolveWorkspaceConnection = (remoteServer) =>
+  ipcRenderer.invoke('ssh:resolveWorkspaceConnection', remoteServer)
+;(api as ElectronAPI).onSshBootstrapProgress = (cb) => {
+  const handler = (_e: unknown, progress: SshBootstrapProgress) => cb(progress)
+  ipcRenderer.on('ssh:bootstrapProgress', handler)
+  return () => { ipcRenderer.removeListener('ssh:bootstrapProgress', handler) }
+}
+;(api as ElectronAPI).onSshConnectionStatus = (cb) => {
+  const handler = (_e: unknown, status: SshConnectionStatus) => cb(status)
+  ipcRenderer.on('ssh:connectionStatus', handler)
+  return () => { ipcRenderer.removeListener('ssh:connectionStatus', handler) }
 }
 
 // System warnings — expose env-based flags set during main process startup

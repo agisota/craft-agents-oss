@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { FolderPlus, FolderOpen, Cloud } from "lucide-react"
+import { FolderPlus, FolderOpen, Cloud, Terminal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AddWorkspaceContainer, AddWorkspaceStepHeader } from "./primitives"
 
@@ -7,6 +7,7 @@ interface AddWorkspaceStep_ChoiceProps {
   onCreateNew: () => void
   onOpenFolder: () => void
   onConnectRemote: () => void
+  onConnectSsh: () => void
 }
 
 interface ChoiceCardProps {
@@ -58,6 +59,7 @@ export function AddWorkspaceStep_Choice({
   onCreateNew,
   onOpenFolder,
   onConnectRemote,
+  onConnectSsh,
 }: AddWorkspaceStep_ChoiceProps) {
   const { t } = useTranslation()
   return (
@@ -89,6 +91,13 @@ export function AddWorkspaceStep_Choice({
           title={t("workspace.connectRemote")}
           description={t("workspace.connectRemoteDesc")}
           onClick={onConnectRemote}
+        />
+
+        <ChoiceCard
+          icon={<Terminal className="h-5 w-5" />}
+          title={t("workspace.connectSsh")}
+          description={t("workspace.connectSshDesc")}
+          onClick={onConnectSsh}
         />
       </div>
     </AddWorkspaceContainer>
