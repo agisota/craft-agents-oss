@@ -45,6 +45,37 @@ jobs:
         env:
           CI: "1"
 
+  toolchain-smoke-selfhosted-macos:
+    # macOS-arm64 leg на self-hosted Mac (craft-agents-mac-01) — GHA-hosted
+    # macos заблокирован биллингом, CCI-план без macos-экзекуторов. Это единство
+    # енственное бесплатное mac-покрытие.
+    runs-on: [self-hosted, macos-toolchain]
+    name: toolchain-smoke (self-hosted macos)
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Toolchain unit tests
+        run: bun test packages/shared/src/toolchain
+
+      - name: Fresh-profile ensureAll + launcher check
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/tc-ci.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-smoke.ts
+        env:
+          CI: "1"
+
   toolchain-smoke:
     # macos/ubuntu/windows — заблокированы GitHub billing lock (см.
     # run 31126113869); оставлены для разблокировки по биллингу.
