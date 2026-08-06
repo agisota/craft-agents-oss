@@ -14,7 +14,11 @@ import LanguageDetector from 'i18next-browser-languagedetector'
 import './index.css'
 
 // Initialize i18n before any React rendering
-setupI18n([LanguageDetector, initReactI18next])
+const i18n = setupI18n([LanguageDetector, initReactI18next])
+const initialLanguageSync = window.electronAPI?.changeLanguage?.(i18n.resolvedLanguage ?? i18n.language)
+void initialLanguageSync?.catch((error) => {
+  console.error('Failed to sync initial language to main process:', error)
+})
 
 // One-shot bootstrap: ensure the main process's i18n + preferences.json learn
 // the language we just restored from localStorage. The main-process IPC handler
