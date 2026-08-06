@@ -270,11 +270,25 @@ export class MemoryService {
     if (!this.config.enabled) return undefined
     const globalStore = this.deps.lessonStoreFactory?.('global') ?? this.defaultLessonStore('global')
     const workspaceStore = this.deps.lessonStoreFactory?.('workspace') ?? this.defaultLessonStore('workspace')
-    const lessons = [...globalStore.forContext(), ...workspaceStore.forContext()]
+    const globalLessons = globalStore.forContext()
+    const workspaceLessons = workspaceStore.forContext()
+    const lessons = [...globalLessons, ...workspaceLessons]
     const memory = this.fileStore.loadWorkspaceMemory()
+    // Usage accounting (spec F1/F4): the lessons just assembled into the prompt
+    // count as "used". Done at the very end, after both blocks were built, so a
+    // throw during formatting never inflates counters. Fail-soft: usage counters
+    // must never break prompt assembly (session-start path). touchUsed([]) no-ops.
+    try {
+      globalStore.touchUsed(globalLessons.map(l => l.rule))
+      workspaceStore.touchUsed(workspaceLessons.map(l => l.rule))
+    } catch (err) {
+      this.logger.warn('MemoryService: touchUsed failed', err)
+    }
     return {
       lessonsBlock: lessons.length ? formatLessonsForPrompt(lessons) : undefined,
       memoryBlock: formatWorkspaceMemoryForPrompt(memory) || undefined,
+      // Provenance (spec F4): exactly the lessons handed to formatLessonsForPrompt.
+      used: lessons.map(l => ({ rule: l.rule, scope: l.scope })),
     }
   }
 

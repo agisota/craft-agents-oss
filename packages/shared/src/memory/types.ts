@@ -142,4 +142,31 @@ export interface MemoryPromptBlocks {
   lessonsBlock?: string
   /** Output of formatWorkspaceMemoryForPrompt */
   memoryBlock?: string
+  /**
+   * Provenance (spec F4): lessons actually included in lessonsBlock, listed as
+   * `{rule, scope}` pairs in the same order they were passed to
+   * formatLessonsForPrompt. Absent in records predating F4; present (possibly
+   * empty) whenever the blocks were assembled by an F4-aware MemoryService.
+   */
+  used?: LessonPromptUsage[]
+}
+
+/** One lesson that was injected into an agent prompt (spec F4). */
+export interface LessonPromptUsage {
+  rule: string
+  scope: LessonScope
+}
+
+/**
+ * Per-session memory provenance record (spec F4), persisted at
+ * {workspace}/sessions/{id}/meta/provenance.json by the SessionManager at the
+ * site where prompt blocks are assembled (currently: session start / backend
+ * spawn). `skills` is [] until sessions carry an enabled-skills list — skills
+ * today attach per-message via [skill:slug] mentions, not per session.
+ */
+export interface SessionProvenance {
+  lessons: LessonPromptUsage[]
+  skills: string[]
+  /** ISO timestamp of the prompt assembly that produced this record */
+  ts: string
 }

@@ -118,6 +118,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sessions.GET_PENDING_PLAN_EXECUTION,
   RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE,
   RPC_CHANNELS.sessions.SET_MEMORY_MODE,
+  RPC_CHANNELS.sessions.GET_PROVENANCE,
   RPC_CHANNELS.sessions.SEARCH_CONTENT,
   RPC_CHANNELS.sessions.GET_FILES,
   RPC_CHANNELS.sessions.GET_NOTES,
@@ -413,6 +414,15 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
     mode: SessionMemoryMode
   ) => {
     return sessionManager.setSessionMemoryMode(sessionId, mode)
+  })
+
+  // Memory provenance (spec F4): lessons/skills injected into the session's
+  // prompts. Null for unknown sessions or sessions with no provenance record.
+  server.handle(RPC_CHANNELS.sessions.GET_PROVENANCE, async (
+    _ctx,
+    sessionId: string
+  ) => {
+    return sessionManager.getSessionProvenance(sessionId)
   })
 
   // ============================================================

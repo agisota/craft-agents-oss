@@ -24,6 +24,7 @@ import type {
   ShareResult,
 } from '@craft-agent/shared/protocol'
 import type { SessionBundle, DispatchMode } from '@craft-agent/shared/sessions'
+import type { SessionProvenance } from '@craft-agent/shared/memory/types'
 import type { EventSink } from '../transport'
 
 export interface ISessionManager {
@@ -90,6 +91,7 @@ export interface ISessionManager {
   setSessionProjectId(sessionId: string, projectId: string | null): Promise<void>
   setKanbanColumn(sessionId: string, column: string | null): Promise<void>
   setTaskNodeCount(sessionId: string, count: number): Promise<void>
+  setSessionMemoryMode(sessionId: string, mode: import('@craft-agent/core/types').SessionMemoryMode): Promise<void>
   adoptGeneratedTaskOrchestrator(
     sessionId: string,
     taskSlug: string,
@@ -231,6 +233,8 @@ export interface ISessionManager {
   // ---------------------------------------------------------------------------
 
   getSessionPath(sessionId: string): string | null
+  /** Memory provenance (spec F4): lessons/skills injected into the session's prompts; null when absent. */
+  getSessionProvenance(sessionId: string): SessionProvenance | null
   refreshTitle(sessionId: string): Promise<{ success: boolean; title?: string; error?: string }>
   refreshBadge(): void
   getUnreadSummary(): UnreadSummary

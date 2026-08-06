@@ -43,7 +43,7 @@ function makeService(opts: { distiller?: (prompt: string) => Promise<string>; cl
   let fire: ((evt: { sessionId: string; reason: 'complete' | 'interrupted' | 'error' | 'timeout' }) => void) | null = null
   const wsFiles = new MemoryFileStore('workspace', root)
   const wsLessons = new LessonStore(wsFiles.lessonsPath, 'workspace')
-  const globalLessons = new LessonStore(new MemoryFileStore('global', root, root).lessonsPath, 'global')
+  const globalLessons = new LessonStore(new MemoryFileStore('global', root, join(root, 'global-config')).lessonsPath, 'global')
   const svc = new MemoryService({
     workspaceRoot: root,
     workspaceId: 'ws-1',
@@ -298,6 +298,51 @@ describe('MemoryService', () => {
     expect(blocks?.lessonsBlock).toContain('ws rule')
     h.config.enabled = false
     expect(h.svc.buildMemoryBlocks()).toBeUndefined()
+  })
+
+  it('buildMemoryBlocks reports used lessons with scopes (F4) and counts usage (F1)', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    h.globalLessons.add({
+      ts: '2026-01-01T00:00:00Z',
+      rule: 'global rule',
+      category: 'preference',
+      scope: 'global',
+      source: { trigger: 'explicit' },
+    } as Lesson)
+    h.wsLessons.add({
+      ts: '2026-01-01T00:00:01Z',
+      rule: 'ws rule',
+      category: 'workflow',
+      scope: 'workspace',
+      source: { trigger: 'explicit' },
+    } as Lesson)
+    const blocks = h.svc.buildMemoryBlocks()
+    expect(blocks?.used).toEqual([
+      { rule: 'global rule', scope: 'global' },
+      { rule: 'ws rule', scope: 'workspace' },
+    ])
+    // touchUsed ran per scope: each lesson gains usageCount 1 + lastUsedAt.
+    expect(h.globalLessons.list()[0].usageCount).toBe(1)
+    expect(h.globalLessons.list()[0].lastUsedAt).toBeTruthy()
+    expect(h.wsLessons.list()[0].usageCount).toBe(1)
+    // A second assembly increments again.
+    h.svc.buildMemoryBlocks()
+    expect(h.globalLessons.list()[0].usageCount).toBe(2)
+    expect(h.wsLessons.list()[0].usageCount).toBe(2)
+    // Disabled memory: no blocks, no usage accounting (stays at 2 from above).
+    h.config.enabled = false
+    expect(h.svc.buildMemoryBlocks()).toBeUndefined()
+    expect(h.globalLessons.list()[0].usageCount).toBe(2)
+    expect(h.wsLessons.list()[0].usageCount).toBe(2)
+  })
+
+  it('buildMemoryBlocks with no lessons returns used: [] and touches nothing', () => {
+    const h = makeService()
+    tmpRoots.push(h.root)
+    const blocks = h.svc.buildMemoryBlocks()
+    expect(blocks?.lessonsBlock).toBeUndefined()
+    expect(blocks?.used).toEqual([])
   })
 })
 

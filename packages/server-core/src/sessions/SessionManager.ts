@@ -25,6 +25,7 @@ import type { MidStreamBehavior, LlmProviderType } from '@craft-agent/shared/con
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
 import { isValidWorkingDirectory } from '../utils/path-validation'
 import { MemoryService } from '../memory/MemoryService'
+import { readProvenance, writeProvenance, type SessionProvenance } from '../memory/provenance'
 import { InitGate } from '@craft-agent/server-core/domain'
 import { i18n } from '@craft-agent/shared/i18n'
 import {
@@ -2783,6 +2784,17 @@ export class SessionManager implements ISessionManager {
     return getSessionStoragePath(managed.workspace.rootPath, sessionId)
   }
 
+  /**
+   * Memory provenance (spec F4): the lessons/skills injected into this
+   * session's prompts. Null for unknown sessions, sessions that never
+   * received memory blocks, or missing/corrupt records.
+   */
+  getSessionProvenance(sessionId: string): SessionProvenance | null {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return null
+    return readProvenance(managed.workspace.rootPath, sessionId)
+  }
+
   async createSession(
     workspaceId: string,
     options?: import('@craft-agent/shared/protocol').CreateSessionOptions,
@@ -3796,15 +3808,30 @@ export class SessionManager implements ISessionManager {
       // Construct backend via factory
       // ============================================================
 
+      // Self-learning memory prompt blocks (lessons + workspace memory), resolved
+      // lazily per session start. Undefined when memory.enabled is false, or when the
+      // session runs in 'temporary' memory mode (no read, no write — spec F3).
+      const memoryBlocks = managed.memoryMode === 'temporary' ? undefined : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks()
+      // Provenance (spec F4): persist which lessons were injected so the feedback
+      // loop and usage UI can attribute behavior later. BackendConfig.memoryBlocks
+      // is a constructor-time snapshot, so this record refreshes per session start
+      // (i.e. per backend (re)spawn), not per turn. Enabled-skills slugs are not
+      // resolvable here — skills attach per-message via [skill:slug], sessions and
+      // CoreBackendConfig carry no per-session skills list — so skills stays [].
+      if (memoryBlocks?.used?.length) {
+        try {
+          writeProvenance(managed.workspace.rootPath, managed.id, { lessons: memoryBlocks.used, skills: [] })
+        } catch (err) {
+          sessionLog.warn(`Failed to write memory provenance for ${managed.id}:`, err)
+        }
+      }
+
       managed.agent = createBackendFromResolvedContext({
         context: backendContext,
         hostRuntime: buildBackendHostRuntimeContext(),
         coreConfig: {
         workspace: managed.workspace,
-        // Self-learning memory prompt blocks (lessons + workspace memory), resolved
-        // lazily per session start. Undefined when memory.enabled is false, or when the
-        // session runs in 'temporary' memory mode (no read, no write — spec F3).
-        memoryBlocks: managed.memoryMode === 'temporary' ? undefined : this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(),
+        memoryBlocks,
         miniModel,
         thinkingLevel: managed.thinkingLevel,
         session: sessionConfig,

@@ -289,6 +289,7 @@ const EXPECTED_CHANNELS: string[] = [
   'sessions:getNotes',
   'sessions:getPendingPlanExecution',
   'sessions:getPermissionModeState',
+  'sessions:getProvenance',
   'sessions:getUnreadSummary',
   'sessions:import',
   'sessions:importRemoteTransfer',
