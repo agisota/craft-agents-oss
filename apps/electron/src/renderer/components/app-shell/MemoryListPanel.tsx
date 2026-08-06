@@ -1,8 +1,9 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Brain, Pencil, Trash2, Check, Plus } from 'lucide-react'
+import { Brain, Pencil, Trash2, Check, Plus, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Lesson, LessonCategory, LessonScope } from '@craft-agent/shared/memory/types'
+import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, PromotionCandidate } from '@craft-agent/shared/memory/types'
+import { useNavigation, routes } from '@/contexts/NavigationContext'
 
 export interface MemoryListPanelProps {
   workspaceId?: string
@@ -21,8 +22,12 @@ function sectionTitleClass(): string {
   return 'px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70'
 }
 
+// Rule identity across stores mirrors server-core lessonKey: trim + lowercase.
+const ruleKey = (rule: string): string => rule.trim().toLowerCase()
+
 export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps) {
   const { t } = useTranslation()
+  const { navigate } = useNavigation()
 
   const [lessons, setLessons] = React.useState<Lesson[]>([])
   const [preferences, setPreferences] = React.useState('')
@@ -30,6 +35,15 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   const [historyDates, setHistoryDates] = React.useState<string[]>([])
   const [historyDate, setHistoryDate] = React.useState<string | null>(null)
   const [historyContent, setHistoryContent] = React.useState('')
+  // L3: rules used in ≥2 workspaces, candidates for global promotion
+  const [promotionCandidates, setPromotionCandidates] = React.useState<PromotionCandidate[]>([])
+  // L2: conflicts reported by ADD_LESSON for the just-added rule (panel stays in the form)
+  const [addConflicts, setAddConflicts] = React.useState<{
+    rule: string
+    workspaceId: string | null
+    scope: LessonScope
+    conflicts: LessonConflictVerdict[]
+  } | null>(null)
 
   const [formOpen, setFormOpen] = React.useState(false)
   const [formRule, setFormRule] = React.useState('')
@@ -63,19 +77,29 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       .catch(() => setHistoryDates([]))
   }, [workspaceId])
 
+  const loadPromotionCandidates = React.useCallback(() => {
+    window.electronAPI
+      .listPromotionCandidates()
+      .then(setPromotionCandidates)
+      .catch(() => setPromotionCandidates([]))
+  }, [])
+
   React.useEffect(() => {
     loadLessons()
     loadContext()
     loadHistoryDates()
+    loadPromotionCandidates()
     setHistoryDate(null)
     setHistoryContent('')
+    setAddConflicts(null)
     const off = window.electronAPI.onMemoryChanged(() => {
       loadLessons()
       loadContext()
       loadHistoryDates()
+      loadPromotionCandidates()
     })
     return off
-  }, [loadLessons, loadContext, loadHistoryDates])
+  }, [loadLessons, loadContext, loadHistoryDates, loadPromotionCandidates])
 
   const openDate = (date: string) => {
     if (!workspaceId) return
@@ -88,8 +112,11 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   const handleAdd = async () => {
     const rule = formRule.trim()
     if (!rule) return
+    const targetWorkspaceId = formScope === 'global' ? null : workspaceId ?? null
     try {
-      await window.electronAPI.addMemoryLesson(formScope === 'global' ? null : workspaceId ?? null, {
+      // L2: ADD_LESSON returns the stored lesson plus a best-effort conflict
+      // list ([] when the check was unavailable) — the write stands either way.
+      const result = await window.electronAPI.addMemoryLesson(targetWorkspaceId, {
         rule,
         category: formCategory,
         scope: formScope,
@@ -97,12 +124,68 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
       })
       setFormRule('')
       setFormNegative(false)
-      setFormOpen(false)
       toast.success(t('memory.lessonAdded'))
+      if (result.conflicts.length > 0) {
+        setAddConflicts({
+          rule: result.lesson.rule,
+          workspaceId: targetWorkspaceId,
+          scope: result.lesson.scope,
+          conflicts: result.conflicts,
+        })
+      } else {
+        setAddConflicts(null)
+        setFormOpen(false)
+      }
     } catch (err) {
       toast.error(t('memory.lessonAddFailed'), {
         description: err instanceof Error ? err.message : String(err),
       })
+    }
+  }
+
+  // L2 panel: [Удалить новое] removes the just-added rule by text,
+  // [Оставить оба] just dismisses the panel.
+  const handleResolveAddConflicts = (deleteNew: boolean) => {
+    const pending = addConflicts
+    setAddConflicts(null)
+    setFormOpen(false)
+    if (!deleteNew || !pending) return
+    window.electronAPI
+      .deleteMemoryLesson(pending.workspaceId, pending.scope, pending.rule)
+      .then(() => loadLessons())
+      .catch((err) => {
+        toast.error(t('memory.lessonDeleteFailed'), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      })
+  }
+
+  // L3: copy a repeated workspace rule into the global memory.
+  const handlePromote = async (candidate: PromotionCandidate) => {
+    try {
+      const result = await window.electronAPI.promoteLesson(null, candidate.rule)
+      if (!result) return
+      toast.success(t('memory.promoted'))
+      // Hide the row immediately; the global-lessons filter keeps it hidden on refetch.
+      setPromotionCandidates((cs) => cs.filter((c) => ruleKey(c.rule) !== ruleKey(candidate.rule)))
+      loadLessons()
+      loadPromotionCandidates()
+    } catch (err) {
+      toast.error(t('memory.lessonUpdateFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  // L4: jump to the session that produced the lesson. A deleted session is a
+  // no-op handled by the router — navigation is best-effort by design.
+  const handleViewSource = (lesson: Lesson) => {
+    const sessionId = lesson.source.sessionId
+    if (!sessionId) return
+    try {
+      navigate(routes.view.allSessions(sessionId))
+    } catch {
+      // source session no longer exists
     }
   }
 
@@ -154,8 +237,18 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
     }
   }
 
-  const globalLessons = lessons.filter((l) => l.scope === 'global')
-  const workspaceLessons = lessons.filter((l) => l.scope === 'workspace')
+  // L1: quality-first ordering inside each scope group — lessons with recorded
+  // violations surface first, then the most-used ones (stable: file order within ties).
+  const sortedLessons = [...lessons].sort(
+    (a, b) => (b.conflicts?.length ?? 0) - (a.conflicts?.length ?? 0) || (b.usageCount ?? 0) - (a.usageCount ?? 0),
+  )
+  const globalLessons = sortedLessons.filter((l) => l.scope === 'global')
+  const workspaceLessons = sortedLessons.filter((l) => l.scope === 'workspace')
+  // L3: promotion leaves the workspace copies in place — a candidate stops
+  // being actionable once the rule already exists in the global store.
+  const globalRuleKeys: Record<string, true> = {}
+  for (const l of globalLessons) globalRuleKeys[ruleKey(l.rule)] = true
+  const visibleCandidates = promotionCandidates.filter((c) => !globalRuleKeys[ruleKey(c.rule)])
 
   const renderLesson = (lesson: Lesson) => {
     const key = `${lesson.scope}:${lesson.rule}`
@@ -191,6 +284,25 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
           </div>
         ) : (
           <span className="block text-sm whitespace-pre-wrap">{lesson.rule}</span>
+        )}
+        {/* L1: usage/violation meta — only when at least one counter is non-zero */}
+        {!isEditing && ((lesson.usageCount ?? 0) > 0 || (lesson.conflicts?.length ?? 0) > 0) && (
+          <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            {(lesson.usageCount ?? 0) > 0 && (
+              <span>{t('memory.usedCount', { count: lesson.usageCount })}</span>
+            )}
+            {(lesson.conflicts?.length ?? 0) > 0 && (
+              <span
+                className="text-destructive"
+                title={(lesson.conflicts ?? [])
+                  .slice(-3)
+                  .map((c) => `${new Date(c.ts).toLocaleString()} — ${c.reason}`)
+                  .join('\n')}
+              >
+                {t('memory.conflictCount', { count: lesson.conflicts?.length ?? 0 })}
+              </span>
+            )}
+          </span>
         )}
         {!isEditing && (
           <span className="mt-1 flex items-center gap-1.5 flex-wrap">
@@ -238,6 +350,18 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
                 >
                   <Trash2 className="size-3" />
                 </button>
+                {/* L4: deep-link to the session the lesson was learned from */}
+                {lesson.source.sessionId && (
+                  <button
+                    type="button"
+                    aria-label={t('memory.viewSource')}
+                    title={t('memory.viewSource')}
+                    onClick={() => handleViewSource(lesson)}
+                    className="inline-flex items-center justify-center size-5 rounded-[6px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                  >
+                    <Link2 className="size-3" />
+                  </button>
+                )}
               </>
             )}
           </span>
@@ -264,6 +388,34 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
 
   return (
     <div className={`flex flex-col gap-2 px-1 pb-4 overflow-y-auto ${className ?? ''}`} data-list-role="memory">
+      {/* L3: rules repeated across workspaces → promote to global */}
+      {visibleCandidates.length > 0 && (
+        <div className="mx-1 rounded-[8px] border border-accent/20 bg-accent/[0.06] p-2">
+          <div className="px-0.5 pb-1 text-[11px] font-medium text-foreground">
+            {t('memory.promotionBanner', { count: visibleCandidates.length })}
+          </div>
+          <ul className="space-y-1">
+            {visibleCandidates.map((candidate) => (
+              <li key={candidate.rule} className="flex items-center gap-1.5 rounded-[6px] px-0.5 py-0.5">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs">{candidate.rule}</span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {t('memory.promotionWorkspaces', { count: candidate.workspaceIds.length })}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handlePromote(candidate)}
+                  className="shrink-0 inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+                >
+                  {t('memory.promoteAction')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Add lesson */}
       <div>
         {formOpen ? (
@@ -314,12 +466,40 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
               </button>
               <button
                 type="button"
-                onClick={() => setFormOpen(false)}
+                onClick={() => { setFormOpen(false); setAddConflicts(null) }}
                 className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
               >
                 {t('memory.cancel')}
               </button>
             </div>
+            {/* L2: post-write conflict verdicts — the lesson is stored either way */}
+            {addConflicts && addConflicts.conflicts.length > 0 && (
+              <div className="space-y-1.5 rounded-[8px] border border-destructive/25 bg-destructive/10 p-2">
+                <ul className="space-y-0.5">
+                  {addConflicts.conflicts.map((c, i) => (
+                    <li key={`${c.existingRule}:${i}`} className="text-[11px] leading-snug text-destructive">
+                      {t('memory.conflictWarning', { newRule: addConflicts.rule, existingRule: c.existingRule })}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleResolveAddConflicts(true)}
+                    className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                  >
+                    {t('memory.replaceNew')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleResolveAddConflicts(false)}
+                    className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
+                  >
+                    {t('memory.keepBoth')}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <button

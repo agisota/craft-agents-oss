@@ -31,7 +31,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
-import type { Lesson, LessonCategory, LessonScope, PendingSkill } from '@craft-agent/shared/memory/types';
+import type { AddLessonResult, Lesson, LessonCategory, LessonScope, PendingSkill, PromoteLessonResult, PromotionCandidate } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -665,12 +665,15 @@ export interface ElectronAPI {
   onSkillsPendingChanged(callback: (workspaceId: string) => void): () => void
   // Memory (self-learning lessons, context, history)
   listMemoryLessons(scope: LessonScope | 'both', workspaceId?: string): Promise<Lesson[]>
-  addMemoryLesson(workspaceId: string | null, input: { rule: string; category: LessonCategory; negative?: boolean; scope: LessonScope }): Promise<Lesson>
+  addMemoryLesson(workspaceId: string | null, input: { rule: string; category: LessonCategory; negative?: boolean; scope: LessonScope }): Promise<AddLessonResult>
   updateMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number, patch: Partial<Omit<Lesson, 'scope'>>): Promise<Lesson | null>
   deleteMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number): Promise<boolean>
   getMemoryContext(workspaceId?: string): Promise<{ preferences: string; context: string }>
   updateMemoryContext(workspaceId: string | null, scope: LessonScope, content: string): Promise<boolean>
   listMemoryHistory(workspaceId: string, date?: string): Promise<{ dates: string[]; date: string | null; content: string }>
+  // Learning-quality surface (spec L3): cross-workspace rule promotion
+  listPromotionCandidates(): Promise<PromotionCandidate[]>
+  promoteLesson(workspaceId: string | null, rule: string): Promise<PromoteLessonResult | null>
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
   // Statuses (workspace-scoped)

@@ -303,6 +303,8 @@ export const CHANNEL_MAP = {
   getMemoryContext: invoke(RPC_CHANNELS.memory.GET_CONTEXT),
   updateMemoryContext: invoke(RPC_CHANNELS.memory.UPDATE_CONTEXT),
   listMemoryHistory: invoke(RPC_CHANNELS.memory.LIST_HISTORY),
+  listPromotionCandidates: invoke(RPC_CHANNELS.memory.PROMOTION_CANDIDATES),
+  promoteLesson: invoke(RPC_CHANNELS.memory.PROMOTE_LESSON),
   onMemoryChanged: listener(RPC_CHANNELS.memory.CHANGED),
 
   // Statuses

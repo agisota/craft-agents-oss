@@ -45,6 +45,43 @@ export interface LessonConflict {
   ts: string
   reason: 'branch' | 'interrupted' | 'error'
 }
+/**
+ * One validated conflict verdict returned by ADD_LESSON (spec L2).
+ * Mirror of the server-side checker type (server-core memory/lesson-graph) —
+ * kept structurally identical so the RPC payload type-checks on both ends.
+ */
+export interface LessonConflictVerdict {
+  /** Exact text of the existing rule the new lesson collides with. */
+  existingRule: string
+  relation: 'contradicts' | 'subsumes'
+  rationale?: string
+}
+/**
+ * ADD_LESSON result (spec L2): the stored lesson plus conflicts detected
+ * post-write against existing rules. `conflicts` is [] whenever the LLM
+ * check is unavailable or fails — it never blocks the write.
+ */
+export interface AddLessonResult {
+  lesson: Lesson
+  conflicts: LessonConflictVerdict[]
+}
+/** One promotion candidate (spec L3): same normalized rule in ≥2 distinct workspace stores. */
+export interface PromotionCandidate {
+  /** Rule text as first seen across workspace stores. */
+  rule: string
+  category: LessonCategory
+  /** Distinct workspace ids carrying the rule, in scan order. */
+  workspaceIds: string[]
+}
+/** PROMOTE_LESSON result (spec L3): the promoted global lesson plus provenance. */
+export interface PromoteLessonResult {
+  /** The global lesson after promotion (created or patched). */
+  lesson: Lesson
+  /** Workspace ids the rule was promoted from. */
+  workspaceIds: string[]
+  /** true when the rule already existed globally and was only re-marked. */
+  alreadyGlobal: boolean
+}
 
 export type AuditActor = 'ui' | 'distill' | 'rpc' | 'queue'
 
