@@ -1473,6 +1473,21 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
     const resolve = resolvers?.shift()
     if (resolve) resolve(code)
   }
+  /** Cancel an in-flight WeChat QR login: settles all pending verify-code waiters. */
+  async cancelWeChatConnect(workspaceId: string): Promise<void> {
+    const resolvers = this.wechatVerifyResolvers.get(workspaceId)
+    this.wechatVerifyResolvers.delete(workspaceId)
+    if (resolvers) for (const resolve of resolvers.splice(0)) resolve('')
+    const state = this.workspaces.get(workspaceId)
+    if (state) {
+      this.setPlatformRuntime(workspaceId, state, 'wechat', {
+        configured: false,
+        connected: false,
+        state: 'disconnected',
+        lastError: undefined,
+      })
+    }
+  }
 
   private async tryConnectWeChat(workspaceId: string, state: WorkspaceState): Promise<void> {
     const cred = await this.opts.credentialManager
