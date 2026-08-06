@@ -30,35 +30,20 @@ jobs:
     docker:
       - image: oven/bun:1.3.14-debian
     steps:
+      - run:
+          name: Install unzip (GNU tar не читает zip; installer требует)
+          command: apt-get update && apt-get install -y --no-install-recommends unzip
       - smoke-steps
 
-  toolchain-smoke-macos:
-    macos:
-      xcode: "16.2.0"
-    resource_class: macos.m1.medium.gen2
-    steps:
-      - checkout
-      - run:
-          name: Install Bun (macOS)
-          command: |
-            curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> "$BASH_ENV"
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$BASH_ENV"
-      - run:
-          name: Install dependencies
-          command: bun install --frozen-lockfile
-      - run:
-          name: Toolchain unit tests
-          command: bun test packages/shared/src/toolchain
-      - run:
-          name: Fresh-profile ensureAll + launcher check
-          command: |
-            SMOKE_DIR="$(mktemp -d /tmp/tc-ci.XXXXXX)"
-            CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-smoke.ts
+  # macOS leg: в плане CCI (rox org) нет macos-экзекуторов
+  # ("Resource class macos.m1.medium.gen2 is not available for your project").
+  # Вернуть job когда тариф разрешит macos.
+  # toolchain-smoke-macos:
+  #   macos:
+  #     xcode: "16.2.0"
+  #   resource_class: macos.m1.medium.gen2
 
 workflows:
   toolchain-smoke:
     jobs:
       - toolchain-smoke-linux
-      - toolchain-smoke-macos
-    # фильтр веток: только main/PR, path-фильтр CircleCI не поддерживает
