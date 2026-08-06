@@ -43,7 +43,7 @@ function makeService(opts: { distiller?: (prompt: string) => Promise<string>; cl
   let fire: ((evt: { sessionId: string; reason: 'complete' | 'interrupted' | 'error' | 'timeout' }) => void) | null = null
   const wsFiles = new MemoryFileStore('workspace', root)
   const wsLessons = new LessonStore(wsFiles.lessonsPath, 'workspace')
-  const globalLessons = new LessonStore(new MemoryFileStore('global', root).lessonsPath, 'global')
+  const globalLessons = new LessonStore(new MemoryFileStore('global', root, root).lessonsPath, 'global')
   const svc = new MemoryService({
     workspaceRoot: root,
     workspaceId: 'ws-1',

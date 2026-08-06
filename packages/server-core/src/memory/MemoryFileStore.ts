@@ -31,7 +31,10 @@ export class MemoryFileStore {
    * @param configDir  override for the global config dir (tests); defaults to
    *                   CONFIG_DIR from @craft-agent/shared/config/paths
    */
-  constructor(scope: LessonScope, workspaceRoot?: string, configDir: string = CONFIG_DIR) {
+  // CRAFT_CONFIG_DIR is read lazily here (not via the frozen CONFIG_DIR
+  // constant) so late-bound test harnesses with their own import order still
+  // resolve the right directory at construction time.
+  constructor(scope: LessonScope, workspaceRoot?: string, configDir: string = process.env.CRAFT_CONFIG_DIR || CONFIG_DIR) {
     this.configDir = configDir
     if (scope === 'global') {
       this.memoryDir = join(configDir, 'memory')
