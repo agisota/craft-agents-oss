@@ -191,6 +191,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.browserPane.STATE_CHANGED,
   RPC_CHANNELS.browserPane.REMOVED,
   RPC_CHANNELS.browserPane.INTERACTED,
+  RPC_CHANNELS.browserPane.CREATE_EMBEDDED,
+  RPC_CHANNELS.browserPane.SYNC_BOUNDS,
+  RPC_CHANNELS.browserPane.CLICK_AT,
+  RPC_CHANNELS.browserPane.TYPE,
+  RPC_CHANNELS.browserPane.KEY,
 
   // gitbash — Windows-specific local
   RPC_CHANNELS.gitbash.CHECK,
@@ -312,6 +317,24 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.notes.WATCH,
   RPC_CHANNELS.notes.UNWATCH,
   RPC_CHANNELS.notes.CHANGED,
+  RPC_CHANNELS.notes.RENAME_FOLDER,
+  RPC_CHANNELS.notes.DELETE_FOLDER,
+
+  // memory — lesson/context data served by workspace host
+  RPC_CHANNELS.memory.LIST_LESSONS,
+  RPC_CHANNELS.memory.ADD_LESSON,
+  RPC_CHANNELS.memory.UPDATE_LESSON,
+  RPC_CHANNELS.memory.DELETE_LESSON,
+  RPC_CHANNELS.memory.GET_CONTEXT,
+  RPC_CHANNELS.memory.UPDATE_CONTEXT,
+  RPC_CHANNELS.memory.LIST_HISTORY,
+  RPC_CHANNELS.memory.CHANGED,
+
+  // skillsPending — pending skill approvals per workspace
+  RPC_CHANNELS.skillsPending.LIST,
+  RPC_CHANNELS.skillsPending.APPROVE,
+  RPC_CHANNELS.skillsPending.DISMISS,
+  RPC_CHANNELS.skillsPending.CHANGED,
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
@@ -491,6 +514,12 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.messaging.WA_START_CONNECT,
   RPC_CHANNELS.messaging.WA_SUBMIT_PHONE,
   RPC_CHANNELS.messaging.WA_UI_EVENT,
+  RPC_CHANNELS.messaging.WECHAT_START_CONNECT,
+  RPC_CHANNELS.messaging.WECHAT_SUBMIT_CODE,
+  RPC_CHANNELS.messaging.WECHAT_UI_EVENT,
+  RPC_CHANNELS.messaging.WC_START_CONNECT,
+  RPC_CHANNELS.messaging.WC_CANCEL_CONNECT,
+  RPC_CHANNELS.messaging.WC_UI_EVENT,
   // messaging access control — UI ↔ Server, per-platform owners + per-binding allow-list
   RPC_CHANNELS.messaging.GET_PLATFORM_OWNERS,
   RPC_CHANNELS.messaging.SET_PLATFORM_OWNERS,
