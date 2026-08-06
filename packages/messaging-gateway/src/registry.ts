@@ -108,6 +108,7 @@ interface WorkspaceState {
   runtime: Record<PlatformType, MessagingPlatformRuntimeInfo>
 }
 
+
 export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
   private readonly workspaces = new Map<string, WorkspaceState>()
   /** In-flight WeChat QR logins awaiting a verify code from the UI, per workspace. */
@@ -201,7 +202,6 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
         })
       })
     }
-
     if (isPlatformConfigured(config, 'wechat')) {
       this.setPlatformRuntime(workspaceId, state, 'wechat', {
         configured: true,
@@ -259,6 +259,8 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
   }
 
   async stopAll(): Promise<void> {
+    for (const state of this.workspaces.values()) {
+    }
     const stops = Array.from(this.workspaces.values()).map((s) => s.gateway.stop().catch(() => {}))
     await Promise.all(stops)
     this.workspaces.clear()
@@ -899,8 +901,6 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
     }
     const cleaned = phoneNumber.replace(/[^\d]/g, '')
     if (cleaned.length < 8) throw new Error('Phone number looks too short')
-    await state.whatsapp.requestPairingCode(cleaned)
-  }
 
   private async startWhatsAppAdapter(
     workspaceId: string,

@@ -288,4 +288,19 @@ export interface IMessagingGatewayRegistry {
     bindingId: string,
     access: { mode: MessagingBindingAccessMode; allowedSenderIds?: string[] },
   ): void
+  /**
+   * Start the WeChat QR-login flow. Fetches a QR image from Tencent's iLink
+   * endpoint and long-polls the status endpoint; emits `qr` / `scaned` /
+   * `confirmed` / `expired` / `error` events via `WC_UI_EVENT`. On
+   * `confirmed`, persists credentials and connects the adapter automatically.
+   * Idempotent: a second call while a login is in flight cancels and replaces
+   * the previous attempt.
+   */
+  startWeChatConnect(workspaceId: string): Promise<void>
+
+  /**
+   * Cancel an in-flight WeChat login. No-op when nothing is running. Emits
+   * a final `cancelled` event so dialog UIs can reset.
+   */
+  cancelWeChatConnect(workspaceId: string): Promise<void>
 }

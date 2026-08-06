@@ -63,6 +63,7 @@ import {
   type PlatformAccessMode,
   type PlatformOwner,
 } from '@/components/messaging/access'
+import { WeChatConnectDialog } from '@/components/messaging/WeChatConnectDialog'
 import { useActiveWorkspace } from '@/context/AppShellContext'
 import { useNavigation } from '@/contexts/NavigationContext'
 import {
@@ -152,6 +153,7 @@ const PLATFORM_LABEL_KEYS: Record<Platform, string> = {
   discord: 'settings.messaging.discord.title',
   wechat: 'settings.messaging.wechat.title',
 }
+
 
 // Row column geometry shared across the bot header and all child rows.
 // 16px outer padding (`px-4`) + 22px icon slot + 12px gap (`gap-3`).
@@ -444,6 +446,26 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
               onUnbind={handleUnbind}
             />
           </>
+        ) : platform === 'wechat' && platformBindings.length > 0 ? (
+          // WeChat is also a 1:1 DM bot — render with the same icon + subtitle
+          // treatment as Telegram DMs so the two sections look uniform.
+          <>
+            <CardSeparator />
+            <div className="divide-y divide-border/50">
+              {platformBindings.map((binding) => (
+                <DirectSessionRow
+                  key={binding.id}
+                  binding={binding}
+                  sessionMetaMap={sessionMetaMap}
+                  subtitle={t('settings.messaging.wechat.directSessionSubtitle', {
+                    defaultValue: 'Direct message session',
+                  })}
+                  onOpen={() => navigateToSession(binding.sessionId)}
+                  onUnbind={() => handleUnbind(binding)}
+                />
+              ))}
+            </div>
+          </>
         ) : platformBindings.length > 0 ? (
           <>
             <CardSeparator />
@@ -555,11 +577,15 @@ function TelegramBindingsBody({
     },
     [],
   )
+  const { t } = useTranslation()
   // Telegram bindings split cleanly on `threadId`:
   //   - undefined: DM ("direct session") — at most one per workspace
   //   - number:    topic in the paired supergroup
   const directBindings = React.useMemo(() => bindings.filter((b) => b.threadId === undefined), [bindings])
   const topicBindings = React.useMemo(() => bindings.filter((b) => b.threadId !== undefined), [bindings])
+  const directSubtitle = t('settings.messaging.telegram.directSessionSubtitle', {
+    defaultValue: 'Direct message session',
+  })
 
   return (
     <>
@@ -573,6 +599,7 @@ function TelegramBindingsBody({
                 binding={binding}
                 sessionMetaMap={sessionMetaMap}
                 workspaceOwners={workspaceOwners}
+                subtitle={directSubtitle}
                 onOpen={() => onOpenSession(binding)}
                 onUnbind={() => onUnbind(binding)}
                 onAccessChange={(next) => handleAccessChange(binding.id, next)}
@@ -605,6 +632,7 @@ function DirectSessionRow({
   binding,
   sessionMetaMap,
   workspaceOwners,
+  subtitle,
   onOpen,
   onUnbind,
   onAccessChange,
@@ -612,11 +640,13 @@ function DirectSessionRow({
   binding: MessagingBinding
   sessionMetaMap: TelegramBindingsBodyProps['sessionMetaMap']
   workspaceOwners: PlatformOwner[]
+  /** Pre-translated row subtitle. Decoupled from any specific i18n key so the
+   *  same row component can serve Telegram DMs, WeChat DMs, etc. */
+  subtitle: string
   onOpen: () => void
   onUnbind: () => void
   onAccessChange: (next: BindingAccess) => void
 }) {
-  const { t } = useTranslation()
   const meta = sessionMetaMap.get(binding.sessionId)
   const sessionLabel = meta ? getSessionTitle(meta) : binding.channelName || binding.channelId
   // Layout convention here matches the Supergroup row: the binding *type*
@@ -626,12 +656,8 @@ function DirectSessionRow({
     <div className="flex items-center gap-3 px-4 py-2.5">
       <SubRowIcon icon={MessageSquare} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">
-          {t('settings.messaging.telegram.directSessionSubtitle', {
-            defaultValue: 'Direct message session',
-          })}
-        </div>
-        <div className="mt-0.5 truncate text-xs text-foreground/50">{sessionLabel}</div>
+        <div className="truncate text-sm">{sessionLabel}</div>
+        <div className="mt-0.5 truncate text-xs text-foreground/50">{subtitle}</div>
       </div>
       <BindingAllowListPopover
         access={bindingToAccess(binding)}

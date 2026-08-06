@@ -504,6 +504,11 @@ export const RPC_CHANNELS = {
     DISMISS_PENDING_SENDER: 'messaging:access:dismissPending',
     ALLOW_PENDING_SENDER: 'messaging:access:allowPending',
     SET_BINDING_ACCESS: 'messaging:access:setBindingAccess',
+    // UI ↔ Server — WeChat QR-login flow (in-process, iLink long-poll)
+    WC_START_CONNECT: 'messaging:wc:startConnect',
+    WC_CANCEL_CONNECT: 'messaging:wc:cancelConnect',
+    /** Broadcast to UI clients: QR image url, scaned, confirmed, expired, error. */
+    WC_UI_EVENT: 'messaging:wc:uiEvent',
   },
 } as const
 
