@@ -14,7 +14,7 @@
  */
 
 import { getProviders, getModels } from '@earendil-works/pi-ai/compat';
-import type { KnownProvider, Model, Api } from '@earendil-works/pi-ai';
+import type { Model, Api } from '@earendil-works/pi-ai';
 import type { ModelDefinition } from './models.ts';
 import {
   KIMI_CODING_BASE_URL,
@@ -67,7 +67,7 @@ export function getPiCatalogModelsForAuthProvider(piAuthProvider: string): Model
   if (piAuthProvider === 'kimi-coding') {
     return KIMI_CODING_MODELS.map(kimiCatalogModelToPiModel);
   }
-  return getModels(piAuthProvider as KnownProvider);
+  return getModels(piAuthProvider as Parameters<typeof getModels>[0]);
 }
 
 /**
