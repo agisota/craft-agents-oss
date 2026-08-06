@@ -3136,7 +3136,11 @@ export class SessionManager implements ISessionManager {
 
     // Register the session and initialize mode-manager state BEFORE any eager
     // agent creation (branch preflight). getOrCreateAgent's browser-pane wiring
-    // resolves the session via this.sessions, so it must be present first.
+    // resolves the session via this.sessions, so it must be present first: the
+    // browser-pane gate resolves a remote BrowserPaneManager via
+    // this.sessions.get(id), so an unregistered session trips the "passed the
+    // gate" guard under rpcServer (remote) deployments. rollbackFailedBranchCreation
+    // removes it again if preflight fails.
     setPermissionMode(storedSession.id, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
     if (managed.previousPermissionMode) {
       hydratePreviousPermissionMode(storedSession.id, managed.previousPermissionMode)
