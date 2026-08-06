@@ -233,9 +233,7 @@ export default function AppearanceSettingsPage() {
     await window.electronAPI?.setRichToolDescriptions?.(checked)
   }, [])
 
-  // "Background session finished" chip toggle (renderer-only appearance pref,
-  // persisted in localStorage via atomWithStorage — read by App.tsx + ChatPage).
-  const [showBackgroundFinishedChip, setShowBackgroundFinishedChip] = useAtom(showBackgroundFinishedChipAtom)
+9: @both
 
   // Load preset themes on mount
   useEffect(() => {
@@ -453,6 +451,26 @@ export default function AppearanceSettingsPage() {
               {/* Interface */}
               <SettingsSection title={t("settings.appearance.interface")}>
                 <SettingsCard>
+                  <SettingsRow
+                    label={t("settings.appearance.defaultZoomLevel")}
+                    description={t("settings.appearance.defaultZoomLevelDesc")}
+                  >
+                    <div className="flex items-center gap-3 w-64">
+                      <input
+                        type="range"
+                        min={100}
+                        max={150}
+                        step={10}
+                        value={defaultZoomLevel}
+                        onChange={(event) => handleDefaultZoomLevelChange(Number(event.target.value))}
+                        className="w-44 accent-primary"
+                        aria-label={t("settings.appearance.defaultZoomLevel")}
+                      />
+                      <span className="w-12 text-right text-sm font-medium tabular-nums">
+                        {defaultZoomLevel}%
+                      </span>
+                    </div>
+                  </SettingsRow>
                   <SettingsToggle
                     label={t("settings.appearance.connectionIcons")}
                     description={t("settings.appearance.connectionIconsDesc")}
