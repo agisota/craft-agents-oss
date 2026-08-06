@@ -35,7 +35,7 @@ export interface ParsedRoute {
 // Compound Route Types (new format)
 // =============================================================================
 
-export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'projects' | 'settings' | 'browser'
+export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory'
 
 export interface ParsedCompoundRoute {
   /** The navigator type */
@@ -63,7 +63,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'automations', 'projects', 'settings', 'browser'
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'automations', 'projects', 'settings', 'browser', 'memory'
 ]
 
 /**
@@ -176,6 +176,11 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     }
 
     return null
+  }
+
+  // Memory navigator (self-learning lessons / context / history)
+  if (first === 'memory') {
+    return { navigator: 'memory', details: null }
   }
 
   // Browser navigator — embedded browser instance panel: browser/instance/{instanceId}
@@ -331,6 +336,10 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     return `${base}/automation/${parsed.details.id}`
   }
 
+  if (parsed.navigator === 'memory') {
+    return 'memory'
+  }
+
   if (parsed.navigator === 'browser') {
     if (!parsed.details) return 'browser'
     return `browser/instance/${parsed.details.id}`
@@ -457,6 +466,11 @@ function convertCompoundToViewRoute(compound: ParsedCompoundRoute): ParsedRoute 
       return { type: 'view', name: 'skills', params: {} }
     }
     return { type: 'view', name: 'skill-info', id: compound.details.id, params: {} }
+  }
+
+  // Memory
+  if (compound.navigator === 'memory') {
+    return { type: 'view', name: 'memory', params: {} }
   }
 
   // Automations
@@ -602,6 +616,11 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
     }
   }
 
+  // Memory
+  if (compound.navigator === 'memory') {
+    return { navigator: 'memory', details: null }
+  }
+
   // Automations - include filter if present
   if (compound.navigator === 'automations') {
     if (!compound.details) {
@@ -694,6 +713,8 @@ function convertParsedRouteToNavigationState(parsed: ParsedRoute): NavigationSta
       return { navigator: 'sources', details: null }
     case 'skills':
       return { navigator: 'skills', details: null }
+    case 'memory':
+      return { navigator: 'memory', details: null }
     case 'skill-info':
       if (parsed.id) {
         return {
@@ -848,6 +869,13 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
     return {
       navigator: 'projects',
       details: state.details ? { type: 'project', id: state.details.projectSlug } : null,
+    }
+  }
+
+  if (state.navigator === 'memory') {
+    return {
+      navigator: 'memory',
+      details: null,
     }
   }
 

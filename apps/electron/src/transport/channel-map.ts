@@ -17,6 +17,16 @@ function listener(channel: string) {
 }
 
 export const CHANNEL_MAP = {
+  // Cloud Runs (PRD docs/cloud-runs-prd.md, phase G3)
+  getCloudRunsConfig: invoke(RPC_CHANNELS.cloudRuns.GET_CONFIG),
+  setCloudRunsConfig: invoke(RPC_CHANNELS.cloudRuns.SET_CONFIG),
+  submitCloudRun: invoke(RPC_CHANNELS.cloudRuns.SUBMIT),
+  listCloudRuns: invoke(RPC_CHANNELS.cloudRuns.LIST),
+  getCloudRunStatus: invoke(RPC_CHANNELS.cloudRuns.GET_STATUS),
+  cancelCloudRun: invoke(RPC_CHANNELS.cloudRuns.CANCEL),
+  listCloudRunArtifacts: invoke(RPC_CHANNELS.cloudRuns.LIST_ARTIFACTS),
+  importCloudRun: invoke(RPC_CHANNELS.cloudRuns.IMPORT),
+  aggregateCloudRun: invoke(RPC_CHANNELS.cloudRuns.AGGREGATE),
   // Session management
   getSessions: invoke(RPC_CHANNELS.sessions.GET),
   getUnreadSummary: invoke(RPC_CHANNELS.sessions.GET_UNREAD_SUMMARY),
@@ -109,6 +119,11 @@ export const CHANNEL_MAP = {
   getDismissedUpdateVersion: invoke(RPC_CHANNELS.update.GET_DISMISSED),
   onUpdateAvailable: listener(RPC_CHANNELS.update.AVAILABLE),
   onUpdateDownloadProgress: listener(RPC_CHANNELS.update.DOWNLOAD_PROGRESS),
+
+  // Toolchain manager
+  getToolchainStatus: invoke(RPC_CHANNELS.toolchain.STATUS),
+  onToolchainStatusChanged: listener(RPC_CHANNELS.toolchain.STATUS_CHANGED),
+  updateToolchainTool: invoke(RPC_CHANNELS.toolchain.UPDATE),
 
   // Release notes
   getReleaseNotes: invoke(RPC_CHANNELS.releaseNotes.GET),
@@ -246,6 +261,22 @@ export const CHANNEL_MAP = {
   openSkillInEditor: invoke(RPC_CHANNELS.skills.OPEN_EDITOR),
   openSkillInFinder: invoke(RPC_CHANNELS.skills.OPEN_FINDER),
   onSkillsChanged: listener(RPC_CHANNELS.skills.CHANGED),
+
+  // Pending skills (self-learning candidates queue)
+  listPendingSkills: invoke(RPC_CHANNELS.skillsPending.LIST),
+  approvePendingSkill: invoke(RPC_CHANNELS.skillsPending.APPROVE),
+  dismissPendingSkill: invoke(RPC_CHANNELS.skillsPending.DISMISS),
+  onSkillsPendingChanged: listener(RPC_CHANNELS.skillsPending.CHANGED),
+
+  // Memory (self-learning)
+  listMemoryLessons: invoke(RPC_CHANNELS.memory.LIST_LESSONS),
+  addMemoryLesson: invoke(RPC_CHANNELS.memory.ADD_LESSON),
+  updateMemoryLesson: invoke(RPC_CHANNELS.memory.UPDATE_LESSON),
+  deleteMemoryLesson: invoke(RPC_CHANNELS.memory.DELETE_LESSON),
+  getMemoryContext: invoke(RPC_CHANNELS.memory.GET_CONTEXT),
+  updateMemoryContext: invoke(RPC_CHANNELS.memory.UPDATE_CONTEXT),
+  listMemoryHistory: invoke(RPC_CHANNELS.memory.LIST_HISTORY),
+  onMemoryChanged: listener(RPC_CHANNELS.memory.CHANGED),
 
   // Statuses
   listStatuses: invoke(RPC_CHANNELS.statuses.LIST),

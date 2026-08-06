@@ -27,6 +27,7 @@ import {
   Calendar,
   Layers,
   ListTodo,
+  Brain,
   Clock,
   Radio,
   Bot,
@@ -115,6 +116,7 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isMemoryNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
   type NavigationState,
@@ -122,6 +124,7 @@ import {
 import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
+import { MemoryListPanel } from "./MemoryListPanel"
 import { AutomationsListPanel } from "../automations/AutomationsListPanel"
 import { ProjectsListPanel } from "./ProjectsListPanel"
 import { APP_EVENTS, AGENT_EVENTS, type AutomationFilterKind, AUTOMATION_TYPE_TO_FILTER_KIND } from "../automations/types"
@@ -1818,6 +1821,11 @@ function AppShellContent({
     navigate(routes.view.skills())
   }, [])
 
+  // Handler for memory view
+  const handleMemoryClick = useCallback(() => {
+    navigate(routes.view.memory())
+  }, [])
+
   // Handlers for automations view
   const handleAutomationsClick = useCallback(() => {
     navigate(routes.view.automations())
@@ -2116,12 +2124,13 @@ function AppShellContent({
     // 3. Sources, Skills, Settings
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
+    result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
     result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -2238,6 +2247,11 @@ function AppShellContent({
     // Skills navigator
     if (isSkillsNavigation(navState)) {
       return t("sidebar.allSkills")
+    }
+
+    // Memory navigator
+    if (isMemoryNavigation(navState)) {
+      return t("sidebar.memory")
     }
 
     // Projects navigator
@@ -2584,6 +2598,13 @@ function AppShellContent({
                         type: 'skills',
                         onAddSkill: openAddSkill,
                       },
+                    },
+                    {
+                      id: "nav:memory",
+                      title: t("sidebar.memory"),
+                      icon: Brain,
+                      variant: isMemoryNavigation(navState) ? "default" : "ghost",
+                      onClick: handleMemoryClick,
                     },
                     {
                       id: "nav:projects",
@@ -3481,6 +3502,10 @@ function AppShellContent({
                 onDeleteSkill={handleDeleteSkill}
                 selectedSkillSlug={isSkillsNavigation(navState) && navState.details?.type === 'skill' ? navState.details.skillSlug : null}
               />
+            )}
+            {isMemoryNavigation(navState) && (
+              /* Memory (self-learning lessons / context / history) */
+              <MemoryListPanel workspaceId={activeWorkspaceId ?? undefined} />
             )}
             {isProjectsNavigation(navState) && activeWorkspaceId && (
               /* Projects List */

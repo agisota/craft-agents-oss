@@ -30,6 +30,7 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isMemoryNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
   isBrowserNavigation,
@@ -315,6 +316,17 @@ export function MainContentPanel({
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">{t("skillsList.noSkillsConfigured")}</p>
+        </div>
+      </Panel>
+    )
+  }
+
+  // Memory navigator - the panel lives in the navigator column; main content shows a hint
+  if (isMemoryNavigation(navState)) {
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">{t("memory.emptyHint")}</p>
         </div>
       </Panel>
     )

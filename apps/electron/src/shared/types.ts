@@ -29,6 +29,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
+import type { Lesson, LessonCategory, LessonScope, PendingSkill } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 
@@ -70,6 +71,10 @@ export type { ExportResourcesOptions, ExportResult, ResourceImportMode, Resource
 // LLM connection types
 import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings } from '@craft-agent/shared/config';
 export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings };
+
+// Toolchain manager types (first-run download manager, spec 2026-08-06)
+import type { ToolStatus as ToolchainToolStatus, ToolName as ToolchainToolName } from '@craft-agent/shared/toolchain/types';
+export type { ToolchainToolStatus, ToolchainToolName };
 
 // =============================================================================
 // GUI-only types (not used by server/handler code)
@@ -224,6 +229,51 @@ import type {
 } from '@craft-agent/shared/protocol'
 
 export interface ElectronAPI {
+  // Cloud Runs (PRD docs/cloud-runs-prd.md)
+  getCloudRunsConfig(): Promise<{
+    enabled: boolean
+    provider: 'local' | 'cloudflare' | 'modal' | 'e2b'
+    gatewayUrl?: string
+    tokenConfigured: boolean
+    defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number }
+  }>
+  setCloudRunsConfig(patch: {
+    enabled?: boolean
+    provider?: 'local' | 'cloudflare' | 'modal' | 'e2b'
+    gatewayUrl?: string
+    defaultMaxWallClockSec?: number
+    defaultMaxLlmTokens?: number
+    defaultMaxArtifactsBytes?: number
+  }): Promise<{ ok: boolean }>
+  submitCloudRun(args: {
+    topic: string
+    sessionId?: string
+    language?: 'en' | 'ru'
+    model?: { connectionSlug?: string; modelId?: string }
+  }): Promise<{ id: string; provider: string; createdAt: number }>
+  listCloudRuns(): Promise<{
+    enabled: boolean
+    provider: string
+    runs: {
+      id: string
+      name: string
+      provider: string
+      createdAt: number
+      sessionId?: string
+      topic?: string
+      status: {
+        id: string
+        state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+        failureReason?: string
+        progress?: { completed: number; total: number }
+      } | null
+    }[]
+  }>
+  getCloudRunStatus(id: string): Promise<unknown>
+  cancelCloudRun(id: string): Promise<{ ok: boolean }>
+  listCloudRunArtifacts(id: string): Promise<{ path: string; size: number }[]>
+  importCloudRun(args: { runId: string; sessionId: string }): Promise<{ root: string; files: string[] }>
+  aggregateCloudRun(args: { runId: string; sessionId: string; language?: 'en' | 'ru' }): Promise<{ ok: boolean; artifactsRoot: string }>
   // Session management
   getSessions(): Promise<Session[]>
   getUnreadSummary(): Promise<UnreadSummary>
@@ -380,6 +430,14 @@ export interface ElectronAPI {
   onUpdateAvailable(callback: (info: UpdateInfo) => void): () => void
   onUpdateDownloadProgress(callback: (progress: number) => void): () => void
 
+  // Toolchain manager (first-run download manager)
+  /** Current per-tool status snapshot. */
+  getToolchainStatus(): Promise<ToolchainToolStatus[]>
+  /** Push stream of per-tool status updates (download progress, phase changes). */
+  onToolchainStatusChanged(callback: (status: ToolchainToolStatus) => void): () => void
+  /** Force update/retry of a single tool (outdated/error/missing). */
+  updateToolchainTool(name: ToolchainToolName): Promise<ToolchainToolStatus>
+
   // Release notes
   getReleaseNotes(): Promise<string>
   getLatestReleaseVersion(): Promise<string | undefined>
@@ -508,6 +566,20 @@ export interface ElectronAPI {
 
   // Skills change listener (live updates when skills are added/removed/modified)
   onSkillsChanged(callback: (workspaceId: string, skills: LoadedSkill[]) => void): () => void
+  // Pending skill candidates (self-learning distillation queue)
+  listPendingSkills(workspaceId: string): Promise<PendingSkill[]>
+  approvePendingSkill(workspaceId: string, slug: string): Promise<boolean>
+  dismissPendingSkill(workspaceId: string, slug: string, description?: string): Promise<boolean>
+  onSkillsPendingChanged(callback: (workspaceId: string) => void): () => void
+  // Memory (self-learning lessons, context, history)
+  listMemoryLessons(scope: LessonScope | 'both', workspaceId?: string): Promise<Lesson[]>
+  addMemoryLesson(workspaceId: string | null, input: { rule: string; category: LessonCategory; negative?: boolean; scope: LessonScope }): Promise<Lesson>
+  updateMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number, patch: Partial<Omit<Lesson, 'scope'>>): Promise<Lesson | null>
+  deleteMemoryLesson(workspaceId: string | null, scope: LessonScope, match: string | number): Promise<boolean>
+  getMemoryContext(workspaceId?: string): Promise<{ preferences: string; context: string }>
+  updateMemoryContext(workspaceId: string | null, scope: LessonScope, content: string): Promise<boolean>
+  listMemoryHistory(workspaceId: string, date?: string): Promise<{ dates: string[]; date: string | null; content: string }>
+  onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
   // Statuses (workspace-scoped)
   listStatuses(workspaceId: string): Promise<import('@craft-agent/shared/statuses').StatusConfig[]>
@@ -909,9 +981,20 @@ export interface ProjectsNavigationState {
 /**
  * Browser navigation state (embedded browser instance panel)
  */
+/**
+ * Browser navigation state (embedded browser instance panel)
+ */
 export interface BrowserNavigationState {
   navigator: 'browser'
   details: { type: 'browser'; id: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+/**
+ * Memory navigation state (self-learning memory panel — no detail pages)
+ */
+export interface MemoryNavigationState {
+  navigator: 'memory'
+  details: null
   rightSidebar?: RightSidebarPanel
 }
 
@@ -926,6 +1009,7 @@ export type NavigationState =
   | AutomationsNavigationState
   | ProjectsNavigationState
   | BrowserNavigationState
+  | MemoryNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -954,6 +1038,9 @@ export const isProjectsNavigation = (
 export const isBrowserNavigation = (
   state: NavigationState
 ): state is BrowserNavigationState => state.navigator === 'browser'
+export const isMemoryNavigation = (
+  state: NavigationState
+): state is MemoryNavigationState => state.navigator === 'memory'
 
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
   navigator: 'sessions',
@@ -995,6 +1082,9 @@ export const getNavigationStateKey = (state: NavigationState): string => {
       return `browser/instance/${state.details.id}`
     }
     return 'browser'
+  }
+  if (state.navigator === 'memory') {
+    return 'memory'
   }
   // Chats
   const f = state.filter

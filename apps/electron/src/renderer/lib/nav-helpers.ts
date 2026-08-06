@@ -33,5 +33,7 @@ export function isDetailNavState(navState: NavigationState | null): boolean {
     case 'projects':
     case 'browser':
       return navState.details !== null
+    case 'memory':
+      return false
   }
 }
