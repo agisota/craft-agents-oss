@@ -15,9 +15,9 @@ import whatsappIcon from '@/assets/messaging-icons/whatsapp.svg'
 import larkIcon from '@/assets/messaging-icons/lark.svg'
 import discordIcon from '@/assets/messaging-icons/discord.svg'
 
-type MessagingPlatform = 'telegram' | 'whatsapp' | 'lark' | 'discord'
+type MessagingPlatform = 'telegram' | 'whatsapp' | 'lark' | 'discord' | 'wechat'
 
-const platformIcons: Record<MessagingPlatform, string> = {
+const platformIcons: Partial<Record<MessagingPlatform, string>> = {
   telegram: telegramIcon,
   whatsapp: whatsappIcon,
   lark: larkIcon,
@@ -29,6 +29,7 @@ const platformFallback: Record<MessagingPlatform, { bg: string; initial: string 
   whatsapp: { bg: '#25D366', initial: 'W' },
   lark: { bg: '#00D6B9', initial: 'L' },
   discord: { bg: '#5865F2', initial: 'D' },
+  wechat: { bg: '#07C160', initial: '微' },
 }
 
 interface MessagingPlatformIconProps {

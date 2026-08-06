@@ -60,7 +60,7 @@ export type MessagingDialogState =
   | { kind: 'closed' }
   | {
       kind: 'pairing'
-      platform: 'telegram' | 'whatsapp' | 'lark' | 'discord'
+      platform: 'telegram' | 'whatsapp' | 'lark' | 'discord' | 'wechat'
       sessionId: string
       code: string | null
       expiresAt: number | null
@@ -69,6 +69,10 @@ export type MessagingDialogState =
     }
   | {
       kind: 'wa_connect'
+      continueToPairingSessionId?: string
+    }
+  | {
+      kind: 'wechat_connect'
       continueToPairingSessionId?: string
     }
 

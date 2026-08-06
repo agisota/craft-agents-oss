@@ -476,6 +476,10 @@ export const RPC_CHANNELS = {
     SAVE_LARK: 'messaging:saveLark',
     TEST_DISCORD: 'messaging:testDiscord',
     SAVE_DISCORD: 'messaging:saveDiscord',
+    // UI ↔ Server — WeChat (微信) iLink QR login flow
+    WECHAT_START_CONNECT: 'messaging:wechat:startConnect',
+    WECHAT_SUBMIT_CODE: 'messaging:wechat:submitCode',
+    WECHAT_UI_EVENT: 'messaging:wechat:uiEvent',
     DISCONNECT: 'messaging:disconnect',
     FORGET: 'messaging:forget',
     GET_BINDINGS: 'messaging:getBindings',

@@ -9,7 +9,7 @@
 // Platform types
 // ---------------------------------------------------------------------------
 
-export type PlatformType = 'telegram' | 'whatsapp' | 'lark' | 'discord'
+export type PlatformType = 'telegram' | 'whatsapp' | 'lark' | 'discord' | 'wechat'
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -70,7 +70,7 @@ export interface AdapterCapabilities {
   inlineButtons: boolean
   maxButtons: number
   maxMessageLength: number
-  markdown: 'v2' | 'whatsapp' | 'lark-post' | 'discord'
+  markdown: 'v2' | 'whatsapp' | 'lark-post' | 'discord' | 'wechat'
   webhookSupport: boolean
 }
 
@@ -531,6 +531,9 @@ export interface MessagingConfig {
       domain?: 'lark' | 'feishu'
     }
     discord?: {
+      enabled: boolean
+    }
+    wechat?: {
       enabled: boolean
     }
   }
