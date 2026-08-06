@@ -17,6 +17,7 @@ import type {
 import type { PermissionMode } from '../agent/mode-types'
 import type { ThinkingLevel } from '../agent/thinking-levels'
 import type { CustomEndpointConfig, LlmProviderType } from '../config/llm-connections'
+import type { ModelDefinition } from '../config/models'
 import type {
   AuthRequest as SharedAuthRequest,
   CredentialInputMode as SharedCredentialInputMode,
@@ -384,7 +385,7 @@ export type SessionEvent =
   | { type: 'tool_result'; sessionId: string; toolUseId: string; toolName: string; result: string; turnId?: string; parentToolUseId?: string; isError?: boolean; timestamp?: number }
   | { type: 'error'; sessionId: string; error: string; timestamp?: number }
   | { type: 'typed_error'; sessionId: string; error: TypedError; timestamp?: number }
-  | { type: 'complete'; sessionId: string; tokenUsage?: Session['tokenUsage']; hasUnread?: boolean; backgroundTasksAlive?: boolean }
+  | { type: 'complete'; sessionId: string; tokenUsage?: Session['tokenUsage']; hasUnread?: boolean; backgroundTasksAlive?: boolean; reason?: 'complete' | 'interrupted' | 'error' | 'timeout'; didReceiveNewFinalMessage?: boolean }
   | { type: 'interrupted'; sessionId: string; message?: Message; queuedMessages?: string[] }
   | { type: 'status'; sessionId: string; message: string; statusType?: 'compacting' }
   | { type: 'info'; sessionId: string; message: string; statusType?: 'compaction_complete'; level?: 'info' | 'warning' | 'error' | 'success'; timestamp?: number }
@@ -425,6 +426,7 @@ export type SessionEvent =
   | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }
   | { type: 'message_annotations_updated'; sessionId: string; messageId: string; annotations: AnnotationV1[] }
   | { type: 'working_directory_error'; sessionId: string; error: string }
+  | { type: 'messages_replaced'; sessionId: string; messages: Message[] }
 
 export interface SendMessageOptions {
   skillSlugs?: string[]
@@ -474,6 +476,12 @@ export type SessionCommand =
   | { type: 'addAnnotation'; messageId: string; annotation: AnnotationV1 }
   | { type: 'removeAnnotation'; messageId: string; annotationId: string }
   | { type: 'updateAnnotation'; messageId: string; annotationId: string; patch: Partial<AnnotationV1> }
+  | { type: 'undo' }
+
+export interface UndoResult {
+  success: boolean
+  userMessage?: string
+}
 
 export interface NewChatActionParams {
   input?: string
@@ -564,6 +572,81 @@ export interface FileSearchResult {
 }
 
 // ---------------------------------------------------------------------------
+// Notes types
+// ---------------------------------------------------------------------------
+
+export interface NoteLink {
+  target: string
+  alias?: string
+  line: number
+}
+
+export interface NoteBacklink {
+  noteId: string
+  title: string
+  path: string
+  line: number
+  preview: string
+}
+
+export interface NoteAsset {
+  name: string
+  path: string
+  relativePath: string
+  size: number
+  mimeType: string
+  referencedBy?: Array<{ noteId: string; title: string }>
+}
+
+export interface NoteSummary {
+  id: string
+  title: string
+  path: string
+  relativePath: string
+  tags: string[]
+  properties: Record<string, unknown>
+  links: NoteLink[]
+  assetRefs: string[]
+  updatedAt: number
+  createdAt: number
+  size: number
+}
+
+export interface NoteDocument extends NoteSummary {
+  content: string
+  backlinks: NoteBacklink[]
+}
+
+export interface NoteRenameImpact {
+  noteId: string
+  nextNoteId: string
+  nextTitle: string
+  updatedNotes: Array<{ noteId: string; title: string; path: string; replacements: number }>
+  totalReplacements: number
+}
+
+export interface NoteRenameResult {
+  note: NoteDocument
+  updatedNotes: Array<{ noteId: string; path: string; replacements: number }>
+}
+
+export interface NoteAssetImportResult {
+  asset: NoteAsset
+  markdown: string
+}
+
+export interface NoteAssetRenameResult {
+  asset: NoteAsset
+  updatedNotes: Array<{ noteId: string; path: string; replacements: number }>
+}
+
+export interface NoteChangedPayload {
+  workspaceId: string
+  reason?: 'external' | 'save' | 'create' | 'rename' | 'delete' | 'asset' | 'properties'
+  noteId?: string
+}
+
+// ---------------------------------------------------------------------------
 // LLM connection types
 // ---------------------------------------------------------------------------
 
@@ -587,7 +670,7 @@ export interface LlmConnectionSetup {
   providerType?: LlmProviderType
   baseUrl?: string | null
   defaultModel?: string | null
-  models?: string[] | null
+  models?: Array<string | ModelDefinition> | null
   piAuthProvider?: string
   modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
   /** When true, reject setup if the connection doesn't already exist (reauth guard). */
@@ -750,6 +833,7 @@ export interface WorkspaceSettings {
   cyclablePermissionModes?: PermissionMode[]
   thinkingLevel?: ThinkingLevel
   workingDirectory?: string
+  notesPath?: string
   localMcpEnabled?: boolean
   defaultLlmConnection?: string
   enabledSourceSlugs?: string[]

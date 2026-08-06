@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  Globe,
   Image as ImageIcon,
 } from 'lucide-react'
 import { Icon_Home, Spinner } from '@craft-agent/ui'
@@ -50,7 +51,7 @@ import {
 } from '@/components/ui/styled-dropdown'
 import { cn } from '@/lib/utils'
 import { coerceInputText } from '@/lib/input-text'
-import { isMac } from '@/lib/platform'
+import { isMac, isWebUI } from '@/lib/platform'
 import { applySmartTypography } from '@/lib/smart-typography'
 import { AttachmentPreview } from '../AttachmentPreview'
 import { ImageSupportWarningBanner } from './ImageSupportWarningBanner'
@@ -87,10 +88,23 @@ import { CompactPermissionModeSelector } from './CompactPermissionModeSelector'
 import { CompactModelSelector } from './CompactModelSelector'
 import {
   formatTokenCount,
+  getConnectionPickerMeta,
   groupConnectionsByProvider,
   stripPiPrefixForDisplay,
 } from './model-picker-helpers'
 import { useModelVisionToggle } from './useModelVisionToggle'
+
+function dedupModelsById<T extends string | ModelDefinition>(models: T[]): T[] {
+  const seen = new Set<string>()
+  const result: T[] = []
+  for (const m of models) {
+    const id = typeof m === 'string' ? m : m.id
+    if (seen.has(id)) continue
+    seen.add(id)
+    result.push(m)
+  }
+  return result
+}
 
 function formatFollowUpChipText(text: string, fallback: string, maxLength = 50): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
@@ -364,7 +378,7 @@ export function FreeFormInput({
       return ANTHROPIC_MODELS // Safety net — shouldn't happen
     }
 
-    return connection.models || ANTHROPIC_MODELS
+    return dedupModelsById(connection.models || ANTHROPIC_MODELS)
   }, [llmConnections, currentConnection, workspaceDefaultConnection, connectionUnavailable])
 
   const availableThinkingLevels = THINKING_LEVELS
@@ -933,7 +947,15 @@ export function FreeFormInput({
     else if (commandId === 'ask') onPermissionModeChange?.('ask')
     else if (commandId === 'allow-all') onPermissionModeChange?.('allow-all')
     else if (commandId === 'compact' && !isProcessing) onSubmit('/compact', undefined)
-  }, [onPermissionModeChange, isProcessing, onSubmit])
+    else if (commandId === 'undo' && sessionId) {
+      window.electronAPI.sessionCommand(sessionId, { type: 'undo' }).then((result) => {
+        if (result && typeof result === 'object' && 'success' in result && result.success && 'userMessage' in result) {
+          setInput(result.userMessage as string)
+          richInputRef.current?.focus()
+        }
+      }).catch((err: unknown) => console.error('Undo failed:', err))
+    }
+  }, [onPermissionModeChange, isProcessing, onSubmit, sessionId, setInput, richInputRef])
 
   // Handle folder selection from slash command menu
   const handleSlashFolderSelect = React.useCallback((path: string) => {
@@ -1774,7 +1796,12 @@ export function FreeFormInput({
           skills={skills}
           sources={sources}
           workspaceId={workspaceSlug}
-          className="pl-5 pr-4 pt-4 pb-3 overflow-y-auto min-h-[88px]"
+          className={cn(
+            'overflow-y-auto',
+            compactMode && isWebUI
+              ? 'px-3 pt-2 pb-1 min-h-[44px]'
+              : 'pl-5 pr-4 pt-4 pb-3 min-h-[88px]',
+          )}
           style={{ maxHeight: inputMaxHeight }}
           data-tutorial="chat-input"
           spellCheck={spellCheck}
@@ -1789,7 +1816,11 @@ export function FreeFormInput({
             sessionId={sessionId}
           />
 
-          <div className={cn("flex items-center gap-1 px-2 py-2", !compactMode && "border-t border-border/50")}>
+          <div className={cn(
+            "flex items-center gap-1 px-2",
+            compactMode && isWebUI ? "py-1" : "py-2",
+            !compactMode && "border-t border-border/50",
+          )}>
           {/* Hidden file input for attach button (shared by compact and desktop) */}
           <input
             ref={fileInputRef}
@@ -1837,6 +1868,18 @@ export function FreeFormInput({
             tooltip={t("chat.attachFilesTooltip")}
             disabled={disabled}
           />
+          {isWebUI && (
+            <FreeFormInputContextBadge
+              icon={<Globe className="h-4 w-4" />}
+              label="浏览器"
+              isExpanded={false}
+              hasSelection={false}
+              showChevron={false}
+              onClick={() => window.dispatchEvent(new Event('craft:open-vps-browser'))}
+              tooltip="打开 VPS 浏览器"
+              disabled={disabled}
+            />
+          )}
           {onSourcesChange && (
             <div className="relative shrink min-w-0">
               <FreeFormInputContextBadge
@@ -1937,6 +1980,19 @@ export function FreeFormInput({
             tooltip={t("chat.attachFilesTooltip")}
             disabled={disabled}
           />
+
+          {isWebUI && (
+            <FreeFormInputContextBadge
+              icon={<Globe className="h-4 w-4" />}
+              label="浏览器"
+              isExpanded={false}
+              hasSelection={false}
+              showChevron={false}
+              onClick={() => window.dispatchEvent(new Event('craft:open-vps-browser'))}
+              tooltip="打开 VPS 浏览器"
+              disabled={disabled}
+            />
+          )}
 
           {/* 2. Source Selector Badge - only show if onSourcesChange is provided */}
           {onSourcesChange && (
@@ -2090,68 +2146,7 @@ export function FreeFormInput({
                     {t('chat.connectionUnavailableDescription')}
                   </div>
                 </div>
-              ) : pickerMode === 'locked-single' && connectionDefaultModel ? (
-                (() => {
-                  // Single-model pi_compat connection on a non-empty session (or
-                  // when there's only one connection, so no switcher to show).
-                  // Model row is disabled (locked to this session); vision toggle
-                  // remains interactive.
-                  const showVisionToggle =
-                    !!effectiveConnectionDetails && isCompatProvider(effectiveConnectionDetails.providerType)
-                  const visionOn = showVisionToggle && modelSupportsImages(effectiveConnectionDetails!, connectionDefaultModel)
-                  return (
-                    <StyledDropdownMenuItem
-                      disabled
-                      className="flex items-center justify-between px-2 py-2 rounded-lg"
-                    >
-                      <div className="text-left">
-                        <div className="font-medium text-sm">{stripPiPrefixForDisplay(connectionDefaultModel)}</div>
-                        <div className="text-xs text-muted-foreground">{t('chat.connectionDefault')}</div>
-                      </div>
-                      <div className="flex items-center gap-1 ml-3 shrink-0">
-                        {showVisionToggle && effectiveConnectionDetails && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                aria-label={visionOn
-                                  ? t('chat.modelPicker.supportsImagesOn')
-                                  : t('chat.modelPicker.supportsImagesOff')}
-                                className="inline-flex items-center justify-center p-1 rounded pointer-events-auto opacity-100 hover:bg-foreground/5 cursor-pointer"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
-                                  }
-                                }}
-                              >
-                                <ImageIcon className={cn(
-                                  "h-3.5 w-3.5",
-                                  visionOn ? "text-foreground/70" : "text-foreground/30"
-                                )} />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {visionOn
-                                ? t('chat.modelPicker.supportsImagesOn')
-                                : t('chat.modelPicker.supportsImagesOff')}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                        <Check className="h-3 w-3 text-foreground" />
-                      </div>
-                    </StyledDropdownMenuItem>
-                  )
-                })()
               ) : pickerMode === 'switcher' ? (
-                /* Hierarchical view: Provider → Connection → Models (empty session with multiple connections — lets the user switch BEFORE the first message locks the connection) */
                 connectionsByProvider.map(([providerName, connections], index) => (
                   <React.Fragment key={providerName}>
                     {/* Provider group label */}
@@ -2161,6 +2156,7 @@ export function FreeFormInput({
                     {connections.map((conn) => {
                       const isCurrentConnection = effectiveConnection === conn.slug
                       const isAuthenticated = conn.isAuthenticated
+                      const connectionMeta = getConnectionPickerMeta(conn)
                       return (
                         <DropdownMenuSub key={conn.slug}>
                           <StyledDropdownMenuSubTrigger
@@ -2176,6 +2172,9 @@ export function FreeFormInput({
                                 {conn.name}
                                 {isCurrentConnection && <Check className="h-3 w-3 text-foreground" />}
                               </div>
+                              {connectionMeta && (
+                                <div className="text-xs text-muted-foreground truncate mt-0.5">{connectionMeta}</div>
+                              )}
                               {!isAuthenticated && (
                                 <div className="text-xs text-muted-foreground">{t('settings.ai.notAuthenticated')}</div>
                               )}
@@ -2184,7 +2183,7 @@ export function FreeFormInput({
                           {isAuthenticated && (
                             <StyledDropdownMenuSubContent className="min-w-[220px]">
                               {/* Show models for this connection - use provider-specific models as fallback */}
-                              {(conn.models || ANTHROPIC_MODELS).map((model) => {
+                              {dedupModelsById(conn.models || ANTHROPIC_MODELS).map((model) => {
                                 const modelId = typeof model === 'string' ? model : model.id
                                 const modelName = typeof model === 'string'
                                   ? stripPiPrefixForDisplay(getModelShortName(model))
@@ -2260,6 +2259,64 @@ export function FreeFormInput({
                     )}
                   </React.Fragment>
                 ))
+              ) : connectionDefaultModel ? (
+                (() => {
+                  // Single-model pi_compat connection: model row is disabled (you
+                  // can't switch), but vision toggle is still a separate control.
+                  const showVisionToggle =
+                    !!effectiveConnectionDetails && isCompatProvider(effectiveConnectionDetails.providerType)
+                  const visionOn = showVisionToggle && modelSupportsImages(effectiveConnectionDetails!, connectionDefaultModel)
+                  return (
+                    <StyledDropdownMenuItem
+                      disabled
+                      className="flex items-center justify-between px-2 py-2 rounded-lg"
+                    >
+                      <div className="text-left">
+                        <div className="font-medium text-sm">{stripPiPrefixForDisplay(connectionDefaultModel)}</div>
+                        <div className="text-xs text-muted-foreground">{t('chat.connectionDefault')}</div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-3 shrink-0">
+                        {showVisionToggle && effectiveConnectionDetails && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label={visionOn
+                                  ? t('chat.modelPicker.supportsImagesOn')
+                                  : t('chat.modelPicker.supportsImagesOff')}
+                                className="inline-flex items-center justify-center p-1 rounded pointer-events-auto opacity-100 hover:bg-foreground/5 cursor-pointer"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleToggleModelVision(effectiveConnectionDetails.slug, connectionDefaultModel, !visionOn)
+                                  }
+                                }}
+                              >
+                                <ImageIcon className={cn(
+                                  "h-3.5 w-3.5",
+                                  visionOn ? "text-foreground/70" : "text-foreground/30"
+                                )} />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {visionOn
+                                ? t('chat.modelPicker.supportsImagesOn')
+                                : t('chat.modelPicker.supportsImagesOff')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        <Check className="h-3 w-3 text-foreground" />
+                      </div>
+                    </StyledDropdownMenuItem>
+                  )
+                })()
               ) : (
                 /* Flat model list (single connection or session started) */
                 <>

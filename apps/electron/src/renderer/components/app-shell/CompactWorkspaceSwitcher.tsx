@@ -21,6 +21,7 @@ import { WorkspaceCreationScreen } from "@/components/workspace"
 import { waitForTransportConnected } from '@/lib/transport-wait'
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon"
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState"
+import { isSshBackedWorkspace } from "../../../shared/ssh"
 import type { Workspace } from "../../../shared/types"
 
 interface CompactWorkspaceSwitcherProps {
@@ -66,7 +67,11 @@ export function CompactWorkspaceSwitcher({
     const abort = new AbortController()
     healthCheckAbort.current = abort
 
-    const remoteWorkspaces = workspaces.filter(w => w.remoteServer && w.id !== activeWorkspaceId)
+    // SSH-backed workspaces are excluded: their persisted url is a stale ephemeral
+    // port (re-resolved on switch), so probing it would misreport "disconnected".
+    const remoteWorkspaces = workspaces.filter(
+      w => w.remoteServer && !isSshBackedWorkspace(w) && w.id !== activeWorkspaceId,
+    )
     if (remoteWorkspaces.length === 0) return
 
     setRemoteHealthMap(prev => {
@@ -99,6 +104,15 @@ export function CompactWorkspaceSwitcher({
   }
 
   const isRemoteDisconnected = (workspaceId: string) => {
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (isSshBackedWorkspace(workspace)) {
+      // The SSH layer owns connection state, so transient ws failures never surface
+      // here — except a terminal AUTH failure, which offers the reconnect/token form.
+      if (workspaceId !== activeWorkspaceId || !isRemote || !connectionState) return false
+      const { status, lastError } = connectionState
+      const terminal = status === 'failed' || status === 'disconnected'
+      return terminal && lastError?.kind === 'auth'
+    }
     if (workspaceId === activeWorkspaceId) {
       if (!isRemote || !connectionState) return false
       const { status } = connectionState
@@ -131,6 +145,8 @@ export function CompactWorkspaceSwitcher({
       toast.error(t('toast.cannotRemoveActiveWorkspace'))
       return
     }
+    const confirmed = await window.electronAPI.showDeleteWorkspaceConfirmation(workspace.name)
+    if (!confirmed) return
     const removed = await window.electronAPI.removeWorkspace(workspace.id)
     if (removed) {
       toast.success(t('toast.removedWorkspace', { name: workspace.name }))
@@ -249,7 +265,7 @@ export function CompactWorkspaceSwitcher({
                         <div className="flex items-center gap-1 text-xs text-foreground/50 mt-0.5">
                           {disconnected
                             ? <><CloudOff className="h-3 w-3 text-destructive shrink-0" /><span title={getDisconnectTooltip(workspace.id)}>{t('toast.disconnected')}</span></>
-                            : <><Cloud className="h-3 w-3 shrink-0" /><span className="truncate">{workspace.remoteServer.url}</span></>
+                            : <><Cloud className="h-3 w-3 shrink-0" /><span className="truncate">{workspace.remoteServer.sshHostId ? t('ssh.workspaceSubtitle', { host: workspace.remoteServer.sshHostId }) : workspace.remoteServer.url}</span></>
                           }
                         </div>
                       )}

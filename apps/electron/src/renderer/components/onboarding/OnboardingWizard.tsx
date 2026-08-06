@@ -6,7 +6,7 @@ import { CredentialsStep, type CredentialStatus } from "./CredentialsStep"
 import { LocalModelStep, type LocalModelSubmitData } from "./LocalModelStep"
 import { CompletionStep } from "./CompletionStep"
 import { GitBashWarning, type GitBashStatus } from "./GitBashWarning"
-import type { ApiKeySubmitData } from "../apisetup"
+import type { ApiKeySubmitData, CustomEndpointModelInput } from "../apisetup"
 import type { CustomEndpointApi } from '@config/llm-connections'
 
 export type OnboardingStep =
@@ -46,6 +46,7 @@ interface OnboardingWizardProps {
 
   // Claude OAuth (two-step flow)
   isWaitingForCode?: boolean
+  isProviderOAuthPending?: boolean
   onSubmitAuthCode?: (code: string) => void
   onCancelOAuth?: () => void
 
@@ -72,7 +73,7 @@ interface OnboardingWizardProps {
     baseUrl?: string
     connectionDefaultModel?: string
     activePreset?: string
-    models?: string[]
+    models?: CustomEndpointModelInput[]
     customApi?: CustomEndpointApi
   }
 
@@ -98,6 +99,7 @@ export function OnboardingWizard({
   onFinish,
   // Two-step OAuth flow
   isWaitingForCode,
+  isProviderOAuthPending,
   onSubmitAuthCode,
   onCancelOAuth,
   // Copilot device flow
@@ -169,6 +171,7 @@ export function OnboardingWizard({
             onStartOAuth={onStartOAuth}
             onBack={onBack}
             isWaitingForCode={isWaitingForCode}
+            isProviderOAuthPending={isProviderOAuthPending}
             onSubmitAuthCode={onSubmitAuthCode}
             editInitialValues={editInitialValues}
             onCancelOAuth={onCancelOAuth}

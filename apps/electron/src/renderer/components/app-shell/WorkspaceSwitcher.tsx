@@ -21,6 +21,7 @@ import { WorkspaceCreationScreen } from "@/components/workspace"
 import { waitForTransportConnected } from '@/lib/transport-wait'
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon"
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState"
+import { isSshBackedWorkspace } from "../../../shared/ssh"
 import type { Workspace } from "../../../shared/types"
 
 interface WorkspaceSwitcherProps {
@@ -72,7 +73,11 @@ export function WorkspaceSwitcher({
     const abort = new AbortController()
     healthCheckAbort.current = abort
 
-    const remoteWorkspaces = workspaces.filter(w => w.remoteServer && w.id !== activeWorkspaceId)
+    // SSH-backed workspaces are excluded: their persisted url is a stale ephemeral
+    // port (re-resolved on switch), so probing it would misreport "disconnected".
+    const remoteWorkspaces = workspaces.filter(
+      w => w.remoteServer && !isSshBackedWorkspace(w) && w.id !== activeWorkspaceId,
+    )
     if (remoteWorkspaces.length === 0) return
 
     // Mark all as checking
@@ -109,6 +114,15 @@ export function WorkspaceSwitcher({
 
   /** True when we know a remote workspace is unreachable. */
   const isRemoteDisconnected = (workspaceId: string) => {
+    const workspace = workspaces.find(w => w.id === workspaceId)
+    if (isSshBackedWorkspace(workspace)) {
+      // The SSH layer owns connection state, so transient ws failures never surface
+      // here — except a terminal AUTH failure, which offers the reconnect/token form.
+      if (workspaceId !== activeWorkspaceId || !isRemote || !connectionState) return false
+      const { status, lastError } = connectionState
+      const terminal = status === 'failed' || status === 'disconnected'
+      return terminal && lastError?.kind === 'auth'
+    }
     // Active workspace: use live transport state
     if (workspaceId === activeWorkspaceId) {
       if (!isRemote || !connectionState) return false
@@ -142,6 +156,8 @@ export function WorkspaceSwitcher({
       toast.error(t('toast.cannotRemoveActiveWorkspace'))
       return
     }
+    const confirmed = await window.electronAPI.showDeleteWorkspaceConfirmation(workspace.name)
+    if (!confirmed) return
     const removed = await window.electronAPI.removeWorkspace(workspace.id)
     if (removed) {
       toast.success(t('toast.removedWorkspace', { name: workspace.name }))

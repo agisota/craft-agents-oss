@@ -69,6 +69,8 @@ import {
   getStateColor,
   getStateIcon,
   getStatusIconStyle,
+  resolveStatusDisplayLabel,
+  resolveLabelDisplayName,
   type SessionStatus,
   type SessionStatusId,
 } from '@/config/session-status-config'
@@ -237,7 +239,7 @@ export function CompactSessionMenu({
           <button
             type="button"
             className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded-md titlebar-no-drag min-w-0',
+              'flex w-full items-center gap-1 px-2 py-1 rounded-md titlebar-no-drag min-w-0',
               'hover:bg-foreground/[0.03] transition-colors',
               'focus:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               'data-[state=open]:bg-foreground/[0.03]',
@@ -248,7 +250,7 @@ export function CompactSessionMenu({
               initial={false}
               animate={{ opacity: title ? 1 : 0 }}
               transition={{ duration: 0.15 }}
-              className="flex items-center gap-1 min-w-0"
+              className="flex flex-1 items-center gap-1 min-w-0"
             >
               <h1
                 className={cn(
@@ -531,6 +533,7 @@ function StatusPane({
   activeStateId?: SessionStatusId | null
   onSelect: (id: SessionStatusId) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col">
       {sessionStatuses.map((state) => {
@@ -541,7 +544,7 @@ function StatusPane({
           <Row
             key={state.id}
             icon={<span style={getStatusIconStyle(state)}>{bareStateIcon}</span>}
-            label={state.label}
+            label={resolveStatusDisplayLabel(state, t)}
             radioSelected={activeStateId === state.id}
             onTap={() => onSelect(state.id)}
           />
@@ -560,6 +563,7 @@ function LabelsPane({
   appliedLabelIds: Set<string>
   onToggle: (id: string) => void
 }) {
+  const { t } = useTranslation()
   // The Labels row in RootPane is gated on `hasLabels`, so this pane is only
   // ever entered when items.length > 0 — no empty-state branch needed.
   return (
@@ -573,9 +577,9 @@ function LabelsPane({
             label={item.parentPath ? (
               <>
                 <span className="text-foreground/50">{item.parentPath}</span>
-                {item.label}
+                {resolveLabelDisplayName(item.config, t)}
               </>
-            ) : item.label}
+            ) : resolveLabelDisplayName(item.config, t)}
             radioSelected={isApplied}
             onTap={() => onToggle(item.id)}
           />
@@ -614,6 +618,7 @@ function MessagingPane({ onConnect }: { onConnect: (platform: MessagingPlatform)
       <Row icon={<MessageSquare className="h-4 w-4" />} label="Telegram" onTap={() => onConnect('telegram')} />
       <Row icon={<MessageSquare className="h-4 w-4" />} label="WhatsApp" onTap={() => onConnect('whatsapp')} />
       <Row icon={<MessageSquare className="h-4 w-4" />} label="Lark / Feishu" onTap={() => onConnect('lark')} />
+      <Row icon={<MessageSquare className="h-4 w-4" />} label="WeChat" onTap={() => onConnect('wechat')} />
     </div>
   )
 }

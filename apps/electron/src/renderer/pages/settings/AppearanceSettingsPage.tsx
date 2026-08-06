@@ -30,6 +30,7 @@ import {
 } from '@/components/settings'
 import { useAtom } from 'jotai'
 import * as storage from '@/lib/local-storage'
+import { WORKSPACE_SELECTOR_RAIL_CHANGED_EVENT } from '@/components/app-shell/workspace-rail'
 import { useWorkspaceIcons } from '@/hooks/useWorkspaceIcon'
 import { WorkspaceAvatar } from '@/components/ui/workspace-avatar'
 import { ColorPicker } from '@/components/ui/color-picker'
@@ -146,6 +147,20 @@ export default function AppearanceSettingsPage() {
     setShowConnectionIcons(checked)
     storage.set(storage.KEYS.showConnectionIcons, checked)
   }, [])
+  const handleLanguageChange = useCallback((value: string) => {
+    void (async () => {
+      try {
+        console.info('[i18n] Appearance dropdown change', {
+          from: i18n.resolvedLanguage ?? null,
+          to: value,
+        })
+        await i18n.changeLanguage(value)
+        await window.electronAPI?.changeLanguage?.(value)
+      } catch (error) {
+        console.error('Failed to change language:', error)
+      }
+    })()
+  }, [i18n])
 
   // Project color treatment in the SessionList
   const projectColorTreatment = useProjectColorTreatment()
@@ -198,6 +213,39 @@ export default function AppearanceSettingsPage() {
     ],
     [sessionStatuses, t]
   )
+  // Workspace selector placement toggle
+  const [workspaceSelectorRail, setWorkspaceSelectorRail] = useState(() =>
+    storage.get(storage.KEYS.workspaceSelectorRail, false)
+  )
+  const handleWorkspaceSelectorRailChange = useCallback((checked: boolean) => {
+    setWorkspaceSelectorRail(checked)
+    storage.set(storage.KEYS.workspaceSelectorRail, checked)
+    window.dispatchEvent(new CustomEvent(WORKSPACE_SELECTOR_RAIL_CHANGED_EVENT, { detail: checked }))
+  }, [])
+  // Turn activity cards: default expansion state (persisted in localStorage)
+  const [turnActivitiesExpandedByDefault, setTurnActivitiesExpandedByDefault] = useState(() =>
+    storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false)
+  )
+  const handleTurnActivitiesDefaultChange = useCallback((value: string) => {
+    const expanded = value === 'expanded'
+    setTurnActivitiesExpandedByDefault(expanded)
+    storage.set(storage.KEYS.turnActivitiesExpandedByDefault, expanded)
+    window.dispatchEvent(new CustomEvent(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, { detail: expanded }))
+  }, [])
+
+  // Default zoom level (persisted in config.json and applied to every app window)
+  const [defaultZoomLevel, setDefaultZoomLevel] = useState(100)
+  useEffect(() => {
+    window.electronAPI?.getDefaultZoomLevel?.().then(setDefaultZoomLevel)
+  }, [])
+  const handleDefaultZoomLevelChange = useCallback(async (level: number) => {
+    setDefaultZoomLevel(level)
+    await window.electronAPI?.setDefaultZoomLevel?.(level)
+  }, [])
+
+  // "Background session finished" chip toggle (renderer-only appearance pref,
+  // persisted in localStorage via atomWithStorage — read by App.tsx + ChatPage).
+  const [showBackgroundFinishedChip, setShowBackgroundFinishedChip] = useAtom(showBackgroundFinishedChipAtom)
 
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
   const [richToolDescriptions, setRichToolDescriptions] = useState(true)
@@ -209,9 +257,6 @@ export default function AppearanceSettingsPage() {
     await window.electronAPI?.setRichToolDescriptions?.(checked)
   }, [])
 
-  // "Background session finished" chip toggle (renderer-only appearance pref,
-  // persisted in localStorage via atomWithStorage — read by App.tsx + ChatPage).
-  const [showBackgroundFinishedChip, setShowBackgroundFinishedChip] = useAtom(showBackgroundFinishedChipAtom)
 
   // Load preset themes on mount
   useEffect(() => {
@@ -350,18 +395,24 @@ export default function AppearanceSettingsPage() {
                   <SettingsRow label={t("settings.appearance.language")}>
                     <SettingsMenuSelect
                       value={(i18n.resolvedLanguage ?? i18n.language) as LanguageCode}
-                      onValueChange={(value) => {
-                        console.info('[i18n] Appearance dropdown change', {
-                          from: i18n.resolvedLanguage ?? null,
-                          to: value,
-                        })
-                        i18n.changeLanguage(value)
-                        window.electronAPI?.changeLanguage?.(value)
-                      }}
+                      onValueChange={handleLanguageChange}
                       options={Object.entries(LANGUAGES).map(([code, config]) => ({
                         value: code,
                         label: config.nativeName,
                       }))}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    label={t("settings.appearance.turnActivities")}
+                    description={t("settings.appearance.turnActivitiesDesc")}
+                  >
+                    <SettingsSegmentedControl
+                      value={turnActivitiesExpandedByDefault ? 'expanded' : 'collapsed'}
+                      onValueChange={handleTurnActivitiesDefaultChange}
+                      options={[
+                        { value: 'collapsed', label: t("settings.appearance.turnActivitiesCollapsed") },
+                        { value: 'expanded', label: t("settings.appearance.turnActivitiesExpanded") },
+                      ]}
                     />
                   </SettingsRow>
                 </SettingsCard>
@@ -436,11 +487,37 @@ export default function AppearanceSettingsPage() {
               {/* Interface */}
               <SettingsSection title={t("settings.appearance.interface")}>
                 <SettingsCard>
+                  <SettingsRow
+                    label={t("settings.appearance.defaultZoomLevel")}
+                    description={t("settings.appearance.defaultZoomLevelDesc")}
+                  >
+                    <div className="flex items-center gap-3 w-64">
+                      <input
+                        type="range"
+                        min={100}
+                        max={150}
+                        step={10}
+                        value={defaultZoomLevel}
+                        onChange={(event) => handleDefaultZoomLevelChange(Number(event.target.value))}
+                        className="w-44 accent-primary"
+                        aria-label={t("settings.appearance.defaultZoomLevel")}
+                      />
+                      <span className="w-12 text-right text-sm font-medium tabular-nums">
+                        {defaultZoomLevel}%
+                      </span>
+                    </div>
+                  </SettingsRow>
                   <SettingsToggle
                     label={t("settings.appearance.connectionIcons")}
                     description={t("settings.appearance.connectionIconsDesc")}
                     checked={showConnectionIcons}
                     onCheckedChange={handleConnectionIconsChange}
+                  />
+                  <SettingsToggle
+                    label={t("settings.appearance.workspaceIconRail")}
+                    description={t("settings.appearance.workspaceIconRailDesc")}
+                    checked={workspaceSelectorRail}
+                    onCheckedChange={handleWorkspaceSelectorRailChange}
                   />
                   <SettingsToggle
                     label={t("settings.appearance.richToolDescriptions")}

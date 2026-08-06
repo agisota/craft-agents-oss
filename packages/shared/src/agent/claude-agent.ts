@@ -21,7 +21,6 @@ import {
   resolveAuthEnvVars,
 } from '../config/llm-connections.ts';
 import type { McpClientPool } from '../mcp/mcp-pool.ts';
-import { proxyToolName } from '../mcp/proxy-tool-name.ts';
 import { loadPlanFromPath, type SessionConfig as Session } from '../sessions/storage.ts';
 import { loadProjectById, getProjectAssetsPath, listProjectAssets, getProjectMemoryPath, loadProjectMemory } from '../projects/storage.ts';
 import type { MemoryPromptBlocks } from '../memory/types.ts';
@@ -443,12 +442,12 @@ function createSourceProxyServers(pool: McpClientPool): Record<string, ReturnTyp
     const mcpTools = pool.getTools(slug);
     if (mcpTools.length === 0) continue;
 
-    const proxyTools = mcpTools.map(mcpTool => {
-      // Must match the pool's dispatch-map key (mcp-pool.ts sanitizes dotted
-      // names), or pool.callTool(proxyName) would miss for dotted tools (#864).
-      const proxyName = proxyToolName(slug, mcpTool.name);
+    const proxyTools = mcpTools.flatMap(mcpTool => {
+      const proxyName = pool.getProxyToolName(slug, mcpTool.name);
+      const proxyLocalName = pool.getProxyToolLocalName(slug, mcpTool.name);
+      if (!proxyName || !proxyLocalName) return [];
       return tool(
-        mcpTool.name,
+        proxyLocalName,
         mcpTool.description || `Tool from ${slug}`,
         {
           ...jsonSchemaToZodShape((mcpTool.inputSchema as Record<string, unknown>) || {}),

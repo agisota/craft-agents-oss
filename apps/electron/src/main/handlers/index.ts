@@ -17,6 +17,10 @@ export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): vo
 }
 
 export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps, serverCtx?: ServerHandlerContext): void {
-  registerCoreRpcHandlers(server, deps, serverCtx)
+  // GUI registers its own browser-pane handlers (see ./browser) — they are a
+  // superset of the core ones plus window-stamping and the empty-state LAUNCH
+  // channel. Registering both copies makes the RpcServer throw on duplicate
+  // channels and the app fails to boot.
+  registerCoreRpcHandlers(server, deps, serverCtx, { browserPane: false })
   registerGuiRpcHandlers(server, deps)
 }

@@ -31,6 +31,7 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher"
 import { CompactWorkspaceSwitcher } from "./CompactWorkspaceSwitcher"
 import { getDocUrl } from "@craft-agent/shared/docs/doc-links"
 import { AppMenu } from "../AppMenu"
+import type { ReactNode } from "react"
 
 const RIGHT_SLOT_FULL_BADGES_THRESHOLD = 420
 const RIGHT_SLOT_TWO_BADGES_THRESHOLD = 300
@@ -57,8 +58,18 @@ interface TopBarProps {
   onToggleFocusMode: () => void
   onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
+  /** Active panel header rendered beside the workspace switcher on compact screens. */
+  compactHeaderRenderer?: () => ReactNode
+  /** Chat detail uses a minimal back/title/menu bar on compact screens. */
+  isCompactChatMode?: boolean
+  /** Web UI settings details use the same minimal back/title/actions bar. */
+  isCompactSettingsMode?: boolean
   /** When true, hides controls that don't apply in compact/mobile layout */
   isCompact?: boolean
+  /** When false, workspace selection is rendered elsewhere (for example, the left icon rail). */
+  showWorkspaceSelector?: boolean
+  /** Left offset for a full-height rail rendered outside the top bar. */
+  leftInset?: number
 }
 
 export function TopBar({
@@ -83,7 +94,12 @@ export function TopBar({
   onToggleFocusMode,
   onAddSessionPanel,
   onAddBrowserPanel,
+  compactHeaderRenderer,
+  isCompactChatMode,
+  isCompactSettingsMode,
   isCompact,
+  showWorkspaceSelector = true,
+  leftInset = 0,
 }: TopBarProps) {
   const { t } = useTranslation()
   const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
@@ -132,14 +148,19 @@ export function TopBar({
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-panel titlebar-drag-region"
-      style={{ height: 'var(--topbar-height)' }}
+      className="fixed top-0 right-0 z-panel titlebar-drag-region"
+      style={{ left: leftInset, height: 'var(--topbar-height)' }}
     >
       <div className="flex h-full w-full items-center justify-between gap-2">
       {/* === LEFT: Sidebar + Menu + Navigation + Workspace === */}
       {/* Keep this container draggable. Only individual interactive controls should use titlebar-no-drag. */}
       {/* In compact mode the right slot is hidden, so we add right padding here
           so the workspace pill doesn't run flush against the viewport edge. */}
+      {isCompact && (isCompactChatMode || isCompactSettingsMode) ? (
+        <div className="pointer-events-auto flex min-w-0 flex-1 items-center px-3">
+          {compactHeaderRenderer?.()}
+        </div>
+      ) : (
       <div
         className="pointer-events-auto flex min-w-0 flex-1 items-center gap-0.5"
         style={{ paddingLeft: menuLeftPadding, paddingRight: isCompact ? 12 : 0 }}
@@ -173,7 +194,10 @@ export function TopBar({
             drill-in chevron in PanelHeader plus the browser's native back gesture
             cover that affordance, and the freed width lets the workspace pill
             actually fit on phone-width viewports. */}
-        <div className={cn("ml-1 flex min-w-0 items-center gap-1", isCompact ? "flex-1" : "w-[clamp(220px,42vw,640px)]")}>
+        <div className={cn(
+          "ml-1 flex min-w-0 items-center gap-1",
+          isCompact ? "w-[clamp(108px,32vw,180px)] shrink-0" : "w-[clamp(220px,42vw,640px)]",
+        )}>
           {!isCompact && (
             <>
               <Tooltip>
@@ -196,30 +220,39 @@ export function TopBar({
             </>
           )}
 
-          <div className="min-w-0 flex-1">
-            {isCompact ? (
-              <CompactWorkspaceSwitcher
-                workspaces={workspaces}
-                activeWorkspaceId={activeWorkspaceId}
-                onSelect={onSelectWorkspace}
-                onWorkspaceCreated={onWorkspaceCreated}
-                onWorkspaceRemoved={onWorkspaceRemoved}
-                workspaceUnreadMap={workspaceUnreadMap}
-              />
-            ) : (
-              <WorkspaceSwitcher
-                variant="topbar"
-                workspaces={workspaces}
-                activeWorkspaceId={activeWorkspaceId}
-                onSelect={onSelectWorkspace}
-                onWorkspaceCreated={onWorkspaceCreated}
-                onWorkspaceRemoved={onWorkspaceRemoved}
-                workspaceUnreadMap={workspaceUnreadMap}
-              />
-            )}
-          </div>
+          {showWorkspaceSelector && (
+            <div className="min-w-0 flex-1">
+              {isCompact ? (
+                <CompactWorkspaceSwitcher
+                  workspaces={workspaces}
+                  activeWorkspaceId={activeWorkspaceId}
+                  onSelect={onSelectWorkspace}
+                  onWorkspaceCreated={onWorkspaceCreated}
+                  onWorkspaceRemoved={onWorkspaceRemoved}
+                  workspaceUnreadMap={workspaceUnreadMap}
+                />
+              ) : (
+                <WorkspaceSwitcher
+                  variant="topbar"
+                  workspaces={workspaces}
+                  activeWorkspaceId={activeWorkspaceId}
+                  onSelect={onSelectWorkspace}
+                  onWorkspaceCreated={onWorkspaceCreated}
+                  onWorkspaceRemoved={onWorkspaceRemoved}
+                  workspaceUnreadMap={workspaceUnreadMap}
+                />
+              )}
+            </div>
+          )}
         </div>
+
+        {isCompact && compactHeaderRenderer && (
+          <div className="ml-1 flex min-w-0 flex-1 items-center gap-1">
+            {compactHeaderRenderer()}
+          </div>
+        )}
       </div>
+      )}
 
       {/* === RIGHT: Browser strip + add + help === */}
       {!isCompact && (

@@ -53,6 +53,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.auth.LOGOUT,
   RPC_CHANNELS.auth.SHOW_LOGOUT_CONFIRMATION,
   RPC_CHANNELS.auth.SHOW_DELETE_SESSION_CONFIRMATION,
+  RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION,
 
   // shell — local OS shell (openFile/showInFolder guarded for remote)
   RPC_CHANNELS.shell.OPEN_URL,
@@ -154,6 +155,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   // appearance — local UI preferences
   RPC_CHANNELS.appearance.GET_RICH_TOOL_DESCRIPTIONS,
   RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS,
+  RPC_CHANNELS.appearance.GET_DEFAULT_ZOOM_LEVEL,
+  RPC_CHANNELS.appearance.SET_DEFAULT_ZOOM_LEVEL,
 
   // caching — prompt cache and context settings
   RPC_CHANNELS.caching.GET_EXTENDED_PROMPT_CACHE,
@@ -181,6 +184,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.browserPane.RELOAD,
   RPC_CHANNELS.browserPane.STOP,
   RPC_CHANNELS.browserPane.FOCUS,
+  RPC_CHANNELS.browserPane.RESIZE,
   RPC_CHANNELS.browserPane.SNAPSHOT,
   RPC_CHANNELS.browserPane.CLICK,
   RPC_CHANNELS.browserPane.FILL,
@@ -192,6 +196,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.browserPane.STATE_CHANGED,
   RPC_CHANNELS.browserPane.REMOVED,
   RPC_CHANNELS.browserPane.INTERACTED,
+  RPC_CHANNELS.browserPane.CREATE_EMBEDDED,
+  RPC_CHANNELS.browserPane.SYNC_BOUNDS,
+  RPC_CHANNELS.browserPane.CLICK_AT,
+  RPC_CHANNELS.browserPane.TYPE,
+  RPC_CHANNELS.browserPane.KEY,
 
   // gitbash — Windows-specific local
   RPC_CHANNELS.gitbash.CHECK,
@@ -293,6 +302,44 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // fs — workspace filesystem
   RPC_CHANNELS.fs.SEARCH,
   RPC_CHANNELS.fs.LIST_DIRECTORY,
+
+  // notes — workspace note vault
+  RPC_CHANNELS.notes.LIST,
+  RPC_CHANNELS.notes.READ,
+  RPC_CHANNELS.notes.SAVE,
+  RPC_CHANNELS.notes.CREATE,
+  RPC_CHANNELS.notes.RENAME,
+  RPC_CHANNELS.notes.DELETE,
+  RPC_CHANNELS.notes.SEARCH,
+  RPC_CHANNELS.notes.GET_BACKLINKS,
+  RPC_CHANNELS.notes.GET_RENAME_IMPACT,
+  RPC_CHANNELS.notes.GET_DAILY_NOTE,
+  RPC_CHANNELS.notes.IMPORT_ASSET,
+  RPC_CHANNELS.notes.LIST_ASSETS,
+  RPC_CHANNELS.notes.DELETE_ASSET,
+  RPC_CHANNELS.notes.RENAME_ASSET,
+  RPC_CHANNELS.notes.UPDATE_PROPERTIES,
+  RPC_CHANNELS.notes.WATCH,
+  RPC_CHANNELS.notes.UNWATCH,
+  RPC_CHANNELS.notes.CHANGED,
+  RPC_CHANNELS.notes.RENAME_FOLDER,
+  RPC_CHANNELS.notes.DELETE_FOLDER,
+
+  // memory — lesson/context data served by workspace host
+  RPC_CHANNELS.memory.LIST_LESSONS,
+  RPC_CHANNELS.memory.ADD_LESSON,
+  RPC_CHANNELS.memory.UPDATE_LESSON,
+  RPC_CHANNELS.memory.DELETE_LESSON,
+  RPC_CHANNELS.memory.GET_CONTEXT,
+  RPC_CHANNELS.memory.UPDATE_CONTEXT,
+  RPC_CHANNELS.memory.LIST_HISTORY,
+  RPC_CHANNELS.memory.CHANGED,
+
+  // skillsPending — pending skill approvals per workspace
+  RPC_CHANNELS.skillsPending.LIST,
+  RPC_CHANNELS.skillsPending.APPROVE,
+  RPC_CHANNELS.skillsPending.DISMISS,
+  RPC_CHANNELS.skillsPending.CHANGED,
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
@@ -458,6 +505,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.messaging.SAVE_TELEGRAM,
   RPC_CHANNELS.messaging.TEST_LARK,
   RPC_CHANNELS.messaging.SAVE_LARK,
+  RPC_CHANNELS.messaging.TEST_DISCORD,
+  RPC_CHANNELS.messaging.SAVE_DISCORD,
   RPC_CHANNELS.messaging.DISCONNECT,
   RPC_CHANNELS.messaging.FORGET,
   RPC_CHANNELS.messaging.GET_BINDINGS,
@@ -470,6 +519,12 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.messaging.WA_START_CONNECT,
   RPC_CHANNELS.messaging.WA_SUBMIT_PHONE,
   RPC_CHANNELS.messaging.WA_UI_EVENT,
+  RPC_CHANNELS.messaging.WECHAT_START_CONNECT,
+  RPC_CHANNELS.messaging.WECHAT_SUBMIT_CODE,
+  RPC_CHANNELS.messaging.WECHAT_UI_EVENT,
+  RPC_CHANNELS.messaging.WC_START_CONNECT,
+  RPC_CHANNELS.messaging.WC_CANCEL_CONNECT,
+  RPC_CHANNELS.messaging.WC_UI_EVENT,
   // messaging access control — UI ↔ Server, per-platform owners + per-binding allow-list
   RPC_CHANNELS.messaging.GET_PLATFORM_OWNERS,
   RPC_CHANNELS.messaging.SET_PLATFORM_OWNERS,
