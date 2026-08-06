@@ -8,7 +8,8 @@
  * - Lazy spawn on first chat() — binary from OMP_CLI_PATH env or `omp` on PATH.
  *   cwd = workspace root (sandbox per OMP's cwd-keyed execution).
  * - Permission mode mapping:
- *   - craft 'allow-all' → spawn with `--auto-approve`; OMP never asks.
+ * - craft 'allow-all' → spawn with `--approval-mode yolo`; OMP never asks
+ *   (strongest auto mode — replaces the weaker `--auto-approve`).
  *   - craft 'ask' / 'safe' → no flag; OMP permission dialogs arrive as
  *     extension_ui_request (confirm/dialog/editor/select) and are proxied into
  *     craft's permission flow (onPermissionRequest + respondToPermission).
@@ -189,10 +190,11 @@ export class OmpAgent extends BaseAgent {
 
     // --mode rpc: JSONL protocol (docs/omp-rpc-notes.md).
     // --no-session: OMP must not persist/restore sessions; craft owns history.
-    // --auto-approve: craft permission mode 'allow-all' → yolo, no dialogs.
+    // --approval-mode yolo: craft permission mode 'allow-all' → full yolo
+    //   (OMP's strongest auto mode: zero approval prompts, incl. destructive).
     const args = ['--mode', 'rpc', '--no-session'];
     if (this.autoApproveAtSpawn) {
-      args.push('--auto-approve');
+      args.push('--approval-mode', 'yolo');
     }
 
     this.debug(`Spawning OMP subprocess: ${bin} ${args.join(' ')} (cwd=${cwd})`);
@@ -893,7 +895,7 @@ export class OmpAgent extends BaseAgent {
   override setPermissionMode(mode: PermissionMode): void {
     super.setPermissionMode(mode);
 
-    // The --auto-approve flag is spawn-time. When the mode crosses the
+    // The --approval-mode yolo flag is spawn-time. When the mode crosses the
     // allow-all boundary, the live subprocess has the wrong policy — kill it;
     // next chat() respawns with the correct flag. (Same constraint as model
     // pinning: no live-migration without respawn — documented in file header.)
