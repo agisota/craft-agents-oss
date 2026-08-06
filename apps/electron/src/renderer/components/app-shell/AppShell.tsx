@@ -2664,7 +2664,11 @@ function AppShellContent({
                       },
                     },
                     {
-22: @both
+                      id: "nav:notes",
+                      title: "Notes",
+                      icon: BookOpen,
+                      variant: isNotesNavigation(navState) ? "default" : "ghost",
+                      onClick: handleNotesClick,
                     },
                     {
                       id: "nav:automations",
