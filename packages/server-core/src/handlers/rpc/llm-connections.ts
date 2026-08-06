@@ -78,7 +78,7 @@ async function refreshLlmOAuthIfNeeded(
         expiresAt: refreshed.expiresAt,
       })
     } else if (connection.providerType === 'pi' && connection.piAuthProvider === 'github-copilot') {
-      const { refreshGitHubCopilotToken } = await import('@mariozechner/pi-ai/oauth')
+      const { refreshGitHubCopilotToken } = await import('@earendil-works/pi-ai/oauth')
       const refreshed = await refreshGitHubCopilotToken(oauth.refreshToken)
       await manager.setLlmOAuth(connection.slug, {
         accessToken: refreshed.access,

@@ -2312,6 +2312,9 @@ function AppShellContent({
     // Projects navigator
     if (isProjectsNavigation(navState)) {
       return t("sidebar.allProjects")
+    }
+
+    // Notes navigator
     if (isNotesNavigation(navState)) {
       return "Notes"
     }

@@ -375,6 +375,10 @@ export function MainContentPanel({
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">{t("projectsList.noProjectSelected")}</p>
         </div>
+      </Panel>
+    )
+  }
+
   // Notes navigator - self-contained notes workspace
   if (isNotesNavigation(navState)) {
     return wrapWithStoplight(

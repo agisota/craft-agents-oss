@@ -2146,7 +2146,7 @@ export function FreeFormInput({
                     {t('chat.connectionUnavailableDescription')}
                   </div>
                 </div>
-12: @ours
+              ) : pickerMode === 'switcher' ? (
                 connectionsByProvider.map(([providerName, connections], index) => (
                   <React.Fragment key={providerName}>
                     {/* Provider group label */}
