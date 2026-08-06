@@ -330,6 +330,7 @@ const EXPECTED_CHANNELS: string[] = [
   'skills:openFinder',
   'skillsPending:approve',
   'skillsPending:changed',
+  'skillsPending:diff',
   'skillsPending:dismiss',
   'skillsPending:list',
   'sources:changed',

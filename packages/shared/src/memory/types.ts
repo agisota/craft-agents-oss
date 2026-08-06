@@ -82,6 +82,16 @@ export interface PromoteLessonResult {
   /** true when the rule already existed globally and was only re-marked. */
   alreadyGlobal: boolean
 }
+/** M5: read-only view of a project's agent-managed MEMORY.md for the Memory tab. */
+export interface ProjectMemoryDto {
+  name: string
+  /** Project slug (stable route key). */
+  slug: string
+  /** Absolute path to projects/{slug}/MEMORY.md. */
+  memoryPath: string
+  /** MEMORY.md content ('' when absent), capped for transport. */
+  memoryContent: string
+}
 
 export type AuditActor = 'ui' | 'distill' | 'rpc' | 'queue'
 
@@ -115,6 +125,18 @@ export interface MemoryConfig {
    * formulations (never/MUST NOT) where idiomatic, default true.
    */
   negativeFirst: boolean
+  /**
+   * P1: extra literal strings (project names, internal hostnames, paths, …)
+   * masked by redactSecrets in addition to the built-in secret shapes —
+   * applied to the distill window before it leaves the machine AND to the
+   * distilled result before it is persisted. Case-insensitive. Default [].
+   */
+  redactExtraPatterns: string[]
+  /**
+   * M1: top-K lessons/context entries returned by the FTS query path
+   * (memory.getContext with a query). Default 20.
+   */
+  ftsLimit: number
 }
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
@@ -122,6 +144,8 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   distillIdleHours: 3,
   distillMsgCount: 30,
   negativeFirst: true,
+  redactExtraPatterns: [],
+  ftsLimit: 20,
 }
 
 /** Hard limits (mirror KiroCrew learn.py) */
@@ -156,6 +180,30 @@ export interface PendingSkill {
   /** Raw SKILL.md file content (with frontmatter) */
   content: string
   source: SkillCandidate['source']
+  /**
+   * S3 versioning: set when this candidate supersedes an approved skill of
+   * the same slug — approving it snapshots the live SKILL.md into
+   * .versions/v{N}-SKILL.md before overwriting.
+   */
+  updates?: string
+  /** S3: version number the candidate will become on approve (display hint). */
+  nextVersion?: number
+  /**
+   * S2: forbidden-token violations found by validateSkillContent in fenced
+   * shell blocks. Non-empty blocks approve unless forced. Absent means clean.
+   */
+  violations?: string[]
+}
+
+/** S3: payload of skillsPending:diff — base is the last-known-good version. */
+export interface PendingSkillDiff {
+  /**
+   * Latest .versions snapshot of the approved skill, or its live SKILL.md
+   * when no snapshots exist yet. null when the candidate is brand-new.
+   */
+  base: string | null
+  /** Raw pending SKILL.md content of the candidate. */
+  candidate: string
 }
 
 /** Strict-JSON payload returned by the distillation prompt */
@@ -204,12 +252,45 @@ export interface LessonPromptUsage {
  * Per-session memory provenance record (spec F4), persisted at
  * {workspace}/sessions/{id}/meta/provenance.json by the SessionManager at the
  * site where prompt blocks are assembled (currently: session start / backend
- * spawn). `skills` is [] until sessions carry an enabled-skills list — skills
- * today attach per-message via [skill:slug] mentions, not per session.
+ * spawn). `skills` (spec S4) are the [skill:slug] mentions recovered from the
+ * session's own message contents — skills attach per-message, so the session
+ * messages are the only resolvable per-skill prompt-hit set.
  */
 export interface SessionProvenance {
   lessons: LessonPromptUsage[]
   skills: string[]
   /** ISO timestamp of the prompt assembly that produced this record */
   ts: string
+}
+
+// ---------------------------------------------------------------
+// S4: skill usage metrics + prune; T1: team export
+// ---------------------------------------------------------------
+
+/** Per-skill usage stats aggregated from {workspace}/skills/.usage.jsonl (spec S4). */
+export interface SkillUsageStats {
+  /** Number of session spawns whose prompt carried this skill's [skill:slug] mention. */
+  used: number
+  /** ISO ts of the most recent hit; '' when unknown. */
+  lastUsedAt: string
+}
+
+/** Usage map keyed by skill slug (skills:getUsage response). */
+export type SkillUsageMap = Record<string, SkillUsageStats>
+
+/** Result of archiving unused skills into {workspace}/skills/.archive/ (spec S4). */
+export interface SkillPruneResult {
+  /** Slugs moved into skills/.archive/. */
+  archived: string[]
+  /** Requested slugs that were not moved (unknown slug, missing dir, or fs error). */
+  skipped: string[]
+}
+
+/** Result of copying a workspace skill into a project's .agents/skills (spec T1). */
+export interface SkillExportResult {
+  slug: string
+  /** Absolute target path {projectRoot}/.agents/skills/<slug>. */
+  path: string
+  /** Target already existed with identical content — nothing was copied. */
+  alreadyExisted: boolean
 }

@@ -321,6 +321,11 @@ export const RPC_CHANNELS = {
     OPEN_EDITOR: 'skills:openEditor',
     OPEN_FINDER: 'skills:openFinder',
     IMPORT_OMP: 'skills:importOmp',
+    // S4: usage metrics from {workspace}/skills/.usage.jsonl + prune (archive, never delete)
+    GET_USAGE: 'skills:getUsage',
+    PRUNE_UNUSED: 'skills:pruneUnused',
+    // T1: copy a workspace skill into {projectRoot}/.agents/skills/<slug>
+    EXPORT_TO_PROJECT: 'skills:exportToProject',
     CHANGED: 'skills:changed',
   },
   skillsPending: {

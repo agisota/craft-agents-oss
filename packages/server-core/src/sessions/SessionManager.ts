@@ -26,6 +26,7 @@ import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
 import { isValidWorkingDirectory } from '../utils/path-validation'
 import { MemoryService } from '../memory/MemoryService'
 import { readProvenance, writeProvenance, type SessionProvenance } from '../memory/provenance'
+import { appendSkillUsage, extractSkillMentions } from '../memory/skill-usage'
 import { InitGate } from '@craft-agent/server-core/domain'
 import { i18n } from '@craft-agent/shared/i18n'
 import {
@@ -3848,12 +3849,16 @@ export class SessionManager implements ISessionManager {
       // Provenance (spec F4): persist which lessons were injected so the feedback
       // loop and usage UI can attribute behavior later. BackendConfig.memoryBlocks
       // is a constructor-time snapshot, so this record refreshes per session start
-      // (i.e. per backend (re)spawn), not per turn. Enabled-skills slugs are not
-      // resolvable here — skills attach per-message via [skill:slug], sessions and
-      // CoreBackendConfig carry no per-session skills list — so skills stays [].
-      if (memoryBlocks?.used?.length) {
+      // (i.e. per backend (re)spawn), not per turn. Skills attach per-message via
+      // [skill:slug] mentions (sessions and CoreBackendConfig carry no per-session
+      // skills list), so the per-skill prompt-hit set (spec S4) is recovered here
+      // from the session's own message contents and recorded both in the
+      // provenance record and the skills usage ledger (skills/.usage.jsonl).
+      const skillMentions = extractSkillMentions(managed.messages.map(m => m.content))
+      if ((memoryBlocks?.used?.length ?? 0) > 0 || skillMentions.length > 0) {
         try {
-          writeProvenance(managed.workspace.rootPath, managed.id, { lessons: memoryBlocks.used, skills: [] })
+          writeProvenance(managed.workspace.rootPath, managed.id, { lessons: memoryBlocks?.used ?? [], skills: skillMentions })
+          appendSkillUsage(managed.workspace.rootPath, managed.id, skillMentions)
         } catch (err) {
           sessionLog.warn(`Failed to write memory provenance for ${managed.id}:`, err)
         }

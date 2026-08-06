@@ -1,9 +1,12 @@
 import { join } from 'path'
 import { cpSync, existsSync, readdirSync, statSync } from 'fs'
 import { RPC_CHANNELS, type SkillFile } from '@craft-agent/shared/protocol'
+import type { SkillExportResult, SkillPruneResult, SkillUsageMap } from '@craft-agent/shared/memory/types'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import type { RpcServer } from '@craft-agent/server-core/transport'
+import { pushTyped } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
+import { exportSkillToProject, pruneUnusedSkills, readUsage } from '../../memory/skill-usage'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.GET,
@@ -12,9 +15,19 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.OPEN_EDITOR,
   RPC_CHANNELS.skills.OPEN_FINDER,
   RPC_CHANNELS.skills.IMPORT_OMP,
+  RPC_CHANNELS.skills.GET_USAGE,
+  RPC_CHANNELS.skills.PRUNE_UNUSED,
+  RPC_CHANNELS.skills.EXPORT_TO_PROJECT,
 ] as const
 
 export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): void {
+  // Panel refresh after mutations: same payload shape as SessionManager's
+  // fs-watcher broadcast (workspaceId, skills) that AppShell subscribes to.
+  const broadcastSkillsChanged = async (workspaceId: string, workspaceRoot: string): Promise<void> => {
+    const { loadAllSkills } = await import('@craft-agent/shared/skills')
+    pushTyped(server, RPC_CHANNELS.skills.CHANGED, { to: 'workspace', workspaceId }, workspaceId, loadAllSkills(workspaceRoot))
+  }
+
   // Get all skills for a workspace (and optionally project-level skills from workingDirectory)
   server.handle(RPC_CHANNELS.skills.GET, async (_ctx, workspaceId: string, workingDirectory?: string) => {
     deps.platform.logger?.info(`SKILLS_GET: Loading skills for workspace: ${workspaceId}${workingDirectory ? `, workingDirectory: ${workingDirectory}` : ''}`)

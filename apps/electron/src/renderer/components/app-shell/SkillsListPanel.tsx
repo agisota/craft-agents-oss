@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Zap, PackageOpen, Check, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { Zap, PackageOpen, Check, ChevronDown, ChevronRight, X, Network, FolderX, KeyRound, TriangleAlert, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SkillAvatar } from '@/components/ui/skill-avatar'
 import { EntityPanel } from '@/components/ui/entity-panel'
@@ -11,8 +11,16 @@ import { SendResourceToWorkspaceDialog } from './SendResourceToWorkspaceDialog'
 import { EditPopover, getEditConfig } from '@/components/ui/EditPopover'
 import { useActiveWorkspace, useAppShellContext } from '@/context/AppShellContext'
 import { getFileManagerName } from '@/lib/platform'
-import type { PendingSkill } from '@craft-agent/shared/memory/types'
+import { detectSkillRiskFlags, lineDiff, RISK_FLAG_I18N_KEY, VIOLATION_I18N_KEY, type SkillRiskFlag } from '@/lib/skill-risk'
+import type { PendingSkill, PendingSkillDiff } from '@craft-agent/shared/memory/types'
 import type { LoadedSkill } from '../../../shared/types'
+
+const RISK_FLAG_ICON: Record<SkillRiskFlag, typeof Network> = {
+  'network': Network,
+  'fs-outside': FolderX,
+  'secrets': KeyRound,
+  'sudo': TriangleAlert,
+}
 
 export interface SkillsListPanelProps {
   skills: LoadedSkill[]
@@ -48,6 +56,8 @@ export function SkillsListPanel({
   // Pending skill candidates from the self-learning distillation queue.
   const [pendingSkills, setPendingSkills] = React.useState<PendingSkill[]>([])
   const [expandedPendingSlug, setExpandedPendingSlug] = React.useState<string | null>(null)
+  // S3: diff payload for the currently expanded update candidate.
+  const [pendingDiff, setPendingDiff] = React.useState<{ slug: string; data: PendingSkillDiff } | null>(null)
   const effectiveWorkspaceId = workspaceId ?? activeWorkspaceId
 
   React.useEffect(() => {
@@ -74,11 +84,27 @@ export function SkillsListPanel({
     return () => { cancelled = true; offPending(); offSkills() }
   }, [effectiveWorkspaceId])
 
-  const handlePendingAction = async (slug: string, action: 'approve' | 'dismiss', description?: string) => {
+  // Fetch the diff when an update candidate is expanded (S3). Cached per
+  // slug for the lifetime of the expansion; refetched after list reloads.
+  React.useEffect(() => {
+    const expanded = pendingSkills.find((c) => c.slug === expandedPendingSlug)
+    if (!effectiveWorkspaceId || !expanded?.updates) {
+      setPendingDiff(null)
+      return
+    }
+    let cancelled = false
+    window.electronAPI
+      .diffPendingSkill(effectiveWorkspaceId, expanded.slug)
+      .then((data) => { if (!cancelled) setPendingDiff({ slug: expanded.slug, data }) })
+      .catch(() => { if (!cancelled) setPendingDiff(null) })
+    return () => { cancelled = true }
+  }, [effectiveWorkspaceId, expandedPendingSlug, pendingSkills])
+
+  const handlePendingAction = async (slug: string, action: 'approve' | 'dismiss', description?: string, force = false) => {
     if (!effectiveWorkspaceId) return
     try {
       if (action === 'approve') {
-        await window.electronAPI.approvePendingSkill(effectiveWorkspaceId, slug)
+        await window.electronAPI.approvePendingSkill(effectiveWorkspaceId, slug, force)
         toast.success(t('pendingSkills.approved', { slug }))
       } else {
         await window.electronAPI.dismissPendingSkill(effectiveWorkspaceId, slug, description)
@@ -217,20 +243,102 @@ export function SkillsListPanel({
                     {candidate.description}
                   </span>
                 </button>
-                {expanded && (
+                {expanded && (() => {
+                  const violations = candidate.violations ?? []
+                  const violationReasons = violations.map((v) => t(VIOLATION_I18N_KEY[v] ?? v))
+                  const isUpdate = candidate.updates !== undefined
+                  const diff = pendingDiff?.slug === candidate.slug ? pendingDiff.data : null
+                  return (
                   <div className="mt-1.5 pl-4 space-y-1.5">
-                    <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
-                      {candidate.content}
-                    </pre>
+                    {isUpdate && (
+                      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <RefreshCw className="size-3 shrink-0" />
+                        {t('pendingSkills.updatesNote', { slug: candidate.updates, version: candidate.nextVersion ?? 2 })}
+                      </div>
+                    )}
+                    {/* S1: heuristic risk flags */}
+                    {(() => {
+                      const flags = detectSkillRiskFlags(candidate.content)
+                      return flags.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          {flags.map((flag) => {
+                            const Icon = RISK_FLAG_ICON[flag]
+                            return (
+                              <span
+                                key={flag}
+                                className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium"
+                              >
+                                <Icon className="size-3" />
+                                {t(RISK_FLAG_I18N_KEY[flag])}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+                    {/* S2: script-validation block reason */}
+                    {violations.length > 0 && (
+                      <div className="flex items-start gap-1.5 rounded-[6px] bg-destructive/10 px-2 py-1.5 text-[11px] leading-snug text-destructive-foreground">
+                        <TriangleAlert className="size-3 mt-0.5 shrink-0 text-destructive" />
+                        <span>
+                          <span className="font-medium">{t('pendingSkills.violationsBlock')}</span>{' '}
+                          {violationReasons.join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {isUpdate && diff && diff.base !== null ? (
+                      <div>
+                        <div className="flex items-center gap-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                          {t('pendingSkills.diffTitle')}
+                          <span className="normal-case tracking-normal text-muted-foreground/50">
+                            {t('pendingSkills.diffCurrent')} → {t('pendingSkills.diffProposed')}
+                          </span>
+                        </div>
+                        <pre className="max-h-56 overflow-auto rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
+                          {lineDiff(diff.base, diff.candidate).map((line, idx) => (
+                            <span
+                              key={idx}
+                              className={
+                                line.type === 'add'
+                                  ? 'block text-emerald-600 dark:text-emerald-400'
+                                  : line.type === 'remove'
+                                    ? 'block text-destructive/80 line-through'
+                                    : 'block'
+                              }
+                            >
+                              {line.type === 'add' ? '+ ' : line.type === 'remove' ? '− ' : '  '}
+                              {line.text}{'\n'}
+                            </span>
+                          ))}
+                        </pre>
+                      </div>
+                    ) : (
+                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
+                        {candidate.content}
+                      </pre>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        disabled={violations.length > 0}
+                        title={violations.length > 0
+                          ? t('pendingSkills.approveDisabledReason', { reasons: violationReasons.join(', ') })
+                          : undefined}
                         onClick={() => void handlePendingAction(candidate.slug, 'approve')}
-                        className="inline-flex items-center gap-1 h-6 px-2 text-[11px] font-medium rounded-[6px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+                        className="inline-flex items-center gap-1 h-6 px-2 text-[11px] font-medium rounded-[6px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-50 disabled:hover:bg-accent/15 disabled:cursor-not-allowed"
                       >
                         <Check className="size-3" />
                         {t('pendingSkills.approve')}
                       </button>
+                      {violations.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => void handlePendingAction(candidate.slug, 'approve', undefined, true)}
+                          className="h-6 px-1 text-[11px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors"
+                        >
+                          {t('pendingSkills.approveAnyway')}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void handlePendingAction(candidate.slug, 'dismiss', candidate.description)}
@@ -241,7 +349,8 @@ export function SkillsListPanel({
                       </button>
                     </div>
                   </div>
-                )}
+                  )
+                })()}
               </li>
             )
           })}

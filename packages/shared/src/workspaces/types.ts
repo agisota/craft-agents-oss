@@ -64,6 +64,15 @@ export interface WorkspaceConfig {
    */
   localMcpServers?: LocalMcpConfig;
 
+  /**
+   * Self-learning memory override (spec P2). `enabled:false` fully disables the
+   * workspace MemoryService — no prompt memory blocks, no distill triggers, no
+   * writes — regardless of the global memory.enabled setting. Absent → global.
+   */
+  memory?: {
+    enabled?: boolean;
+  };
+
   createdAt: number;
   updatedAt: number;
 }
