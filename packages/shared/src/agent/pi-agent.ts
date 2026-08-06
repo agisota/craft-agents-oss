@@ -66,7 +66,8 @@ import {
 import { attachSessionSelfManagementBindings } from './session-self-management-bindings.ts';
 
 // Session tool proxy definitions (for registering with subprocess)
-import { getSessionToolProxyDefs, SESSION_TOOL_NAMES } from './backend/pi/session-tool-defs.ts';
+import { SESSION_TOOL_NAMES } from './backend/pi/session-tool-defs.ts';
+import { buildSessionToolDefs } from './session-tool-defs.ts';
 
 // Session tool registry (for executing proxy tool calls)
 import {
@@ -95,7 +96,7 @@ import { parseError, type AgentError } from './errors.ts';
 // Centralized PreToolUse pipeline
 import { runPreToolUseChecks, type PreToolUseCheckResult } from './core/pre-tool-use.ts';
 import { getRtkPath } from './core/rtk-detector.ts';
-import { getRtkEnabled, getBrowserToolEnabled } from '../config/storage.ts';
+import { getRtkEnabled } from '../config/storage.ts';
 import type { RtkContext } from './core/rtk-rewrite.ts';
 
 // Workspace slug extraction for skill qualification
@@ -583,23 +584,10 @@ export class PiAgent extends BaseAgent {
     // These tools (SubmitPlan, config_validate, source auth, call_llm, etc.)
     // are executed in the main process when the LLM calls them.
     this.assertBackendSessionToolParity();
-    let sessionToolDefs = getSessionToolProxyDefs();
-
-    // Mirror Claude's gate: hide `browser_tool` when the user has disabled
-    // the built-in browser tool. Without this filter, Pi would still advertise
-    // `mcp__session__browser_tool` while Claude doesn't — sessions would behave
-    // inconsistently depending on backend.
-    if (!getBrowserToolEnabled()) {
-      sessionToolDefs = sessionToolDefs.filter(d => d.name !== 'mcp__session__browser_tool');
-    }
-
-    // Patch call_llm description with provider-specific model hint
-    if (this.config.miniModel) {
-      const callLlmDef = sessionToolDefs.find(d => d.name === 'mcp__session__call_llm');
-      if (callLlmDef) {
-        callLlmDef.description += `\n\nDefault fast model for this session: ${this.config.miniModel}. Omit the model parameter to use it automatically.`;
-      }
-    }
+    // Shared builder applies the browser_tool gate + call_llm mini-model hint.
+    // Pool proxy defs stay in their own register_tools frame below (OMP merges
+    // them via includePoolProxyDefs; Pi's protocol sends them separately).
+    const sessionToolDefs = buildSessionToolDefs({ miniModel: this.config.miniModel });
 
     this.send({
       type: 'register_tools',

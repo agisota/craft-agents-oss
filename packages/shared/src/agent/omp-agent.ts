@@ -54,12 +54,14 @@ import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
 
 import { BaseAgent } from './base-agent.ts';
 import type { Workspace } from '../config/storage.ts';
-import { getBrowserToolEnabled } from '../config/storage.ts';
 import { parseError } from './errors.ts';
 
 // Host-tool bridge: same defs/executor semantics as PiAgent (register_tools +
 // routeToolCall), exposed to OMP via the `set_host_tools` / `host_tool_call` RPC.
-import { getSessionToolProxyDefs, SESSION_TOOL_NAMES } from './backend/pi/session-tool-defs.ts';
+import { SESSION_TOOL_NAMES } from './backend/pi/session-tool-defs.ts';
+import { buildSessionToolDefs, type SessionToolDef } from './session-tool-defs.ts';
+import type { McpClientPool } from '../mcp/mcp-pool.ts';
+import type { SdkMcpServerConfig } from './backend/types.ts';
 import {
   SESSION_TOOL_REGISTRY,
   type ToolResult as SessionToolResult,
@@ -219,6 +221,17 @@ export class OmpAgent extends BaseAgent {
   // Host-tool bridge state
   private pendingHostToolCalls = new Map<string, { cancelled: boolean }>();
   private pendingHostToolPermissions = new Map<string, (allowed: boolean) => void>();
+  /**
+   * Fingerprint (name list) of the host tool set last acknowledged by
+   * set_host_tools; null before the first successful registration. Used to
+   * skip redundant set_host_tools re-sends between turns.
+   */
+  private registeredHostToolNames: string | null = null;
+
+  /** Pool reference for convenience (from this.config.mcpPool, same as PiAgent). */
+  private get mcpPool(): McpClientPool | undefined {
+    return this.config.mcpPool;
+  }
   private _sessionToolContext: SessionToolContext | null = null;
 
   // Event stream
@@ -457,6 +470,7 @@ export class OmpAgent extends BaseAgent {
     this.readline = null;
     this.subprocessReady = null;
     this.subprocessReadyResolve = null;
+    this.registeredHostToolNames = null;
 
     const exitReason = signal ? `signal ${signal}` : `code ${code}`;
     if (this._isProcessing) {
@@ -720,40 +734,22 @@ export class OmpAgent extends BaseAgent {
   /**
    * Build the host tool set for OMP and register it via set_host_tools.
    *
-   * Reuses the exact same defs as the Pi backend (getSessionToolProxyDefs:
-   * spawn_session, call_llm, browser_tool and the mcp__session__* session MCP
-   * tools), deduplicated by name, converted to RpcHostToolDefinition
-   * ({name, label?, description, parameters}).
+   * Session tools + MCP source-proxy defs from the mcpPool are merged by the
+   * shared buildSessionToolDefs builder (same browser_tool gate and call_llm
+   * mini-model hint as PiAgent), deduplicated by name, converted to
+   * RpcHostToolDefinition ({name, label?, description, parameters}).
    *
-   * NOT included in v1: MCP source-proxy tools from the mcpPool (Pi registers
-   * those separately from a live pool connection; OmpAgent has no pool). The
-   * OMP model therefore cannot call source tools directly in this backend.
+   * Source-proxy execution shares the PiAgent pool path (mcpPool.callTool) —
+   * see executeHostSessionTool.
    */
   private async registerHostTools(): Promise<void> {
-    let defs = getSessionToolProxyDefs();
-
-    // Same gate as PiAgent: hide browser_tool when the user disabled it.
-    if (!getBrowserToolEnabled()) {
-      defs = defs.filter((d) => d.name !== 'mcp__session__browser_tool');
-    }
-
-    // Same patch as PiAgent: hint the mini model for call_llm.
-    if (this.config.miniModel) {
-      const callLlmDef = defs.find((d) => d.name === 'mcp__session__call_llm');
-      if (callLlmDef) {
-        callLlmDef.description += `\n\nDefault fast model for this session: ${this.config.miniModel}. Omit the model parameter to use it automatically.`;
-      }
-    }
-
-    // Dedupe by name (first wins).
-    const seen = new Set<string>();
-    const unique = defs.filter((d) => {
-      if (seen.has(d.name)) return false;
-      seen.add(d.name);
-      return true;
+    const unique = buildSessionToolDefs({
+      mcpPool: this.mcpPool,
+      includePoolProxyDefs: true,
+      miniModel: this.config.miniModel,
     });
 
-    const tools = unique.map((d) => ({
+    const tools = unique.map((d: SessionToolDef) => ({
       name: d.name,
       label: d.name,
       description: d.description,
@@ -767,7 +763,44 @@ export class OmpAgent extends BaseAgent {
     const data = (await this.sendCommand('set_host_tools', { tools })) as
       | { toolNames?: string[] }
       | null;
+    this.registeredHostToolNames = unique.map((d) => d.name).join('');
     this.debug(`Registered OMP host tools: ${(data?.toolNames ?? []).join(', ') || `(sent ${tools.length})`}`);
+  }
+
+  /**
+   * Re-register host tools when the pool's proxy set changed and OMP is idle.
+   * set_host_tools mid-turn is not supported by OMP, so this only runs from
+   * setSourceServers / chat entry while `!this._isProcessing`.
+   */
+  private async refreshHostToolsFromPool(): Promise<void> {
+    if (!this.subprocess || this._isProcessing) return;
+    // First registration happens in spawnSubprocess; only refresh afterwards.
+    if (this.registeredHostToolNames === null) return;
+    const current = buildSessionToolDefs({
+      mcpPool: this.mcpPool,
+      includePoolProxyDefs: true,
+      miniModel: this.config.miniModel,
+    });
+    if (current.map((d) => d.name).join('') === this.registeredHostToolNames) return;
+    try {
+      await this.registerHostTools();
+    } catch (err) {
+      this.debug(`set_host_tools refresh failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /**
+   * Source activation/deactivation syncs the pool (BaseAgent), then we
+   * re-register host tools so newly connected source proxies become visible
+   * to the OMP model without a respawn.
+   */
+  override async setSourceServers(
+    mcpServers: Record<string, SdkMcpServerConfig>,
+    apiServers: Record<string, unknown>,
+    intendedSlugs?: string[],
+  ): Promise<void> {
+    await super.setSourceServers(mcpServers, apiServers, intendedSlugs);
+    await this.refreshHostToolsFromPool();
   }
 
   /**
@@ -846,13 +879,26 @@ export class OmpAgent extends BaseAgent {
 
   /**
    * Route + execute a host tool with the same semantics as
-   * PiAgent.routeToolCall/handleToolExecute. MCP pool proxy tools are not
-   * reachable here (v1 — see registerHostTools).
+   * PiAgent.routeToolCall/handleToolExecute: MCP pool proxy tools dispatch to
+   * mcpPool.callTool first, then the mcp__session__* session-tool registry.
    */
   private async executeHostSessionTool(
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<{ content: string; isError: boolean }> {
+    // MCP source-proxy tool — same execution path as PiAgent.handleToolExecute
+    // (mcpPool.callTool by proxy name). No SESSION_TOOL_REGISTRY entry exists
+    // for these; the pool resolves mcp__{slug}__{tool} → original tool.
+    if (this.mcpPool?.isProxyTool(toolName)) {
+      try {
+        const result = await this.mcpPool.callTool(toolName, args);
+        return { content: result.content, isError: result.isError };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return { content: `MCP source tool '${toolName}' failed: ${msg}`, isError: true };
+      }
+    }
+
     const strippedName = toolName.startsWith('mcp__session__')
       ? toolName.slice('mcp__session__'.length)
       : toolName;
@@ -1159,6 +1205,8 @@ export class OmpAgent extends BaseAgent {
     attachments?: FileAttachment[],
     _options?: ChatOptions,
   ): AsyncGenerator<AgentEvent> {
+    // Idle point between turns: pick up source-proxy changes since spawn.
+    await this.refreshHostToolsFromPool();
     this._isProcessing = true;
     this.abortReason = undefined;
     this.eventQueue.reset();
