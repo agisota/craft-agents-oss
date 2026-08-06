@@ -66,7 +66,7 @@
     "build:discord-worker": "bun run scripts/build-discord-worker.ts",
     "electron:build:assets": "cd apps/electron && bun scripts/copy-assets.ts",
     "electron:build:subprocess": "bun run scripts/electron-build-subprocess.ts",
-    "electron:build": "bun run electron:build:subprocess && bun run electron:build:main && bun run electron:build:preload && bun run electron:build:renderer && bun run electron:build:resources && bun run electron:build:assets",
+    "electron:build": "bun run electron:build:subprocess && bun run build:discord-worker && bun run electron:build:main && bun run electron:build:preload && bun run electron:build:renderer && bun run electron:build:resources && bun run electron:build:assets",
     "electron:start": "bun run electron:build && electron apps/electron",
     "electron:dev": "bun run scripts/electron-dev.ts",
     "electron:dev:terminal": "bun run scripts/electron-dev.ts --terminal",
