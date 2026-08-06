@@ -96,12 +96,21 @@ const LlmConnectionSchema = z.object({
   // Allow additional fields (codexPath, awsRegion, gcpProjectId, etc.)
 }).passthrough();
 
+const CloudRunsConfigSchema = z.object({
+  enabled: z.boolean().optional(),          // default false — no behavior change for existing users
+  provider: z.enum(['local', 'cloudflare', 'modal', 'e2b']).optional(),  // default 'local'
+  gatewayUrl: z.string().optional(),        // cloud gateway base URL (cloudflare/modal providers)
+  defaultMaxWallClockSec: z.number().int().positive().optional(),
+  defaultMaxLlmTokens: z.number().int().positive().optional(),
+  defaultMaxArtifactsBytes: z.number().int().positive().optional(),
+}).passthrough();
 export const StoredConfigSchema = z.object({
   workspaces: z.array(WorkspaceSchema).min(0),
   activeWorkspaceId: z.string().nullable(),
   activeSessionId: z.string().nullable(),
   llmConnections: z.array(LlmConnectionSchema).optional(),
   defaultLlmConnection: z.string().optional(),
+  cloudRuns: CloudRunsConfigSchema.optional(),
   defaultThinkingLevel: z.enum([...THINKING_LEVEL_IDS, 'think'] as [string, ...string[]]).transform(v => v === 'think' ? 'medium' : v).optional(),
   // Note: tokenDisplay, showCost, cumulativeUsage, defaultPermissionMode removed
   // Permission mode and cyclable modes are now per-workspace in workspace config.json
