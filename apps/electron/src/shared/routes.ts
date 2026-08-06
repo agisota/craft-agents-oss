@@ -190,6 +190,10 @@ export const routes = {
         ? `projects/project/${projectSlug}` as const
         : 'projects' as const,
 
+    /** Embedded browser instance view (browser navigator) */
+    browser: (instanceId: string) =>
+      `browser/instance/${encodeURIComponent(instanceId)}` as const,
+
     /** Kanban board view (sessions navigator, board view mode, all sessions) */
     board: () => 'board' as const,
   },

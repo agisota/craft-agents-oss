@@ -35,7 +35,7 @@ export interface ParsedRoute {
 // Compound Route Types (new format)
 // =============================================================================
 
-export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'projects' | 'settings'
+export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'projects' | 'settings' | 'browser'
 
 export interface ParsedCompoundRoute {
   /** The navigator type */
@@ -63,7 +63,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'automations', 'projects', 'settings'
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'automations', 'projects', 'settings', 'browser'
 ]
 
 /**
@@ -175,6 +175,17 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
       }
     }
 
+    return null
+  }
+
+  // Browser navigator — embedded browser instance panel: browser/instance/{instanceId}
+  if (first === 'browser') {
+    if (segments[1] === 'instance' && segments[2]) {
+      return {
+        navigator: 'browser',
+        details: { type: 'browser', id: segments[2] },
+      }
+    }
     return null
   }
 
@@ -320,6 +331,11 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     return `${base}/automation/${parsed.details.id}`
   }
 
+  if (parsed.navigator === 'browser') {
+    if (!parsed.details) return 'browser'
+    return `browser/instance/${parsed.details.id}`
+  }
+
   if (parsed.navigator === 'projects') {
     if (!parsed.details) return 'projects'
     return `projects/project/${parsed.details.id}`
@@ -457,6 +473,14 @@ function convertCompoundToViewRoute(compound: ParsedCompoundRoute): ParsedRoute 
       return { type: 'view', name: 'projects', params: {} }
     }
     return { type: 'view', name: 'project-info', id: compound.details.id, params: {} }
+  }
+
+  // Browser (embedded browser instance panel)
+  if (compound.navigator === 'browser') {
+    if (!compound.details) {
+      return { type: 'view', name: 'browser', params: {} }
+    }
+    return { type: 'view', name: 'browser', id: compound.details.id, params: {} }
   }
 
   // Sessions
@@ -605,6 +629,17 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
     }
   }
 
+  // Browser
+  if (compound.navigator === 'browser') {
+    if (!compound.details) {
+      return { navigator: 'browser', details: null }
+    }
+    return {
+      navigator: 'browser',
+      details: { type: 'browser', id: compound.details.id },
+    }
+  }
+
   // Sessions
   const filter = compound.sessionFilter || { kind: 'allSessions' as const }
   if (compound.details) {
@@ -685,6 +720,14 @@ function convertParsedRouteToNavigationState(parsed: ParsedRoute): NavigationSta
       return { navigator: 'automations', details: null }
     case 'projects':
       return { navigator: 'projects', details: null }
+    case 'browser':
+      if (parsed.id) {
+        return {
+          navigator: 'browser',
+          details: { type: 'browser', id: parsed.id },
+        }
+      }
+      return { navigator: 'browser', details: null }
     case 'project-info':
       if (parsed.id) {
         return {
@@ -805,6 +848,13 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
     return {
       navigator: 'projects',
       details: state.details ? { type: 'project', id: state.details.projectSlug } : null,
+    }
+  }
+
+  if (state.navigator === 'browser') {
+    return {
+      navigator: 'browser',
+      details: state.details ? { type: 'browser', id: state.details.id } : null,
     }
   }
 

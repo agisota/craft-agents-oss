@@ -18,8 +18,10 @@
 import { DurableObject, tracing } from "cloudflare:workers";
 import {
   type DurableObjectStorageLike,
+  type WorkspaceClient,
   type WorkspaceOptions,
   WorkspaceProxy,
+  getWorkspace,
   withWorkspace,
 } from "@cloudflare/computer";
 import {
@@ -86,6 +88,14 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
     return this.backend.handleFetch(request);
   }
 
+  /**
+   * In-DO local view of the Workspace (fs + shell). getWorkspace(this)
+   * takes the local-host path — no RPC round trip, no stub to dispose.
+   */
+  private ws(): Promise<WorkspaceClient> {
+    return getWorkspace(this as unknown as Parameters<typeof getWorkspace>[0]);
+  }
+
   // ---- RPC surface (invoked by the Worker) --------------------------
 
   async createRun(spec: RunSpec): Promise<{ id: string; createdAt: number }> {
@@ -111,6 +121,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
       failureReason: run.failureReason,
+      failureDetail: run.failureDetail,
       progress: {
         completed: run.state === "done" ? run.spec.subtasks.length : run.nextSubtask,
         total: run.spec.subtasks.length,
@@ -130,22 +141,22 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
 
   async listArtifacts(): Promise<{ path: string; size: number }[]> {
     await this.requireRun();
+    const ws = await this.ws();
     const out: { path: string; size: number }[] = [];
     const walk = async (rel: string): Promise<void> => {
       let entries;
       try {
-        entries = await this.workspace.fs.readdir(joinPosix(ARTIFACTS_ROOT, rel));
+        entries = await ws.fs.readdir(joinPosix(ARTIFACTS_ROOT, rel));
       } catch {
         return;
       }
-      for (const entry of entries as { name: string; type?: string }[]) {
+      for (const entry of entries as { name: string }[]) {
         const childRel = rel ? `${rel}/${entry.name}` : entry.name;
         const childAbs = joinPosix(ARTIFACTS_ROOT, childRel);
-        const isDir = entry.type === "directory";
-        if (isDir) {
+        const info = await ws.fs.stat(childAbs);
+        if ((info as { isDirectory?: boolean }).isDirectory === true) {
           await walk(childRel);
         } else {
-          const info = await this.workspace.fs.stat(childAbs);
           out.push({ path: childRel, size: (info as { size?: number }).size ?? 0 });
         }
       }
@@ -157,7 +168,8 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   async fetchArtifact(path: string): Promise<string> {
     assertSafePath(path);
     await this.requireRun();
-    return this.workspace.fs.readFile(joinPosix(ARTIFACTS_ROOT, path), "utf8");
+    const ws = await this.ws();
+    return ws.fs.readFile(joinPosix(ARTIFACTS_ROOT, path), "utf8");
   }
 
   // ---- alarm-driven state machine -------------------------------------
@@ -222,9 +234,10 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   ): Promise<void> {
     const env = this.env;
     if (!env.LLM_BASE_URL) throw new Error("LLM_BASE_URL secret is not configured");
-    await this.workspace.fs.mkdir(`${WORKSPACE_ROOT}/.craft-run`, { recursive: true });
-    await this.workspace.fs.mkdir(joinPosix(ARTIFACTS_ROOT, subtask.id), { recursive: true });
-    await this.workspace.fs.writeFile(
+    const ws = await this.ws();
+    await ws.fs.mkdir(`${WORKSPACE_ROOT}/.craft-run`, { recursive: true });
+    await ws.fs.mkdir(joinPosix(ARTIFACTS_ROOT, subtask.id), { recursive: true });
+    await ws.fs.writeFile(
       `${WORKSPACE_ROOT}/.craft-run/config.json`,
       JSON.stringify({
         baseUrl: env.LLM_BASE_URL,
@@ -233,7 +246,7 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
         subtask,
       }),
     );
-    const handle = await this.workspace.runtime.exec(
+    const handle = await ws.shell.exec(
       `node /opt/craft-runner/runner.mjs ${WORKSPACE_ROOT}`,
       { timeoutMs: SUBTASK_TIMEOUT_MS, encoding: "utf8" },
     );
@@ -244,8 +257,9 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   }
 
   private async markerExists(subtaskId: string): Promise<boolean> {
+    const ws = await this.ws();
     try {
-      await this.workspace.fs.stat(joinPosix(ARTIFACTS_ROOT, subtaskId, "done.marker"));
+      await ws.fs.stat(joinPosix(ARTIFACTS_ROOT, subtaskId, "done.marker"));
       return true;
     } catch {
       return false;

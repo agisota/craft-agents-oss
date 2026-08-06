@@ -43,6 +43,7 @@ const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, 
   headers,
   body: JSON.stringify({
     model,
+    stream: false,
     messages: [
       {
         role: 'system',
@@ -60,8 +61,27 @@ if (!response.ok) {
   process.exit(1);
 }
 
-const payload = await response.json();
-const content = payload?.choices?.[0]?.message?.content;
+const contentType = response.headers.get('content-type') ?? '';
+let content;
+if (contentType.includes('text/event-stream')) {
+  // Server ignored stream:false — accumulate deltas by hand.
+  const body = await response.text();
+  content = body
+    .split('\n')
+    .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
+    .map((line) => {
+      try {
+        const chunk = JSON.parse(line.slice(6));
+        return chunk?.choices?.[0]?.delta?.content ?? '';
+      } catch {
+        return '';
+      }
+    })
+    .join('');
+} else {
+  const payload = await response.json();
+  content = payload?.choices?.[0]?.message?.content;
+}
 if (typeof content !== 'string' || content.length === 0) {
   console.error('LLM gateway returned no content');
   process.exit(1);
@@ -69,7 +89,7 @@ if (typeof content !== 'string' || content.length === 0) {
 
 await writeFile(
   join(outDir, 'answer.md'),
-  [`# ${subtask.title ?? subtask.id}`, '', content, ''].join('\n'),
+  [`# ${subtask.title ?? subtask.id}`, '', '## Prompt', '', subtask.prompt, '', '## Brief', '', content, ''].join('\n'),
 );
 await writeFile(join(outDir, 'done.marker'), new Date().toISOString() + '\n');
 console.log(`subtask ${subtask.id} done: ${content.length} chars`);

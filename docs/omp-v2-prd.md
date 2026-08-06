@@ -1,6 +1,7 @@
 # PRD: закрытие остаточных гэпов интеграции OMP ⇄ Craft Agents (v2)
 
-Статус: draft → ready for implementation
+Статус: ✅ ЗАВЕРШЕНО (2026-08-06) — все G1–G4 реализованы и проверены live
+Статус был: draft → ready for implementation
 Владелец: команда форка `agisota/craft-agents-oss`
 Дата: 2026-08-06
 Связанные документы: [omp-rpc-notes.md](omp-rpc-notes.md) (протокол v1/v2), [omp-integration-gap.md](omp-integration-gap.md) (матрица), [AGENTS.md](../AGENTS.md).

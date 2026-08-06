@@ -5,6 +5,8 @@ import type { HandlerDeps } from './handler-deps'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.browserPane.CREATE,
+  RPC_CHANNELS.browserPane.CREATE_EMBEDDED,
+  RPC_CHANNELS.browserPane.SYNC_BOUNDS,
   RPC_CHANNELS.browserPane.DESTROY,
   RPC_CHANNELS.browserPane.LIST,
   RPC_CHANNELS.browserPane.NAVIGATE,
@@ -46,6 +48,17 @@ export function registerBrowserHandlers(server: RpcServer, deps: HandlerDeps): v
     }
 
     return browserPaneManager.createInstance(input?.id, { show: input?.show, workspaceId })
+  })
+
+  server.handle(RPC_CHANNELS.browserPane.CREATE_EMBEDDED, (ctx, input?: { url?: string }) => {
+    return browserPaneManager.createEmbeddedInstance({
+      url: input?.url,
+      workspaceId: ctx.workspaceId ?? null,
+    })
+  })
+
+  server.handle(RPC_CHANNELS.browserPane.SYNC_BOUNDS, (_ctx, id: string, rect: { x: number; y: number; width: number; height: number } | null) => {
+    browserPaneManager.syncEmbeddedBounds(id, rect)
   })
 
   server.handle(RPC_CHANNELS.browserPane.DESTROY, (_ctx, id: string) => {

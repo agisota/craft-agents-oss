@@ -32,12 +32,13 @@ import {
   isSkillsNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
+  isBrowserNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
 import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
-import { SourceInfoPage, ChatPage } from '@/pages'
+import { SourceInfoPage, ChatPage, BrowserPanelPage } from '@/pages'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import { AutomationInfoPage } from '../automations/AutomationInfoPage'
@@ -58,12 +59,15 @@ export interface MainContentPanelProps {
    * Used by PanelSlot to render panels in the panel stack.
    */
   navStateOverride?: import('../../../shared/types').NavigationState | null
+  /** Owning panel id in the panel stack (used by embedded surfaces like browser panels) */
+  panelId?: string
 }
 
 export function MainContentPanel({
   isSidebarAndNavigatorHidden = false,
   className,
   navStateOverride,
+  panelId,
 }: MainContentPanelProps) {
   const { t } = useTranslation()
   const globalNavState = useNavigationState()
@@ -372,6 +376,25 @@ export function MainContentPanel({
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">{t("projectsList.noProjectSelected")}</p>
+        </div>
+      </Panel>
+    )
+  }
+
+  // Browser navigator - embedded browser instance panel
+  if (isBrowserNavigation(navState)) {
+    const instanceId = navState.details?.type === 'browser' ? navState.details.id : null
+    if (instanceId) {
+      return wrapWithStoplight(
+        <Panel variant="grow" className={className}>
+          <BrowserPanelPage instanceId={instanceId} panelId={panelId} />
+        </Panel>
+      )
+    }
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">{t('browser.noInstanceSelected', { defaultValue: 'No browser instance selected' })}</p>
         </div>
       </Panel>
     )

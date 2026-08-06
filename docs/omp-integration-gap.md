@@ -23,12 +23,19 @@ OMP runtime: локальный CLI `omp` v17.2.9 (`@oh-my-pi/pi-coding-agent`),
 | **Auto tags/статусы** | labels, session statuses, automations (scheduled/event) | — | ⚠️ OMP-сессии участвуют в общей шине, нет авто-правил «OMP-сессии получают тег» | правило: default label для omp-провайдера |
 | **Квоты/метрики** | usage к поводырям в UI | cost per turn | ✅ usage мапится (input/output/cache/cost) | ✅ |
 
+## Закрыто в v2 (коммиты d01981c6f, 1dc41d014, 4035a02c5)
+- ✅ G4 skills sync: discovery ~/.omp/agent/skills + ~/.agents/skills + workspace .omp/skills; секция «НАВЫКИ OMP» в панели + бейдж + «Экспорт в craft skills» (skills:importOmp RPC); активация @-mention через extractSkillPaths.
+- ✅ G2 thinking: thinking_delta/thinking_complete end-to-end, карточка «Рассуждение» (отдельная), свёртка по complete.
+- ✅ G1 MCP source proxies: buildSessionToolDefs (registry + pool) → set_host_tools; pool dispatch перед registry; e2e пройдено (stub-источник).
+- ✅ G3 branching: omp-turn-anchor sidecar, ensureBranchReady preflight, fork (mid-history switch_session+branch, tail transcript-copy), supportsBranching.
+- ✅ PRD §9 закрыт: thinking отдельной карточкой, skills export, прокси-неймспейс mcp__<source>__*.
+
 ## Остаток до «полного» (приоритет)
 1. **MCP source proxies в OMP**: defs из mcpPool дополнять в set_host_tools (сейчас только session tools).
 2. **AgentEvent.thinking_delta** — тип события + рендер в TurnCard.
 3. **Branching**: spawn OMP с `branch {entryId}` для sdk-fork.
 4. **OMP skills → craft skills UI синк** (список из logs: 40+ lark-*/браузерных).
-5. **Авто-тегирование OMP-сессий** — workspace default label / automation template.
+5. **Авто-тегирование OMP-сессий** — покрыто мостом и event-bus автоматизациями (set_session_labels tool); опционально: дефолт-лейбл для omp-провайдера.
 
 ## Архитектура v1 (что зашито)
 ```

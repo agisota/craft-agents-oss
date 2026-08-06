@@ -2037,19 +2037,17 @@ function AppShellContent({
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
   }, [activeWorkspace, focusZone, navigate, resolveInheritedNewSessionParams])
 
-  // Create a brand new dedicated browser window and focus it.
-  // Intentionally unbound: this action should always create a NEW window.
+  // Create a brand new embedded browser panel and focus it.
+  // Intentionally unbound: this action should always create a NEW panel.
   const handleNewBrowserWindow = useCallback(async () => {
     try {
-      const instanceId = await window.electronAPI.browserPane.create({
-        show: true,
-      })
-      await window.electronAPI.browserPane.focus(instanceId)
+      const instanceId = await window.electronAPI.browserPane.createEmbedded()
+      navigate(routes.view.browser(instanceId), { newPanel: true, targetLaneId: 'main' })
     } catch (error) {
-      console.error('[Chat] Failed to create browser window:', error)
+      console.error('[Chat] Failed to create browser panel:', error)
       toast.error(t('toast.failedToCreateBrowser'))
     }
-  }, [])
+  }, [navigate, t])
 
   // Delete Source - simplified since agents system is removed
   const handleDeleteSource = useCallback(async (sourceSlug: string) => {

@@ -1,5 +1,16 @@
 # PRD: Cloud Runs — облачное продолжение сессий («глубокий рисёрч» и фоновые задачи)
 
+> **Spike results (2026-08-06, аккаунт ROX, workers `computer-container-example.scharlesky-192.workers.dev`):**
+> - ✅ Round-trip: exec в контейнере (root, Debian, Node 22.23.2, Linux x86_64) → sync в DO → GET артефакта через воркер. Push (DO→контейнер) тоже работает.
+> - ✅ Egress из контейнера: npm registry 200, api.rox.one 307/ok — LLM-gateway достижим из sandbox.
+> - ✅ Deploy из коробки: fork examples/container + `wrangler deploy`, контейнерное приложение создано автоматом.
+> - ⚠️ **Hard wire break**: образ `ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.0-alpha.1` несовместим с кодом `main` (RPC-поле `command` → `source`; exec выполнялся как `sh -c "undefined"`). Решение: чекаут тега `v0.1.0-alpha.1`, пересборка, редеплой — сразу зелень. Подтверждён риск «preview API ломают» и обязательность пина + daily conformance (§7).
+> - ⚠️ DO однопоточен: пока жива 127-секундная контейнерная сессия, file-роуты на тот же workspace возвращали 1101 — в дизайне gateway нужна очередь/дробление long ops или отдельный read-side канал (учесть в G2.2).
+> - ➖ `omp --mode rpc` в контейнере не прогонялся: дистрибутив найден (`npm i -g @oh-my-pi/pi-coding-agent`, локально v17.2.9), установка+репликация auth отложена до G2; egress/node/npm подтверждены, архитектурных блокеров не видно.
+> - R2 mount-демку пришлось вырезать — у spike-токена не было R2 Edit. Токен из чата считать скомпрометированным, заротировать.
+
+
+
 Статус: draft
 Владелец: команда форка `agisota/craft-agents-oss`
 Дата: 2026-08-06

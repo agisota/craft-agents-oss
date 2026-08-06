@@ -360,6 +360,8 @@ export const CHANNEL_MAP = {
 
   // Browser pane management
   'browserPane.create': invoke(RPC_CHANNELS.browserPane.CREATE),
+  'browserPane.createEmbedded': invoke(RPC_CHANNELS.browserPane.CREATE_EMBEDDED),
+  'browserPane.syncBounds': invoke(RPC_CHANNELS.browserPane.SYNC_BOUNDS),
   'browserPane.destroy': invoke(RPC_CHANNELS.browserPane.DESTROY),
   'browserPane.list': invoke(RPC_CHANNELS.browserPane.LIST),
   'browserPane.navigate': invoke(RPC_CHANNELS.browserPane.NAVIGATE),

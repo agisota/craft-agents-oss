@@ -24,4 +24,6 @@ export type {
 } from './types.ts';
 export { LocalSubprocessProvider } from './local-provider.ts';
 export type { LocalProviderOptions } from './local-provider.ts';
+export { CloudflareComputerProvider } from './cloudflare-provider.ts';
+export type { CloudflareProviderOptions } from './cloudflare-provider.ts';
 export { conformanceSuite } from './conformance.ts';

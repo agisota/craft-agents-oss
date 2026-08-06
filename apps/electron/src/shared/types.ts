@@ -634,6 +634,8 @@ export interface ElectronAPI {
   // Browser pane management
   browserPane: {
     create(input?: string | BrowserPaneCreateOptions): Promise<string>
+    createEmbedded(input?: { url?: string }): Promise<string>
+    syncBounds(id: string, rect: { x: number; y: number; width: number; height: number } | null): Promise<void>
     destroy(id: string): Promise<void>
     list(): Promise<BrowserInstanceInfo[]>
     navigate(id: string, url: string): Promise<{ url: string; title: string }>
@@ -905,6 +907,15 @@ export interface ProjectsNavigationState {
 }
 
 /**
+ * Browser navigation state (embedded browser instance panel)
+ */
+export interface BrowserNavigationState {
+  navigator: 'browser'
+  details: { type: 'browser'; id: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
  * Unified navigation state
  */
 export type NavigationState =
@@ -914,6 +925,7 @@ export type NavigationState =
   | SkillsNavigationState
   | AutomationsNavigationState
   | ProjectsNavigationState
+  | BrowserNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -938,6 +950,10 @@ export const isAutomationsNavigation = (
 export const isProjectsNavigation = (
   state: NavigationState
 ): state is ProjectsNavigationState => state.navigator === 'projects'
+
+export const isBrowserNavigation = (
+  state: NavigationState
+): state is BrowserNavigationState => state.navigator === 'browser'
 
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
   navigator: 'sessions',
@@ -973,6 +989,12 @@ export const getNavigationStateKey = (state: NavigationState): string => {
   if (state.navigator === 'settings') {
     if (state.subpage === null) return 'settings'
     return `settings:${state.subpage}`
+  }
+  if (state.navigator === 'browser') {
+    if (state.details?.type === 'browser') {
+      return `browser/instance/${state.details.id}`
+    }
+    return 'browser'
   }
   // Chats
   const f = state.filter
@@ -1026,6 +1048,16 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
       return { navigator: 'projects', details: { type: 'project', projectSlug } }
     }
     return { navigator: 'projects', details: null }
+  }
+
+  // Handle browser
+  if (key === 'browser') return { navigator: 'browser', details: null }
+  if (key.startsWith('browser/instance/')) {
+    const id = key.slice(17)
+    if (id) {
+      return { navigator: 'browser', details: { type: 'browser', id } }
+    }
+    return { navigator: 'browser', details: null }
   }
 
   // Handle settings
