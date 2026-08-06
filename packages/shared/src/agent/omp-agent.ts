@@ -46,6 +46,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync, readdirSync, copyFileSync } from 'node:fs';
 import { getSessionPath } from '../sessions/storage.ts';
+import { loadProjectById, getProjectAssetsPath, listProjectAssets, getProjectMemoryPath, loadProjectMemory } from '../projects/storage.ts';
+import type { ProjectPromptContext } from '../projects/types.ts';
+import { formatProjectContextForPrompt } from '../prompts/system.ts';
+import { formatPreferencesForPrompt } from '../config/preferences.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
@@ -252,6 +256,57 @@ export class OmpAgent extends BaseAgent {
   /** Pool reference for convenience (from this.config.mcpPool, same as PiAgent). */
   private get mcpPool(): McpClientPool | undefined {
     return this.config.mcpPool;
+  }
+
+  /**
+   * Look up the bound project (if any) and return a snapshot for system-prompt injection.
+   * Mirrors PiAgent.resolveProjectContext — safe to call at spawn time.
+   */
+  private resolveProjectContext(): ProjectPromptContext | null {
+    const projectId = this.config.session?.projectId;
+    if (!projectId) return null;
+
+    try {
+      const root = this.config.workspace.rootPath;
+      const project = loadProjectById(root, projectId);
+      if (!project) return null;
+      const slug = project.config.slug;
+      return {
+        name: project.config.name,
+        description: project.config.description,
+        details: project.config.details,
+        assetsPath: getProjectAssetsPath(root, slug),
+        assets: listProjectAssets(root, slug).map((a) => ({
+          filename: a.filename,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+        })),
+        memoryPath: getProjectMemoryPath(root, slug),
+        memoryContent: loadProjectMemory(root, slug) ?? undefined,
+      };
+    } catch (error) {
+      this.debug(`[resolveProjectContext] Failed to load project ${projectId}: ${error instanceof Error ? error.message : error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Compose the --append-system-prompt payload: the static craft runtime
+   * briefing plus (when present) user preferences, bound-project context, and
+   * the self-learning memory blocks (learned lessons + workspace memory)
+   * after the project memory block, mirroring getSystemPrompt ordering.
+   * Evaluated at spawn time, so a respawn picks up memory updates.
+   */
+  private buildCraftContextPrompt(): string {
+    const parts = [OMP_CRAFT_CONTEXT_PROMPT];
+    const preferences = formatPreferencesForPrompt();
+    if (preferences) parts.push(preferences);
+    const projectContext = this.resolveProjectContext();
+    if (projectContext) parts.push(formatProjectContextForPrompt(projectContext));
+    const blocks = this.config.memoryBlocks;
+    if (blocks?.lessonsBlock) parts.push(blocks.lessonsBlock);
+    if (blocks?.memoryBlock) parts.push(blocks.memoryBlock);
+    return parts.join('\n');
   }
   private _sessionToolContext: SessionToolContext | null = null;
 
@@ -530,7 +585,7 @@ export class OmpAgent extends BaseAgent {
     } else {
       args.push('--no-session');
     }
-    args.push('--append-system-prompt', OMP_CRAFT_CONTEXT_PROMPT);
+    args.push('--append-system-prompt', this.buildCraftContextPrompt());
     if (this.autoApproveAtSpawn) {
       args.push('--approval-mode', 'yolo');
     }

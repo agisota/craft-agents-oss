@@ -72,3 +72,17 @@ export interface WorkspaceMemory {
   preferences: string
   recentHistory: string
 }
+
+/**
+ * Pre-formatted prompt blocks produced by formatLessonsForPrompt /
+ * formatWorkspaceMemoryForPrompt and injected into agent system prompts.
+ * Resolved by the server core (MemoryService) and passed into the agent
+ * backends via BackendConfig.memoryBlocks — agent code never reads the
+ * memory store itself.
+ */
+export interface MemoryPromptBlocks {
+  /** Output of formatLessonsForPrompt (caller composes global then workspace lessons) */
+  lessonsBlock?: string
+  /** Output of formatWorkspaceMemoryForPrompt */
+  memoryBlock?: string
+}

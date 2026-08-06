@@ -22,6 +22,7 @@ import type { McpClientPool } from '../../mcp/mcp-pool.ts';
 import type { Workspace } from '../../config/storage.ts';
 import type { SessionConfig as Session } from '../../sessions/storage.ts';
 import type { SourceManager } from '../core/source-manager.ts';
+import type { MemoryPromptBlocks } from '../../memory/types.ts';
 
 // Import AbortReason and RecoveryMessage from core module (single source of truth)
 import { AbortReason, type RecoveryMessage } from '../core/index.ts';
@@ -679,6 +680,14 @@ export interface BackendConfig extends CoreBackendConfig {
 
   /** Workspace-level automation system for user-defined SDK hooks (automations.json) */
   automationSystem?: AutomationSystem;
+
+  /**
+   * Pre-formatted self-learning memory blocks (lessons + workspace memory),
+   * resolved by the server core MemoryService and injected into the system
+   * prompt after the project memory block. Backends never read the memory
+   * store themselves.
+   */
+  memoryBlocks?: MemoryPromptBlocks;
 
   /**
    * Opaque runtime payload resolved by backend drivers.

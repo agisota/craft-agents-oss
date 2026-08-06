@@ -12,6 +12,7 @@ import { formatBytes } from '../utils/binary-detection.ts';
 import { globSync } from 'glob';
 import os from 'os';
 import type { ProjectPromptContext } from '../projects/types.ts';
+import type { Lesson, WorkspaceMemory, MemoryPromptBlocks } from '../memory/types.ts';
 
 /** Maximum size of CLAUDE.md file to include (10KB) */
 const MAX_CONTEXT_FILE_SIZE = 10 * 1024;
@@ -354,6 +355,7 @@ export function getSystemPrompt(
   backendName?: string,
   includeCoAuthoredBy?: boolean,
   projectContext?: ProjectPromptContext,
+  memoryBlocks?: MemoryPromptBlocks,
 ): string {
   // Use mini agent prompt for quick edits (pass workspace root for config paths)
   if (preset === 'mini') {
@@ -371,6 +373,10 @@ export function getSystemPrompt(
   // Optional workspace-project context (injected after preferences, before debug+context-files)
   const projectBlock = projectContext ? formatProjectContextForPrompt(projectContext) : '';
 
+  // Optional self-learning memory (injected directly after the project memory block):
+  // pre-formatted lesson corrections and workspace memory from the memory store.
+  const memoryInjection = `${memoryBlocks?.lessonsBlock ?? ''}${memoryBlocks?.memoryBlock ?? ''}`;
+
   // Fall back to the user's current preference when callers don't pin/pass a value,
   // so forgetting the argument can't silently re-enable the co-author trailer (see #576).
   const resolvedIncludeCoAuthoredBy = includeCoAuthoredBy ?? getCoAuthorPreference();
@@ -379,7 +385,7 @@ export function getSystemPrompt(
   // to enable prompt caching. The system prompt stays static and cacheable.
   // Safe Mode context is also in user messages for the same reason.
   const basePrompt = getCraftAssistantPrompt(workspaceRootPath, backendName, resolvedIncludeCoAuthoredBy);
-  const fullPrompt = `${basePrompt}${preferences}${projectBlock}${debugContext}${projectContextFiles}`;
+  const fullPrompt = `${basePrompt}${preferences}${projectBlock}${memoryInjection}${debugContext}${projectContextFiles}`;
 
   debug('[getSystemPrompt] full prompt length:', fullPrompt.length);
 
@@ -483,6 +489,55 @@ export function formatProjectContextForPrompt(ctx: ProjectPromptContext): string
   lines.push(`project-specific user preference), record it in MEMORY.md at <project_memory_path> via Write/Edit —`);
   lines.push(`concise, newest/most-important first, kept under ~5000 tokens.`);
   lines.push(`</project_context>`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Format durable user-taught lessons for injection into the system prompt.
+ * Returns an empty string when there are no lessons so callers can append
+ * unconditionally. Negative lessons (anti-rules) are rendered as their own
+ * `MUST NOT` lines. Input order is preserved — the caller composes global
+ * lessons first, then workspace lessons.
+ */
+export function formatLessonsForPrompt(lessons: Lesson[]): string {
+  if (lessons.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [''];
+  lines.push('[Learned corrections — user-taught rules. ALWAYS follow these. They override default behavior.]');
+  for (const lesson of lessons) {
+    lines.push(lesson.negative ? `- MUST NOT: ${lesson.rule}` : `- ${lesson.rule}`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * Format workspace memory (context / preferences / recent history from the
+ * workspace's memory/ directory) for injection into the system prompt.
+ * Returns an empty string when every section is empty.
+ */
+export function formatWorkspaceMemoryForPrompt(memory: Partial<WorkspaceMemory>): string {
+  const context = memory.context?.trim();
+  const preferences = memory.preferences?.trim();
+  const recentHistory = memory.recentHistory?.trim();
+  if (!context && !preferences && !recentHistory) {
+    return '';
+  }
+
+  const lines: string[] = [''];
+  lines.push('[Workspace memory]');
+  if (context) {
+    lines.push('', '## Context', context);
+  }
+  if (preferences) {
+    lines.push('', '## Preferences', preferences);
+  }
+  if (recentHistory) {
+    lines.push('', '## Recent history', recentHistory);
+  }
   lines.push('');
   return lines.join('\n');
 }
