@@ -2016,6 +2016,7 @@ export default function App() {
             onStartOAuth={onboarding.handleStartOAuth}
             onFinish={onboarding.handleFinish}
             isWaitingForCode={onboarding.isWaitingForCode}
+            isProviderOAuthPending={onboarding.isProviderOAuthPending}
             onSubmitAuthCode={onboarding.handleSubmitAuthCode}
             onCancelOAuth={onboarding.handleCancelOAuth}
             copilotDeviceCode={onboarding.copilotDeviceCode}
