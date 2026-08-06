@@ -210,6 +210,15 @@ echo "Building Electron app..."
 cd "$ROOT_DIR"
 bun run electron:build
 
+# 6b. Stage build-time MCP servers into resources/ so electron-builder bundles them.
+#     electron:build compiles these to packages/<server>/dist/index.js but does
+#     NOT copy them into apps/electron/resources/. Unlike bridge-mcp-server (which
+#     is committed to git under resources/), session-mcp-server and pi-agent-server
+#     are gitignored, so without this step the packaged app ships without them and
+#     Pi sessions fail at runtime with "piServerPath not configured".
+echo "Staging MCP/Pi servers into resources..."
+bun run scripts/build/stage-servers.ts darwin "$ARCH"
+
 # 7. Package with electron-builder
 echo "Packaging app with electron-builder..."
 cd "$ELECTRON_DIR"

@@ -316,6 +316,24 @@ export class CredentialManager {
 
   // Note: OpenAI API key methods removed - Codex uses native ChatGPT OAuth flow
 
+  // SSH managed server credentials (keyed by host id)
+
+  /** Get the managed craft-agent server auth token for an SSH host (null if none). */
+  async getSshManagedToken(hostId: string): Promise<string | null> {
+    const cred = await this.get({ type: 'ssh_managed_token', hostId });
+    return cred?.value || null;
+  }
+
+  /** Set the managed craft-agent server auth token for an SSH host. */
+  async setSshManagedToken(hostId: string, token: string): Promise<void> {
+    await this.set({ type: 'ssh_managed_token', hostId }, { value: token });
+  }
+
+  /** Delete the managed craft-agent server auth token for an SSH host. */
+  async deleteSshManagedToken(hostId: string): Promise<boolean> {
+    return this.delete({ type: 'ssh_managed_token', hostId });
+  }
+
   // ============================================================
   // LLM Connection Credentials
   // ============================================================

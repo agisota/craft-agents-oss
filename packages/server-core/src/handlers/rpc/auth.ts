@@ -1,8 +1,8 @@
 import { unlink } from 'fs/promises'
 import { join } from 'path'
-import { homedir } from 'os'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
+import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import { requestClientConfirmDialog } from '@craft-agent/server-core/transport'
@@ -11,6 +11,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.auth.LOGOUT,
   RPC_CHANNELS.auth.SHOW_LOGOUT_CONFIRMATION,
   RPC_CHANNELS.auth.SHOW_DELETE_SESSION_CONFIRMATION,
+  RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION,
   RPC_CHANNELS.credentials.HEALTH_CHECK,
 ] as const
 
@@ -47,6 +48,22 @@ export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void
     return result.response === 1
   })
 
+  // Show delete workspace confirmation dialog (routed to client)
+  server.handle(RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION, async (ctx, name: string) => {
+    const result = await requestClientConfirmDialog(server, ctx.clientId, {
+      type: 'warning',
+      buttons: ['Cancel', 'Delete'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Delete Workspace',
+      message: `Are you sure you want to delete the workspace "${name}"?`,
+      detail: 'This action cannot be undone.',
+    })
+    // result.response is the index of the clicked button
+    // 0 = Cancel, 1 = Delete
+    return result.response === 1
+  })
+
   // Logout - clear all credentials and config
   server.handle(RPC_CHANNELS.auth.LOGOUT, async () => {
     try {
@@ -59,7 +76,7 @@ export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void
       }
 
       // Delete the config file
-      const configPath = join(homedir(), '.craft-agent', 'config.json')
+      const configPath = join(CONFIG_DIR, 'config.json')
       await unlink(configPath).catch(() => {
         // Ignore if file doesn't exist
       })

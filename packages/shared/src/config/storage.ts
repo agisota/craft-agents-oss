@@ -38,7 +38,7 @@ export type {
 } from '@craft-agent/core/types';
 
 // Import for local use
-import type { Workspace, AuthType } from '@craft-agent/core/types';
+import type { Workspace, AuthType, RemoteServerConfig } from '@craft-agent/core/types';
 
 // Import LLM connection types and constants
 import type { LlmConnection } from './llm-connections.ts';
@@ -76,6 +76,7 @@ export interface StoredConfig {
   notificationsEnabled?: boolean;  // Desktop notifications for task completion (default: true)
   // Appearance
   colorTheme?: string;  // ID of selected preset theme (e.g., 'dracula', 'nord'). Default: 'default'
+  defaultZoomLevel?: number;  // Default app zoom percentage (100-150, default: 100)
   // Auto-update
   dismissedUpdateVersion?: string;  // Version that user dismissed (skip notifications for this version)
   // Input settings
@@ -143,6 +144,7 @@ const FALLBACK_CONFIG_DEFAULTS: ConfigDefaults = {
     spellCheck: false,
     keepAwakeWhileRunning: false,
     richToolDescriptions: true,
+    defaultZoomLevel: 100,
     extendedPromptCache: false,
     browserToolEnabled: true,
     allowRemoteEvaluate: true,
@@ -492,6 +494,39 @@ export function setRichToolDescriptions(enabled: boolean): void {
   saveConfig(config);
 }
 
+const MIN_DEFAULT_ZOOM_LEVEL = 100;
+const MAX_DEFAULT_ZOOM_LEVEL = 150;
+const DEFAULT_ZOOM_STEP = 10;
+
+function normalizeDefaultZoomLevel(level: number): number {
+  if (!Number.isFinite(level)) return 100;
+  const stepped = Math.round(level / DEFAULT_ZOOM_STEP) * DEFAULT_ZOOM_STEP;
+  return Math.min(MAX_DEFAULT_ZOOM_LEVEL, Math.max(MIN_DEFAULT_ZOOM_LEVEL, stepped));
+}
+
+/**
+ * Get the default app zoom level as a percentage.
+ * Defaults to 100 if not set.
+ */
+export function getDefaultZoomLevel(): number {
+  const config = loadStoredConfig();
+  if (config?.defaultZoomLevel !== undefined) {
+    return normalizeDefaultZoomLevel(config.defaultZoomLevel);
+  }
+  const defaults = loadConfigDefaults();
+  return normalizeDefaultZoomLevel(defaults.defaults.defaultZoomLevel);
+}
+
+/**
+ * Set the default app zoom level as a percentage.
+ */
+export function setDefaultZoomLevel(level: number): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.defaultZoomLevel = normalizeDefaultZoomLevel(level);
+  saveConfig(config);
+}
+
 /**
  * Get whether extended prompt cache (1h TTL) is enabled.
  * When enabled, the interceptor upgrades cache_control TTL from 5m to 1h.
@@ -781,13 +816,15 @@ export function getWorkspaceByNameOrId(nameOrId: string): Workspace | null {
 
 export function updateWorkspaceRemoteServer(
   workspaceId: string,
-  remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+  remoteServer: RemoteServerConfig,
 ): void {
   const config = loadStoredConfig();
   if (!config) return;
   const ws = config.workspaces.find(w => w.id === workspaceId);
   if (!ws) throw new Error('Workspace not found');
-  ws.remoteServer = remoteServer;
+  // Merge over existing config so durable fields the caller omits (notably
+  // `sshHostId`) survive a reconnect; pass a field as undefined to clear it.
+  ws.remoteServer = ws.remoteServer ? { ...ws.remoteServer, ...remoteServer } : remoteServer;
   saveConfig(config);
 }
 
@@ -2119,14 +2156,14 @@ function migrateWorkspaceLegacyOpusToDefaultOpus(config: StoredConfig): void {
 }
 
 /**
- * Migrate legacy provider types to the active set (anthropic, pi, pi_compat).
+ * Migrate legacy provider types to the active set (anthropic, anthropic_compat, pi, pi_compat).
  *
  * 1. providerType==='bedrock' → 'pi' with piAuthProvider='amazon-bedrock'.
  *    Model IDs are normalized to Bedrock-native (pi-prefixed) for Pi SDK resolution.
  *
  * 2. providerType==='vertex' → 'pi' with piAuthProvider='google-vertex'.
  *
- * 3. providerType==='anthropic_compat' → 'pi_compat' with customEndpoint.api='anthropic-messages'.
+ * 3. providerType==='anthropic_compat' → 'anthropic_compat' with customEndpoint.api='anthropic-messages'.
  *    Preserves baseUrl and models; authType 'api_key_with_endpoint' stays the same.
  *
  * Also normalizes Pi+Bedrock connections that already have correct providerType.
@@ -2170,11 +2207,23 @@ function migrateLegacyProviderTypes(config: StoredConfig): boolean {
       continue;
     }
 
-    // --- anthropic_compat → pi_compat + customEndpoint ---
+    // --- anthropic_compat → anthropic_compat + customEndpoint ---
     if (providerStr === 'anthropic_compat') {
-      (connection as { providerType: LlmProviderType }).providerType = 'pi_compat';
+      (connection as { providerType: LlmProviderType }).providerType = 'anthropic_compat';
       connection.customEndpoint = { api: 'anthropic-messages' };
       // authType 'api_key_with_endpoint' stays; baseUrl and models are preserved
+      changed = true;
+      continue;
+    }
+
+    // Forward migration from the temporary shared compat bucket used for
+    // Anthropic-compatible endpoints.
+    if (
+      connection.providerType === 'pi_compat'
+      && connection.customEndpoint?.api === 'anthropic-messages'
+    ) {
+      connection.providerType = 'anthropic_compat';
+      delete connection.piAuthProvider;
       changed = true;
       continue;
     }
@@ -2387,7 +2436,7 @@ export function migrateLegacyLlmConnectionsConfig(): void {
     }
     // Phase 1h: Migrate Sonnet 4.5 → Sonnet 4.6 in workspace default models
     migrateWorkspaceSonnet45ToSonnet46(config);
-    // Phase 1j: Migrate legacy provider types (bedrock/vertex/anthropic_compat → pi/pi_compat)
+    // Phase 1j: Migrate legacy provider types (bedrock/vertex/anthropic_compat → active provider set)
     if (migrateLegacyProviderTypes(config)) {
       needsSave = true;
     }
@@ -2453,16 +2502,16 @@ export function migrateLegacyLlmConnectionsConfig(): void {
         createdAt: Date.now(),
       };
     } else if (legacyAuthType === 'api_key') {
-      // Anthropic API Key - check if custom endpoint (compat mode → pi_compat)
+      // Anthropic API Key - check if custom endpoint (compat mode → anthropic_compat)
       const hasCustomEndpoint = !!legacyBaseUrl;
       if (hasCustomEndpoint) {
         migrated = {
           slug: 'anthropic-api',
           name: 'Custom Anthropic-Compatible',
-          providerType: 'pi_compat',
+          providerType: 'anthropic_compat',
           authType: 'api_key_with_endpoint',
           customEndpoint: { api: 'anthropic-messages' },
-          models: getDefaultModelsForConnection('pi_compat'),
+          models: getDefaultModelsForConnection('anthropic_compat'),
           createdAt: Date.now(),
         };
       } else {

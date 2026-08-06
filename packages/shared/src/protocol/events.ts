@@ -16,6 +16,7 @@ import type {
   BrowserInstanceInfo,
   DeepLinkNavigation,
   TaskGenerateResult,
+  NoteChangedPayload,
 } from './dto'
 
 export interface BroadcastEventMap {
@@ -36,6 +37,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.memory.CHANGED]: [workspaceId: string | null, scope: 'global' | 'workspace' | 'both']
   [RPC_CHANNELS.projects.CHANGED]: [workspaceId: string, projects: LoadedProject[]]
   [RPC_CHANNELS.tasks.GENERATED]: [workspaceId: string, result: TaskGenerateResult]
+  [RPC_CHANNELS.notes.CHANGED]: [payload: NoteChangedPayload]
   [RPC_CHANNELS.llmConnections.CHANGED]: []
   [RPC_CHANNELS.permissions.DEFAULTS_CHANGED]: [value: null]
 

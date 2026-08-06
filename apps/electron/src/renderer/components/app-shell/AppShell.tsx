@@ -23,6 +23,7 @@ import {
   Inbox,
   Globe,
   FolderOpen,
+  BookOpen,
   Cake,
   Calendar,
   Layers,
@@ -41,10 +42,11 @@ import { TopBar } from "./TopBar"
 import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { McpIcon } from "../icons/McpIcon"
 import { cn } from "@/lib/utils"
-import { isMac } from "@/lib/platform"
+import { isMac, isWebUI } from "@/lib/platform"
 import { Button } from "@/components/ui/button"
 import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { resolveInheritedFilterParams, type FilterMode } from "./inherited-filter-params"
+import { HeaderMenu } from "@/components/ui/HeaderMenu"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay } from "@craft-agent/ui"
 import {
@@ -95,7 +97,7 @@ import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/ato
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
-import { type SessionStatusId, type SessionStatus, statusConfigsToSessionStatuses } from "@/config/session-status-config"
+import { type SessionStatusId, type SessionStatus, statusConfigsToSessionStatuses, resolveStatusDisplayLabel, resolveLabelDisplayName } from "@/config/session-status-config"
 import { useStatuses } from "@/hooks/useStatuses"
 import { useLabels } from "@/hooks/useLabels"
 import { useViews } from "@/hooks/useViews"
@@ -117,6 +119,7 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isMemoryNavigation,
+  isNotesNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
   type NavigationState,
@@ -151,6 +154,7 @@ import {
 import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
+import { WebBrowserPanel } from "../browser/WebBrowserPanel"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -172,6 +176,10 @@ interface AppShellProps {
   menuNewChatTrigger?: number
   /** Focused mode - hides sidebars, shows only the chat content */
   isFocusedMode?: boolean
+  /** When false, workspace selection is rendered outside the top bar. */
+  showTopBarWorkspaceSelector?: boolean
+  /** Left offset for a full-height rail rendered outside the top bar. */
+  topBarLeftInset?: number
 }
 
 const altClickTooltipLabel = isMac ? '⌥ click to exclude' : 'Alt click to exclude'
@@ -321,6 +329,7 @@ function FilterLabelItems({
   pinnedLabelId?: string | null
   altHeld?: boolean
 }) {
+  const { t } = useTranslation()
   /** Toggle a label filter: if active → remove, if inactive → add as 'include' (or 'exclude' with Alt) */
   const toggleLabel = (id: string, altKey = false) => {
     setLabelFilter(prev => {
@@ -367,7 +376,7 @@ function FilterLabelItems({
               <StyledDropdownMenuSubTrigger>
                 <FilterMenuRow
                   icon={<LabelIcon label={label} size="lg" hasChildren />}
-                  label={label.name}
+                  label={resolveLabelDisplayName(label, t)}
                   accessory={
                     showIndicator ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined
                   }
@@ -382,7 +391,7 @@ function FilterLabelItems({
                       <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); toggleLabel(label.id, e.altKey) }}>
                         <FilterMenuRow
                           icon={<LabelIcon label={label} size="lg" hasChildren />}
-                          label={label.name}
+                          label={resolveLabelDisplayName(label, t)}
                           accessory={<FilterModeBadge mode={mode} />}
                         />
                       </StyledDropdownMenuSubTrigger>
@@ -413,7 +422,7 @@ function FilterLabelItems({
                       >
                         <FilterMenuRow
                           icon={<LabelIcon label={label} size="lg" hasChildren />}
-                          label={label.name}
+                          label={resolveLabelDisplayName(label, t)}
                           accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
                         />
                       </StyledDropdownMenuItem>
@@ -441,7 +450,7 @@ function FilterLabelItems({
               <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); toggleLabel(label.id, e.altKey) }}>
                 <FilterMenuRow
                   icon={<LabelIcon label={label} size="lg" />}
-                  label={label.name}
+                  label={resolveLabelDisplayName(label, t)}
                   accessory={<FilterModeBadge mode={mode} />}
                 />
               </StyledDropdownMenuSubTrigger>
@@ -465,7 +474,7 @@ function FilterLabelItems({
             >
               <FilterMenuRow
                 icon={<LabelIcon label={label} size="lg" />}
-                label={label.name}
+                label={resolveLabelDisplayName(label, t)}
                 accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
               />
             </StyledDropdownMenuItem>
@@ -506,6 +515,8 @@ function AppShellContent({
   defaultCollapsed = false,
   menuNewChatTrigger,
   isFocusedMode = false,
+  showTopBarWorkspaceSelector = true,
+  topBarLeftInset = 0,
 }: AppShellProps) {
   // Destructure commonly used values from context
   // Note: sessions is NOT destructured here - we use sessionMetaMapAtom instead
@@ -560,6 +571,29 @@ function AppShellContent({
   // and switches to single-panel mode. Works in both webui (narrow viewport) and
   // desktop (narrow window or small screen).
   const shellRef = useRef<HTMLDivElement>(null)
+  const compactHeaderOrderRef = useRef(0)
+  const [compactHeaderEntries, setCompactHeaderEntries] = useState<Record<string, {
+    render: () => React.ReactNode
+    priority: number
+    order: number
+  }>>({})
+  const registerCompactHeader = useCallback((id: string, render: () => React.ReactNode, priority: number) => {
+    const order = ++compactHeaderOrderRef.current
+    setCompactHeaderEntries(prev => ({ ...prev, [id]: { render, priority, order } }))
+  }, [])
+  const unregisterCompactHeader = useCallback((id: string) => {
+    setCompactHeaderEntries(prev => {
+      if (!prev[id]) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+  const compactHeaderRenderer = useMemo(() => {
+    const selected = Object.values(compactHeaderEntries)
+      .sort((a, b) => b.priority - a.priority || b.order - a.order)[0]
+    return selected?.render
+  }, [compactHeaderEntries])
   const shellWidth = useContainerWidth(shellRef)
   const MOBILE_THRESHOLD = 768
   const isAutoCompact = shellWidth > 0 && shellWidth < MOBILE_THRESHOLD
@@ -1488,14 +1522,21 @@ function AppShellContent({
       ).length
       counts[label.id] = directCount
     }
-    // Add descendant counts to parents (cumulative)
+    // Add descendant counts to parents (cumulative).
+    // Only count sessions that have a descendant label but NOT the parent itself,
+    // to avoid double-counting sessions that already carry the parent label.
     for (const label of allLabels) {
       const descendants = getDescendantIds(labelConfigs, label.id)
       if (descendants.length > 0) {
-        const descendantCount = activeSessionMetas.filter(
-          s => s.labels?.some(l => descendants.includes(extractLabelId(l)))
+        const descendantOnlyCount = activeSessionMetas.filter(
+          s => {
+            const sessionLabelIds = s.labels?.map(l => extractLabelId(l)) ?? []
+            const hasDescendant = sessionLabelIds.some(id => descendants.includes(id))
+            const hasParent = sessionLabelIds.includes(label.id)
+            return hasDescendant && !hasParent
+          }
         ).length
-        counts[label.id] = (counts[label.id] || 0) + descendantCount
+        counts[label.id] = (counts[label.id] || 0) + descendantOnlyCount
       }
     }
     return counts
@@ -1694,6 +1735,11 @@ function AppShellContent({
   // Extend context value with local overrides (wrapped onDeleteSession, sources, skills, labels, enabledModes, rightSidebarOpenButton, effectiveSessionStatuses)
   const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
+    registerCompactHeader,
+    unregisterCompactHeader,
+    compactHeaderRenderer,
+    isCompactChatMode: isAutoCompact && isSessionsNavigation(navState) && !!navState.details,
+    isCompactSettingsMode: isWebUI && isAutoCompact && isSettingsNavigation(navState),
     onDeleteSession: handleDeleteSession,
     enabledSources: sources,
     skills,
@@ -1718,7 +1764,7 @@ function AppShellContent({
     automationTestResults,
     getAutomationHistory,
     onReplayAutomation: handleReplayAutomation,
-  }), [contextValue, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, isAutoCompact, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
+  }), [contextValue, registerCompactHeader, unregisterCompactHeader, compactHeaderRenderer, isAutoCompact, navState, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
 
   // Persist expanded folders to localStorage (workspace-scoped)
   React.useEffect(() => {
@@ -1824,6 +1870,11 @@ function AppShellContent({
   // Handler for memory view
   const handleMemoryClick = useCallback(() => {
     navigate(routes.view.memory())
+  }, [])
+
+  // Handler for notes view
+  const handleNotesClick = useCallback(() => {
+    navigate(routes.view.notes())
   }, [])
 
   // Handlers for automations view
@@ -1998,6 +2049,15 @@ function AppShellContent({
   // The previous flow auto-created with the default name and produced ugly
   // permanent slugs (new-project, new-project-1, …).
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false)
+  const [webBrowserOpen, setWebBrowserOpen] = useState(false)
+
+  React.useEffect(() => {
+    if (!isWebUI) return
+    const handleOpenBrowser = () => setWebBrowserOpen(true)
+    window.addEventListener('craft:open-vps-browser', handleOpenBrowser)
+    return () => window.removeEventListener('craft:open-vps-browser', handleOpenBrowser)
+  }, [])
+
   const openAddProject = useCallback(() => {
     if (!activeWorkspace?.id) return
     setCreateProjectDialogOpen(true)
@@ -2023,7 +2083,6 @@ function AppShellContent({
     () => resolveInheritedFilterParams(listFilter, labelFilter, projectFilter),
     [listFilter, labelFilter, projectFilter]
   )
-
   // Create a new chat and select it
   const handleNewChat = useCallback((newPanel: boolean = false) => {
     if (!activeWorkspace) return
@@ -2032,7 +2091,7 @@ function AppShellContent({
     setSearchActive(false)
     setSearchQuery('')
 
-    // Inherit sole-active filter into the new session when unambiguous.
+    // Inherit the sole included filter into the new session when unambiguous.
     const inherited = resolveInheritedNewSessionParams()
 
     // Delegate to NavigationContext which handles session creation
@@ -2043,11 +2102,15 @@ function AppShellContent({
 
     // Focus the chat input after navigation completes
     setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
-  }, [activeWorkspace, focusZone, navigate, resolveInheritedNewSessionParams])
+  }, [activeWorkspace, focusZone, labelFilter, listFilter, navigate, projectFilter])
 
   // Create a brand new embedded browser panel and focus it.
   // Intentionally unbound: this action should always create a NEW panel.
   const handleNewBrowserWindow = useCallback(async () => {
+    if (isWebUI) {
+      setWebBrowserOpen(true)
+      return
+    }
     try {
       const instanceId = await window.electronAPI.browserPane.createEmbedded()
       navigate(routes.view.browser(instanceId), { newPanel: true, targetLaneId: 'main' })
@@ -2125,12 +2188,13 @@ function AppShellContent({
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
     result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
+    result.push({ id: 'nav:notes', type: 'nav', action: handleNotesClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
     result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -2259,6 +2323,11 @@ function AppShellContent({
       return t("sidebar.allProjects")
     }
 
+    // Notes navigator
+    if (isNotesNavigation(navState)) {
+      return "Notes"
+    }
+
     // Automations navigator
     if (isAutomationsNavigation(navState)) {
       if (!automationFilter) return t("sidebar.allAutomations")
@@ -2373,8 +2442,15 @@ function AppShellContent({
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+          compactHeaderRenderer={compactHeaderRenderer}
+          isCompactChatMode={isAutoCompact && isSessionsNavigation(navState) && !!navState.details}
+          isCompactSettingsMode={isWebUI && isAutoCompact && isSettingsNavigation(navState)}
           isCompact={isAutoCompact}
+          showWorkspaceSelector={showTopBarWorkspaceSelector || isAutoCompact}
+          leftInset={topBarLeftInset}
         />
+
+        {isWebUI && <WebBrowserPanel open={webBrowserOpen} onClose={() => setWebBrowserOpen(false)} />}
 
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
       <div
@@ -2631,6 +2707,13 @@ function AppShellContent({
                       })),
                     },
                     {
+                      id: "nav:notes",
+                      title: "Notes",
+                      icon: BookOpen,
+                      variant: isNotesNavigation(navState) ? "default" : "ghost",
+                      onClick: handleNotesClick,
+                    },
+                    {
                       id: "nav:automations",
                       title: t("sidebar.automations"),
                       label: String(automations.length),
@@ -2708,15 +2791,15 @@ function AppShellContent({
           </div>
           }
           sidebarWidth={effectiveSidebarAndNavigatorHidden ? 0 : (isSidebarVisible ? sidebarWidth : 0)}
-          navigatorSlot={
+          navigatorSlot={isNotesNavigation(navState) ? null : (
             <div
               style={{ width: isAutoCompact ? '100%' : sessionListWidth }}
               className="h-full flex flex-col min-w-0 relative z-panel"
             >
             <PanelHeader
-              title={isSidebarVisible ? listTitle : undefined}
-              compensateForStoplight={!isSidebarVisible}
-              badge={automationFilter?.automationType === 'scheduled' ? (
+                title={isSidebarVisible ? listTitle : undefined}
+                compensateForStoplight={!isSidebarVisible}
+                badge={automationFilter?.automationType === 'scheduled' ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-muted-foreground/50 cursor-default flex items-center titlebar-no-drag">
@@ -2906,7 +2989,7 @@ function AppShellContent({
                                     <StyledDropdownMenuItem disabled key={`pinned-status-${state.id}`}>
                                       <FilterMenuRow
                                         icon={state.icon}
-                                        label={state.label}
+                                        label={resolveStatusDisplayLabel(state, t)}
                                         accessory={<Check className="h-3 w-3 text-muted-foreground" />}
                                         iconStyle={state.iconColorable ? { color: state.resolvedColor } : undefined}
                                         noIconContainer
@@ -2923,7 +3006,7 @@ function AppShellContent({
                                     <StyledDropdownMenuItem disabled key={`pinned-label-${label.id}`}>
                                       <FilterMenuRow
                                         icon={<LabelIcon label={label} size="lg" />}
-                                        label={label.name}
+                                        label={resolveLabelDisplayName(label, t)}
                                         accessory={<Check className="h-3 w-3 text-muted-foreground" />}
                                       />
                                     </StyledDropdownMenuItem>
@@ -2938,7 +3021,7 @@ function AppShellContent({
                                       <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); setListFilter(prev => { const next = new Map(prev); next.delete(state.id); return next }) }}>
                                         <FilterMenuRow
                                           icon={state.icon}
-                                          label={state.label}
+                                          label={resolveStatusDisplayLabel(state, t)}
                                           accessory={<FilterModeBadge mode={mode} />}
                                           iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                           noIconContainer
@@ -2971,7 +3054,7 @@ function AppShellContent({
                                       <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); setLabelFilter(prev => { const next = new Map(prev); next.delete(labelId); return next }) }}>
                                         <FilterMenuRow
                                           icon={<LabelIcon label={label} size="lg" />}
-                                          label={label.name}
+                                          label={resolveLabelDisplayName(label, t)}
                                           accessory={<FilterModeBadge mode={mode} />}
                                         />
                                       </StyledDropdownMenuSubTrigger>
@@ -3047,7 +3130,7 @@ function AppShellContent({
                                         <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); setListFilter(prev => { const next = new Map(prev); next.delete(state.id); return next }) }}>
                                           <FilterMenuRow
                                             icon={state.icon}
-                                            label={state.label}
+                                            label={resolveStatusDisplayLabel(state, t)}
                                             accessory={<FilterModeBadge mode={currentMode} />}
                                             iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                             noIconContainer
@@ -3089,7 +3172,7 @@ function AppShellContent({
                                       >
                                         <FilterMenuRow
                                           icon={state.icon}
-                                          label={state.label}
+                                          label={resolveStatusDisplayLabel(state, t)}
                                           accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
                                           iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                           noIconContainer
@@ -3271,7 +3354,7 @@ function AppShellContent({
                                             >
                                               <FilterMenuRow
                                                 icon={state.icon}
-                                                label={state.label}
+                                                label={resolveStatusDisplayLabel(state, t)}
                                                 accessory={<FilterModeBadge mode={currentMode} />}
                                                 iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                                 noIconContainer
@@ -3320,7 +3403,7 @@ function AppShellContent({
                                           >
                                             <FilterMenuRow
                                               icon={state.icon}
-                                              label={state.label}
+                                              label={resolveStatusDisplayLabel(state, t)}
                                               accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
                                               iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                               noIconContainer
@@ -3476,9 +3559,12 @@ function AppShellContent({
                       onClick={openAddProject}
                     />
                   )}
+                  {isWebUI && isAutoCompact && isSettingsNavigation(navState) && (
+                    <HeaderMenu route={routes.view.settings()} />
+                  )}
                 </>
-              }
-            />
+                }
+              />
             {/* Content: SessionList, SourcesListPanel, or SettingsNavigator based on navigation state */}
             {isSourcesNavigation(navState) && (
               /* Sources List - filtered by type if sourceFilter is active */
@@ -3605,8 +3691,8 @@ function AppShellContent({
               <FabNewChat onClick={() => handleNewChat()} />
             )}
             </div>
-          }
-          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth)}
+          )}
+          navigatorWidth={isNotesNavigation(navState) ? 0 : (isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth))}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
           isRightSidebarVisible={false}
           isCompact={isAutoCompact}

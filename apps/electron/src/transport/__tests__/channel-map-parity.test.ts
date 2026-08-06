@@ -27,7 +27,19 @@ type ApiToChannelMapKeys = Exclude<
   | 'transferSessionToWorkspace' // direct IPC to main process — orchestrated remote transfer
   | 'onTransferProgress' // direct IPC listener — chunk upload progress
   | 'changeLanguage' // direct IPC to main process — syncs i18n language
+  | 'exportNotePdf' // direct IPC to main process — uses BrowserWindow.printToPDF
   | 'getFilePath' // renderer-local — webUtils.getPathForFile, no IPC round-trip
+  // SSH remote hosts + tunnels — direct IPC to main process (Electron-only)
+  | 'sshListHosts'
+  | 'sshAddHost'
+  | 'sshUpdateHost'
+  | 'sshDeleteHost'
+  | 'sshImportFromConfig'
+  | 'sshConnect'
+  | 'sshBootstrapConnect'
+  | 'sshResolveWorkspaceConnection'
+  | 'onSshBootstrapProgress'
+  | 'onSshConnectionStatus'
 > | BrowserPaneKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 

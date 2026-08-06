@@ -153,13 +153,50 @@ export function computeCollapsedPagination(
   const bucketKeyOf = (item: SessionMeta): string =>
     getCollapseGroupKey(bucketRepresentatives?.get(item.id) ?? item, groupingMode)
 
-  // Fast path: no collapse state → original slice
-  if (!collapsedGroups || collapsedGroups.size === 0) {
-    return {
-      paginatedItems: items.slice(0, displayLimit),
-      hasMore: displayLimit < items.length,
-      collapsedGroupsMeta: [],
+  // `date` grouping is inherently chronological, so a single global window
+  // (newest-first, grow on scroll) is the correct lazy-load behavior.
+  //
+  // `status` / `unread` grouping is NOT chronological: an old To-do/Needs-review
+  // or unread session should surface in its group regardless of age. A global
+  // chronological slice silently drops such items out of their group once they
+  // fall past the loaded window (#501). For these modes we therefore paginate
+  // *per group* — each group reveals up to `displayLimit` of its own most-recent
+  // items — so small open-work groups show in full while large groups (e.g.
+  // Done) stay bounded. `displayLimit` still grows on scroll via the caller.
+  const perGroup = groupingMode === 'status' || groupingMode === 'unread'
+
+  // Pick the visible items honoring `displayLimit`, optionally skipping groups in
+  // `excludeKeys` (collapsed groups). Preserves the incoming item order.
+  // Group keys are family-aware (bucketKeyOf) so a collapsed bucket hides/shows
+  // the whole session family (root + branches) together.
+  const paginate = (excludeKeys?: Set<string>): { picked: SessionMeta[]; hasMore: boolean } => {
+    if (!perGroup) {
+      const list = excludeKeys && excludeKeys.size > 0
+        ? items.filter(item => !excludeKeys.has(bucketKeyOf(item)))
+        : items
+      return { picked: list.slice(0, displayLimit), hasMore: displayLimit < list.length }
     }
+    const perGroupCount = new Map<string, number>()
+    const picked: SessionMeta[] = []
+    let hasMore = false
+    for (const item of items) {
+      const key = bucketKeyOf(item)
+      if (excludeKeys?.has(key)) continue
+      const shown = perGroupCount.get(key) ?? 0
+      if (shown < displayLimit) {
+        picked.push(item)
+        perGroupCount.set(key, shown + 1)
+      } else {
+        hasMore = true
+      }
+    }
+    return { picked, hasMore }
+  }
+
+  // Fast path: no collapse state.
+  if (!collapsedGroups || collapsedGroups.size === 0) {
+    const { picked, hasMore } = paginate()
+    return { paginatedItems: picked, hasMore, collapsedGroupsMeta: [] }
   }
 
   const groupKeysInView = new Set(items.map(item => bucketKeyOf(item)))
@@ -167,11 +204,8 @@ export function computeCollapsedPagination(
   // Safety guard: don't allow collapse state to hide the entire list when only one
   // group exists in the current filtered view (there would be no meaningful collapse UX).
   if (groupKeysInView.size <= 1) {
-    return {
-      paginatedItems: items.slice(0, displayLimit),
-      hasMore: displayLimit < items.length,
-      collapsedGroupsMeta: [],
-    }
+    const { picked, hasMore } = paginate()
+    return { paginatedItems: picked, hasMore, collapsedGroupsMeta: [] }
   }
 
   const effectiveCollapsedKeys = new Set(
@@ -179,35 +213,24 @@ export function computeCollapsedPagination(
   )
 
   if (effectiveCollapsedKeys.size === 0) {
-    return {
-      paginatedItems: items.slice(0, displayLimit),
-      hasMore: displayLimit < items.length,
-      collapsedGroupsMeta: [],
-    }
+    const { picked, hasMore } = paginate()
+    return { paginatedItems: picked, hasMore, collapsedGroupsMeta: [] }
   }
 
-  const expandedItems: SessionMeta[] = []
   const collapsedCounts = new Map<string, number>()
-
   for (const item of items) {
     const groupKey = bucketKeyOf(item)
-
     if (effectiveCollapsedKeys.has(groupKey)) {
       collapsedCounts.set(groupKey, (collapsedCounts.get(groupKey) || 0) + 1)
-    } else {
-      expandedItems.push(item)
     }
   }
 
+  const { picked, hasMore } = paginate(effectiveCollapsedKeys)
   const meta: CollapsedGroupMeta[] = Array.from(collapsedCounts.entries()).map(
     ([key, count]) => ({ key, count })
   )
 
-  return {
-    paginatedItems: expandedItems.slice(0, displayLimit),
-    hasMore: displayLimit < expandedItems.length,
-    collapsedGroupsMeta: meta,
-  }
+  return { paginatedItems: picked, hasMore, collapsedGroupsMeta: meta }
 }
 
 interface FilterMatchOptions {

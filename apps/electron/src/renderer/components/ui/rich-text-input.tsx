@@ -523,6 +523,10 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
     const divRef = React.useRef<HTMLDivElement>(null)
     const [isFocused, setIsFocused] = React.useState(false)
     const isComposing = React.useRef(false)
+    // Mirrors isComposing.current but as React state so that toggling it triggers
+    // a re-render. Used only for showPlaceholder to hide the overlay and remove
+    // text-transparent during IME composition (refs don't cause re-renders).
+    const [isComposingState, setIsComposingState] = React.useState(false)
     const lastValueRef = React.useRef(safeValue)
     const cursorPositionRef = React.useRef(0)
     const lastMentionSignatureRef = React.useRef('')
@@ -620,12 +624,31 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
     // Handle composition (IME)
     const handleCompositionStart = React.useCallback(() => {
       isComposing.current = true
+      setIsComposingState(true)
     }, [])
 
     const handleCompositionEnd = React.useCallback(() => {
       isComposing.current = false
+      setIsComposingState(false)
       handleInput()
     }, [handleInput])
+
+    // Wrapper for the div's onInput event. Adds a second composition guard that
+    // checks the native event's isComposing flag in addition to the ref. This
+    // handles the edge-case on some macOS/Electron builds where the native
+    // `input` event fires *before* `compositionstart`, leaving
+    // isComposing.current=false even though composition is already in progress.
+    // Without this check the auto-capitalise logic in FreeFormInput can fire on
+    // the first pinyin letter (a Latin character) and corrupt the IME session.
+    // (handleCompositionEnd calls handleInput() directly, bypassing this wrapper
+    // intentionally — at that point isComposing.current is already false.)
+    const handleInputEvent = React.useCallback(
+      (e: React.FormEvent<HTMLDivElement>) => {
+        if ((e.nativeEvent as InputEvent).isComposing) return
+        handleInput()
+      },
+      [handleInput]
+    )
 
     const handleKeyDownInternal = React.useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
       if (isEscapeDuringComposition(e, isComposing.current)) {
@@ -685,6 +708,12 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
       if (!divRef.current) return
       if (isInternalUpdate.current) return
       if (lastValueRef.current === safeValue) return
+      // Don't overwrite the div while IME composition is active. The div
+      // content during composition belongs to the browser/IME; replacing
+      // innerHTML would destroy the composition session. When composition
+      // ends, handleCompositionEnd → handleInput() will sync the final
+      // composed value back into React state through the normal onChange path.
+      if (isComposing.current) return
 
       // External value change - update content
       lastValueRef.current = safeValue
@@ -757,8 +786,12 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
       return () => document.removeEventListener('selectionchange', handleSelectionChange)
     }, [])
 
-    // Show placeholder when input is empty (regardless of focus state)
-    const showPlaceholder = !safeValue
+    // Show placeholder when input is empty AND not composing. During IME
+    // composition onChange is blocked, so safeValue stays '' the entire time;
+    // without the isComposingState guard the div would get text-transparent
+    // (making composition text invisible) and RotatingPlaceholder would overlay
+    // the active preedit text for the whole composition duration.
+    const showPlaceholder = !safeValue && !isComposingState
 
     // Normalize placeholder to array for RotatingPlaceholder
     const placeholderArray = React.useMemo(() => {
@@ -792,7 +825,7 @@ export const RichTextInput = React.forwardRef<RichTextInputHandle, RichTextInput
           )}
           // Use inline style for line-height to override text-sm's built-in line-height
           style={{ lineHeight: 1.25 }}
-          onInput={handleInput}
+          onInput={handleInputEvent}
           onKeyDown={handleKeyDownInternal}
           onFocus={handleFocus}
           onBlur={handleBlur}

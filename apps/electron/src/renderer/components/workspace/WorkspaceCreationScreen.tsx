@@ -10,10 +10,11 @@ import { AddWorkspaceStep_Choice } from "./AddWorkspaceStep_Choice"
 import { AddWorkspaceStep_CreateNew } from "./AddWorkspaceStep_CreateNew"
 import { AddWorkspaceStep_OpenFolder } from "./AddWorkspaceStep_OpenFolder"
 import { AddWorkspaceStep_ConnectRemote } from "./AddWorkspaceStep_ConnectRemote"
+import { AddWorkspaceStep_Ssh } from "./AddWorkspaceStep_Ssh"
 import type { Workspace } from "../../../shared/types"
 import { toast } from "sonner"
 
-type CreationStep = 'choice' | 'create' | 'open' | 'remote'
+type CreationStep = 'choice' | 'create' | 'open' | 'remote' | 'ssh'
 
 interface WorkspaceCreationScreenProps {
   /** Callback when a workspace is created successfully */
@@ -66,7 +67,7 @@ export function WorkspaceCreationScreen({
     }
   }, [isCreating, onClose])
 
-  const handleCreateWorkspace = useCallback(async (folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string }) => {
+  const handleCreateWorkspace = useCallback(async (folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string }) => {
     setIsCreating(true)
     try {
       const workspace = await window.electronAPI.createWorkspace(folderPath, name, remoteServer)
@@ -102,6 +103,7 @@ export function WorkspaceCreationScreen({
             onCreateNew={() => setStep('create')}
             onOpenFolder={() => setStep('open')}
             onConnectRemote={() => setStep('remote')}
+            onConnectSsh={() => setStep('ssh')}
           />
         )
 
@@ -123,6 +125,14 @@ export function WorkspaceCreationScreen({
           />
         )
 
+      case 'ssh':
+        return (
+          <AddWorkspaceStep_Ssh
+            onBack={() => setStep('choice')}
+            onCreate={handleCreateWorkspace}
+          />
+        )
+
       case 'remote':
         return (
           <AddWorkspaceStep_ConnectRemote
@@ -131,6 +141,7 @@ export function WorkspaceCreationScreen({
             isCreating={isCreating}
             initialUrl={reconnectWorkspace?.remoteServer?.url}
             initialToken={reconnectWorkspace?.remoteServer?.token}
+            sshHostId={reconnectWorkspace?.remoteServer?.sshHostId}
             reconnectWorkspace={reconnectWorkspace?.remoteServer ? {
               id: reconnectWorkspace.id,
               name: reconnectWorkspace.name,

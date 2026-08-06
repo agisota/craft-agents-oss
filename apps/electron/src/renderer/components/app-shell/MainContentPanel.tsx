@@ -31,6 +31,7 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isMemoryNavigation,
+  isNotesNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
   isBrowserNavigation,
@@ -40,6 +41,7 @@ import { sourceSelection, skillSelection, automationSelection } from '@/hooks/us
 import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
 import { SourceInfoPage, ChatPage, BrowserPanelPage } from '@/pages'
+import NotesPage from '@/pages/NotesPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import { AutomationInfoPage } from '../automations/AutomationInfoPage'
@@ -408,6 +410,15 @@ export function MainContentPanel({
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">{t('browser.noInstanceSelected', { defaultValue: 'No browser instance selected' })}</p>
         </div>
+      </Panel>
+    )
+  }
+
+  // Notes navigator - self-contained notes workspace
+  if (isNotesNavigation(navState)) {
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <NotesPage selectedNoteId={navState.details?.type === 'note' ? navState.details.noteId : null} />
       </Panel>
     )
   }

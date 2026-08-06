@@ -7,7 +7,7 @@
  * has a registered fetcher — adding a new LlmProviderType without a fetcher
  * causes a type error.
  *
- * Compat providers (pi_compat) are excluded —
+ * Compat providers (pi_compat, anthropic_compat) are excluded —
  * they point to arbitrary endpoints where users configure models manually.
  */
 
@@ -31,6 +31,7 @@ export type FetchableProvider = Exclude<LlmProviderType,
   // OMP owns its model catalog via `get_available_models` RPC — host-side
   // HTTP fetchers would need to shell out to the CLI, so no fetcher is registered.
   | 'omp'
+  | 'anthropic_compat'
 >;
 
 /**

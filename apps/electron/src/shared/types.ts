@@ -20,6 +20,7 @@ import type {
   ContentBadge,
   ToolDisplayMeta,
   AnnotationV1,
+  RemoteServerConfig,
 } from '@craft-agent/core/types';
 
 // Mode types from dedicated subpath export (avoids pulling in SDK)
@@ -51,6 +52,32 @@ export type {
 import type { AuthState, SetupNeeds } from '@craft-agent/shared/auth/types';
 import type { AuthType } from '@craft-agent/shared/config/types';
 export type { AuthState, SetupNeeds, AuthType };
+
+import type {
+  SshHostConfig,
+  SshHostInput,
+  SshConfigImportSuggestion,
+} from '@craft-agent/shared/config';
+export type { SshHostConfig, SshHostInput, SshConfigImportSuggestion };
+
+/** Renderer-safe copies of the SSH defaults (the renderer bundle can't value-import
+ * the Node-only shared config); parity is asserted in ssh-tunnel.test.ts. */
+export const DEFAULT_SSH_PORT = 22;
+export const DEFAULT_REMOTE_SERVER_PORT = 9100;
+
+// SSH wire types — type-only re-exports from the main-process modules (erased at
+// build, so the renderer bundle never pulls in Node-only code).
+import type { BootstrapPhase as SshBootstrapPhase } from '../main/ssh-tunnel/server-bootstrap';
+import type { SshConnectionPhase, SshConnectionStatus } from '../main/ssh-tunnel/connection-resolver';
+export type { SshBootstrapPhase, SshConnectionPhase, SshConnectionStatus };
+
+/** Progress event pushed to the renderer during one-click bootstrap (main adds hostId). */
+export interface SshBootstrapProgress {
+  hostId: string;
+  phase: SshBootstrapPhase;
+  /** Human-readable detail (never contains secrets). */
+  detail?: string;
+}
 
 // Credential health types
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
@@ -204,6 +231,7 @@ import type {
   SessionCommand,
   ShareResult,
   RefreshTitleResult,
+  UndoResult,
   FileSearchResult,
   SessionSearchResult,
   LlmConnectionSetup,
@@ -224,6 +252,15 @@ import type {
   TestAutomationResult,
   WindowCloseRequest,
   DirectoryListingResult,
+  NoteChangedPayload,
+  NoteAsset,
+  NoteAssetImportResult,
+  NoteAssetRenameResult,
+  NoteBacklink,
+  NoteDocument,
+  NoteRenameImpact,
+  NoteRenameResult,
+  NoteSummary,
   RemoteSessionTransferPayload,
   ImportRemoteSessionTransferResult,
 } from '@craft-agent/shared/protocol'
@@ -307,7 +344,7 @@ export interface ElectronAPI {
   respondToCredential(sessionId: string, requestId: string, response: CredentialResponse): Promise<boolean>
 
   // Consolidated session command handler
-  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult | RefreshTitleResult | { count: number }>
+  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult | RefreshTitleResult | UndoResult | { count: number }>
 
   // Server info (REMOTE_ELIGIBLE — returns data from whichever server owns the workspace)
   getServerHomeDir(): Promise<string>
@@ -321,6 +358,21 @@ export interface ElectronAPI {
   relaunchApp(): Promise<void>
   removeWorkspace(workspaceId: string): Promise<boolean>
   invokeOnServer(url: string, token: string, channel: string, ...args: any[]): Promise<any>
+
+  // SSH remote hosts + tunnels (Remote-SSH style bootstrap to a remote server)
+  sshListHosts(): Promise<SshHostConfig[]>
+  sshAddHost(input: SshHostInput): Promise<SshHostConfig>
+  sshUpdateHost(id: string, updates: Partial<SshHostConfig>): Promise<SshHostConfig | undefined>
+  sshDeleteHost(id: string): Promise<boolean>
+  sshImportFromConfig(): Promise<SshConfigImportSuggestion[]>
+  sshConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string }>
+  /** One-click: install (if needed) + start a managed server, then tunnel. */
+  sshBootstrapConnect(hostId: string): Promise<{ url?: string; localPort?: number; token?: string; hostId: string }>
+  /** Resolve a persisted RemoteServerConfig into a live { url, token } before dialing:
+   * plain-ws passes through, SSH-backed (re)establishes a fresh tunnel + server. */
+  sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
+  onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
+  onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>
@@ -339,7 +391,7 @@ export interface ElectronAPI {
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
-  createWorkspace(folderPath: string, name: string, remoteServer?: { url: string; token: string; remoteWorkspaceId: string }): Promise<Workspace>
+  createWorkspace(folderPath: string, name: string, remoteServer?: RemoteServerConfig): Promise<Workspace>
   checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
   updateWorkspaceRemoteServer(workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }): Promise<{ success: boolean }>
 
@@ -399,6 +451,28 @@ export interface ElectronAPI {
 
   // Server filesystem browsing (remote mode)
   listServerDirectory(dirPath: string): Promise<DirectoryListingResult>
+
+  // Notes
+  listNotes(workspaceId: string): Promise<NoteSummary[]>
+  readNote(workspaceId: string, noteId: string): Promise<NoteDocument>
+  saveNote(workspaceId: string, noteId: string, content: string): Promise<NoteDocument>
+  createNote(workspaceId: string, title: string, folder?: string): Promise<NoteDocument>
+  renameNote(workspaceId: string, noteId: string, nextTitle: string): Promise<NoteRenameResult>
+  deleteNote(workspaceId: string, noteId: string): Promise<boolean>
+  renameFolderNote(workspaceId: string, folder: string, nextName: string): Promise<{ movedNotes: string[] }>
+  deleteFolderNote(workspaceId: string, folder: string): Promise<{ deletedNotes: string[] }>
+  searchNotes(workspaceId: string, query: string): Promise<NoteSummary[]>
+  getNoteBacklinks(workspaceId: string, noteId: string): Promise<NoteBacklink[]>
+  getNoteRenameImpact(workspaceId: string, noteId: string, nextTitle: string): Promise<NoteRenameImpact>
+  getDailyNote(workspaceId: string, date?: string): Promise<NoteDocument>
+  importNoteAsset(workspaceId: string, attachment: FileAttachment): Promise<NoteAssetImportResult>
+  listNoteAssets(workspaceId: string): Promise<NoteAsset[]>
+  deleteNoteAsset(workspaceId: string, relativePath: string): Promise<boolean>
+  renameNoteAsset(workspaceId: string, relativePath: string, nextName: string): Promise<NoteAssetRenameResult>
+  updateNoteProperties(workspaceId: string, noteId: string, properties: Record<string, unknown>): Promise<NoteDocument>
+  watchNotes(workspaceId: string): Promise<void>
+  unwatchNotes(workspaceId: string): Promise<void>
+  onNotesChanged(callback: (payload: NoteChangedPayload | string) => void): () => void
   // Debug: send renderer logs to main process log file
   debugLog(...args: unknown[]): void
 
@@ -452,6 +526,7 @@ export interface ElectronAPI {
   openUrl(url: string): Promise<void>
   openFile(path: string): Promise<void>
   showInFolder(path: string): Promise<void>
+  exportNotePdf(opts: { html: string; defaultPath: string }): Promise<{ canceled: boolean; filePath?: string }>
 
   // Menu event listeners
   onMenuNewChat(callback: () => void): () => void
@@ -466,6 +541,7 @@ export interface ElectronAPI {
   // Auth
   showLogoutConfirmation(): Promise<boolean>
   showDeleteSessionConfirmation(name: string): Promise<boolean>
+  showDeleteWorkspaceConfirmation(name: string): Promise<boolean>
   logout(): Promise<void>
 
   // Credential health check (startup validation)
@@ -649,6 +725,8 @@ export interface ElectronAPI {
   // Appearance settings
   getRichToolDescriptions(): Promise<boolean>
   setRichToolDescriptions(enabled: boolean): Promise<void>
+  getDefaultZoomLevel(): Promise<number>
+  setDefaultZoomLevel(level: number): Promise<void>
 
   // Prompt caching & context
   getExtendedPromptCache(): Promise<boolean>
@@ -719,6 +797,17 @@ export interface ElectronAPI {
     reload(id: string): Promise<void>
     stop(id: string): Promise<void>
     focus(id: string): Promise<void>
+    resize(id: string, width: number, height: number): Promise<{ width: number; height: number }>
+    snapshot(id: string): Promise<{ url: string; title: string; nodes: Array<{ ref: string; role: string; name: string; value?: string; description?: string; focused?: boolean; checked?: boolean; disabled?: boolean }> }>
+    click(id: string, ref: string): Promise<void>
+    clickAt(id: string, x: number, y: number): Promise<void>
+    fill(id: string, ref: string, value: string): Promise<void>
+    typeText(id: string, text: string): Promise<void>
+    sendKey(id: string, args: { key: string; modifiers?: Array<'shift' | 'control' | 'alt' | 'meta'> }): Promise<void>
+    select(id: string, ref: string, value: string): Promise<void>
+    screenshotImage(id: string, options?: { format?: 'png' | 'jpeg'; annotate?: boolean }): Promise<{ base64: string; imageFormat: 'png' | 'jpeg'; metadata?: Record<string, unknown> }>
+    scroll(id: string, direction: 'up' | 'down' | 'left' | 'right', amount?: number): Promise<void>
+    evaluate(id: string, expression: string): Promise<unknown>
     emptyStateLaunch(payload: BrowserEmptyStateLaunchPayload): Promise<BrowserEmptyStateLaunchResult>
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
@@ -784,6 +873,8 @@ export interface ElectronAPI {
   saveTelegramToken(token: string): Promise<void>
   testLarkCredentials(creds: { appId: string; appSecret: string; domain: 'lark' | 'feishu' }): Promise<{ success: boolean; botName?: string; error?: string }>
   saveLarkCredentials(creds: { appId: string; appSecret: string; domain: 'lark' | 'feishu' }): Promise<void>
+  testDiscordCredentials(creds: { token: string }): Promise<{ success: boolean; botName?: string; error?: string }>
+  saveDiscordCredentials(creds: { token: string }): Promise<void>
   disconnectMessagingPlatform(platform: string): Promise<void>
   forgetMessagingPlatform(platform: string): Promise<void>
   getMessagingBindings(): Promise<Array<{ id: string; workspaceId: string; sessionId: string; platform: string; channelId: string; threadId?: number; channelName?: string; enabled: boolean; createdAt: number; accessMode?: MessagingBindingAccessMode; allowedSenderIds?: string[] }>>
@@ -802,6 +893,10 @@ export interface ElectronAPI {
   startWhatsAppConnect(): Promise<{ success: boolean }>
   submitWhatsAppPhone(phoneNumber: string): Promise<{ success: boolean }>
   onWhatsAppEvent(callback: (payload: { workspaceId: string; event: WhatsAppUiEvent }) => void): () => void
+  // WeChat (微信 iLink ClawBot adapter)
+  startWeChatConnect(): Promise<{ success: boolean }>
+  submitWeChatVerifyCode(code: string): Promise<{ success: boolean }>
+  onWeChatEvent(callback: (payload: { workspaceId: string; event: WeChatUiEvent }) => void): () => void
   // Messaging access control (Phase 3)
   getMessagingPlatformOwners(platform: string): Promise<MessagingPlatformOwnerInfo[]>
   setMessagingPlatformOwners(platform: string, owners: MessagingPlatformOwnerInfo[]): Promise<MessagingPlatformOwnerInfo[]>
@@ -867,6 +962,14 @@ export type WhatsAppUiEvent =
   | { type: 'connected'; jid?: string; name?: string }
   | { type: 'disconnected'; loggedOut: boolean; reason?: string }
   | { type: 'unavailable'; reason: string; message: string }
+  | { type: 'error'; message: string }
+
+/** Event payloads broadcast from the WeChat login flow to the UI. */
+export type WeChatUiEvent =
+  | { type: 'qr'; qr: string }
+  | { type: 'scanned' }
+  | { type: 'need_verifycode' }
+  | { type: 'connected' }
   | { type: 'error'; message: string }
 
 // =============================================================================
@@ -963,6 +1066,15 @@ export interface SkillsNavigationState {
 }
 
 /**
+ * Notes navigation state
+ */
+export interface NotesNavigationState {
+  navigator: 'notes'
+  details: { type: 'note'; noteId: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
  * Automations navigation state
  */
 export interface AutomationsNavigationState {
@@ -1009,6 +1121,7 @@ export type NavigationState =
   | SourcesNavigationState
   | SettingsNavigationState
   | SkillsNavigationState
+  | NotesNavigationState
   | AutomationsNavigationState
   | ProjectsNavigationState
   | BrowserNavigationState
@@ -1029,6 +1142,10 @@ export const isSettingsNavigation = (
 export const isSkillsNavigation = (
   state: NavigationState
 ): state is SkillsNavigationState => state.navigator === 'skills'
+
+export const isNotesNavigation = (
+  state: NavigationState
+): state is NotesNavigationState => state.navigator === 'notes'
 
 export const isAutomationsNavigation = (
   state: NavigationState
@@ -1063,6 +1180,12 @@ export const getNavigationStateKey = (state: NavigationState): string => {
       return `skills/skill/${state.details.skillSlug}`
     }
     return 'skills'
+  }
+  if (state.navigator === 'notes') {
+    if (state.details?.type === 'note') {
+      return `notes/note/${encodeURIComponent(state.details.noteId)}`
+    }
+    return 'notes'
   }
   if (state.navigator === 'automations') {
     if (state.details?.type === 'automation') {
@@ -1121,6 +1244,16 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
       return { navigator: 'skills', details: { type: 'skill', skillSlug } }
     }
     return { navigator: 'skills', details: null }
+  }
+
+  // Handle notes
+  if (key === 'notes') return { navigator: 'notes', details: null }
+  if (key.startsWith('notes/note/')) {
+    const noteId = decodeURIComponent(key.slice(11))
+    if (noteId) {
+      return { navigator: 'notes', details: { type: 'note', noteId } }
+    }
+    return { navigator: 'notes', details: null }
   }
 
   // Handle automations

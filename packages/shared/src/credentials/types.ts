@@ -33,7 +33,9 @@ export type CredentialType =
   | 'source_apikey'      // API keys
   | 'source_basic'       // Basic auth (base64 encoded user:pass)
   // Messaging gateway credentials (keyed by workspaceId + platform)
-  | 'messaging_bearer';  // Platform tokens (e.g., Telegram bot token)
+  | 'messaging_bearer'   // Platform tokens (e.g., Telegram bot token)
+  // SSH host credentials (keyed by host id)
+  | 'ssh_managed_token'; // Auth token for the app-managed remote craft-agent server
 
 /** Valid credential types for validation */
 const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
@@ -49,6 +51,7 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'source_apikey',
   'source_basic',
   'messaging_bearer',
+  'ssh_managed_token',
 ] as const;
 
 /** Check if a string is a valid CredentialType */
@@ -71,6 +74,10 @@ export interface CredentialId {
   sourceId?: string;
   /** Server name or API name */
   name?: string;
+
+  // SSH-scoped format
+  /** SSH host id for ssh_managed_token credentials */
+  hostId?: string;
 }
 
 /**
@@ -179,6 +186,13 @@ export function credentialIdToAccount(id: CredentialId): string {
     return parts.join(CREDENTIAL_DELIMITER);
   }
 
+  // SSH-scoped format:
+  // ssh_managed_token::{hostId}
+  if (id.type === 'ssh_managed_token' && id.hostId) {
+    parts.push(id.hostId);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
   // Workspace-scoped format (no source):
   // workspace_oauth::{workspaceId}
   if (id.type === 'workspace_oauth' && id.workspaceId) {
@@ -250,6 +264,12 @@ export function accountToCredentialId(account: string): CredentialId | null {
   // llm_oauth::{connectionSlug}
   if (isLlmCredential(type) && parts.length === 2) {
     return { type, connectionSlug: parts[1] };
+  }
+
+  // SSH-scoped format:
+  // ssh_managed_token::{hostId}
+  if (type === 'ssh_managed_token' && parts.length === 2) {
+    return { type, hostId: parts[1] };
   }
 
   // Workspace-scoped format (no source):

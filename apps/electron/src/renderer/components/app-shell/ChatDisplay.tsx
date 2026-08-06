@@ -75,6 +75,7 @@ import { CHAT_LAYOUT } from "@/config/layout"
 import { collectFileChangesFromActivities, getFirstFileChangeIdForActivity } from "@/lib/file-changes"
 import { resolveBranchNewPanelOption } from "./branching"
 import { handleErrorMessageAction } from "./error-message-actions"
+import * as storage from "@/lib/local-storage"
 
 // ============================================================================
 // CSS Custom Highlight API helper
@@ -108,6 +109,30 @@ interface MarkdownOverlayState {
   title: string
   /** When true, show raw markdown source in code viewer instead of rendered preview */
   forceCodeView?: boolean
+}
+
+function encodeNoteTarget(target: string): string {
+  return encodeURIComponent(target.trim().replace(/\.md$/i, ''))
+}
+
+function linkifyNoteReferenceText(content: string): string {
+  let next = content.replace(/\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_match, target: string, heading = '', alias?: string) => {
+    const label = alias?.trim() || `${target.trim()}${heading || ''}`
+    return `[${label}](craft-note:${encodeNoteTarget(target)})`
+  })
+
+  next = next.replace(/(^|[\s(])((?:\.\/)?notes\/[^\s)\]]+?\.md)(?=$|[\s).,;:!?])/g, (_match, prefix: string, path: string) => {
+    return `${prefix}[${path}](craft-note:${encodeNoteTarget(path.replace(/^\.\//, '').replace(/^notes\//, ''))})`
+  })
+
+  return next
+}
+
+function linkifyNoteReferences(content: string): string {
+  return content
+    .split(/(```[\s\S]*?```|`[^`\n]+`)/g)
+    .map((segment) => segment.startsWith('`') ? segment : linkifyNoteReferenceText(segment))
+    .join('')
 }
 
 /** Union of all overlay states, or null for no overlay */
@@ -543,6 +568,28 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // This accounts for scenic themes (like Haze) that force dark mode
   const { isDark } = useTheme()
 
+  const [turnActivitiesExpandedByDefault, setTurnActivitiesExpandedByDefault] = useState(() =>
+    storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false)
+  )
+  useEffect(() => {
+    const settingKey = storage.getKeyString(storage.KEYS.turnActivitiesExpandedByDefault)
+    const syncValue = () => {
+      setTurnActivitiesExpandedByDefault(storage.get(storage.KEYS.turnActivitiesExpandedByDefault, false))
+    }
+    const handleChange = () => syncValue()
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === settingKey || event.key === null) {
+        syncValue()
+      }
+    }
+    window.addEventListener(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, handleChange)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(storage.EVENTS.turnActivitiesExpandedByDefaultChanged, handleChange)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
+
   // Register as focus zone - when zone gains focus, focus the textarea
   // Guard with isFocusedPanelRef so only the focused panel responds in multi-panel layouts
   const { zoneRef, isFocused } = useFocusZone({
@@ -562,11 +609,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
   // TurnCard expansion state — persisted to localStorage across session switches
   const {
-    expandedTurns,
+    isTurnExpanded,
     toggleTurn,
     expandedActivityGroups,
     setExpandedActivityGroups,
-  } = useTurnCardExpansion(session?.id)
+    collapsedActivityGroups,
+    setCollapsedActivityGroups,
+  } = useTurnCardExpansion(session?.id, turnActivitiesExpandedByDefault)
 
 
   // ============================================================================
@@ -1718,10 +1767,13 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         intent={turn.intent}
                         isStreaming={turn.isStreaming}
                         isComplete={turn.isComplete}
-                        isExpanded={expandedTurns.has(assistantUiKey)}
+                        isExpanded={isTurnExpanded(assistantUiKey)}
                         onExpandedChange={(expanded) => toggleTurn(assistantUiKey, expanded)}
                         expandedActivityGroups={expandedActivityGroups}
                         onExpandedActivityGroupsChange={setExpandedActivityGroups}
+                        activityGroupsExpandedByDefault={turnActivitiesExpandedByDefault}
+                        collapsedActivityGroups={collapsedActivityGroups}
+                        onCollapsedActivityGroupsChange={setCollapsedActivityGroups}
                         todos={turn.todos}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
@@ -2230,12 +2282,13 @@ function MessageBubble({
   onRetry,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
+  const messageContent = useMemo(() => linkifyNoteReferences(message.content), [message.content])
 
   // === USER MESSAGE: Right-aligned bubble with attachments above ===
   if (message.role === 'user') {
     return (
       <UserMessageBubble
-        content={message.content}
+        content={messageContent}
         attachments={message.attachments}
         badges={message.badges}
         isPending={message.isPending}
@@ -2266,7 +2319,7 @@ function MessageBubble({
           {/* Use StreamingMarkdown for block-level memoization during streaming */}
           {message.isStreaming ? (
             <StreamingMarkdown
-              content={message.content}
+              content={messageContent}
               isStreaming={true}
               mode={renderMode}
               onUrlClick={onOpenUrl}
@@ -2282,7 +2335,7 @@ function MessageBubble({
                 className="text-sm"
                 collapsible
               >
-                {message.content}
+                {messageContent}
               </Markdown>
             </CollapsibleMarkdownProvider>
           )}

@@ -147,6 +147,7 @@ export const CHANNEL_MAP = {
   // Auth
   showLogoutConfirmation: invoke(RPC_CHANNELS.auth.SHOW_LOGOUT_CONFIRMATION),
   showDeleteSessionConfirmation: invoke(RPC_CHANNELS.auth.SHOW_DELETE_SESSION_CONFIRMATION),
+  showDeleteWorkspaceConfirmation: invoke(RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION),
   logout: invoke(RPC_CHANNELS.auth.LOGOUT),
   getCredentialHealth: invoke(RPC_CHANNELS.credentials.HEALTH_CHECK),
 
@@ -210,6 +211,28 @@ export const CHANNEL_MAP = {
 
   // Server filesystem browsing (remote mode)
   listServerDirectory: invoke(RPC_CHANNELS.fs.LIST_DIRECTORY),
+
+  // Notes
+  listNotes: invoke(RPC_CHANNELS.notes.LIST),
+  readNote: invoke(RPC_CHANNELS.notes.READ),
+  saveNote: invoke(RPC_CHANNELS.notes.SAVE),
+  createNote: invoke(RPC_CHANNELS.notes.CREATE),
+  renameNote: invoke(RPC_CHANNELS.notes.RENAME),
+  deleteNote: invoke(RPC_CHANNELS.notes.DELETE),
+  renameFolderNote: invoke(RPC_CHANNELS.notes.RENAME_FOLDER),
+  deleteFolderNote: invoke(RPC_CHANNELS.notes.DELETE_FOLDER),
+  searchNotes: invoke(RPC_CHANNELS.notes.SEARCH),
+  getNoteBacklinks: invoke(RPC_CHANNELS.notes.GET_BACKLINKS),
+  getNoteRenameImpact: invoke(RPC_CHANNELS.notes.GET_RENAME_IMPACT),
+  getDailyNote: invoke(RPC_CHANNELS.notes.GET_DAILY_NOTE),
+  importNoteAsset: invoke(RPC_CHANNELS.notes.IMPORT_ASSET),
+  listNoteAssets: invoke(RPC_CHANNELS.notes.LIST_ASSETS),
+  deleteNoteAsset: invoke(RPC_CHANNELS.notes.DELETE_ASSET),
+  renameNoteAsset: invoke(RPC_CHANNELS.notes.RENAME_ASSET),
+  updateNoteProperties: invoke(RPC_CHANNELS.notes.UPDATE_PROPERTIES),
+  watchNotes: invoke(RPC_CHANNELS.notes.WATCH),
+  unwatchNotes: invoke(RPC_CHANNELS.notes.UNWATCH),
+  onNotesChanged: listener(RPC_CHANNELS.notes.CHANGED),
 
   // Debug logging
   debugLog: invoke(RPC_CHANNELS.debug.LOG),
@@ -339,6 +362,8 @@ export const CHANNEL_MAP = {
   // Appearance settings
   getRichToolDescriptions: invoke(RPC_CHANNELS.appearance.GET_RICH_TOOL_DESCRIPTIONS),
   setRichToolDescriptions: invoke(RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS),
+  getDefaultZoomLevel: invoke(RPC_CHANNELS.appearance.GET_DEFAULT_ZOOM_LEVEL),
+  setDefaultZoomLevel: invoke(RPC_CHANNELS.appearance.SET_DEFAULT_ZOOM_LEVEL),
 
   // Tools settings
   getBrowserToolEnabled: invoke(RPC_CHANNELS.tools.GET_BROWSER_TOOL_ENABLED),
@@ -401,6 +426,17 @@ export const CHANNEL_MAP = {
   'browserPane.reload': invoke(RPC_CHANNELS.browserPane.RELOAD),
   'browserPane.stop': invoke(RPC_CHANNELS.browserPane.STOP),
   'browserPane.focus': invoke(RPC_CHANNELS.browserPane.FOCUS),
+  'browserPane.resize': invoke(RPC_CHANNELS.browserPane.RESIZE),
+  'browserPane.snapshot': invoke(RPC_CHANNELS.browserPane.SNAPSHOT),
+  'browserPane.click': invoke(RPC_CHANNELS.browserPane.CLICK),
+  'browserPane.clickAt': invoke(RPC_CHANNELS.browserPane.CLICK_AT),
+  'browserPane.fill': invoke(RPC_CHANNELS.browserPane.FILL),
+  'browserPane.typeText': invoke(RPC_CHANNELS.browserPane.TYPE),
+  'browserPane.sendKey': invoke(RPC_CHANNELS.browserPane.KEY),
+  'browserPane.select': invoke(RPC_CHANNELS.browserPane.SELECT),
+  'browserPane.screenshotImage': invoke(RPC_CHANNELS.browserPane.SCREENSHOT),
+  'browserPane.scroll': invoke(RPC_CHANNELS.browserPane.SCROLL),
+  'browserPane.evaluate': invoke(RPC_CHANNELS.browserPane.EVALUATE),
   'browserPane.emptyStateLaunch': invoke(RPC_CHANNELS.browserPane.LAUNCH),
   'browserPane.onStateChanged': listener(RPC_CHANNELS.browserPane.STATE_CHANGED),
   'browserPane.onRemoved': listener(RPC_CHANNELS.browserPane.REMOVED),
@@ -450,6 +486,8 @@ export const CHANNEL_MAP = {
   saveTelegramToken: invoke(RPC_CHANNELS.messaging.SAVE_TELEGRAM),
   testLarkCredentials: invoke(RPC_CHANNELS.messaging.TEST_LARK),
   saveLarkCredentials: invoke(RPC_CHANNELS.messaging.SAVE_LARK),
+  testDiscordCredentials: invoke(RPC_CHANNELS.messaging.TEST_DISCORD),
+  saveDiscordCredentials: invoke(RPC_CHANNELS.messaging.SAVE_DISCORD),
   disconnectMessagingPlatform: invoke(RPC_CHANNELS.messaging.DISCONNECT),
   forgetMessagingPlatform: invoke(RPC_CHANNELS.messaging.FORGET),
   getMessagingBindings: invoke(RPC_CHANNELS.messaging.GET_BINDINGS),
@@ -464,6 +502,11 @@ export const CHANNEL_MAP = {
   startWhatsAppConnect: invoke(RPC_CHANNELS.messaging.WA_START_CONNECT),
   submitWhatsAppPhone: invoke(RPC_CHANNELS.messaging.WA_SUBMIT_PHONE),
   onWhatsAppEvent: listener(RPC_CHANNELS.messaging.WA_UI_EVENT),
+  startWeChatConnect: invoke(RPC_CHANNELS.messaging.WECHAT_START_CONNECT),
+  submitWeChatVerifyCode: invoke(RPC_CHANNELS.messaging.WECHAT_SUBMIT_CODE),
+  onWeChatEvent: listener(RPC_CHANNELS.messaging.WECHAT_UI_EVENT),
+
+
 
   // Messaging access control (Phase 3)
   getMessagingPlatformOwners: invoke(RPC_CHANNELS.messaging.GET_PLATFORM_OWNERS),

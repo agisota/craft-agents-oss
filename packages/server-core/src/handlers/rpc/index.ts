@@ -10,8 +10,10 @@ import { registerLlmConnectionsHandlers } from './llm-connections'
 import { registerOAuthHandlers } from './oauth'
 import { registerResourcesHandlers } from './resources'
 import { registerOnboardingHandlers } from './onboarding'
-import { registerSessionsHandlers } from './sessions'
+import { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
+import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
+export { cleanupNotesWatchForClient } from './notes'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -29,11 +31,27 @@ import { registerWorkspaceCoreHandlers } from './workspace'
 import { registerMessagingHandlers } from './messaging'
 import { registerMemoryHandlers } from './memory'
 import { registerSkillsPendingHandlers } from './skills-pending'
+export function cleanupCoreClientResources(clientId: string): void {
+  cleanupSessionFileWatchForClient(clientId)
+  cleanupNotesWatchForClient(clientId)
+}
+import { registerBrowserPaneHandlers } from './browser-pane'
+
+export interface CoreRpcRegistrationOptions {
+  /**
+   * Register browser-pane:* channels (standalone/headless server needs them
+   * for the Web UI). Set to false when the host app registers its own
+   * browser-pane handlers (electron GUI) — the RpcServer rejects duplicate
+   * channel registrations and the app fails to boot.
+   */
+  browserPane?: boolean
+}
 
 export function registerCoreRpcHandlers(
   server: RpcServer,
   deps: HandlerDeps,
   serverCtx?: ServerHandlerContext,
+  options?: CoreRpcRegistrationOptions,
 ): void {
   registerAuthHandlers(server, deps)
   registerCloudRunsHandlers(server, deps)
@@ -59,4 +77,6 @@ export function registerCoreRpcHandlers(
   registerMessagingHandlers(server, deps)
   registerMemoryHandlers(server, deps)
   registerSkillsPendingHandlers(server, deps)
+  registerNotesHandlers(server, deps)
+  if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)
 }

@@ -43,6 +43,7 @@ export const KEYS = {
 
   // TurnCard expansion state (persisted across session switches)
   turnCardExpansion: 'turncard-expansion',
+  turnActivitiesExpandedByDefault: 'turn-activities-expanded-by-default',
 
   // Last selected session (workspace-scoped via suffix)
   lastSelectedSessionId: 'last-selected-session-id',
@@ -53,6 +54,7 @@ export const KEYS = {
   // Appearance
   showConnectionIcons: 'show-connection-icons',
   projectColorTreatment: 'project-color-treatment', // 'stripe' | 'stripe-tint'
+  workspaceSelectorRail: 'workspace-selector-rail',
 
   // What's New
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
@@ -60,6 +62,10 @@ export const KEYS = {
   // Workspace navigation state (workspace-scoped via suffix = workspaceSlug)
   // Stores the full URL search string so switching back restores panels/focus/sidebar
   workspaceUrl: 'workspace-url',
+} as const
+
+export const EVENTS = {
+  turnActivitiesExpandedByDefaultChanged: 'craft:turn-activities-expanded-by-default-changed',
 } as const
 
 export type StorageKey = typeof KEYS[keyof typeof KEYS]

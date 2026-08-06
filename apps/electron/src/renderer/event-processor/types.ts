@@ -124,6 +124,10 @@ export interface CompleteEvent {
    * `complete`; a real `task_completed` will arrive when the agent actually finishes.
    */
   backgroundTasksAlive?: boolean
+  /** Why processing stopped. Set by SessionManager.onProcessingStopped (#664). */
+  reason?: 'complete' | 'interrupted' | 'error' | 'timeout'
+  /** True iff this turn produced a NEW final assistant message. Used to gate completion notifications (#664). */
+  didReceiveNewFinalMessage?: boolean
 }
 
 /**

@@ -1018,6 +1018,9 @@ interface ManagedSession {
   authRetryAttempted?: boolean
   // Flag indicating auth retry is in progress (to prevent complete handler from interfering)
   authRetryInProgress?: boolean
+  // Rate-limit failover tracking (runtime only): switch to another compatible OAuth connection once current subscription is capped.
+  rateLimitFailoverInProgress?: boolean
+  rateLimitFailoverTriedConnections?: Set<string>
   // Whether this session is hidden from session list (e.g., mini edit sessions)
   hidden?: boolean
   branchFromMessageId?: string
@@ -1420,20 +1423,25 @@ export class SessionManager implements ISessionManager {
    * 2. A session-bound {@link RemoteBrowserPaneManager} when `rpcServer` is set.
    *    Cached in `remoteBpms` so repeat lookups don't allocate.
    * 3. `null` when there's neither a local BPM nor an RPC server.
+   *
+   * `opts.workspaceId` is a fallback used when the session is not yet registered
+   * in `this.sessions` (e.g. during eager agent creation for branch preflight,
+   * before the session is inserted). Without it the remote bridge could not be
+   * built and the caller's "passed the gate" invariant would be violated.
    */
-  getBrowserPaneManagerForSession(sid: string): IBrowserPaneManager | null {
+  getBrowserPaneManagerForSession(sid: string, opts?: { workspaceId?: string }): IBrowserPaneManager | null {
     if (this.browserPaneManager) return this.browserPaneManager
     if (!this.rpcServer) return null
 
     const cached = this.remoteBpms.get(sid)
     if (cached) return cached
 
-    const session = this.sessions.get(sid)
-    if (!session) return null
+    const workspaceId = this.sessions.get(sid)?.workspace.id ?? opts?.workspaceId
+    if (!workspaceId) return null
 
     const bridge = new RemoteBrowserPaneManager({
       sessionId: sid,
-      workspaceId: session.workspace.id,
+      workspaceId,
       rpcServer: this.rpcServer,
       getHostClient: () => this.getBrowserHostClient(sid),
     })
@@ -3227,6 +3235,19 @@ export class SessionManager implements ISessionManager {
       messagesLoaded: !isBranch,  // Branched sessions: lazy-load messages from JSONL
     })
 
+    // Register the session and initialize mode-manager state BEFORE any eager
+    // agent creation (branch preflight). getOrCreateAgent's browser-pane wiring
+    // resolves the session via this.sessions, so it must be present first: the
+    // browser-pane gate resolves a remote BrowserPaneManager via
+    // this.sessions.get(id), so an unregistered session trips the "passed the
+    // gate" guard under rpcServer (remote) deployments. rollbackFailedBranchCreation
+    // removes it again if preflight fails.
+    setPermissionMode(storedSession.id, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
+    if (managed.previousPermissionMode) {
+      hydratePreviousPermissionMode(storedSession.id, managed.previousPermissionMode)
+    }
+    this.sessions.set(storedSession.id, managed)
+
     // Eagerly load messages for branched sessions so the renderer gets the full
     // conversation immediately (needed for scroll-to-bottom on panel open)
     if (isBranch) {
@@ -3273,14 +3294,6 @@ export class SessionManager implements ISessionManager {
       }
     }
 
-    // Initialize mode-manager state immediately to avoid UI/enforcement races
-    // before the agent instance is lazily created.
-    setPermissionMode(storedSession.id, managed.permissionMode ?? this.defaultRestorePermissionMode(), { changedBy: 'restore' })
-    if (managed.previousPermissionMode) {
-      hydratePreviousPermissionMode(storedSession.id, managed.previousPermissionMode)
-    }
-
-    this.sessions.set(storedSession.id, managed)
 
     // Initialize session metadata in AutomationSystem for diffing
     const automationSystem = this.automationSystems.get(workspaceRootPath)
@@ -3499,9 +3512,12 @@ export class SessionManager implements ISessionManager {
             customModels: connection.models?.map(model => {
               if (typeof model === 'string') return model
               const supportsImages = typeof model.supportsImages === 'boolean' ? model.supportsImages : undefined
-              if (model.contextWindow || supportsImages !== undefined) {
+              const hasDisplayName = typeof model.name === 'string' || typeof model.shortName === 'string'
+              if (model.contextWindow || supportsImages !== undefined || hasDisplayName) {
                 return {
                   id: model.id,
+                  ...(typeof model.name === 'string' ? { name: model.name } : {}),
+                  ...(typeof model.shortName === 'string' ? { shortName: model.shortName } : {}),
                   ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
                   ...(supportsImages !== undefined ? { supportsImages } : {}),
                 }
@@ -3903,7 +3919,7 @@ export class SessionManager implements ISessionManager {
       })
       if (this.browserPaneManager || this.rpcServer) {
         const sid = managed.id
-        const bpm = this.getBrowserPaneManagerForSession(sid)
+        const bpm = this.getBrowserPaneManagerForSession(sid, { workspaceId: managed.workspace.id })
         if (!bpm) {
           throw new Error('Browser pane manager unavailable despite passing the gate — this is a bug.')
         }
@@ -5055,6 +5071,46 @@ export class SessionManager implements ISessionManager {
   }
 
   /**
+   * Undo the last user message by truncating session messages to before it.
+   * Returns the user message content so the client can restore it to the input.
+   */
+  async undoLastUserMessage(sessionId: string): Promise<{ success: boolean; userMessage?: string }> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return { success: false }
+
+    await this.ensureMessagesLoaded(managed)
+
+    const lastUserIndex = managed.messages.map(m => m.role).lastIndexOf('user')
+    if (lastUserIndex === -1) return { success: false }
+
+    // Cancel any in-flight processing before truncating
+    if (managed.isProcessing) {
+      await this.cancelProcessing(sessionId, true)
+    }
+
+    const userMessage = managed.messages[lastUserIndex]
+    const content = typeof userMessage.content === 'string' ? userMessage.content : ''
+
+    managed.messages = managed.messages.slice(0, lastUserIndex)
+    managed.messageCount = managed.messages.length
+    managed.lastFinalMessageId = undefined
+    managed.lastMessageRole = managed.messages.length > 0
+      ? managed.messages[managed.messages.length - 1].role as ManagedSession['lastMessageRole']
+      : undefined
+    // Reset provider-side conversation history so the next turn doesn't
+    // include the undone messages.  clearHistory() resets the SDK session
+    // without tearing down MCP pools / pool servers / other shared resources.
+    managed.agent?.clearHistory()
+    managed.sdkSessionId = undefined
+    managed.wasInterrupted = false
+    this.setProcessing(managed, false)
+    this.persistSession(managed)
+    this.sendEvent({ type: 'messages_replaced', sessionId, messages: managed.messages }, managed.workspace.id)
+
+    return { success: true, userMessage: content }
+  }
+
+  /**
    * Get pending plan execution state for a session.
    * Used on reload/init to check if we need to resume plan execution.
    */
@@ -6020,6 +6076,11 @@ export class SessionManager implements ISessionManager {
      * directly (tests, intra-server flows) to leave the existing pin in place.
      */
     rpcContext?: { callerClientId?: string },
+    /**
+     * Internal retry mode. Kept as the trailing argument so public/RPC call sites
+     * don't need to know about retry bookkeeping.
+     */
+    _internalRetryKind?: 'auth' | 'failover',
   ): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed) {
@@ -6240,12 +6301,18 @@ export class SessionManager implements ISessionManager {
     managed.processingGeneration++
     managed.turnStartFinalMessageId = this.getLastFinalAssistantMessageId(managed.messages)
 
-    // Reset auth retry flag for this new message (allows one retry per message)
-    // IMPORTANT: Skip reset if this is an auth retry call - the flag is already true
-    // and resetting it would allow infinite retry loops
-    // Note: authRetryInProgress is NOT reset here - it's managed by the retry logic
-    if (!_isAuthRetry) {
+    // Reset retry flags for this new message (allows bounded retries per turn).
+    // IMPORTANT: Skip the matching reset for internal retry calls; the tracking
+    // state is already set and resetting it would allow retry loops.
+    // Note: in-progress flags are managed by their retry helpers.
+    const isAuthRetry = _isAuthRetry || _internalRetryKind === 'auth'
+    const isFailoverRetry = _internalRetryKind === 'failover'
+    if (!isAuthRetry) {
       managed.authRetryAttempted = false
+    }
+    if (!isFailoverRetry) {
+      managed.rateLimitFailoverTriedConnections = undefined
+      managed.rateLimitFailoverInProgress = false
     }
 
     // Store message/attachments for potential retry after auth refresh
@@ -6465,11 +6532,11 @@ export class SessionManager implements ISessionManager {
         // Handle complete event - SDK always sends this (even after interrupt)
         // This is the central place where processing ends
         if (event.type === 'complete') {
-          // Skip normal completion handling if auth retry is in progress
-          // The retry will handle its own completion
-          if (managed.authRetryInProgress) {
-            sessionLog.info('Chat completed but auth retry is in progress, skipping normal completion handling')
-            sendSpan.mark('chat.complete.auth_retry_pending')
+          // Skip normal completion handling if an internal retry is in progress.
+          // The retry will handle its own completion.
+          if (managed.authRetryInProgress || managed.rateLimitFailoverInProgress) {
+            sessionLog.info('Chat completed but internal retry is in progress, skipping normal completion handling')
+            sendSpan.mark(managed.authRetryInProgress ? 'chat.complete.auth_retry_pending' : 'chat.complete.failover_retry_pending')
             sendSpan.end()
             return  // Exit function - retry will handle completion
           }
@@ -6693,6 +6760,170 @@ export class SessionManager implements ISessionManager {
 
     // NOTE: We don't clear isProcessing or send complete event here anymore.
     // The event loop will drain remaining events and call onProcessingStopped when done.
+  }
+
+  private modelAvailableOnConnection(connection: NonNullable<ReturnType<typeof getLlmConnection>>, modelId?: string): boolean {
+    if (!modelId) return true
+    const models = connection.models
+    if (!models || models.length === 0) return true
+    return models.some(model => (typeof model === 'string' ? model : model.id) === modelId)
+  }
+
+  private isSameOAuthAccount(
+    current: NonNullable<ReturnType<typeof getLlmConnection>>,
+    candidate: NonNullable<ReturnType<typeof getLlmConnection>>,
+  ): boolean {
+    if (current.oauthAccountUuid && candidate.oauthAccountUuid) {
+      return current.oauthAccountUuid === candidate.oauthAccountUuid
+    }
+    if (current.oauthAccountEmail && candidate.oauthAccountEmail) {
+      return current.oauthAccountEmail === candidate.oauthAccountEmail
+        && (current.oauthOrganizationUuid || current.oauthOrganizationName || '') === (candidate.oauthOrganizationUuid || candidate.oauthOrganizationName || '')
+    }
+    return false
+  }
+
+  private async findRateLimitFailoverConnection(
+    managed: ManagedSession,
+  ): Promise<NonNullable<ReturnType<typeof getLlmConnection>> | null> {
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.rootPath)
+    const current = resolveSessionConnection(
+      managed.llmConnection,
+      workspaceConfig?.defaults?.defaultLlmConnection,
+    )
+    if (!current || current.authType !== 'oauth') return null
+
+    const tried = managed.rateLimitFailoverTriedConnections ?? new Set<string>()
+    const modelId = managed.model || current.defaultModel
+    const credentialManager = getCredentialManager()
+
+    for (const candidate of getLlmConnections()) {
+      if (candidate.slug === current.slug) continue
+      if (tried.has(candidate.slug)) continue
+      if (candidate.authType !== 'oauth') continue
+      if (candidate.providerType !== current.providerType) continue
+      if (candidate.piAuthProvider !== current.piAuthProvider) continue
+      if (this.isSameOAuthAccount(current, candidate)) continue
+      if (!this.modelAvailableOnConnection(candidate, modelId)) continue
+
+      const hasCredentials = await credentialManager.hasLlmCredentials(
+        candidate.slug,
+        candidate.authType,
+        candidate.providerType,
+      )
+      if (!hasCredentials) continue
+
+      return candidate
+    }
+
+    return null
+  }
+
+  /**
+   * Attempt rate-limit failover: switch to another compatible OAuth connection
+   * and resend the last user message. This is intentionally owned by Craft
+   * rather than Pi/Claude because Craft owns the user's connection list and can
+   * ensure we only switch between distinct accounts for the same provider/model.
+   */
+  private async attemptRateLimitFailover(
+    sessionId: string,
+    managed: ManagedSession,
+    workspaceId: string,
+  ): Promise<boolean> {
+    if (!managed.lastSentMessage) return false
+
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.rootPath)
+    const current = resolveSessionConnection(
+      managed.llmConnection,
+      workspaceConfig?.defaults?.defaultLlmConnection,
+    )
+    if (!current) return false
+
+    const tried = managed.rateLimitFailoverTriedConnections ?? new Set<string>()
+    tried.add(current.slug)
+    managed.rateLimitFailoverTriedConnections = tried
+
+    const failoverConnection = await this.findRateLimitFailoverConnection(managed)
+    if (!failoverConnection) {
+      sessionLog.info(`[rate-limit-failover] No compatible failover connection found for session ${sessionId}`)
+      return false
+    }
+
+    sessionLog.info(`[rate-limit-failover] Switching session ${sessionId} from ${current.slug} to ${failoverConnection.slug}`)
+    managed.rateLimitFailoverInProgress = true
+
+    this.sendEvent({
+      type: 'info',
+      sessionId,
+      message: `Rate limit reached on ${current.name}. Switching to ${failoverConnection.name}…`,
+      timestamp: this.monotonic(),
+    }, workspaceId)
+
+    setImmediate(async () => {
+      try {
+        const retryMessage = managed.lastSentMessage
+        const retryAttachments = managed.lastSentAttachments
+        const retryStoredAttachments = managed.lastSentStoredAttachments
+        const retryOptions = managed.lastSentOptions
+
+        if (!retryMessage) {
+          managed.rateLimitFailoverInProgress = false
+          return
+        }
+
+        resetSummarizationClient()
+        managed.agent = null
+        managed.llmConnection = failoverConnection.slug
+        managed.connectionLocked = true
+        this.persistSession(managed)
+        await this.flushSession(managed.id)
+
+        this.sendEvent({
+          type: 'connection_changed',
+          sessionId: managed.id,
+          connectionSlug: failoverConnection.slug,
+          supportsBranching: resolveSupportsBranching(managed),
+        }, managed.workspace.id)
+
+        this.setProcessing(managed, false)
+
+        // Remove the user message from the failed attempt; the retry will add it
+        // back once it is durably accepted under the new connection.
+        const lastUserMsgIndex = managed.messages.findLastIndex(m => m.role === 'user')
+        if (lastUserMsgIndex !== -1) {
+          managed.messages.splice(lastUserMsgIndex, 1)
+        }
+
+        managed.rateLimitFailoverInProgress = false
+
+        await this.sendMessage(
+          sessionId,
+          retryMessage,
+          retryAttachments,
+          retryStoredAttachments,
+          retryOptions,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          'failover',
+        )
+        sessionLog.info(`[rate-limit-failover] Retry on ${failoverConnection.slug} completed for session ${sessionId}`)
+      } catch (retryError) {
+        managed.rateLimitFailoverInProgress = false
+        sessionLog.error(`[rate-limit-failover] Failed to retry session ${sessionId}:`, retryError)
+        sessionRuntimeHooks.captureException(retryError, { errorSource: 'rate-limit-failover', sessionId })
+        this.sendEvent({
+          type: 'error',
+          sessionId,
+          error: retryError instanceof Error ? retryError.message : 'Rate-limit failover failed',
+          timestamp: this.monotonic(),
+        }, workspaceId)
+        this.onProcessingStopped(sessionId, 'error')
+      }
+    })
+
+    return true
   }
 
   /**
@@ -6920,7 +7151,9 @@ export class SessionManager implements ISessionManager {
         }
       }
 
-      // No queue - emit complete to UI (include tokenUsage and hasUnread for state updates)
+      // No queue - emit complete to UI (include tokenUsage and hasUnread for state updates).
+      // reason + didReceiveNewFinalMessage let the renderer distinguish a real
+      // completion from an error/interrupt cleanup so it can gate notifications (#664).
       this.sendEvent({
         type: 'complete',
         sessionId,
@@ -6931,6 +7164,8 @@ export class SessionManager implements ISessionManager {
         // chip orphan-backstop does not falsely flip live tasks to `orphaned`; a
         // real `task_completed` will arrive when the agent actually finishes.
         backgroundTasksAlive: this.keepBackgroundTasksAlive,
+        reason,
+        didReceiveNewFinalMessage,
       }, managed.workspace.id)
 
       // Tasks Conductor seam: signal true completion (queue empty) with the stop
@@ -8276,6 +8511,11 @@ export class SessionManager implements ISessionManager {
           break
         }
 
+        const isPlainRateLimitError = lowerErr.includes('429') || lowerErr.includes('rate limit') || lowerErr.includes('too many requests')
+        if (isPlainRateLimitError && await this.attemptRateLimitFailover(sessionId, managed, workspaceId)) {
+          break
+        }
+
         // AgentEvent uses `message` not `error`
         const errorMessage: Message = {
           id: generateMessageId(),
@@ -8315,6 +8555,11 @@ export class SessionManager implements ISessionManager {
 
         if (isAuthError && this.attemptAuthRetry(sessionId, managed, workspaceId, event.error.code)) {
           // Don't add error message or send to renderer - we're handling it via retry
+          break
+        }
+
+        if (event.error.code === 'rate_limited' && await this.attemptRateLimitFailover(sessionId, managed, workspaceId)) {
+          // Don't add error message or send to renderer - we're handling it via failover retry
           break
         }
 

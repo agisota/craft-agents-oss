@@ -86,7 +86,7 @@ import { existsSync, readFileSync } from 'fs'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@craft-agent/server-core/sessions'
 import { registerAllRpcHandlers } from './handlers/index'
-import { registerCoreRpcHandlers, cleanupSessionFileWatchForClient } from '@craft-agent/server-core/handlers/rpc'
+import { registerCoreRpcHandlers, cleanupCoreClientResources } from '@craft-agent/server-core/handlers/rpc'
 import type { PlatformServices } from '../runtime/platform'
 import { createElectronPlatform } from './platform'
 import type { HandlerDeps } from './handlers/handler-deps'
@@ -99,6 +99,7 @@ import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces, getWorkspaceByNameOrId, loadStoredConfig, addWorkspace, saveConfig } from '@craft-agent/shared/config'
+import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { initializeReleaseNotes } from '@craft-agent/shared/release-notes'
@@ -436,7 +437,9 @@ app.whenReady().then(async () => {
     ].find(p => existsSync(p))
 
     if (dockIconPath) {
-      app.dock.setIcon(dockIconPath)
+      if (!app.isPackaged) {
+        app.dock.setIcon(dockIconPath)
+      }
       // Initialize badge icon for canvas-based badge overlay
       initBadgeIcon(dockIconPath)
     }
@@ -548,6 +551,24 @@ app.whenReady().then(async () => {
         || BrowserWindow.getAllWindows()[0]
       const result = await dialog.showOpenDialog(win, spec)
       return { canceled: result.canceled, filePaths: result.filePaths }
+    })
+    ipcMain.handle('notes:exportPdf', async (event, opts: { html: string; defaultPath: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+        || BrowserWindow.getFocusedWindow()
+        || BrowserWindow.getAllWindows()[0]
+      if (!win) return { canceled: true }
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: opts.defaultPath,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      })
+      if (result.canceled || !result.filePath) return { canceled: true }
+      const hidden = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } })
+      await hidden.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(opts.html)}`)
+      const pdfBuffer = await hidden.webContents.printToPDF({ printBackground: true })
+      hidden.destroy()
+      const { writeFile } = await import('fs/promises')
+      await writeFile(result.filePath, pdfBuffer)
+      return { canceled: false, filePath: result.filePath }
     })
 
     if (!isClientOnly) {
@@ -666,7 +687,7 @@ app.whenReady().then(async () => {
             sessionManager: sm,
             credentialManager: getCredentialManager(),
             getMessagingDir: (wsId: string) =>
-              join(homedir(), '.craft-agent', 'workspaces', wsId, 'messaging'),
+              join(CONFIG_DIR, 'workspaces', wsId, 'messaging'),
             getLegacyMessagingDir: (wsId: string) => {
               const ws = getWorkspaces().find((w) => w.id === wsId)
               return ws ? join(ws.rootPath, 'messaging') : undefined
@@ -684,6 +705,14 @@ app.whenReady().then(async () => {
                 ? join(process.resourcesPath, 'messaging-whatsapp-worker', 'worker.cjs')
                 : join(process.cwd(), 'packages', 'messaging-whatsapp-worker', 'dist', 'worker.cjs'),
               pairingMode: 'qr',
+            },
+            // Discord worker: same embedded-Node spawn model as WhatsApp.
+            // Dev resolves worker.cjs from the monorepo; packaged builds ship
+            // it via extraResources (see apps/electron/electron-builder.yml).
+            discord: {
+              workerEntry: app.isPackaged
+                ? join(process.resourcesPath, 'messaging-discord-worker', 'worker.cjs')
+                : join(process.cwd(), 'packages', 'messaging-discord-worker', 'dist', 'worker.cjs'),
             },
           })
           return {
@@ -723,7 +752,7 @@ app.whenReady().then(async () => {
           for (const [wcId, cId] of clientMap) {
             if (cId === clientId) { clientMap.delete(wcId); break }
           }
-          cleanupSessionFileWatchForClient(clientId)
+          cleanupCoreClientResources(clientId)
         },
       })
 
@@ -771,6 +800,10 @@ app.whenReady().then(async () => {
         return remove(workspaceId)
       })
 
+      // SSH remote hosts + tunnels (Remote-SSH style bootstrap to a remote server)
+      const { registerSshTunnelIpc } = await import('./ssh-tunnel/ipc')
+      registerSshTunnelIpc()
+
       // Cross-server RPC — invoke a channel on an arbitrary remote server
       ipcMain.handle('server:invokeOnServer', async (_event, url: string, token: string, channel: string, ...args: unknown[]) => {
         const { connectToRemote } = await import('./handlers/workspace')
@@ -804,6 +837,12 @@ app.whenReady().then(async () => {
         if (!targetWorkspace) throw new Error(`Workspace ${targetWorkspaceId} not found`)
         if (!sessionManager) throw new Error('Session manager not initialized')
 
+        // SSH-backed configs persist a stale forwarded port — resolve a live
+        // { url, token } through the tunnel/bootstrap machinery before dialing.
+        const { resolveRemoteConnection } = await import('./ssh-tunnel/connection-resolver')
+        const { getSshTunnelManager } = await import('./ssh-tunnel/ssh-tunnel-manager')
+        const resolverDeps = getSshTunnelManager().connectionResolverDeps()
+
         const sourceWorkspaceLocalId = windowManager?.getWorkspaceForWindow(_event.sender.id)
         if (!sourceWorkspaceLocalId) throw new Error('Unable to resolve source workspace for transfer')
 
@@ -813,7 +852,8 @@ app.whenReady().then(async () => {
         let bundle: any = null
 
         if (sourceWorkspace.remoteServer) {
-          const { url: sourceUrl, token: sourceToken, remoteWorkspaceId: sourceRemoteWorkspaceId } = sourceWorkspace.remoteServer
+          const { url: sourceUrl, token: sourceToken, remoteWorkspaceId: sourceRemoteWorkspaceId } =
+            await resolveRemoteConnection(sourceWorkspace.remoteServer, resolverDeps)
           console.log(`[Transfer] Exporting remote-owned session ${sessionId} from workspace ${sourceRemoteWorkspaceId}...`)
           const { client: sourceClient, error: sourceError } = await connectToRemote(sourceUrl, sourceToken, sourceRemoteWorkspaceId, { requestTimeout: TRANSFER_REQUEST_TIMEOUT_MS })
           if (!sourceClient) throw new Error(sourceError ?? 'Connection failed to source remote server')
@@ -871,7 +911,8 @@ app.whenReady().then(async () => {
           return result
         }
 
-        const { url, token, remoteWorkspaceId } = targetWorkspace.remoteServer
+        const { url, token, remoteWorkspaceId } =
+          await resolveRemoteConnection(targetWorkspace.remoteServer, resolverDeps)
         console.log(`[Transfer] Connecting to target remote server: ${url}`)
         const { client, error } = await connectToRemote(url, token, remoteWorkspaceId, { requestTimeout: TRANSFER_REQUEST_TIMEOUT_MS })
         if (!client) throw new Error(error ?? 'Connection failed to target remote server')
