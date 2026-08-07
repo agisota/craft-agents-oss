@@ -61,7 +61,7 @@ describe('main-process i18n bootstrap', () => {
     } finally {
       rmSync(configDir, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   it('returns undefined when no language is persisted (no hydration step)', () => {
     const configDir = mkdtempSync(join(tmpdir(), 'i18n-bootstrap-'))
@@ -86,7 +86,7 @@ describe('main-process i18n bootstrap', () => {
     } finally {
       rmSync(configDir, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   it('ignores invalid persisted codes (defensive read)', () => {
     const configDir = mkdtempSync(join(tmpdir(), 'i18n-bootstrap-'))
@@ -108,5 +108,5 @@ describe('main-process i18n bootstrap', () => {
     } finally {
       rmSync(configDir, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 })

@@ -333,6 +333,8 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
     }
 
     const collisions: string[] = []
+    /** Targets we actually wrote this call — rollback must NOT touch kept local-mod paths. */
+    const writtenTargets: string[] = []
 
     const installOne = (name: string, srcDir: string, allowRename: boolean): void => {
       progress('install', name)
@@ -377,6 +379,27 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
               return
             }
           }
+        } else {
+          // owner === entry.id: reinstall/update. Soft-clean — keep user edits.
+          // Missing contentSha256 → fail-closed keep (same as removeEntry).
+          const prev = readLock(paths.lockFile).entries[entry.id]
+          const recorded = prev?.contentSha256?.[target]
+          if (!recorded) {
+            progress('collision', `${finalName} — owned without hash, kept`)
+            collisions.push(`${target} (locally-modified — user edits kept)`)
+            record.targets.push(target)
+            record.skills!.push(finalName)
+            return
+          }
+          const current = sha256Directory(target)
+          if (current !== recorded) {
+            progress('collision', `${finalName} — locally modified, kept`)
+            collisions.push(`${target} (locally-modified — user edits kept)`)
+            record.targets.push(target)
+            record.skills!.push(finalName)
+            record.contentSha256![target] = recorded
+            return
+          }
         }
       }
       const staged = join(paths.tmpDir, `stage-${randomUUID()}`)
@@ -386,14 +409,20 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       record.skills!.push(finalName)
       record.contentSha256![target] = sha256Directory(target)
       writeInstallMarker(target, record)
+      writtenTargets.push(target)
     }
 
     try {
       if (entry.installMode === 'directory') {
         // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
         installOne(entry.id, staging, false)
-        if (collisions.length > 0) {
-          throw new MarketplaceIntegrityError(`cannot install '${entry.id}': target exists and is not ours — ${collisions[0]}`)
+        // Fail only when nothing landed (unowned/foreign refuse). Locally-modified
+        // keep leaves targets non-empty and is a successful soft-clean update.
+        if (record.targets.length === 0) {
+          throw new MarketplaceIntegrityError(
+            `cannot install '${entry.id}': target exists and is not ours` +
+              (collisions[0] ? ` — ${collisions[0]}` : ''),
+          )
         }
       } else {
         const skills = scanSkillDirs(staging, entry)
@@ -411,9 +440,8 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
         }
       }
     } catch (err) {
-      // Rollback: иначе частично установленные скиллы останутся сиротами
-      // без lock-записи (removeEntry вернёт not-installed).
-      for (const target of record.targets) {
+      // Rollback only what THIS call wrote — never rmSync kept local-mod targets.
+      for (const target of writtenTargets) {
         rmSync(target, { recursive: true, force: true })
       }
       throw err
@@ -490,7 +518,24 @@ async function installContextDoc(entry: MarketplaceEntry, options: InstallOption
         collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
         continue
       }
-      // owner === entry.id → reinstall/update нашего же артефакта, overwrite OK.
+      // owner === entry.id: soft-clean on update — keep user edits.
+      // Missing contentSha256 → fail-closed keep (mirror removeEntry).
+      const prev = readLock(paths.lockFile).entries[entry.id]
+      const recorded = prev?.contentSha256?.[target]
+      if (!recorded) {
+        progress('collision', `${doc.targetName} — owned without hash, kept`)
+        collisions.push(`${target} (locally-modified — user edits kept)`)
+        record.targets.push(target)
+        continue
+      }
+      const current = sha256FileContent(readFileSync(target))
+      if (current !== recorded) {
+        progress('collision', `${doc.targetName} — locally modified, kept`)
+        collisions.push(`${target} (locally-modified — user edits kept)`)
+        record.targets.push(target)
+        record.contentSha256![target] = recorded
+        continue
+      }
     }
     atomicWriteFileSync(target, body)
     record.targets.push(target)
@@ -537,13 +582,18 @@ export function removeEntry(id: string, options: { configDir?: string; lockPath?
       continue
     }
     const recorded = record.contentSha256?.[target]
-    if (recorded) {
-      const current = statSync(target).isDirectory() ? sha256Directory(target) : sha256FileContent(readFileSync(target))
-      if (current !== recorded) {
-        kept.push({ path: target, reason: 'locally-modified' })
-        removeInstallMarker(target)
-        continue
-      }
+    // Fail-closed: missing hash → treat as locally-modified (do not delete user data).
+    // Older/partial records or mid-write crashes must not rmSync user edits.
+    if (!recorded) {
+      kept.push({ path: target, reason: 'locally-modified' })
+      removeInstallMarker(target)
+      continue
+    }
+    const current = statSync(target).isDirectory() ? sha256Directory(target) : sha256FileContent(readFileSync(target))
+    if (current !== recorded) {
+      kept.push({ path: target, reason: 'locally-modified' })
+      removeInstallMarker(target)
+      continue
     }
     rmSync(target, { recursive: true, force: true })
     removeInstallMarker(target)

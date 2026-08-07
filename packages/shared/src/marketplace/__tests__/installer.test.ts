@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { marketplacePaths, type MarketplaceEntry, type MarketplaceFetch } from '../catalog.ts'
-import { INSTALL_MARKER_NAME, readLock, readInstallMarker, writeInstallMarker } from '../lock.ts'
+import { INSTALL_MARKER_NAME, readLock, readInstallMarker, writeInstallMarker, writeLock } from '../lock.ts'
 import { installEntry, removeEntry, type ExecFileFn } from '../installer.ts'
 
 const REF = 'd'.repeat(40)
@@ -104,6 +104,24 @@ describe('installEntry (context-doc)', () => {
     expect(readFileSync(target, 'utf8')).toBe('# Agent Doc v2')
     expect(readInstallMarker(target)?.id).toBe('soul-pack')
   })
+
+  it('keeps locally-modified owned context-doc on reinstall/update', async () => {
+    await installEntry(DOC_ENTRY, { configDir, fetchFn: docFetch, now: () => 1 })
+    const target = join(configDir, 'context', 'agents.md')
+    writeFileSync(target, '# USER edited agents.md')
+
+    const newerFetch: MarketplaceFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => '# Agent Doc v2 would overwrite',
+    })
+    const result = await installEntry(DOC_ENTRY, { configDir, fetchFn: newerFetch, now: () => 2 })
+    const asDoc = result as { collisions?: string[]; targets: string[] }
+    expect(readFileSync(target, 'utf8')).toBe('# USER edited agents.md')
+    expect(asDoc.collisions?.some((c) => c.includes('locally-modified'))).toBe(true)
+    expect(asDoc.targets).toEqual([target])
+  })
 })
 
 describe('removeEntry (soft-clean)', () => {
@@ -129,6 +147,22 @@ describe('removeEntry (soft-clean)', () => {
     expect(result.kept).toEqual([{ path: target, reason: 'locally-modified' }])
     expect(readFileSync(target, 'utf8')).toBe('# Locally edited')
     expect(readLock(marketplacePaths(configDir).lockFile).entries).toEqual({})
+  })
+
+  it('keeps targets when contentSha256 is missing (fail-closed)', async () => {
+    await installEntry(DOC_ENTRY, { configDir, fetchFn: docFetch })
+    const lockPath = marketplacePaths(configDir).lockFile
+    const lock = readLock(lockPath)
+    const rec = lock.entries['soul-pack']!
+    delete rec.contentSha256
+    writeLock(lockPath, lock)
+
+    const target = join(configDir, 'context', 'agents.md')
+    writeFileSync(target, '# still here')
+    const result = removeEntry('soul-pack', { configDir })
+    expect(result.status).toBe('partial')
+    expect(result.kept.some((k) => k.path === target)).toBe(true)
+    expect(readFileSync(target, 'utf8')).toBe('# still here')
   })
 })
 
@@ -295,6 +329,19 @@ describe('installEntry (unowned target guard)', () => {
     // В lock попала только наша цель:
     const record = readLock(marketplacePaths(configDir).lockFile).entries['guard-pack']
     expect(record?.targets).toEqual([join(skillsDir, 'deploy')])
+  })
+
+
+  it('keeps locally-modified owned skill on reinstall/update', async () => {
+    await installEntry(GUARD_ENTRY, { configDir, skillsDir, execFileFn: guardGit })
+    const deploy = join(skillsDir, 'deploy')
+    writeFileSync(join(deploy, 'SKILL.md'), '# USER edited deploy')
+
+    const result = await installEntry(GUARD_ENTRY, { configDir, skillsDir, execFileFn: guardGit })
+    const skillResult = result as { collisions?: string[]; skills: string[] }
+    expect(readFileSync(join(deploy, 'SKILL.md'), 'utf8')).toBe('# USER edited deploy')
+    expect(skillResult.collisions?.some((c) => c.includes('locally-modified'))).toBe(true)
+    expect(skillResult.skills).toContain('deploy')
   })
 
   it('fails closed when every skill collides (no empty installed lock row)', async () => {

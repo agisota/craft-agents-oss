@@ -379,6 +379,20 @@ export default function ContextSettingsPage() {
             </SettingsSection>
 
             <SettingsSection
+              title={t('settings.context.memoryTitle')}
+              description={t('settings.context.memoryDesc')}
+            >
+              <SettingsCard>
+                <SettingsRow
+                  label={t('settings.context.openMemory')}
+                  description={t('settings.context.openMemoryDesc')}
+                  onClick={() => navigate(routes.view.memory())}
+                  action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                />
+              </SettingsCard>
+            </SettingsSection>
+
+            <SettingsSection
               title={t('settings.context.skillsTitle')}
               description={t('settings.context.skillsDesc')}
             >
