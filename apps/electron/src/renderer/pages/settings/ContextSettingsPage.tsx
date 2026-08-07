@@ -17,10 +17,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { navigate, routes } from '@/lib/navigate'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { Spinner } from '@craft-agent/ui'
 import { SettingsSection, SettingsCard, SettingsRow, SettingsToggle } from '@/components/settings'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
-import type { BundledSkillPackStatus, ContextDocContent, ContextDocInfo } from '../../../shared/types'
+import type { BundledSkillPackStatus, ContextDocContent, ContextDocInfo, Lesson } from '../../../shared/types'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -41,6 +42,7 @@ function normalizeNewDocFilename(raw: string): string {
 
 export default function ContextSettingsPage() {
   const { t } = useTranslation()
+  const { activeWorkspaceId } = useAppShellContext()
   const [docs, setDocs] = useState<ContextDocInfo[]>([])
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const [currentDoc, setCurrentDoc] = useState<ContextDocContent | null>(null)
@@ -54,6 +56,8 @@ export default function ContextSettingsPage() {
 
   const [packs, setPacks] = useState<BundledSkillPackStatus[] | null>(null)
   const [packsBusy, setPacksBusy] = useState(false)
+
+  const [lessons, setLessons] = useState<Lesson[] | null>(null)
 
   const loadDocs = useCallback(() => {
     window.electronAPI
@@ -89,6 +93,33 @@ export default function ContextSettingsPage() {
       offPacks()
     }
   }, [loadDocs, loadPacks])
+
+  useEffect(() => {
+    let cancelled = false
+    setLessons(null)
+    window.electronAPI
+      .listMemoryLessons('both', activeWorkspaceId ?? undefined)
+      .then((list) => {
+        if (!cancelled) setLessons(list)
+      })
+      .catch(() => {
+        if (!cancelled) setLessons([])
+      })
+    const off = window.electronAPI.onMemoryChanged?.(() => {
+      window.electronAPI
+        .listMemoryLessons('both', activeWorkspaceId ?? undefined)
+        .then((list) => {
+          if (!cancelled) setLessons(list)
+        })
+        .catch(() => {
+          if (!cancelled) setLessons([])
+        })
+    })
+    return () => {
+      cancelled = true
+      off?.()
+    }
+  }, [activeWorkspaceId])
 
   const openDoc = useCallback((filename: string) => {
     setSelectedFilename(filename)
@@ -382,14 +413,36 @@ export default function ContextSettingsPage() {
               title={t('settings.context.memoryTitle')}
               description={t('settings.context.memoryDesc')}
             >
-              <SettingsCard>
-                <SettingsRow
-                  label={t('settings.context.openMemory')}
-                  description={t('settings.context.openMemoryDesc')}
-                  onClick={() => navigate(routes.view.memory())}
-                  action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
-                />
-              </SettingsCard>
+              {lessons === null ? (
+                <div className="flex justify-center py-4">
+                  <Spinner className="w-4 h-4" />
+                </div>
+              ) : (
+                <SettingsCard>
+                  {lessons.length === 0 ? (
+                    <p className="text-sm text-muted-foreground px-4 py-3">{t('settings.context.memoryEmpty')}</p>
+                  ) : (
+                    lessons.slice(0, 5).map((lesson, idx) => (
+                      <SettingsRow
+                        key={`${lesson.scope}-${lesson.ts}-${idx}`}
+                        label={lesson.negative ? `¬ ${lesson.rule}` : lesson.rule}
+                        description={`${lesson.scope} · ${lesson.category}${lesson.usageCount != null ? ` · ×${lesson.usageCount}` : ''}`}
+                      />
+                    ))
+                  )}
+                  {lessons.length > 5 ? (
+                    <p className="text-xs text-muted-foreground px-4 pb-2">
+                      {t('settings.context.memoryMore', { count: lessons.length - 5 })}
+                    </p>
+                  ) : null}
+                  <SettingsRow
+                    label={t('settings.context.openMemory')}
+                    description={t('settings.context.openMemoryDesc')}
+                    onClick={() => navigate(routes.view.memory())}
+                    action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                  />
+                </SettingsCard>
+              )}
             </SettingsSection>
 
             <SettingsSection

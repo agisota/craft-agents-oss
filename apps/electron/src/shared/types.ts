@@ -48,6 +48,7 @@ export type {
   MarketplaceRemoveResult,
 };
 import type { AddLessonResult, Lesson, LessonCategory, LessonScope, MemoryInsights, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate, SessionProvenance, SkillExportResult, SkillPruneResult, SkillUsageMap } from '@craft-agent/shared/memory/types';
+export type { Lesson, LessonCategory, LessonScope, MemoryInsights };
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
 

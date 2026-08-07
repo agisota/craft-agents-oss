@@ -112,6 +112,22 @@ const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
   brew: 'Homebrew',
 }
 
+/** Detect/system tools: install-guide copy when missing / no brew. */
+const INSTALL_GUIDES: Partial<Record<ToolchainToolName, { command: string; url?: string }>> = {
+  docker: {
+    command: 'https://docs.docker.com/get-docker/',
+    url: 'https://docs.docker.com/get-docker/',
+  },
+  brew: {
+    command: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+    url: 'https://brew.sh',
+  },
+  mole: {
+    command: 'brew install mole',
+    url: 'https://github.com/tw93/Mole',
+  },
+}
+
 /** Extract a displayable message from an unknown caught value. */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -154,6 +170,7 @@ interface ToolRowProps {
 
 function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
   const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
 
   const sizeLabel = formatSizeMb(tool.totalBytes)
   const versionLabel = tool.installedVersion ? `v${tool.installedVersion}` : undefined
@@ -167,16 +184,25 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
 
   const percent = downloadPercent(tool)
   const showProgress = tool.phase === 'downloading'
+  const guide = INSTALL_GUIDES[tool.name]
+  const needsGuide =
+    !!guide && (tool.phase === 'missing' || tool.phase === 'skipped-no-brew' || tool.phase === 'offline')
+
+  const copyGuide = async () => {
+    if (!guide) return
+    try {
+      await navigator.clipboard.writeText(guide.command)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard may be denied — ignore
+    }
+  }
 
   const action = (() => {
     if (tool.phase === 'outdated') {
       return (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isUpdating}
-          onClick={() => onUpdate(tool.name)}
-        >
+        <Button variant="outline" size="sm" disabled={isUpdating} onClick={() => onUpdate(tool.name)}>
           {isUpdating ? <Spinner className="mr-1.5" /> : null}
           {t('settings.toolchain.updateNow')}
         </Button>
@@ -184,15 +210,28 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
     }
     if (tool.phase === 'error') {
       return (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isUpdating}
-          onClick={() => onUpdate(tool.name)}
-        >
+        <Button variant="outline" size="sm" disabled={isUpdating} onClick={() => onUpdate(tool.name)}>
           {isUpdating ? <Spinner className="mr-1.5" /> : null}
           {t('settings.toolchain.retry')}
         </Button>
+      )
+    }
+    if (needsGuide) {
+      return (
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void copyGuide()}>
+            {copied ? t('settings.toolchain.guideCopied') : t('settings.toolchain.copyInstallGuide')}
+          </Button>
+          {guide?.url ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.open(guide.url, '_blank', 'noopener,noreferrer')}
+            >
+              {t('settings.toolchain.openDocs')}
+            </Button>
+          ) : null}
+        </div>
       )
     }
     return null
@@ -222,6 +261,10 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
             {t('settings.toolchain.status.offline')}
           </StatusBadge>
         )
+      case 'skipped-no-brew':
+        return <StatusBadge tone="warn">{t('settings.toolchain.status.skipped-no-brew')}</StatusBadge>
+      case 'missing':
+        return <StatusBadge tone="muted">{t('settings.toolchain.status.missing')}</StatusBadge>
       case 'downloading':
       case 'installing':
         return (
@@ -248,6 +291,11 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
               </span>
             )}
           </div>
+          {needsGuide && guide ? (
+            <div className="mt-1 font-mono text-[11px] text-muted-foreground/90 truncate" title={guide.command}>
+              {guide.command}
+            </div>
+          ) : null}
         </div>
         <div data-layout="settings-control" className="flex items-center gap-2 ml-4 shrink-0">
           {badge}
