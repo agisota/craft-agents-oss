@@ -67,6 +67,43 @@ describe('installEntry (context-doc)', () => {
     expect(readLock(marketplacePaths(configDir).lockFile).entries['soul-pack']).toBeUndefined()
     expect(existsSync(join(configDir, 'context', 'agents.md'))).toBe(false)
   })
+
+  it('keeps a pre-existing unowned context doc (e.g. user soul.md) instead of overwriting', async () => {
+    const soulEntry: MarketplaceEntry = {
+      id: 'soul-pack',
+      kind: 'context-doc',
+      title: 'Soul Pack',
+      descriptionRu: 'soul',
+      source: { type: 'github', repo: 'owner/docs', ref: REF },
+      documents: [{ repoPath: 'SOUL.md', targetName: 'soul.md' }],
+    }
+    const contextDir = join(configDir, 'context')
+    mkdirSync(contextDir, { recursive: true })
+    const target = join(contextDir, 'soul.md')
+    writeFileSync(target, '# USER soul — must survive')
+
+    await expect(installEntry(soulEntry, { configDir, fetchFn: docFetch })).rejects.toThrow(/unowned|no writable/)
+    expect(readFileSync(target, 'utf8')).toBe('# USER soul — must survive')
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['soul-pack']).toBeUndefined()
+    expect(readInstallMarker(target)).toBeNull()
+  })
+
+  it('reinstalls our own context-doc target (marker owner matches entry id)', async () => {
+    await installEntry(DOC_ENTRY, { configDir, fetchFn: docFetch, now: () => 1 })
+    const target = join(configDir, 'context', 'agents.md')
+    expect(readFileSync(target, 'utf8')).toBe('# Agent Doc')
+
+    const newerFetch: MarketplaceFetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => '# Agent Doc v2',
+    })
+    const result = await installEntry(DOC_ENTRY, { configDir, fetchFn: newerFetch, now: () => 2 })
+    expect(result.status).toBe('installed')
+    expect(readFileSync(target, 'utf8')).toBe('# Agent Doc v2')
+    expect(readInstallMarker(target)?.id).toBe('soul-pack')
+  })
 })
 
 describe('removeEntry (soft-clean)', () => {

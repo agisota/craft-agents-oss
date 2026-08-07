@@ -737,7 +737,38 @@ export function getRuntimeEnvOverrides(): Record<string, string> {
  * Persist runtime.envOverrides (см. getRuntimeEnvOverrides). Пустые ключи
  * отбрасываются; значения приводятся к строкам. Применяется к новым
  * подпроцессам — живые сессии респавнятся при следующем запуске агента.
+ *
+ * Ключи: POSIX-имя `^[A-Za-z_][A-Za-z0-9_]*$`. Denylist — переменные, через
+ * которые UI env-overrides могли бы сломать изоляцию/загрузчик (PATH hijack,
+ * DYLD/LD preload, Node/Bun inject). Структурные CRAFT_* ключи session-manager
+ * тоже запрещены — они выставляются кодом, не пользователем.
  */
+const ENV_OVERRIDE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const ENV_OVERRIDE_DENY: Record<string, true> = {
+  PATH: true,
+  Path: true, // win32 casing
+  LD_PRELOAD: true,
+  LD_LIBRARY_PATH: true,
+  DYLD_INSERT_LIBRARIES: true,
+  DYLD_LIBRARY_PATH: true,
+  DYLD_FRAMEWORK_PATH: true,
+  NODE_OPTIONS: true,
+  NODE_PATH: true,
+  BUN_OPTIONS: true,
+  BUN_INSTALL: true,
+  BUN_CONFIG_REGISTRY: true,
+  OPENSSL_CONF: true,
+  PYTHONPATH: true,
+  PYTHONHOME: true,
+  PERL5LIB: true,
+  RUBYLIB: true,
+  CRAFT_WORKSPACE_PATH: true,
+  CRAFT_CONFIG_DIR: true,
+  CRAFT_BUN_PATH: true,
+  CRAFT_SESSION_DIR: true,
+  CRAFT_STUB_RUNNER: true,
+}
+
 export function setRuntimeEnvOverrides(env: Record<string, string>): void {
   const config = loadStoredConfig();
   if (!config) return;
@@ -745,6 +776,12 @@ export function setRuntimeEnvOverrides(env: Record<string, string>): void {
   for (const [key, value] of Object.entries(env)) {
     const trimmedKey = key.trim();
     if (!trimmedKey) continue;
+    if (!ENV_OVERRIDE_KEY_RE.test(trimmedKey)) {
+      throw new Error(`invalid env override key: ${trimmedKey}`)
+    }
+    if (ENV_OVERRIDE_DENY[trimmedKey]) {
+      throw new Error(`env override key not allowed: ${trimmedKey}`)
+    }
     cleaned[trimmedKey] = String(value);
   }
   config.runtime = { ...config.runtime, envOverrides: cleaned };

@@ -79,7 +79,7 @@ export type MarketplaceInstallResult =
       /** Pre-existing unowned dirs, пропущенные гардой (не overwrite). */
       collisions?: string[]
     }
-  | { id: string; kind: 'context-doc'; status: 'installed'; ref: string; targets: string[] }
+  | { id: string; kind: 'context-doc'; status: 'installed'; ref: string; targets: string[]; collisions?: string[] }
   | { id: string; kind: 'tool'; status: 'deferred'; ref: string; toolName: string }
 
 export interface RemovedKept {
@@ -440,16 +440,58 @@ async function installContextDoc(entry: MarketplaceEntry, options: InstallOption
     }
     staged.push({ doc, body })
   }
+  const collisions: string[] = []
+  // Владелец существующего target: marker (source of truth) либо registry.
+  // null → файл пользователя/шаблон ensureContextDocs без marketplace-маркера —
+  // НЕ overwrite (иначе marketplace pack затирает soul.md/rules.md юзера).
+  const ownerOf = (target: string): string | null => {
+    const marker = readInstallMarker(target)
+    if (marker) return marker.id
+    for (const existing of Object.values(readLock(paths.lockFile).entries)) {
+      if (existing.targets.includes(target)) return existing.id
+    }
+    return null
+  }
+
   for (const { doc, body } of staged) {
     const target = join(contextDir, doc.targetName)
+    if (existsSync(target)) {
+      const owner = ownerOf(target)
+      if (owner === null) {
+        progress('collision', `${doc.targetName} — existing unowned context doc kept`)
+        collisions.push(`${target} (unowned — existing user content kept)`)
+        continue
+      }
+      if (owner !== entry.id) {
+        progress('collision', `${doc.targetName} — owned by ${owner}, refuse overwrite`)
+        collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
+        continue
+      }
+      // owner === entry.id → reinstall/update нашего же артефакта, overwrite OK.
+    }
     atomicWriteFileSync(target, body)
     record.targets.push(target)
     record.contentSha256![target] = sha256FileContent(body)
     writeInstallMarker(target, record)
   }
 
+  if (record.targets.length === 0) {
+    throw new MarketplaceIntegrityError(
+      `cannot install '${entry.id}': no writable context docs` +
+        (collisions[0] ? ` — ${collisions[0]}` : ''),
+    )
+  }
+
   upsertLockRecord(paths.lockFile, record)
-  return { id: entry.id, kind: 'context-doc', status: 'installed', ref: entry.source.ref, targets: record.targets }
+  const result: MarketplaceInstallResult = {
+    id: entry.id,
+    kind: 'context-doc',
+    status: 'installed',
+    ref: entry.source.ref,
+    targets: record.targets,
+  }
+  if (collisions.length > 0 && result.kind === 'context-doc') result.collisions = collisions
+  return result
 }
 
 // ---------------------------------------------------------------------------
