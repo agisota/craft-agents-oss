@@ -16,6 +16,7 @@ import {
   getSharedAutomationLoopGuard,
   type AutomationLoopGuard,
 } from './automation-loop-guard'
+import { bumpKnowledgeMetric } from './metrics-store'
 
 export type KnowledgeWatchEvent =
   | 'KnowledgeDocumentCreated'
@@ -351,6 +352,7 @@ export class KnowledgeChangeWatcher {
     if (this.disposed) return
     this.seeded = true
     this.saveState(next)
+    bumpKnowledgeMetric(this.options.workspaceRoot, 'watchTicksTotal')
   }
 
   private async emitSafe(

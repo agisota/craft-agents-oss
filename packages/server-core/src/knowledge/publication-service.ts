@@ -35,6 +35,7 @@ import { KnowledgePublishDraftsStore } from './drafts-store'
 import { KnowledgeLinksStore } from './links-store'
 import { KnowledgePublicationsStore } from './publications-store'
 import { KnowledgeAuditLog } from './knowledge-audit'
+import { bumpKnowledgeMetric } from './metrics-store'
 
 export interface PublicationServiceDeps {
   drafts?: KnowledgePublishDraftsStore
@@ -601,6 +602,9 @@ export class KnowledgePublicationService {
     if (draft.runIds[0]) record.runId = draft.runIds[0]
 
     publications.append(record)
+
+    // G1 metrics — count successful (non-idempotent) publish finalize.
+    bumpKnowledgeMetric(args.workspaceRoot, 'publicationsTotal', 'publications')
 
     const craft = craftRefFor(draft)
     if (craft) {

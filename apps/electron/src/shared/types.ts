@@ -315,8 +315,10 @@ import type {
   RemoteSessionTransferPayload,
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
+  KnowledgeDetectEngineResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
+  KnowledgeMetricsSnapshot,
   MutationInput,
   MutationProposal,
   MutationProposalStatus,
@@ -678,6 +680,10 @@ export interface ElectronAPI {
     unwatch(args: { connectionId: string; workspaceId: string }): Promise<{ ok: true }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
+    /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
+    metricsGet(args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot>
+    /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
+    detectEngine(): Promise<KnowledgeDetectEngineResult>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
   }
   // Debug: send renderer logs to main process log file

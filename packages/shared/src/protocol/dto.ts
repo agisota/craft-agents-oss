@@ -662,14 +662,46 @@ export interface KnowledgeChangedPayload {
 
 /** Result of knowledge:engineStatus (spec 03 §3.5.1: `{ mode, running, pid?, version? }`). */
 export interface KnowledgeEngineStatus {
-  /** Connection mode — P1 supports external-local only (managed lands with P7). */
+  /** Connection mode — production is external-local; managed is typed but fail-closed until G2. */
   mode: 'external-local' | 'managed'
   /** Whether the kernel answered a version probe. */
   running: boolean
-  /** Kernel pid — managed mode only (P7). */
+  /** Kernel pid — managed mode only (P7; never set while G2 blocks spawn). */
   pid?: number
   /** Kernel version reported by the probe, when running. */
   version?: string
+  /** When managed is requested but blocked (G1/G2), explains why running is false. */
+  reason?: string
+}
+
+
+/** Result of knowledge:metricsGet (P7-prep G1). */
+export interface KnowledgeMetricsSnapshot {
+  version: 1
+  updatedAt: string
+  counters: {
+    connectionsActive: number
+    publicationsTotal: number
+    publicationsLast7d: number
+    automationProposalsTotal: number
+    automationRunsTriggered: number
+    knowledgeSurfaceOpens: number
+    viewRunsTotal: number
+    watchTicksTotal: number
+  }
+  daily?: Record<string, { publications?: number; automationProposals?: number; viewRuns?: number }>
+}
+
+/** Result of knowledge:detectEngine (P7-prep external-local assist). */
+export interface KnowledgeDetectEngineResult {
+  installed: boolean
+  runningOnDefaultPort: boolean
+  suggestedBaseUrl: string
+  installPathsFound: string[]
+  platform: string
+  canOpenApp: boolean
+  /** Official SiYuan install docs — Craft never downloads the binary. */
+  installDocsUrl: string
 }
 
 // ---------------------------------------------------------------------------

@@ -41,8 +41,10 @@
 import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type {
   ApplyResult,
+  KnowledgeDetectEngineResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
+  KnowledgeMetricsSnapshot,
   MutationActor,
   MutationInput,
   MutationProposal,
@@ -95,6 +97,9 @@ import {
   KnowledgePublishDraftsStore,
   KnowledgeWorkEnvelopesStore,
   credentialIdFromRef,
+  bumpKnowledgeMetric,
+  metricsStoreFor,
+  detectSiyuanEngine,
 } from '../../knowledge'
 import {
   KnowledgeBridgeService,
@@ -140,7 +145,7 @@ export function __setSkipKnowledgeWatchAutoStart(skip: boolean): void {
   skipKnowledgeWatchAutoStart = skip
 }
 
-/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch; asserted by knowledge.test.ts. */
+/** The complete knowledge channel set — P1–P6 + P7-prep metrics/detect; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -177,6 +182,9 @@ export const HANDLED_CHANNELS = [
   // P6 change watcher
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
+  // P7-prep G1 metrics + external-local detect (no managed spawn)
+  RPC_CHANNELS.knowledge.METRICS_GET,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -634,8 +642,17 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   // ——— ENGINE_STATUS({connectionId}) → KnowledgeEngineStatus (LOCAL_ONLY) ———
   // Probe semantics, not command semantics: an unreachable kernel yields
   // running:false (the channel's answer), never a thrown provider error.
+  // Managed mode is typed but fail-closed until G1+G2 (no process spawn).
   server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
     const record = requireConnection(args.connectionId)
+    if (record.mode === 'managed') {
+      return {
+        mode: 'managed',
+        running: false,
+        reason:
+          'Managed kernel is disabled until G1 metrics thresholds are met and G2 licensing decision is ACCEPTED (spec K-08). Craft does not ship or spawn SiYuan; use external-local.',
+      }
+    }
     try {
       // Construction itself may fail (missing token / bad baseUrl) — probe semantics
       // still answer running:false rather than throw a provider error to the wire.
@@ -1264,6 +1281,7 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         items = enriched
       }
 
+      bumpKnowledgeMetric(rootPath, 'viewRunsTotal', 'viewRuns')
       return { items, view }
     },
   )
@@ -1389,6 +1407,41 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       const rootPath = requireWorkspaceRoot(args.workspaceId)
       const stopped = stopKnowledgeWatch(rootPath, args.connectionId)
       return { ok: true as const, stopped }
+    },
+  )
+
+  // ——— METRICS_GET({workspaceId?}) → KnowledgeMetricsSnapshot (REMOTE_ELIGIBLE) ———
+  // G1 usage counters under {workspaceRoot}/knowledge/metrics.json.
+  server.handle(
+    RPC_CHANNELS.knowledge.METRICS_GET,
+    (_ctx, args: { workspaceId?: string } = {}): KnowledgeMetricsSnapshot => {
+      let rootPath: string
+      if (typeof args?.workspaceId === 'string' && args.workspaceId.length > 0) {
+        rootPath = requireWorkspaceRoot(args.workspaceId)
+      } else {
+        const workspaces = getWorkspaces()
+        const only = workspaces[0]
+        if (workspaces.length === 1 && only) {
+          rootPath = only.rootPath
+        } else if (workspaces.length === 0) {
+          throw new CodedError('NOT_FOUND', 'knowledge.metricsGet: no workspace available')
+        } else {
+          throw new CodedError(
+            'INVALID_REF',
+            'knowledge.metricsGet: workspaceId is required when multiple workspaces are present',
+          )
+        }
+      }
+      return metricsStoreFor(rootPath).snapshot()
+    },
+  )
+
+  // ——— DETECT_ENGINE() → KnowledgeDetectEngineResult (LOCAL_ONLY) ———
+  // Path existence + TCP probe only. NEVER downloads or spawns SiYuan.
+  server.handle(
+    RPC_CHANNELS.knowledge.DETECT_ENGINE,
+    async (): Promise<KnowledgeDetectEngineResult> => {
+      return detectSiyuanEngine()
     },
   )
 
