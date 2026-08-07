@@ -103,8 +103,14 @@ async function downloadOnce(opts: DownloadOptions): Promise<void> {
       opts.onProgress?.(downloaded, total);
       if (!file.write(value)) {
         await new Promise<void>((resolve, reject) => {
-          file.once('drain', resolve);
-          file.once('error', reject);
+          // Каждый drain-цикл не должен оставлять висеть 'error'-слушатель
+          // (мешай слушателей при больших артефактах → MaxListenersExceededWarning).
+          const onError = (err: Error) => reject(err);
+          file.once('error', onError);
+          file.once('drain', () => {
+            file.off('error', onError);
+            resolve();
+          });
         });
       }
     }
