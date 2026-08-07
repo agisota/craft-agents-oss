@@ -246,6 +246,15 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
 
   // knowledge — engine status reflects local engine process state, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+
+  // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
+  RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
+  RPC_CHANNELS.siyuan.DESTROY,
+  RPC_CHANNELS.siyuan.LIST,
+  RPC_CHANNELS.siyuan.SYNC_BOUNDS,
+  RPC_CHANNELS.siyuan.FOCUS,
+  RPC_CHANNELS.siyuan.STATE_CHANGED,
+  RPC_CHANNELS.siyuan.REMOVED,
 ])
 
 // ---------------------------------------------------------------------------

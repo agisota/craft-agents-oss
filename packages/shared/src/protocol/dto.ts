@@ -961,5 +961,30 @@ export interface DeepLinkNavigation {
   actionParams?: Record<string, string>
 }
 
+// ---------------------------------------------------------------------------
+// SiYuan engine surface types (data shapes used by BroadcastEventMap)
+// ---------------------------------------------------------------------------
+
+/**
+ * State of one SiYuan desktop surface hosted in an embedded browser pane (P2
+ * native knowledge mode). The surface registry in the main process is the
+ * source of truth; renderers mirror this via STATE_CHANGED/REMOVED pushes and
+ * restore survivors across restarts via siyuan:list.
+ */
+export interface SiyuanSurfaceState {
+  /** Browser-pane manager instance id that hosts the surface. */
+  instanceId: string
+  /** Stable per-document handle (`siyuan:{kind}:{id}`) — dedup + restore key. */
+  durableKey: string
+  /** SiYuan web desktop URL the surface points at. */
+  url: string
+  /**
+   * Workspace that owns this surface, or `null` for unbound surfaces.
+   * Renderers filter by workspace like browserPane instances do; null always
+   * passes the filter.
+   */
+  workspaceId: string | null
+}
+
 // Toolchain wire types (re-export for RPC payloads; source of truth: toolchain module)
 export type { ToolName, ToolPhase, ToolStatus } from '../toolchain/types'

@@ -213,6 +213,12 @@ export const routes = {
     // ----------------------------------------------------------------
 
     /**
+     * Knowledge home (knowledge navigator root, no document focused) — `knowledge`.
+     * Pairs with the bare-'knowledge' key in `parseNavigationState` (W1).
+     */
+    knowledge: () => 'knowledge' as const,
+
+    /**
      * Knowledge surface (SiYuan ref) — `knowledge/{kind}/{id}`.
      * Serves both SurfaceTab kinds `knowledge` and `database` (kind:'database').
      */

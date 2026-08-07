@@ -305,6 +305,7 @@ import type {
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
   KnowledgeEngineStatus,
+  SiyuanSurfaceState,
 } from '@craft-agent/shared/protocol'
 
 export interface ElectronAPI {
@@ -949,6 +950,27 @@ export interface ElectronAPI {
     onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
     onInteracted(callback: (id: string) => void): () => void
+  }
+
+  // SiYuan engine surfaces (P2 native knowledge mode). Nested namespace via
+  // dotted CHANNEL_MAP keys, same as browserPane. Embedded SiYuan desktop
+  // panes keyed by durable document keys (`siyuan:{kind}:{id}`) — the durable
+  // key supersedes the ephemeral browser-embedded-${n} id for dedup + restore.
+  // All channels are LOCAL_ONLY.
+  siyuanEngine: {
+    /**
+     * Dedups by durableKey: re-opening the same document focuses + reuses the
+     * live surface. Returns the browser-pane instanceId (same id the matching
+     * STATE_CHANGED push carries inside SiyuanSurfaceState).
+     */
+    createEmbedded(args: { durableKey: string; url: string; workspaceId?: string | null }): Promise<string>
+    destroy(args: { instanceId: string }): Promise<void>
+    /** Surviving surfaces — optionally workspace-scoped. Renderer uses this for restore. */
+    list(args?: { workspaceId?: string | null }): Promise<SiyuanSurfaceState[]>
+    syncBounds(args: { instanceId: string; rect: { x: number; y: number; width: number; height: number } | null }): Promise<void>
+    focus(args: { instanceId: string }): Promise<void>
+    onStateChanged(callback: (state: SiyuanSurfaceState) => void): () => void
+    onRemoved(callback: (id: string) => void): () => void
   }
 
   // LLM Connections (provider configurations)

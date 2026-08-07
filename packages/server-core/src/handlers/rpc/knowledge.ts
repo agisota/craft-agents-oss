@@ -313,8 +313,10 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
     const record = requireConnection(args.connectionId)
     const token = await readToken(record)
-    const client = new SiyuanKernelClient({ baseUrl: record.baseUrl, token })
     try {
+      // Client ctor rejects empty tokens (token required) — for probe purposes a
+      // tokenless connection must yield running:false, not a thrown provider error.
+      const client = new SiyuanKernelClient({ baseUrl: record.baseUrl, token })
       const version = await client.getVersion()
       return { mode: record.mode, running: true, version }
     } catch (error) {

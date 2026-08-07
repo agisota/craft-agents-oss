@@ -18,6 +18,7 @@ import type {
   TaskGenerateResult,
   NoteChangedPayload,
   KnowledgeChangedPayload,
+  SiyuanSurfaceState,
 } from './dto'
 
 /** Payload of marketplace:CHANGED — pushed after an install/update/remove completes. */
@@ -73,6 +74,10 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.browserPane.STATE_CHANGED]: [info: BrowserInstanceInfo]
   [RPC_CHANNELS.browserPane.REMOVED]: [id: string]
   [RPC_CHANNELS.browserPane.INTERACTED]: [id: string]
+
+  // SiYuan engine surface events (global; workspace isolation renderer-side)
+  [RPC_CHANNELS.siyuan.STATE_CHANGED]: [state: SiyuanSurfaceState]
+  [RPC_CHANNELS.siyuan.REMOVED]: [id: string]
 
   // Navigation events (per-window)
   [RPC_CHANNELS.notification.NAVIGATE]: [data: { workspaceId: string; sessionId: string }]
