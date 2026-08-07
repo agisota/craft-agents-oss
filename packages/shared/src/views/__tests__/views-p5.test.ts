@@ -38,12 +38,14 @@ describe('getDefaultKnowledgeViews', () => {
     expect(research).toBeDefined()
     expect(research!.domain).toBe('knowledge')
     expect(research!.knowledgeFilter?.pathPrefix).toBe('/Research')
-    expect(research!.knowledgeFilter?.attributes).toEqual({ workflow_status: 'needs-review' })
+    expect(research!.knowledgeFilter?.attributes).toEqual({
+      'knowledge-workflow_status': 'needs-review',
+    })
     expect(research!.groupBy).toBe('topic')
     expect(research!.sort).toEqual([{ field: 'updated_at', direction: 'desc' }])
     expect(research!.presetActions).toContainEqual({
       type: 'set_attribute',
-      name: 'workflow_status',
+      name: 'knowledge-workflow_status',
       value: 'approved',
     })
   })
@@ -211,5 +213,35 @@ describe('buildKnowledgeViewContext + evaluate', () => {
     const ctx = buildViewContext({ hasUnread: true, name: 's' })
     expect(evaluateViews(ctx, [compiled]).map((v) => v.id)).toEqual(['view-new'])
     expect(evaluateViews(buildViewContext({ hasUnread: false }), [compiled])).toEqual([])
+  })
+})
+
+describe('ensureKnowledgeDefaults stock migration', () => {
+  it('rewrites bare workflow_status on research-needs-review to knowledge-workflow_status', () => {
+    const migrated = ensureKnowledgeDefaults({
+      version: 2,
+      views: [
+        {
+          id: 'research-needs-review',
+          name: 'Research needs review',
+          domain: 'knowledge',
+          expression: 'true',
+          knowledgeFilter: {
+            pathPrefix: '/Research',
+            attributes: { workflow_status: 'needs-review' },
+          },
+          presetActions: [{ type: 'set_attribute', name: 'workflow_status', value: 'approved' }],
+        },
+      ],
+    })
+    const research = migrated.views.find((v) => v.id === 'research-needs-review')!
+    expect(research.knowledgeFilter?.attributes).toEqual({
+      'knowledge-workflow_status': 'needs-review',
+    })
+    expect(research.presetActions?.[0]).toMatchObject({
+      type: 'set_attribute',
+      name: 'knowledge-workflow_status',
+      value: 'approved',
+    })
   })
 })

@@ -37,12 +37,41 @@ function viewDomain(view: ViewConfig): ViewDomain {
  * Merge missing default knowledge views by id (never overwrite user entries).
  * Treats missing/1 version as all-session domain for back-compat.
  */
+/**
+ * P5 audit fix: early research-needs-review seeds used bare `workflow_status`
+ * while mutation allowlist + kernel path require `knowledge-workflow_status`.
+ * Rewrite known stock defaults in-place when they still carry the bare key so
+ * existing workspaces pick up the aligned filter without manual re-seed.
+ * User-edited expressions/filters on the same id are left alone when they no
+ * longer match the bare-key stock shape.
+ */
+function migrateStockKnowledgeView(view: ViewConfig): ViewConfig {
+  if (view.id !== 'research-needs-review' || view.domain !== 'knowledge') return view;
+  const attrs = view.knowledgeFilter?.attributes;
+  if (!attrs || !Object.prototype.hasOwnProperty.call(attrs, 'workflow_status')) return view;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'knowledge-workflow_status')) return view;
+  const nextAttrs = { ...attrs };
+  nextAttrs['knowledge-workflow_status'] = nextAttrs['workflow_status']!;
+  delete nextAttrs['workflow_status'];
+  const nextActions = (view.presetActions ?? []).map((a) =>
+    a.type === 'set_attribute' && a.name === 'workflow_status'
+      ? { ...a, name: 'knowledge-workflow_status' }
+      : a,
+  );
+  return {
+    ...view,
+    knowledgeFilter: { ...view.knowledgeFilter!, attributes: nextAttrs },
+    presetActions: nextActions.length ? nextActions : view.presetActions,
+  };
+}
+
 export function ensureKnowledgeDefaults(config: ViewsConfig): ViewsConfig {
   const views = Array.isArray(config.views) ? [...config.views] : [];
   // v1 / missing version: treat every entry as sessions when domain absent
-  const normalized = views.map((v) =>
-    v.domain ? v : { ...v, domain: 'sessions' as const },
-  );
+  const normalized = views.map((v) => {
+    const withDomain = v.domain ? v : { ...v, domain: 'sessions' as const };
+    return migrateStockKnowledgeView(withDomain);
+  });
   const existingIds = new Set(normalized.map((v) => v.id));
   for (const def of getDefaultKnowledgeViews()) {
     if (!existingIds.has(def.id)) {

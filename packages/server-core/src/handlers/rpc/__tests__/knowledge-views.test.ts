@@ -120,7 +120,7 @@ function useResearchFixtureProvider() {
                 '/Research/Reports/Needs Review',
                 'Needs Review Doc',
                 [
-                  { key: 'workflow_status', value: 'needs-review' },
+                  { key: 'knowledge-workflow_status', value: 'needs-review' },
                   { key: 'topic', value: 'siyuan' },
                 ],
                 3000,
@@ -130,7 +130,7 @@ function useResearchFixtureProvider() {
                 '/Research/Reports/Approved',
                 'Approved Doc',
                 [
-                  { key: 'workflow_status', value: 'approved' },
+                  { key: 'knowledge-workflow_status', value: 'approved' },
                   { key: 'topic', value: 'siyuan' },
                 ],
                 4000,
@@ -139,7 +139,7 @@ function useResearchFixtureProvider() {
                 DOC_OTHER,
                 '/Inbox/Note',
                 'Inbox Note',
-                [{ key: 'workflow_status', value: 'needs-review' }],
+                [{ key: 'knowledge-workflow_status', value: 'needs-review' }],
                 5000,
               ),
             ],
@@ -273,7 +273,7 @@ describe('viewsList', () => {
     const research = views.find((v) => v.id === 'research-needs-review')
     expect(research).toBeDefined()
     expect(research!.knowledgeFilter?.pathPrefix).toBe('/Research')
-    expect(research!.knowledgeFilter?.attributes?.workflow_status).toBe('needs-review')
+    expect(research!.knowledgeFilter?.attributes?.['knowledge-workflow_status']).toBe('needs-review')
     // session views must not leak
     expect(views.some((v) => v.id === 'view-new')).toBe(false)
   })
@@ -285,15 +285,19 @@ describe('viewRun', () => {
     const result = (await invoke(RPC_CHANNELS.knowledge.VIEW_RUN, {
       connectionId: 'conn-1',
       viewId: 'research-needs-review',
-    })) as { items: SearchHit[]; view: SharedViewConfig }
+    })) as { items: Array<SearchHit & { attributes?: Record<string, string>; topic?: string }>; view: SharedViewConfig }
 
     expect(result.view.id).toBe('research-needs-review')
     expect(result.view.groupBy).toBe('topic')
-    // Only DOC_NEEDS: path /Research + workflow_status=needs-review
+    // Only DOC_NEEDS: path /Research + knowledge-workflow_status=needs-review
     expect(result.items.map((h) => h.ref.id)).toEqual(['doc-needs'])
     expect(result.items[0]!.title).toBe('Needs Review Doc')
     // sorted updated_at desc (single item)
     expect(result.items[0]!.updatedAt).toBe(3000)
+    // groupBy topic enrichment attaches attributes/topic
+    expect(result.items[0]!.attributes?.topic).toBe('siyuan')
+    expect(result.items[0]!.topic).toBe('siyuan')
+    expect(result.items[0]!.attributes?.['knowledge-workflow_status']).toBe('needs-review')
   })
 
   it('throws NOT_FOUND for unknown viewId', async () => {
@@ -313,7 +317,7 @@ describe('viewSetAttribute', () => {
     const result = (await invoke(RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE, {
       connectionId: 'conn-1',
       ref: DOC_NEEDS,
-      name: 'workflow_status',
+      name: 'knowledge-workflow_status',
       value: 'approved',
     })) as { proposalId: string }
 
@@ -328,13 +332,58 @@ describe('viewSetAttribute', () => {
       {
         op: 'setAttribute',
         blockId: DOC_NEEDS.id,
-        // bare workflow_status is prefixed to satisfy ^(craft-|knowledge-) allowlist
+        // default preset already uses knowledge- prefix — no double-prefix
         name: 'knowledge-workflow_status',
         value: 'approved',
       },
     ])
     // Must NOT be applied
     expect(proposal!.status).not.toBe('applied')
+  })
+
+  it('keeps allowlist name and matches default view filter key end-to-end', async () => {
+    const { invoke } = createHarness()
+    const views = (await invoke(RPC_CHANNELS.knowledge.VIEWS_LIST, {
+      connectionId: 'conn-1',
+    })) as SharedViewConfig[]
+    const research = views.find((v) => v.id === 'research-needs-review')!
+    const filterKey = Object.keys(research.knowledgeFilter?.attributes ?? {})[0]
+    const preset = research.presetActions?.find((a) => a.type === 'set_attribute')
+    expect(filterKey).toBe('knowledge-workflow_status')
+    expect(preset).toEqual({
+      type: 'set_attribute',
+      name: 'knowledge-workflow_status',
+      value: 'approved',
+    })
+
+    const result = (await invoke(RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE, {
+      connectionId: 'conn-1',
+      ref: DOC_NEEDS,
+      name: preset!.name,
+      value: preset!.value,
+    })) as { proposalId: string }
+    const proposal = new KnowledgeMutationProposalsStore(workspaceRoot).get(result.proposalId)!
+    expect(proposal.ops[0]).toMatchObject({
+      op: 'setAttribute',
+      name: 'knowledge-workflow_status',
+      value: 'approved',
+    })
+  })
+
+  it('prefixes bare workflow_status to knowledge-workflow_status', async () => {
+    const { invoke } = createHarness()
+    const result = (await invoke(RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE, {
+      connectionId: 'conn-1',
+      ref: DOC_NEEDS,
+      name: 'workflow_status',
+      value: 'approved',
+    })) as { proposalId: string }
+    const proposal = new KnowledgeMutationProposalsStore(workspaceRoot).get(result.proposalId)!
+    expect(proposal.ops[0]).toMatchObject({
+      op: 'setAttribute',
+      name: 'knowledge-workflow_status',
+      value: 'approved',
+    })
   })
 })
 

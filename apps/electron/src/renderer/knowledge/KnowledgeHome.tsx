@@ -57,6 +57,11 @@ export interface KnowledgeSearchApi {
 }
 
 /** P5 views + set_attribute subset of ElectronAPI.knowledge. */
+export interface KnowledgeViewHit extends SearchHit {
+  attributes?: Record<string, string>
+  topic?: string
+}
+
 export interface KnowledgeViewsApi {
   listConnections(): Promise<Array<{ id: string }>>
   viewsList(args?: { connectionId?: string }): Promise<KnowledgeViewConfig[]>
@@ -64,7 +69,7 @@ export interface KnowledgeViewsApi {
     connectionId: string
     viewId: string
     workspaceId?: string
-  }): Promise<{ items: SearchHit[]; view: KnowledgeViewConfig }>
+  }): Promise<{ items: KnowledgeViewHit[]; view: KnowledgeViewConfig }>
   viewSetAttribute(args: {
     connectionId: string
     ref: KnowledgeRef
@@ -136,7 +141,7 @@ export async function runKnowledgeView(
   api: KnowledgeViewsApi | null,
   viewId: string,
   workspaceId?: string,
-): Promise<{ items: SearchHit[]; view: KnowledgeViewConfig; connectionId: string } | null> {
+): Promise<{ items: KnowledgeViewHit[]; view: KnowledgeViewConfig; connectionId: string } | null> {
   if (!api) return null
   const connections = await api.listConnections()
   const primary = connections[0]
@@ -175,15 +180,30 @@ export function selectKnowledgeView(
   return views.find((v) => v.id === viewId) ?? null
 }
 
-/** Notebook-path leaf used when SearchHit has no topic attribute. */
-export function groupKeyForHit(hit: SearchHit, groupBy?: string): string {
+/** Group key for a hit: topic/status use enriched attributes when present. */
+export function groupKeyForHit(hit: KnowledgeViewHit, groupBy?: string): string {
   if (!groupBy) return ''
   if (groupBy === 'notebook') {
     const path = hit.notebookPath || ''
     const parts = path.split('/').filter(Boolean)
     return parts[0] || path || 'ungrouped'
   }
-  // topic / status / default: SearchHit has no attributes — use notebook leaf
+  if (groupBy === 'topic') {
+    const topic =
+      hit.topic ||
+      hit.attributes?.topic ||
+      hit.attributes?.['knowledge-topic']
+    if (topic) return topic
+  }
+  if (groupBy === 'status') {
+    const status =
+      hit.attributes?.['knowledge-workflow_status'] ||
+      hit.attributes?.workflow_status ||
+      hit.attributes?.status ||
+      hit.attributes?.['knowledge-status']
+    if (status) return status
+  }
+  // Fallback: notebook path leaf
   const path = hit.notebookPath || ''
   const parts = path.split('/').filter(Boolean)
   return parts[parts.length - 1] || 'ungrouped'
@@ -191,13 +211,13 @@ export function groupKeyForHit(hit: SearchHit, groupBy?: string): string {
 
 export interface ViewHitGroup {
   key: string
-  items: SearchHit[]
+  items: KnowledgeViewHit[]
 }
 
 /** Client-side groupBy for view results (flat list + headers). */
-export function groupViewHits(items: SearchHit[], groupBy?: string): ViewHitGroup[] {
+export function groupViewHits(items: KnowledgeViewHit[], groupBy?: string): ViewHitGroup[] {
   if (!groupBy) return [{ key: '', items }]
-  const map = new Map<string, SearchHit[]>()
+  const map = new Map<string, KnowledgeViewHit[]>()
   for (const hit of items) {
     const key = groupKeyForHit(hit, groupBy)
     const bucket = map.get(key)

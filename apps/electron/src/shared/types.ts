@@ -653,7 +653,10 @@ export interface ElectronAPI {
       connectionId: string
       viewId: string
       workspaceId?: string
-    }): Promise<{ items: SearchHit[]; view: KnowledgeViewConfig }>
+    }): Promise<{
+      items: Array<SearchHit & { attributes?: Record<string, string>; topic?: string }>
+      view: KnowledgeViewConfig
+    }>
     viewSetAttribute(args: {
       connectionId: string
       ref: KnowledgeRef

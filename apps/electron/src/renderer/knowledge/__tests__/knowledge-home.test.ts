@@ -30,8 +30,8 @@ const savedWindow = globalThis.window
 function makeHit(
   kind: SearchHit['ref']['kind'],
   id: string,
-  extras: Partial<SearchHit> = {},
-): SearchHit {
+  extras: Partial<SearchHit & { attributes?: Record<string, string>; topic?: string }> = {},
+): SearchHit & { attributes?: Record<string, string>; topic?: string } {
   return {
     ref: { scheme: 'siyuan', kind, id },
     title: `Hit ${id}`,
@@ -115,11 +115,11 @@ describe('knowledge saved views (P5)', () => {
     name: 'Research needs review',
     knowledgeFilter: {
       pathPrefix: '/Research',
-      attributes: { workflow_status: 'needs-review' },
+      attributes: { 'knowledge-workflow_status': 'needs-review' },
     },
     groupBy: 'topic',
     sort: [{ field: 'updated_at', direction: 'desc' }],
-    presetActions: [{ type: 'set_attribute', name: 'workflow_status', value: 'approved' }],
+    presetActions: [{ type: 'set_attribute', name: 'knowledge-workflow_status', value: 'approved' }],
   })
 
   const recentView = makeView({
@@ -221,7 +221,7 @@ describe('knowledge saved views (P5)', () => {
     const result = await setViewAttribute(resolveKnowledgeViewsApi(), {
       connectionId: 'c1',
       ref: hit.ref,
-      name: 'workflow_status',
+      name: 'knowledge-workflow_status',
       value: 'approved',
     })
     expect(result).toEqual({ proposalId: 'prop-99' })
@@ -229,7 +229,7 @@ describe('knowledge saved views (P5)', () => {
       {
         connectionId: 'c1',
         ref: hit.ref,
-        name: 'workflow_status',
+        name: 'knowledge-workflow_status',
         value: 'approved',
       },
     ])
@@ -237,7 +237,7 @@ describe('knowledge saved views (P5)', () => {
 
   it('firstSetAttributeAction reads presetActions', () => {
     expect(firstSetAttributeAction(researchView)).toEqual({
-      name: 'workflow_status',
+      name: 'knowledge-workflow_status',
       value: 'approved',
     })
     expect(firstSetAttributeAction(recentView)).toBeNull()
@@ -257,5 +257,23 @@ describe('knowledge saved views (P5)', () => {
     expect(groupKeyForHit(items[0]!, 'notebook')).toBe('Research')
     // No groupBy → single flat group
     expect(groupViewHits(items, undefined)).toEqual([{ key: '', items }])
+  })
+
+  it('groupKeyForHit topic prefers attributes.topic when present', () => {
+    const hit = makeHit('document', 'x', {
+      notebookPath: '/Research/LeafName',
+      attributes: { topic: 'siyuan-integration' },
+    })
+    expect(groupKeyForHit(hit, 'topic')).toBe('siyuan-integration')
+    expect(groupKeyForHit({ ...hit, topic: 'explicit' }, 'topic')).toBe('explicit')
+    expect(
+      groupKeyForHit(
+        makeHit('document', 'y', {
+          notebookPath: '/Research/LeafName',
+          attributes: { 'knowledge-workflow_status': 'needs-review' },
+        }),
+        'status',
+      ),
+    ).toBe('needs-review')
   })
 })

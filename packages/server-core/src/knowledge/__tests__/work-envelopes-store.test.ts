@@ -2,7 +2,7 @@
  * KnowledgeWorkEnvelopesStore — jsonl upsert by kind:id (S-08).
  */
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { KnowledgeRef } from '@craft-agent/core/knowledge'
@@ -81,6 +81,40 @@ describe('KnowledgeWorkEnvelopesStore', () => {
       // sorted by updatedAt desc
       expect(list[0]!.knowledgeRef.id).toBe('doc-2')
       expect(list[1]!.knowledgeRef.id).toBe('doc-1')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('compacts file to one line per key on upsert (no append history)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'env-compact-'))
+    try {
+      const store = new KnowledgeWorkEnvelopesStore(root)
+      store.upsert({
+        knowledgeRef: REF,
+        status: 'open',
+        createdAt: 100,
+        updatedAt: 100,
+      })
+      store.upsert({
+        knowledgeRef: REF,
+        status: 'done',
+        createdAt: 100,
+        updatedAt: 200,
+      })
+      store.upsert({
+        knowledgeRef: REF2,
+        status: 'open',
+        createdAt: 50,
+        updatedAt: 300,
+      })
+      const raw = readFileSync(store.filePath, 'utf8').trim().split('\n')
+      expect(raw).toHaveLength(2)
+      const parsed = raw.map((line) => JSON.parse(line) as { knowledgeRef: KnowledgeRef; status?: string })
+      const byId = Object.fromEntries(parsed.map((e) => [e.knowledgeRef.id, e.status]))
+      expect(byId['doc-1']).toBe('done')
+      expect(byId['doc-2']).toBe('open')
+      expect(store.get(REF)?.status).toBe('done')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

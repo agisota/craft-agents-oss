@@ -310,8 +310,13 @@ export interface KnowledgeViewSetAttributeArgs {
   value: string
 }
 
+export interface KnowledgeViewHit extends SearchHit {
+  attributes?: Record<string, string>
+  topic?: string
+}
+
 export interface KnowledgeViewRunResult {
-  items: SearchHit[]
+  items: KnowledgeViewHit[]
   view: ViewConfig
 }
 
@@ -1200,6 +1205,38 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       }
 
       items = sortSearchHits(items, view.sort)
+
+      // Enrich attributes for non-notebook groupBy (topic/status/…) so UI can bucket.
+      const groupBy = (view.groupBy ?? '').trim()
+      if (groupBy && groupBy !== 'notebook' && items.length > 0) {
+        const provider = await resolveProvider(args.connectionId)
+        const enrichLimit = Math.min(items.length, 100)
+        const enriched: KnowledgeViewHit[] = []
+        for (let i = 0; i < items.length; i++) {
+          const hit = items[i]!
+          if (i >= enrichLimit) {
+            enriched.push(hit)
+            continue
+          }
+          try {
+            const node = await provider.get(hit.ref)
+            const attributes: Record<string, string> = {}
+            for (const attr of node.attributes ?? []) {
+              attributes[attr.key] = attr.value
+            }
+            const topic = attributes.topic || attributes['knowledge-topic']
+            enriched.push({
+              ...hit,
+              attributes,
+              ...(topic ? { topic } : {}),
+            })
+          } catch {
+            enriched.push(hit)
+          }
+        }
+        items = enriched
+      }
+
       return { items, view }
     },
   )

@@ -57,18 +57,20 @@ export function getDefaultKnowledgeViews(): ViewConfig[] {
     {
       id: 'research-needs-review',
       name: 'Research needs review',
-      description: 'Research notebook documents with workflow_status=needs-review',
+      description: 'Research notebook documents with knowledge-workflow_status=needs-review',
       domain: 'knowledge',
       // Structural filter does the work; expression can refine.
+      // Attr keys MUST match mutation allowlist names (craft-*|knowledge-*) so
+      // viewSetAttribute / setAttribute / attributeSearch share one key path.
       expression: 'true',
       knowledgeFilter: {
         pathPrefix: '/Research',
-        attributes: { workflow_status: 'needs-review' },
+        attributes: { 'knowledge-workflow_status': 'needs-review' },
       },
       groupBy: 'topic',
       sort: [{ field: 'updated_at', direction: 'desc' }],
       presetActions: [
-        { type: 'set_attribute', name: 'workflow_status', value: 'approved' },
+        { type: 'set_attribute', name: 'knowledge-workflow_status', value: 'approved' },
       ],
     },
     {

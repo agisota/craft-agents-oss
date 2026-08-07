@@ -113,12 +113,17 @@ export function MainContentPanel({
   const setKnowledgeActiveViewId = useSetAtom(knowledgeActiveViewIdAtom)
 
   // P5: deep-link knowledge/view/{viewId} → KnowledgeHome saved-view surface.
+  // Leaving a view route (bare knowledge nav or other knowledge details) clears the atom.
   useEffect(() => {
     if (!isKnowledgeNavigation(navState)) return
     if (navState.details?.type === 'knowledge-view') {
       setKnowledgeActiveViewId(navState.details.viewId)
       setKnowledgeHomeView('view')
+      return
     }
+    setKnowledgeActiveViewId(null)
+    // Leaving a view deep-link returns to search (proposals stays if user toggled it).
+    setKnowledgeHomeView('search')
   }, [navState, setKnowledgeActiveViewId, setKnowledgeHomeView])
 
   // Execution history for the selected automation

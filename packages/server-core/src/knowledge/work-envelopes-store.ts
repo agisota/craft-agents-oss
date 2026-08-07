@@ -3,9 +3,10 @@
  *
  * Layout: {workspaceRoot}/knowledge/work-envelopes.jsonl
  * Key = `${kind}:${id}` (knowledgeEnvelopeKey). Last write wins per key.
+ * Writes compact the full map via tmp+rename (no unbounded append history).
  * Fail-soft parse: corrupt lines skipped. Never throws on read.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import {
   knowledgeEnvelopeKey,
@@ -94,7 +95,8 @@ export class KnowledgeWorkEnvelopesStore {
    */
   upsert(envelope: KnowledgeWorkEnvelope): KnowledgeWorkEnvelope {
     const key = knowledgeEnvelopeKey(envelope.knowledgeRef)
-    const existing = this.readMap().get(key)
+    const map = this.readMap()
+    const existing = map.get(key)
     const now = Date.now()
     const next: KnowledgeWorkEnvelope = {
       knowledgeRef: { ...envelope.knowledgeRef },
@@ -108,8 +110,17 @@ export class KnowledgeWorkEnvelopesStore {
         ? envelope.updatedAt
         : now,
     }
-    mkdirSync(dirname(this.filePath), { recursive: true })
-    appendFileSync(this.filePath, `${JSON.stringify(next)}\n`, 'utf8')
+    map.set(key, next)
+    this.writeMap(map)
     return next
+  }
+
+  /** Full atomic rewrite: one line per key (LWW), tmp + rename. */
+  private writeMap(map: Map<string, KnowledgeWorkEnvelope>): void {
+    mkdirSync(dirname(this.filePath), { recursive: true })
+    const body = [...map.values()].map((entry) => JSON.stringify(entry)).join('\n')
+    const tmp = join(dirname(this.filePath), `.${Date.now()}-${process.pid}.envelopes.tmp`)
+    writeFileSync(tmp, body ? `${body}\n` : '', 'utf8')
+    renameSync(tmp, this.filePath)
   }
 }
