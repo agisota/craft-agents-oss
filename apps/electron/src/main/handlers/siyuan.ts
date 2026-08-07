@@ -22,6 +22,8 @@
 import { RPC_CHANNELS, type SiyuanSurfaceState } from '../../shared/types'
 import type { EmbeddedBoundsRect } from '../browser-pane-manager'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
+import { bumpKnowledgeMetric } from '@craft-agent/server-core/knowledge'
+import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import type { HandlerDeps } from './handler-deps'
 
 export const HANDLED_CHANNELS = [
@@ -171,6 +173,16 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
     }
     surfaces.register(record)
     pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(record))
+    // G1: count first open of a durable knowledge surface (dedup re-opens skip).
+    try {
+      const wsId = input.workspaceId
+      if (typeof wsId === 'string' && wsId.length > 0) {
+        const ws = getWorkspaceByNameOrId(wsId)
+        if (ws?.rootPath) bumpKnowledgeMetric(ws.rootPath, 'knowledgeSurfaceOpens')
+      }
+    } catch {
+      /* metrics must never break surface open */
+    }
     return instanceId
   })
 

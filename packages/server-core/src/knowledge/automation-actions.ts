@@ -33,6 +33,7 @@ import {
 } from './automation-loop-guard'
 import { KnowledgeLinksStore } from './links-store'
 import { KnowledgeAuditLog } from './knowledge-audit'
+import { bumpKnowledgeMetric } from './metrics-store'
 
 /** Result shape frozen in P6 KnowledgeActionExecutor contract. */
 export interface KnowledgeActionExecuteResult {
@@ -246,9 +247,14 @@ export class ServerKnowledgeActionExecutor {
     ctx: KnowledgeActionExecuteContext,
   ): Promise<CloudRunSubmitResult> {
     if (this.deps.submitCloudRun) {
-      return this.deps.submitCloudRun(action, ctx)
+      const result = await this.deps.submitCloudRun(action, ctx)
+      if (result.ok && result.runId) {
+        bumpKnowledgeMetric(ctx.workspaceRootPath, 'automationRunsTriggered')
+      }
+      return result
     }
     // Record intent only — synthetic run id for callback wiring in tests/v1.
+    // Still counts as a triggered automation run for G1 volume (intent path).
     const runId = `run_auto_${randomUUID()}`
     const root = ctx.workspaceRootPath
     const audit = this.deps.audit?.(root) ?? new KnowledgeAuditLog(root)
@@ -265,6 +271,7 @@ export class ServerKnowledgeActionExecutor {
         intentOnly: true,
       }),
     })
+    bumpKnowledgeMetric(root, 'automationRunsTriggered')
     return { ok: true, runId }
   }
 
@@ -569,6 +576,8 @@ export class ServerKnowledgeActionExecutor {
         targetRef,
       }),
     })
+
+    bumpKnowledgeMetric(ctx.workspaceRootPath, 'automationProposalsTotal', 'automationProposals')
 
     return { ok: true, proposalId: proposal.id }
   }

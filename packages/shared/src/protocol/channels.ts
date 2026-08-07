@@ -199,6 +199,10 @@ export const RPC_CHANNELS = {
     // P6 knowledge change watcher (poll) — start/stop per connection; emits into AutomationSystem.
     WATCH: 'knowledge:watch',
     UNWATCH: 'knowledge:unwatch',
+    // P7-prep G1 metrics (workspace data → REMOTE_ELIGIBLE) + external-local detect (LOCAL_ONLY).
+    // Full managed kernel remains blocked on G1 thresholds + G2 legal decision.
+    METRICS_GET: 'knowledge:metricsGet',
+    DETECT_ENGINE: 'knowledge:detectEngine',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)

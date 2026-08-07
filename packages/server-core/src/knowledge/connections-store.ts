@@ -23,6 +23,7 @@ import { join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import type { CredentialId } from '@craft-agent/shared/credentials'
+import { CodedError } from '@craft-agent/shared/protocol'
 
 /**
  * Token key parser — the record's credentialRef IS a CredentialManager id
@@ -43,13 +44,17 @@ export function credentialIdFromRef(credentialRef: string): CredentialId | null 
 export type KnowledgeConnectionStatus = 'unknown' | 'ok' | 'needs_auth' | 'failed'
 
 /**
- * Storage record for one knowledge connection. P1 supports only
- * provider 'siyuan' in 'external-local' mode (K-07 widens mode in P7).
+ * Storage record for one knowledge connection.
+ * Production mode is external-local only. `managed` is accepted at the type
+ * level for P7-prep fail-closed paths, but save() rejects it at runtime until
+ * G1 thresholds + G2 legal decision (spec K-08).
  */
+export type KnowledgeConnectionMode = 'external-local' | 'managed'
+
 export interface KnowledgeConnectionRecord {
   id: string
   provider: 'siyuan'
-  mode: 'external-local'
+  mode: KnowledgeConnectionMode
   baseUrl: string
   /** CredentialManager key — never the token itself. */
   credentialRef: string
@@ -71,7 +76,7 @@ export interface SaveConnectionInput {
   baseUrl: string
   credentialRef: string
   provider?: 'siyuan'
-  mode?: 'external-local'
+  mode?: KnowledgeConnectionMode
   version?: string
   capabilitiesJson?: string
   status?: KnowledgeConnectionStatus
@@ -127,6 +132,12 @@ export class KnowledgeConnectionsStore {
    * generated uuid. Returns the stored record.
    */
   save(input: SaveConnectionInput): KnowledgeConnectionRecord {
+    if (input.mode === 'managed') {
+      throw new CodedError(
+        'CAPABILITY_DISABLED',
+        'knowledge: managed connection mode is disabled until G1 metrics thresholds are met and G2 licensing decision is ACCEPTED (spec K-08 / g2-decision-record). Production mode remains external-local only; Craft does not ship or spawn a SiYuan kernel.',
+      )
+    }
     const records = this.readRecords()
     const now = new Date().toISOString()
     const idx = input.id ? records.findIndex(r => r.id === input.id) : -1

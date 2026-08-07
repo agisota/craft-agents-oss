@@ -5,6 +5,15 @@
 > **Дата:** 2026-08-07
 > **Входные документы:** архитектурный вердикт «SiYuan поглощается Craft как движок знаний» (§14 «Лицензионный контур», §13 «Три режима подключения», §16 «Последовательность поглощения»); [00-overview.md](./00-overview.md), [01-adrs.md](./01-adrs.md) (ADR-001…006), [02-integration-boundaries.md](./02-integration-boundaries.md), [03-knowledge-provider-contract.md](./03-knowledge-provider-contract.md), [07-connection-modes.md](./07-connection-modes.md) (режимы подключения, §3.9 порядок внедрения), [11-roadmap.md](./11-roadmap.md) (фазы P0–P7). Смежно: [../2026-08-07-unified-shell/02-surface-registry-tabs.md](../2026-08-07-unified-shell/02-surface-registry-tabs.md) (host surface для встраиваемой веб-поверхности).
 
+## Decision status
+
+> **Status:** draft / **OPEN** — blocked on legal/commercial decision.  
+> **Record:** [g2-decision-record.md](./g2-decision-record.md)  
+> **Boundary notice:** [NOTICE-siyuan-boundary.md](./NOTICE-siyuan-boundary.md)  
+> **G1 metrics gate:** [g1-metrics.md](./g1-metrics.md)  
+>
+> Until G2 is `ACCEPTED` (variant B or C) **and** G1 thresholds are filled, production remains **variant A (external-local)** only. No SiYuan binary/source in monorepo or installer; no managed spawn.
+
 ## 1. Цель
 
 Зафиксировать лицензионную рамку интеграции Craft (Apache-2.0) с SiYuan (AGPLv3): четыре возможных варианта с последствиями и обоснованную рекомендацию; жёсткое правило поведения до принятия юридического решения; список разрешённых и запрещённых интеграционных приёмов по каждому режиму подключения ([07-connection-modes.md](./07-connection-modes.md)); сформулированный список вопросов для юридической консультации.

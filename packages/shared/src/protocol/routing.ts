@@ -254,8 +254,9 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
-  // knowledge — engine status reflects local engine process state, never proxied
+  // knowledge — engine status + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -415,6 +416,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
+  // P7-prep G1 metrics — workspace file under {workspaceRoot}/knowledge/metrics.json
+  RPC_CHANNELS.knowledge.METRICS_GET,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
