@@ -10,16 +10,13 @@
 import type { Disposable } from '../types.ts';
 
 /**
- * Structural mirror of the Knowledge Provider contract ref (K-03 §3.1:
- * `{ scheme: "siyuan"; kind: ...; id }`). The canonical definition lives in
- * packages/core/src/knowledge (suite K, phase P1); kept structurally
- * identical so values are assignable across packages.
+ * Canonical KnowledgeRef from the Knowledge Provider contract (K-03 §3.1,
+ * packages/core/src/knowledge/refs.ts, suite K phase P1). Re-exported here
+ * so SurfaceTab/SurfaceDescriptor references and consumer imports from
+ * @craft-agent/core/platform stay type-identical with the knowledge package.
  */
-export interface KnowledgeRef {
-  scheme: 'siyuan';
-  kind: 'notebook' | 'document' | 'block' | 'database' | 'asset';
-  id: string;
-}
+export type { KnowledgeRef } from '../../knowledge/refs.ts';
+import type { KnowledgeRef } from '../../knowledge/refs.ts';
 
 /**
  * Panel lane. W1: only 'main' is live (S-02 §3.1.1 / panel-stack.ts:17);
