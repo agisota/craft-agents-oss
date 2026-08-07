@@ -27,6 +27,7 @@ import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
 import {
   buildMcpServers,
+  copyCloudRunner,
   copyPiAgentServer,
   copySessionServer,
   type Arch,
@@ -64,4 +65,5 @@ console.log(`Building bundled subprocess servers for ${platform}-${arch}...`);
 buildMcpServers(config);
 copySessionServer(config);
 copyPiAgentServer(config);
+copyCloudRunner(config);
 console.log('Subprocess servers copied to apps/electron/resources/');

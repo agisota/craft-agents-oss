@@ -19,6 +19,7 @@
 import { join } from "path";
 import {
   copySessionServer,
+  copyCloudRunner,
   copyPiAgentServer,
   type Arch,
   type BuildConfig,
@@ -53,4 +54,5 @@ const config: BuildConfig = {
 console.log(`Staging MCP/Pi servers into resources/ (${platform}-${arch})...`);
 copySessionServer(config);
 copyPiAgentServer(config);
+copyCloudRunner(config);
 console.log("✅ Servers staged into apps/electron/resources/");

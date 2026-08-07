@@ -574,6 +574,21 @@ export function copyPiAgentServer(config: BuildConfig): void {
 }
 
 /**
+ * Copy the cloud-runner stub runner into packaged app resources.
+ */
+export function copyCloudRunner(config: BuildConfig): void {
+  const { rootDir, electronDir } = config;
+  const source = join(rootDir, 'packages', 'cloud-runner', 'dist', 'stub-runner.js');
+  if (!existsSync(source)) {
+    console.warn('Warning: Cloud-runner stub not found at packages/cloud-runner/dist/stub-runner.js. Cloud Runs (local provider) will fail to start its runner.');
+    return;
+  }
+  const destDir = join(electronDir, 'resources', 'cloud-runner');
+  mkdirSync(destDir, { recursive: true });
+  copyFileSync(source, join(destDir, 'stub-runner.js'));
+}
+
+/**
  * Build MCP servers (session) and Pi agent server.
  * Shared across all platforms to avoid drift.
  */
@@ -598,7 +613,20 @@ export function buildMcpServers(config: BuildConfig): void {
     throw new Error(`Session MCP server output not found at ${sessionOut}`);
   }
 
-  // Pi agent server uses --target=bun --format=esm because its Pi SDK deps are ESM-only.
+    // Cloud-runner stub runner (Cloud Runs local provider). ESM — spawned by bundled bun.
+  const cloudRunnerDir = join(rootDir, 'packages', 'cloud-runner');
+  const cloudRunnerOut = join(cloudRunnerDir, 'dist', 'stub-runner.js');
+  if (existsSync(join(cloudRunnerDir, 'src'))) {
+    mkdirSync(join(cloudRunnerDir, 'dist'), { recursive: true });
+    execSync(
+      `bun build ${join(cloudRunnerDir, 'src', 'runners', 'stub-runner.ts')} --outfile ${cloudRunnerOut} --target bun --format esm`,
+      { cwd: rootDir, stdio: 'inherit', shell: true }
+    );
+    if (!existsSync(cloudRunnerOut)) {
+      throw new Error(`Cloud-runner stub output not found at ${cloudRunnerOut}`);
+    }
+  }
+// Pi agent server uses --target=bun --format=esm because its Pi SDK deps are ESM-only.
   // --target=node --format=cjs leaves ESM deps as external require() calls that fail at runtime.
   // koffi is marked external because it's a native N-API module — bun can't inline .node binaries
   // and inlining its JS breaks the native binary resolution paths.
