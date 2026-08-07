@@ -106,11 +106,13 @@ describe('default thinking level storage', () => {
 
   it('supports every thinking level', () => {
     const { configDir } = setupWorkspaceConfigDir()
-    for (const level of THINKING_LEVEL_IDS) {
-      runEval(configDir, `setDefaultThinkingLevel('${level}')`)
-      const output = runEval(configDir, "console.log(String(getDefaultThinkingLevel()))")
-      expect(output).toBe(level)
-    }
+    // Минимум subprocess-ов (ранее 12 × ~540ms превышало 5s таймаут под нагрузкой).
+    const levels = THINKING_LEVEL_IDS
+    const script = levels
+      .map((level) => `setDefaultThinkingLevel('${level}'); console.log('${level}=' + String(getDefaultThinkingLevel()))`)
+      .join('\n')
+    const output = runEval(configDir, script)
+    expect(output.trim().split('\n')).toEqual(levels.map((level) => `${level}=${level}`))
   })
 
   it('migrates legacy "think" value to "medium"', () => {

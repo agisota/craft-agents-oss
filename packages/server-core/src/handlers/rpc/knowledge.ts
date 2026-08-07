@@ -86,6 +86,24 @@ import type {
   KnowledgeContextSnapshotRecord,
 } from '../../knowledge'
 
+/**
+ * Тестовый seam (вместо mock.module('@craft-agent/core/knowledge/providers/siyuan')).
+ * mock.module — транзитивно-глобален и необратим для модулей, загруженных после
+ * мока: он ломал packages/core knowledge adapter-тесты в полном прогоне
+ * (19 fails; версия '2.10.0' из их фейка). Хендлер дергает provider/client
+ * ТОЛЬКО через эти фактори; тесты ставят свой и возвращают оригинал в afterEach.
+ */
+type SiyuanKnowledgeProviderCtor = new (options: { connection: KnowledgeConnection; token: string }) => KnowledgeProvider
+type SiyuanKernelClientCtor = new (options: { baseUrl: string; token: string }) => Pick<SiyuanKernelClient, 'getVersion'>
+let knowledgeProviderCtor: SiyuanKnowledgeProviderCtor = SiyuanKnowledgeProvider as unknown as SiyuanKnowledgeProviderCtor
+let siyuanKernelClientCtor: SiyuanKernelClientCtor = SiyuanKernelClient
+export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor | null, clientCtor?: SiyuanKernelClientCtor | null): void {
+  knowledgeProviderCtor = ctor ?? (SiyuanKnowledgeProvider as unknown as SiyuanKnowledgeProviderCtor)
+  if (clientCtor !== undefined) {
+    siyuanKernelClientCtor = clientCtor ?? SiyuanKernelClient
+  }
+}
+
 /** The complete knowledge channel set — 9 P1 read + 7 P3 write-back proposal channels; asserted verbatim by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
@@ -238,7 +256,7 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   const tokensByConnection = new Map<string, string>()
   const registry = createKnowledgeRegistry()
   registry.registerProvider('siyuan', (connection) =>
-    new SiyuanKnowledgeProvider({ connection, token: tokensByConnection.get(connection.id) ?? '' }),
+    new knowledgeProviderCtor({ connection, token: tokensByConnection.get(connection.id) ?? '' }),
   )
 
   /** Domain KnowledgeError code → transport CodedError with the identical code string. */
@@ -449,11 +467,11 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   // running:false (the channel's answer), never a thrown provider error.
   server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
     const record = requireConnection(args.connectionId)
-    const token = await readToken(record)
     try {
-      // Client ctor rejects empty tokens (token required) — for probe purposes a
-      // tokenless connection must yield running:false, not a thrown provider error.
-      const client = new SiyuanKernelClient({ baseUrl: record.baseUrl, token })
+      // Construction itself may fail (missing token / bad baseUrl) — probe semantics
+      // still answer running:false rather than throw a provider error to the wire.
+      const token = await readToken(record)
+      const client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
       const version = await client.getVersion()
       return { mode: record.mode, running: true, version }
     } catch (error) {

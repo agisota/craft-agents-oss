@@ -26,6 +26,7 @@ import { loadManifest } from '../toolchain/manifest.ts'
 import { atomicWriteFileSync, marketplacePaths, type MarketplaceDocument, type MarketplaceEntry, type MarketplaceFetch } from './catalog.ts'
 import {
   INSTALL_MARKER_NAME,
+  readInstallMarker,
   readLock,
   removeInstallMarker,
   removeLockRecord,
@@ -64,11 +65,20 @@ export interface InstallOptions {
   execFileFn?: ExecFileFn
   fetchFn?: MarketplaceFetch
   now?: () => number
-  onProgress?: (phase: 'clone' | 'verify' | 'install' | 'fetch', detail?: string) => void
+  onProgress?: (phase: 'clone' | 'verify' | 'install' | 'fetch' | 'collision', detail?: string) => void
 }
 
 export type MarketplaceInstallResult =
-  | { id: string; kind: 'skillpack'; status: 'installed'; ref: string; skills: string[]; targets: string[] }
+  | {
+      id: string
+      kind: 'skillpack'
+      status: 'installed'
+      ref: string
+      skills: string[]
+      targets: string[]
+      /** Pre-existing unowned dirs, пропущенные гардой (не overwrite). */
+      collisions?: string[]
+    }
   | { id: string; kind: 'context-doc'; status: 'installed'; ref: string; targets: string[] }
   | { id: string; kind: 'tool'; status: 'deferred'; ref: string; toolName: string }
 
@@ -227,7 +237,21 @@ function copyCheckout(src: string, dest: string): void {
 // Install (dispatch by kind)
 // ---------------------------------------------------------------------------
 
-export async function installEntry(entry: MarketplaceEntry, options: InstallOptions = {}): Promise<MarketplaceInstallResult> {
+// ---------------------------------------------------------------------------
+// Модульный in-process mutex: публичный installEntry сериализуется по entry.id
+// на уровне модуля — прямые вызовы (минуя per-slug очередь RPC-хэндлера) не
+// могут устроить гонку (double-clone, swap/lock рассинхрон): повторный install
+// того же id ЖДЁТ завершения текущего. Разные id ставятся параллельно.
+// Реализация — тот же promise-tail, что и createMarketplaceQueue ниже.
+// ---------------------------------------------------------------------------
+
+const installById = createMarketplaceQueue()
+
+export function installEntry(entry: MarketplaceEntry, options: InstallOptions = {}): Promise<MarketplaceInstallResult> {
+  return installById(entry.id, () => installEntryUnlocked(entry, options))
+}
+
+async function installEntryUnlocked(entry: MarketplaceEntry, options: InstallOptions = {}): Promise<MarketplaceInstallResult> {
   if (entry.kind === 'tool') {
     const toolName = entry.toolName as string // guaranteed by parseCatalog
     const known = loadManifest().some((tool) => tool.name === toolName)
@@ -281,28 +305,87 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       contentSha256: {},
     }
 
-    const installOne = (name: string, srcDir: string): void => {
+    // Владелец существующей target-директории: id записи из install-маркера
+    // (источник истины — пишется при каждой установке) либо из aggregate
+    // registry. null → артефакт НЕ наш (напр., ручная установка пользователя).
+    const ownerOf = (target: string): string | null => {
+      const marker = readInstallMarker(target)
+      if (marker) return marker.id
+      for (const existing of Object.values(readLock(paths.lockFile).entries)) {
+        if (existing.targets.includes(target)) return existing.id
+      }
+      return null
+    }
+
+    const installOne = (name: string, srcDir: string, allowRename: boolean): void => {
       progress('install', name)
+      let finalName = name
+      let target = join(skillsDir, finalName)
+      // Защита чужого контента: существующая директория без нашего install-маркера
+      // и без записи в registry пропускается (не overwrite). Ошибку не бросаем —
+      if (existsSync(target)) {
+        const owner = ownerOf(target)
+        if (owner === null) {
+          progress('collision', `${finalName} — existing unowned directory kept`)
+          collisions.push(`${target} (unowned — existing user content kept)`)
+          return
+        }
+        if (owner !== entry.id) {
+          if (!allowRename) {
+            // directory-mode: basename = entry.id, rename запрещён — fail-closed,
+            // иначе swap перетрёт чужой пакет/артефакт с тем же именем.
+            progress('collision', `${finalName} — owned by ${owner}, refuse overwrite`)
+            collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
+            return
+          }
+          // Cross-pack коллизия имён (skills-режим): basename занят ДРУГИМ
+          // пакетом (маркер и registry принадлежат ему), поэтому guard выше
+          // считает директорию «нашей» и swap уничтожил бы чужой контент.
+          // Политика: ставим под namespaced-именем '<packid>--<skill>',
+          // чужой пакет не трогаем, факт фиксируем collision'ом.
+          const occupied = target
+          finalName = `${entry.id}--${name}`
+          target = join(skillsDir, finalName)
+          progress('collision', `${name} renamed to ${finalName} (name in use by ${owner})`)
+          collisions.push(`${occupied} renamed to ${finalName} (name in use by ${owner})`)
+          if (existsSync(target)) {
+            const namespacedOwner = ownerOf(target)
+            if (namespacedOwner === null) {
+              progress('collision', `${finalName} — existing unowned directory kept`)
+              collisions.push(`${target} (unowned — existing user content kept)`)
+              return
+            }
+            if (namespacedOwner !== entry.id) {
+              progress('collision', `${finalName} — namespaced name in use by ${namespacedOwner}, skipped`)
+              collisions.push(`${target} (namespaced name in use by ${namespacedOwner} — skipped)`)
+              return
+            }
+          }
+        }
+      }
       const staged = join(paths.tmpDir, `stage-${randomUUID()}`)
       copyCheckout(srcDir, staged)
-      const target = join(skillsDir, name)
       swapStagedIntoPlace(staged, target)
       record.targets.push(target)
-      record.skills!.push(name)
+      record.skills!.push(finalName)
       record.contentSha256![target] = sha256Directory(target)
       writeInstallMarker(target, record)
     }
 
+    const collisions: string[] = []
     try {
       if (entry.installMode === 'directory') {
         // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
-        installOne(entry.id, staging)
+        installOne(entry.id, staging, false)
+        if (collisions.length > 0) {
+          throw new MarketplaceIntegrityError(`cannot install '${entry.id}': target exists and is not ours — ${collisions[0]}`)
+        }
       } else {
         const skills = scanSkillDirs(staging, entry)
         if (skills.length === 0) {
           throw new MarketplaceIntegrityError(`no SKILL.md found in ${entry.source.repo}@${entry.source.ref.slice(0, 8)} (subdir '${entry.skillsSubdir ?? '.'}')`)
         }
-        for (const skill of skills) installOne(skill.name, skill.dir)
+        for (const skill of skills) installOne(skill.name, skill.dir, true)
       }
     } catch (err) {
       // Rollback: иначе частично установленные скиллы останутся сиротами
@@ -313,7 +396,9 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       throw err
     }
     upsertLockRecord(paths.lockFile, record)
-    return { id: entry.id, kind: 'skillpack', status: 'installed', ref: entry.source.ref, skills: record.skills!, targets: record.targets }
+    const result: MarketplaceInstallResult = { id: entry.id, kind: 'skillpack', status: 'installed', ref: entry.source.ref, skills: record.skills!, targets: record.targets }
+    if (collisions.length > 0 && result.kind === 'skillpack') result.collisions = collisions
+    return result
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }
@@ -413,7 +498,10 @@ export function createMarketplaceQueue(): <T>(key: string, fn: () => Promise<T>)
   return function enqueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const run = (tails.get(key) ?? Promise.resolve()).catch(() => {}).then(fn)
     tails.set(key, run)
-    void run.finally(() => {
+    // ВАЖНО: cleanup-цепочку надо сразу галшировать ошибкой — иначе .finally на
+    // отвергнутом run создаёт ВТОРУЮ цепочку (unhandledRejection), которая ложно
+    // красним тесты ((fail) в bun test) и шумит в серверном процессе.
+    void run.catch(() => {}).finally(() => {
       if (tails.get(key) === run) tails.delete(key)
     })
     return run

@@ -1,0 +1,93 @@
+/**
+ * git-npm supply-chain путь: installGitNpmPinned.
+ * - апстрим bun.lock есть → checkout + --frozen-lockfile + global из чекаута
+ * - bun.lock нет → legacy 'github:<repo>#<commit>' + WARNING (transitives unpinned)
+ * - git недоступен (ENOENT) → тот же legacy fallback + WARNING
+ */
+import { describe, expect, it } from 'bun:test';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { installGitNpmPinned } from '../installer';
+
+function makePaths(name: string) {
+  const base = join(tmpdir(), `gitnpm-pinned-${name}-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  return { base, workDir: join(base, 'work'), versionDir: join(base, 'version') };
+}
+
+const REPO = 'garrytan/gbrain';
+const COMMIT = 'a'.repeat(40);
+
+function collectRunCmd(impl: (args: string[], options: { cwd?: string }) => Promise<{ stdout: string; stderr: string } | void>) {
+  const calls: { args: string[]; cwd?: string }[] = [];
+  // runCommand contract is Promise<void> — discard stdout/stderr from the stub body.
+  const fn = async (args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }): Promise<void> => {
+    calls.push({ args, cwd: options?.cwd });
+    await impl(args, options ?? {});
+  };
+  return { calls, fn };
+}
+
+describe('installGitNpmPinned', () => {
+  it('has upstream bun.lock → installs transitives via --frozen-lockfile, then global from checkout', async () => {
+    const { base, workDir, versionDir } = makePaths('lock');
+    const { calls, fn } = collectRunCmd(async (args, options) => {
+      if (args.includes('checkout')) {
+        mkdirSync(options!.cwd!, { recursive: true });
+        writeFileSync(join(options!.cwd!, 'bun.lock'), 'fake');
+        writeFileSync(join(options!.cwd!, 'package.json'), '{}');
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const logs: string[] = [];
+    await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
+
+    const seq = calls.map((c) => c.args.join(' '));
+    expect(seq).toEqual([
+      `git init -q ${workDir}`,
+      `git remote add origin https://github.com/${REPO}.git`,
+      `git fetch -q --depth 1 origin ${COMMIT}`,
+      `git -c advice.detachedHead=false checkout -q FETCH_HEAD`,
+      `/bun install --frozen-lockfile`,
+      `/bun install --global ${workDir}`,
+    ]);
+    // cwd frozen-lockfile: в чекауте
+    expect(calls[4]?.cwd).toBe(workDir);
+    expect(logs).toEqual([]);
+    expect(existsSync(workDir)).toBe(false); // cleanup
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('no upstream bun.lock → legacy global github:spec + WARNING', async () => {
+    const { base, workDir, versionDir } = makePaths('nolock');
+    const { calls, fn } = collectRunCmd(async (args, options) => {
+      if (args.includes('checkout')) {
+        mkdirSync(options!.cwd!, { recursive: true });
+        writeFileSync(join(options!.cwd!, 'package.json'), '{}');
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const logs: string[] = [];
+    await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
+
+    const last = calls[calls.length - 1]!;
+    expect(last.args.join(' ')).toBe(`/bun install --global github:${REPO}#${COMMIT}`);
+    expect(logs.some((m) => m.includes('transitives unpinned'))).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('git unavailable (ENOENT) → legacy global github:spec + WARNING, no throw', async () => {
+    const { base, workDir, versionDir } = makePaths('nogit');
+    const { calls, fn } = collectRunCmd(async (args) => {
+      if (args[0] === 'git') throw new Error('spawn git ENOENT');
+      return { stdout: '', stderr: '' };
+    });
+    const logs: string[] = [];
+    await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
+
+    const last = calls[calls.length - 1]!;
+    expect(last.args.join(' ')).toBe(`/bun install --global github:${REPO}#${COMMIT}`);
+    expect(logs.some((m) => m.includes('git unavailable'))).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  });
+});

@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { downloadArtifact, HttpError, NetworkError, ShaMismatchError } from './downloader';
 import { runCommand } from './exec';
 import { getGitLock } from './git-locks';
-import { cleanupOldVersions, flipCurrent, installTool } from './installer';
+import { cleanupOldVersions, flipCurrent, installGitNpmPinned, installTool } from './installer';
 import { currentPlatform, TOOLCHAIN_MANIFEST } from './manifest';
 import { createResolver } from './resolver';
 import { StatusEmitter } from './status';
@@ -81,10 +81,13 @@ export interface BrewInstallContext {
 }
 
 /**
- * Реальная установка git-npm: `bun install -g github:<repo>#<commit>` toolchain-bun'ом.
- * Пин — git commit (content-addressed: bun выкачивает ровно этот снапшот дерева);
- * url/sha256/size codeload-тарболла того же коммита лежат в git-locks.ts для аудита.
- * Lock отсутствует → установка запрещена (fail-closed, зеркалит npm-locks.ts).
+ * Реальная установка git-npm: чекаут pinned коммита + bun install --frozen-lockfile
+ * в чекауте + bun install --global из каталога (транзитивы по апстрим bun.lock;
+ * при отсутствии локфайла — legacy global github: с WARNING; логика и эмпирика
+ * в toolchain/installer.ts installGitNpmPinned).
+ * Пин — git commit (content-addressed); url/sha256/size codeload-тарболла —
+ * для аудита в git-locks.ts. Lock отсутствует → установка запрещена
+ * (fail-closed, зеркалит npm-locks.ts).
  */
 async function defaultGitNpmInstall(ctx: GitNpmInstallContext): Promise<void> {
   const lock = getGitLock(ctx.entry.name, ctx.entry.version);
@@ -94,17 +97,14 @@ async function defaultGitNpmInstall(ctx: GitNpmInstallContext): Promise<void> {
         'записи в toolchain/git-locks.ts (см. header файла; scripts/toolchain-locks.ts)',
     );
   }
-  await fs.promises.mkdir(ctx.versionDir, { recursive: true });
-  const spec = `github:${lock.repo}#${lock.commit}`;
-  await runCommand([ctx.bun, 'install', '--global', spec], {
-    env: {
-      ...process.env,
-      // BUN_INSTALL направляет глобальную установку внутрь toolchain-layout:
-      // versionDir/install/global/node_modules/<pkg> + лончер versionDir/bin/<bin>.
-      BUN_INSTALL: ctx.versionDir,
-      // Лончеры сгенерированных npm-wrapper'ов должны находить именно этот bun.
-      CRAFT_BUN_PATH: ctx.bun,
-    },
+  const { tmpdir } = await import('node:os');
+  const workDir = await fs.promises.mkdtemp(path.join(tmpdir(), 'craft-gitnpm-'));
+  await installGitNpmPinned({
+    bun: ctx.bun,
+    versionDir: ctx.versionDir,
+    repo: lock.repo,
+    commit: lock.commit,
+    workDir,
   });
 }
 
