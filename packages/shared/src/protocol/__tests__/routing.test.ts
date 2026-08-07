@@ -69,3 +69,48 @@ describe('channel routing behavior', () => {
     }
   })
 })
+
+describe('knowledge channel routing (P1 read-only)', () => {
+  const REMOTE_READ_CHANNELS = [
+    RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
+    RPC_CHANNELS.knowledge.CAPABILITIES,
+    RPC_CHANNELS.knowledge.SEARCH,
+    RPC_CHANNELS.knowledge.GET,
+    RPC_CHANNELS.knowledge.GET_CONTEXT,
+    RPC_CHANNELS.knowledge.GET_BACKLINKS,
+    RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
+    RPC_CHANNELS.knowledge.SNAPSHOT_GET,
+    RPC_CHANNELS.knowledge.CHANGED,
+  ]
+
+  test('knowledge read channels and CHANGED broadcast are REMOTE_ELIGIBLE', () => {
+    for (const ch of REMOTE_READ_CHANNELS) {
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+
+  test('knowledge ENGINE_STATUS is LOCAL_ONLY', () => {
+    expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(true)
+    expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
+  })
+
+  test('knowledge namespace is exactly the P1 read-only set (no mutation/engine-lifecycle channels)', () => {
+    expect([...Object.keys(RPC_CHANNELS.knowledge)].sort()).toEqual([
+      'CAPABILITIES',
+      'CHANGED',
+      'ENGINE_STATUS',
+      'GET',
+      'GET_BACKLINKS',
+      'GET_CONTEXT',
+      'LIST_CONNECTIONS',
+      'SEARCH',
+      'SNAPSHOT_CREATE',
+      'SNAPSHOT_GET',
+    ])
+    // P3/P7: proposeMutation/applyMutation/discardMutation/engineStart/engineStop MUST NOT exist in P1.
+    for (const ch of Object.values(RPC_CHANNELS.knowledge)) {
+      expect(ch).not.toMatch(/mutation|engineStart|engineStop/i)
+    }
+  })
+})

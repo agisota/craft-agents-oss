@@ -243,6 +243,9 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.UPDATE,
   RPC_CHANNELS.marketplace.REFRESH,
   RPC_CHANNELS.marketplace.CHANGED,
+
+  // knowledge — engine status reflects local engine process state, never proxied
+  RPC_CHANNELS.knowledge.ENGINE_STATUS,
 ])
 
 // ---------------------------------------------------------------------------
@@ -349,6 +352,18 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.notes.CHANGED,
   RPC_CHANNELS.notes.RENAME_FOLDER,
   RPC_CHANNELS.notes.DELETE_FOLDER,
+
+  // knowledge — P1 read-only knowledge provider (workspace-data read ops +
+  // change broadcast, proxied to the workspace-owning server; no mutations in P1)
+  RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
+  RPC_CHANNELS.knowledge.CAPABILITIES,
+  RPC_CHANNELS.knowledge.SEARCH,
+  RPC_CHANNELS.knowledge.GET,
+  RPC_CHANNELS.knowledge.GET_CONTEXT,
+  RPC_CHANNELS.knowledge.GET_BACKLINKS,
+  RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
+  RPC_CHANNELS.knowledge.SNAPSHOT_GET,
+  RPC_CHANNELS.knowledge.CHANGED,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,

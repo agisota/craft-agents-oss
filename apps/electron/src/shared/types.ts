@@ -113,6 +113,30 @@ export type { ExportResourcesOptions, ExportResult, ResourceImportMode, Resource
 // LLM connection types
 import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings } from '@craft-agent/shared/config';
 export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType, NetworkProxySettings };
+// Knowledge provider contract types (P1 read-only — spec 2026-08-07-siyuan-integration/03;
+// mutation types are intentionally not surfaced: no mutation channels exist at P1)
+import type {
+  ContextMode,
+  ContextPayload,
+  ContextSnapshot,
+  KnowledgeCapabilities,
+  KnowledgeConnection,
+  KnowledgeNode,
+  KnowledgeRef,
+  SearchInput,
+  SearchPage,
+} from '@craft-agent/core/knowledge';
+export type {
+  ContextMode,
+  ContextPayload,
+  ContextSnapshot,
+  KnowledgeCapabilities,
+  KnowledgeConnection,
+  KnowledgeNode,
+  KnowledgeRef,
+  SearchInput,
+  SearchPage,
+};
 
 // Toolchain manager types (first-run download manager, spec 2026-08-06)
 import type { ToolStatus as ToolchainToolStatus, ToolName as ToolchainToolName } from '@craft-agent/shared/toolchain/types';
@@ -279,6 +303,8 @@ import type {
   NoteSummary,
   RemoteSessionTransferPayload,
   ImportRemoteSessionTransferResult,
+  KnowledgeChangedPayload,
+  KnowledgeEngineStatus,
 } from '@craft-agent/shared/protocol'
 
 export interface ElectronAPI {
@@ -529,6 +555,31 @@ export interface ElectronAPI {
   watchNotes(workspaceId: string): Promise<void>
   unwatchNotes(workspaceId: string): Promise<void>
   onNotesChanged(callback: (payload: NoteChangedPayload | string) => void): () => void
+
+  // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03 §3.5.1).
+  // Nested namespace via dotted CHANNEL_MAP keys + buildClientApi (browserPane pattern);
+  // the WS-mode preload needs no per-domain wiring. No mutation methods exist at P1 —
+  // propose/apply/discard land with P3 (spec 05).
+  knowledge: {
+    listConnections(): Promise<KnowledgeConnection[]>
+    capabilities(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeCapabilities>
+    search(args: { workspaceId: string; connectionId: string; input: SearchInput }): Promise<SearchPage>
+    get(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<KnowledgeNode>
+    getContext(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef; mode: ContextMode }): Promise<ContextPayload>
+    getBacklinks(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<ContextPayload['backlinks']>
+    createSnapshot(args: {
+      workspaceId: string
+      connectionId: string
+      ref: KnowledgeRef
+      mode?: ContextMode
+      sessionId: string
+      provenance?: ContextPayload['provenance']
+    }): Promise<ContextSnapshot>
+    getSnapshot(args: { workspaceId: string; snapshotId: string }): Promise<ContextSnapshot>
+    /** LOCAL_ONLY routing: reflects the engine on the answering host. */
+    engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
+    onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
+  }
   // Debug: send renderer logs to main process log file
   debugLog(...args: unknown[]): void
 

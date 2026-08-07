@@ -28,6 +28,7 @@ describe('ensureDefaultPermissions migration', () => {
           { pattern: '^bun\\s+run\\s+typecheck\\b$', comment: 'Typecheck' },
         ],
         allowedMcpPatterns: ['search'],
+        allowedKnowledgePatterns: ['^knowledge:(search|get)$'],
         allowedApiEndpoints: [],
         allowedWritePaths: [],
         blockedCommandHints: [
@@ -47,6 +48,7 @@ describe('ensureDefaultPermissions migration', () => {
           { pattern: '^custom-review\\b', comment: 'User customization' },
         ],
         allowedMcpPatterns: ['list'],
+        allowedKnowledgePatterns: ['^knowledge:custom-user-op$'],
         allowedApiEndpoints: [],
         allowedWritePaths: [],
         blockedCommandHints: [
@@ -76,6 +78,11 @@ describe('ensureDefaultPermissions migration', () => {
     const mcpPatterns = merged.allowedMcpPatterns as string[];
     expect(mcpPatterns).toContain('list');
     expect(mcpPatterns).toContain('search');
+
+    // Knowledge patterns merge the same way: user customizations preserved, new bundled ones added
+    const knowledgePatterns = merged.allowedKnowledgePatterns as string[];
+    expect(knowledgePatterns).toContain('^knowledge:custom-user-op$');
+    expect(knowledgePatterns).toContain('^knowledge:(search|get)$');
 
     const blockedCommandHints = merged.blockedCommandHints as Array<{ command: string; reason: string }>;
     expect(blockedCommandHints.some(h => h.command === 'printf')).toBe(true);

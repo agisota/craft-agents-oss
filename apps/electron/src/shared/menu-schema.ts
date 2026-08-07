@@ -381,6 +381,7 @@ export interface SettingsMenuItem {
 const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   runtime: 'Settings',
   context: 'FileText',
+  knowledge: 'BookOpen',
   marketplace: 'ShoppingBag',
   app: 'ToggleRight',
   ai: 'Sparkles',

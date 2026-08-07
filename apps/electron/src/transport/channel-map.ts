@@ -251,6 +251,20 @@ export const CHANNEL_MAP = {
   unwatchNotes: invoke(RPC_CHANNELS.notes.UNWATCH),
   onNotesChanged: listener(RPC_CHANNELS.notes.CHANGED),
 
+  // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03).
+  // Dotted keys nest into api.knowledge.*, mirroring the browserPane surface.
+  // No mutation entries exist at P1: propose/apply/discard land with P3.
+  'knowledge.listConnections': invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS),
+  'knowledge.capabilities': invoke(RPC_CHANNELS.knowledge.CAPABILITIES),
+  'knowledge.search': invoke(RPC_CHANNELS.knowledge.SEARCH),
+  'knowledge.get': invoke(RPC_CHANNELS.knowledge.GET),
+  'knowledge.getContext': invoke(RPC_CHANNELS.knowledge.GET_CONTEXT),
+  'knowledge.getBacklinks': invoke(RPC_CHANNELS.knowledge.GET_BACKLINKS),
+  'knowledge.createSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE),
+  'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
+  'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
+  'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
+
   // Debug logging
   debugLog: invoke(RPC_CHANNELS.debug.LOG),
 

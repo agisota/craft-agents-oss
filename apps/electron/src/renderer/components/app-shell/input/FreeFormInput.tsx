@@ -272,6 +272,38 @@ export interface FreeFormInputProps {
  * - Model selector
  * - Active option badges
  */
+/**
+ * Structural view of the knowledge RPC surface shipped by the knowledge handlers
+ * slice (channel-map). Optional-chained so the composer stays inert — Knowledge
+ * section hidden — until that surface is available and a connection is configured.
+ */
+interface KnowledgeElectronApi {
+  listConnections?: () => Promise<Array<{ id: string }>>
+  search?: (payload: {
+    workspaceId?: string
+    connectionId: string
+    input: { query: string }
+  }) => Promise<{
+    items?: Array<{
+      ref?: { scheme?: string; kind?: string; id?: string }
+      title?: string
+      notebookPath?: string
+    }>
+  }>
+}
+
+/**
+ * Resolve the knowledge search RPC surface, or undefined when the knowledge handlers
+ * slice has not exposed it (no connection configured — the feature stays inert).
+ * Cast reason: window.electronAPI's typed surface is extended by that slice
+ * independently; the structural read happens once here to keep slices decoupled.
+ */
+function getKnowledgeElectronApi(): KnowledgeElectronApi | undefined {
+  // window.electronAPI itself can be undefined in non-electron hosts — guard both levels.
+  const candidate = window.electronAPI as unknown as { knowledge?: KnowledgeElectronApi } | undefined
+  return candidate?.knowledge
+}
+
 export function FreeFormInput({
   placeholder,
   disabled = false,
@@ -1002,16 +1034,78 @@ export function FreeFormInput({
     // Skills also don't need special handling beyond text insertion.
   }, [optimisticSourceSlugs, onSourcesChange])
 
-  // Inline mention hook (for skills, sources, and files)
+  // Knowledge search results feeding the mention menu's Knowledge section.
+  // Empty unless a knowledge connection is configured (P1 read-only).
+  const [knowledgeItems, setKnowledgeItems] = React.useState<MentionItem[]>([])
+
+  // Inline mention hook (for skills, sources, knowledge, and files)
   const inlineMention = useInlineMention({
     inputRef: richInputRef,
     skills,
     sources,
+    knowledge: knowledgeItems,
     basePath: workingDirectory,
     onSelect: handleMentionSelect,
     // Use workspace slug (not UUID) for SDK skill qualification
     workspaceId: workspaceSlug,
   })
+
+  // Knowledge @mention search (P1 read-only): debounced knowledge:search RPC.
+  // Inert by default — without a configured connection listConnections returns
+  // empty (or errors) and the Knowledge section simply stays hidden.
+  // The first configured connection is used (MVP: at most one) and cached:
+  // a real record id is required — the server resolves connectionId via
+  // KnowledgeConnectionsStore.get and answers NOT_FOUND for anything unknown.
+  const knowledgeQuery = inlineMention.isOpen ? inlineMention.filter.trim() : ''
+  const knowledgeConnectionRef = React.useRef<string | null | undefined>(undefined)
+  React.useEffect(() => {
+    const search = getKnowledgeElectronApi()?.search
+    const listConnections = getKnowledgeElectronApi()?.listConnections
+    if (!knowledgeQuery || typeof search !== 'function' || typeof listConnections !== 'function') {
+      setKnowledgeItems([])
+      return
+    }
+    let cancelled = false
+    const timeout = setTimeout(() => {
+      void (async () => {
+        try {
+          if (knowledgeConnectionRef.current === undefined) {
+            const connections = await listConnections()
+            knowledgeConnectionRef.current = connections?.[0]?.id ?? null
+          }
+          const connectionId = knowledgeConnectionRef.current
+          if (!connectionId) {
+            // No connection configured — hide the section (read-only degrade)
+            if (!cancelled) setKnowledgeItems([])
+            return
+          }
+          const page = await search({ workspaceId: workspaceId ?? '', connectionId, input: { query: knowledgeQuery } })
+          if (cancelled) return
+          const items: MentionItem[] = []
+          for (const hit of page?.items ?? []) {
+            const ref = hit?.ref
+            const id = ref?.id
+            if (!ref || !id) continue
+            const provider = ref.scheme || 'siyuan'
+            const kind = ref.kind || 'document'
+            const serialized = `${provider}/${kind}/${id}`
+            items.push({
+              id: serialized,
+              type: 'knowledge',
+              label: hit.title || id,
+              description: hit.notebookPath || undefined,
+              knowledge: { ref: serialized, provider, kind, id, path: hit.notebookPath || undefined },
+            })
+          }
+          setKnowledgeItems(items)
+        } catch {
+          // Connection unavailable or misconfigured — hide the section
+          if (!cancelled) setKnowledgeItems([])
+        }
+      })()
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timeout) }
+  }, [knowledgeQuery, workspaceId])
 
   // Inline label menu hook (for #labels)
   const handleLabelSelect = React.useCallback((labelId: string) => {

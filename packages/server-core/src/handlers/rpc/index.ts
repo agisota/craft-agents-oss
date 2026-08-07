@@ -16,6 +16,7 @@ import { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './se
 import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
 export { cleanupNotesWatchForClient } from './notes'
+import { registerKnowledgeHandlers } from './knowledge'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -86,5 +87,6 @@ export function registerCoreRpcHandlers(
   registerMemoryInsightsHandlers(server, deps)
   registerSkillsPendingHandlers(server, deps)
   registerNotesHandlers(server, deps)
+  registerKnowledgeHandlers(server, deps)
   if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)
 }

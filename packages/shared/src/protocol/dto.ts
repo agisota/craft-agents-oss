@@ -15,6 +15,7 @@ import type {
   SessionMemoryMode,
   PermissionRequest as BasePermissionRequest,
 } from '@craft-agent/core/types'
+import type { KnowledgeRef } from '@craft-agent/core/knowledge'
 import type { PermissionMode } from '../agent/mode-types'
 import type { ThinkingLevel } from '../agent/thinking-levels'
 import type { CustomEndpointConfig, LlmProviderType } from '../config/llm-connections'
@@ -647,6 +648,28 @@ export interface NoteChangedPayload {
   workspaceId: string
   reason?: 'external' | 'save' | 'create' | 'rename' | 'delete' | 'asset' | 'properties'
   noteId?: string
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge provider types (P1 read-only, spec 03)
+// ---------------------------------------------------------------------------
+
+/** Payload of knowledge:changed — pushed when a KnowledgeRef is created/updated/removed. */
+export interface KnowledgeChangedPayload {
+  ref: KnowledgeRef
+  change: 'created' | 'updated' | 'removed'
+}
+
+/** Result of knowledge:engineStatus (spec 03 §3.5.1: `{ mode, running, pid?, version? }`). */
+export interface KnowledgeEngineStatus {
+  /** Connection mode — P1 supports external-local only (managed lands with P7). */
+  mode: 'external-local' | 'managed'
+  /** Whether the kernel answered a version probe. */
+  running: boolean
+  /** Kernel pid — managed mode only (P7). */
+  pid?: number
+  /** Kernel version reported by the probe, when running. */
+  version?: string
 }
 
 // ---------------------------------------------------------------------------
