@@ -63,6 +63,12 @@ export interface MarketplaceEntry {
   toolName?: string
   /** stats: npm package used for weekly-download metrics. */
   npm?: { package: string }
+  /**
+   * Optional content integrity pins (PRD fail-closed).
+   * key = skill basename (skillpack) or context targetName (context-doc);
+   * value = 64-hex sha256 of installed content (dir tree or file body).
+   */
+  expectedContentSha256?: Record<string, string>
 }
 
 export interface MarketplaceCatalog {
@@ -79,6 +85,7 @@ const ID_RE = /^[a-z0-9][a-z0-9-]*$/
 const SHA_RE = /^[0-9a-f]{40}$/
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
 const DOC_NAME_RE = /^[a-z0-9][a-z0-9-]*\.md$/
+const CONTENT_SHA256_RE = /^[0-9a-f]{64}$/i
 const KINDS: Record<string, true> = { skillpack: true, tool: true, 'context-doc': true }
 
 export class CatalogValidationError extends Error {
@@ -176,6 +183,28 @@ export function parseCatalog(raw: unknown): MarketplaceCatalog {
             issues.push(`${where}.documents[${j}].targetName must match ${DOC_NAME_RE}`)
           }
         }
+      }
+    }
+
+    if (rec.expectedContentSha256 !== undefined) {
+      const pins = rec.expectedContentSha256
+      if (typeof pins !== 'object' || pins === null || Array.isArray(pins)) {
+        issues.push(`${where}.expectedContentSha256 must be an object when present`)
+      } else {
+        const normalized: Record<string, string> = {}
+        for (const [key, value] of Object.entries(pins as Record<string, unknown>)) {
+          if (typeof key !== 'string' || key.length === 0 || key.includes('..')) {
+            issues.push(`${where}.expectedContentSha256 key must be a non-empty string without '..'`)
+            continue
+          }
+          if (typeof value !== 'string' || !CONTENT_SHA256_RE.test(value)) {
+            issues.push(`${where}.expectedContentSha256['${key}'] must be a 64-hex sha256`)
+            continue
+          }
+          normalized[key] = value.toLowerCase()
+        }
+        // Normalize in place so returned catalog stores lowercase digests.
+        rec.expectedContentSha256 = normalized
       }
     }
   }

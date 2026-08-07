@@ -58,6 +58,36 @@ describe('parseCatalog', () => {
     bad.entries[0].source.ref = 'main'
     expect(() => parseCatalog(bad)).toThrow(CatalogValidationError)
   })
+
+  it('accepts valid expectedContentSha256 and lowercases digests', () => {
+    const raw = JSON.parse(JSON.stringify(VALID_CATALOG))
+    const upper = 'A'.repeat(64)
+    raw.entries[0].expectedContentSha256 = { 'skill-a': upper }
+    const parsed = parseCatalog(raw)
+    expect(parsed.entries[0]!.expectedContentSha256).toEqual({ 'skill-a': 'a'.repeat(64) })
+  })
+
+  it('rejects expectedContentSha256 when not an object', () => {
+    const bad = JSON.parse(JSON.stringify(VALID_CATALOG))
+    bad.entries[0].expectedContentSha256 = ['not-an-object']
+    expect(() => parseCatalog(bad)).toThrow(CatalogValidationError)
+  })
+
+  it('rejects expectedContentSha256 with bad hex values', () => {
+    const bad = JSON.parse(JSON.stringify(VALID_CATALOG))
+    bad.entries[0].expectedContentSha256 = { 'skill-a': 'deadbeef' }
+    expect(() => parseCatalog(bad)).toThrow(CatalogValidationError)
+  })
+
+  it('rejects expectedContentSha256 keys that are empty or contain ..', () => {
+    const emptyKey = JSON.parse(JSON.stringify(VALID_CATALOG))
+    emptyKey.entries[0].expectedContentSha256 = { '': 'a'.repeat(64) }
+    expect(() => parseCatalog(emptyKey)).toThrow(CatalogValidationError)
+
+    const dotdot = JSON.parse(JSON.stringify(VALID_CATALOG))
+    dotdot.entries[0].expectedContentSha256 = { '../escape': 'a'.repeat(64) }
+    expect(() => parseCatalog(dotdot)).toThrow(CatalogValidationError)
+  })
 })
 
 describe('getCatalog degradation ladder', () => {

@@ -405,9 +405,18 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       const staged = join(paths.tmpDir, `stage-${randomUUID()}`)
       copyCheckout(srcDir, staged)
       swapStagedIntoPlace(staged, target)
+      const contentSha = sha256Directory(target)
+      const pinKey = finalName // skills basename; directory mode uses entry.id as name
+      const expected = entry.expectedContentSha256?.[pinKey]
+      if (expected !== undefined && expected !== contentSha) {
+        rmSync(target, { recursive: true, force: true })
+        throw new MarketplaceIntegrityError(
+          `content sha256 mismatch for '${pinKey}': expected ${expected.slice(0, 12)}…, got ${contentSha.slice(0, 12)}…`,
+        )
+      }
       record.targets.push(target)
       record.skills!.push(finalName)
-      record.contentSha256![target] = sha256Directory(target)
+      record.contentSha256![target] = contentSha
       writeInstallMarker(target, record)
       writtenTargets.push(target)
     }
@@ -504,43 +513,64 @@ async function installContextDoc(entry: MarketplaceEntry, options: InstallOption
     return null
   }
 
-  for (const { doc, body } of staged) {
-    const target = join(contextDir, doc.targetName)
-    if (existsSync(target)) {
-      const owner = ownerOf(target)
-      if (owner === null) {
-        progress('collision', `${doc.targetName} — existing unowned context doc kept`)
-        collisions.push(`${target} (unowned — existing user content kept)`)
-        continue
+  /** Targets written this call — rollback on integrity failure mid-loop. */
+  const writtenTargets: string[] = []
+
+  try {
+    for (const { doc, body } of staged) {
+      const target = join(contextDir, doc.targetName)
+      if (existsSync(target)) {
+        const owner = ownerOf(target)
+        if (owner === null) {
+          progress('collision', `${doc.targetName} — existing unowned context doc kept`)
+          collisions.push(`${target} (unowned — existing user content kept)`)
+          continue
+        }
+        if (owner !== entry.id) {
+          progress('collision', `${doc.targetName} — owned by ${owner}, refuse overwrite`)
+          collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
+          continue
+        }
+        // owner === entry.id: soft-clean on update — keep user edits.
+        // Missing contentSha256 → fail-closed keep (mirror removeEntry).
+        const prev = readLock(paths.lockFile).entries[entry.id]
+        const recorded = prev?.contentSha256?.[target]
+        if (!recorded) {
+          progress('collision', `${doc.targetName} — owned without hash, kept`)
+          collisions.push(`${target} (locally-modified — user edits kept)`)
+          record.targets.push(target)
+          continue
+        }
+        const current = sha256FileContent(readFileSync(target))
+        if (current !== recorded) {
+          progress('collision', `${doc.targetName} — locally modified, kept`)
+          collisions.push(`${target} (locally-modified — user edits kept)`)
+          record.targets.push(target)
+          record.contentSha256![target] = recorded
+          continue
+        }
       }
-      if (owner !== entry.id) {
-        progress('collision', `${doc.targetName} — owned by ${owner}, refuse overwrite`)
-        collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
-        continue
+      atomicWriteFileSync(target, body)
+      const contentSha = sha256FileContent(body)
+      const expected = entry.expectedContentSha256?.[doc.targetName]
+      if (expected !== undefined && expected !== contentSha) {
+        rmSync(target, { recursive: true, force: true })
+        removeInstallMarker(target)
+        throw new MarketplaceIntegrityError(
+          `content sha256 mismatch for '${doc.targetName}': expected ${expected.slice(0, 12)}…, got ${contentSha.slice(0, 12)}…`,
+        )
       }
-      // owner === entry.id: soft-clean on update — keep user edits.
-      // Missing contentSha256 → fail-closed keep (mirror removeEntry).
-      const prev = readLock(paths.lockFile).entries[entry.id]
-      const recorded = prev?.contentSha256?.[target]
-      if (!recorded) {
-        progress('collision', `${doc.targetName} — owned without hash, kept`)
-        collisions.push(`${target} (locally-modified — user edits kept)`)
-        record.targets.push(target)
-        continue
-      }
-      const current = sha256FileContent(readFileSync(target))
-      if (current !== recorded) {
-        progress('collision', `${doc.targetName} — locally modified, kept`)
-        collisions.push(`${target} (locally-modified — user edits kept)`)
-        record.targets.push(target)
-        record.contentSha256![target] = recorded
-        continue
-      }
+      record.targets.push(target)
+      record.contentSha256![target] = contentSha
+      writeInstallMarker(target, record)
+      writtenTargets.push(target)
     }
-    atomicWriteFileSync(target, body)
-    record.targets.push(target)
-    record.contentSha256![target] = sha256FileContent(body)
-    writeInstallMarker(target, record)
+  } catch (err) {
+    for (const target of writtenTargets) {
+      rmSync(target, { recursive: true, force: true })
+      removeInstallMarker(target)
+    }
+    throw err
   }
 
   if (record.targets.length === 0) {

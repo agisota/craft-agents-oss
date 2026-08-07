@@ -4,6 +4,7 @@
  * sha256-verify, атомарная установка, персист в state.json.
  */
 
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -11,6 +12,7 @@ import * as path from 'node:path';
 import { downloadArtifact, HttpError, NetworkError, ShaMismatchError } from './downloader';
 import { runCommand } from './exec';
 import { getGitLock } from './git-locks';
+import { getPipRequirements } from './pip-locks';
 import { cleanupOldVersions, flipCurrent, installGitNpmPinned, installTool } from './installer';
 import { currentPlatform, TOOLCHAIN_MANIFEST } from './manifest';
 import { createResolver } from './resolver';
@@ -63,6 +65,15 @@ export interface ManagerOptions {
   gitNpmInstallImpl?: (ctx: GitNpmInstallContext) => Promise<void>;
   /** DI для тестов: установка brew-формулы (заменяет `brew install <formula>`). */
   brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
+  /**
+   * DI для тестов: `brew list --versions <formula>` → строка версий.
+   * После успешного install при pinVersion сверяем substring.
+   */
+  brewVersionImpl?: (ctx: {
+    brewBin: string;
+    formula: string;
+    entry: ToolEntry;
+  }) => Promise<string>;
 }
 
 export interface GitNpmInstallContext {
@@ -78,6 +89,38 @@ export interface BrewInstallContext {
   brewBin: string;
   formula: string;
   entry: ToolEntry;
+  /** Реальный pin (не system/latest/*) — прокидывается в install DI и verify. */
+  pinVersion?: string;
+}
+
+/** version — реальный pin, а не float-метки system/latest/*. */
+function isPinVersion(v: string | undefined): v is string {
+  if (!v) return false;
+  const t = v.trim();
+  if (!t) return false;
+  return !['system', 'latest', '*'].includes(t);
+}
+
+/**
+ * `brew list --versions <formula>` → stdout (или '' при ошибке/пустом выводе).
+ * runCommand void — локальный spawn с захватом stdout.
+ */
+async function defaultBrewVersion(ctx: {
+  brewBin: string;
+  formula: string;
+}): Promise<string> {
+  return await new Promise<string>((resolve) => {
+    const child = spawn(ctx.brewBin, ['list', '--versions', ctx.formula], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+    });
+    let stdout = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(stdout.trim()));
+  });
 }
 
 /**
@@ -370,8 +413,8 @@ export function createManager(
       }
 
       // Нет артефакта под текущую платформу -> системный fallback (git на mac/linux).
-      // git-npm: артефакта нет по дизайну — статус строится из state/emitter ниже (без fallback'а).
-      if (!artifact && kind !== 'git-npm') {
+      // git-npm/pip: артефакта нет по дизайну — статус из state/emitter (pip — fail-closed gate).
+      if (!artifact && kind !== 'git-npm' && kind !== 'pip') {
         const sysBin = entry.systemBinary;
         if (sysBin && (await resolver.findExecutable(sysBin))) {
           statuses.push({ name: entry.name, phase: 'ready', installedVersion: 'system' });
@@ -421,9 +464,10 @@ export function createManager(
       if (entry.platforms && !entry.platforms.includes(platform)) continue;
       // tier-фильтр: core всегда; default-on если не disabled; opt-in — только update(name).
       if (!includeInEnsureAll(entry)) continue;
-      // brew/detect kinds не имеют toolchain-установки в ensureAll (brew — через update()).
+      // brew/detect/pip kinds не имеют toolchain-установки в ensureAll
+      // (brew/pip — только через update(); pip — fail-closed lock gate).
       const kind = entry.kind ?? 'binary';
-      if (kind === 'brew' || kind === 'detect') continue;
+      if (kind === 'brew' || kind === 'detect' || kind === 'pip') continue;
       // git-npm не качает артефакт (bun install -g github:repo#commit) — планируем с sentinel'ом.
       const artifact = entry.artifacts[platform] ?? (kind === 'git-npm' ? GIT_NPM_ARTIFACT : undefined);
       if (!artifact) continue;
@@ -486,7 +530,7 @@ export function createManager(
     return buildStatusSnapshot();
   }
 
-  /** brew kind: префлайт brew, затем `brew install <formula>` (brew ведёт версии сам). */
+  /** brew kind: префлайт brew, затем `brew install <formula>` (+ pin verify). */
   async function updateBrewTool(entry: ToolEntry): Promise<ToolStatus> {
     const brewBin = await resolver.findExecutable('brew');
     if (!brewBin) {
@@ -494,17 +538,53 @@ export function createManager(
       return setStatus({ name: entry.name, phase: 'skipped-no-brew' });
     }
     const formula = entry.brewFormula ?? entry.name;
+    const pinVersion = isPinVersion(entry.version) ? entry.version : undefined;
     setStatus({ name: entry.name, phase: 'installing' });
     try {
       const install =
         opts.brewInstallImpl ?? ((ctx: BrewInstallContext) => runCommand([ctx.brewBin, 'install', ctx.formula]));
-      await install({ brewBin, formula, entry });
+      await install({ brewBin, formula, entry, pinVersion });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return setStatus({ name: entry.name, phase: 'error', error: message });
     }
+
+    if (pinVersion) {
+      const verFn = opts.brewVersionImpl ?? defaultBrewVersion;
+      const ver = await verFn({ brewBin, formula, entry });
+      if (!ver.includes(pinVersion)) {
+        return setStatus({
+          name: entry.name,
+          phase: 'error',
+          error: `brew version mismatch: expected ${pinVersion}, got ${ver || 'unknown'}`,
+        });
+      }
+      return setStatus({ name: entry.name, phase: 'ready', installedVersion: pinVersion });
+    }
+
     // installedPath осмыслен только для toolchain-layout; у brew — системный cellar.
     return setStatus({ name: entry.name, phase: 'ready', installedVersion: 'system' });
+  }
+
+  /**
+   * pip kind: fail-closed. Без embedded requirements lock установка запрещена.
+   * Полный pip install — отдельно; здесь только gate.
+   */
+  async function updatePipTool(entry: ToolEntry): Promise<ToolStatus> {
+    const lock = getPipRequirements(entry.name, entry.version);
+    if (!lock) {
+      return setStatus({
+        name: entry.name,
+        phase: 'error',
+        error: 'pip tool requires embedded requirements lock (fail-closed)',
+      });
+    }
+    // lock есть, но install path ещё не реализован
+    return setStatus({
+      name: entry.name,
+      phase: 'error',
+      error: 'pip install not implemented',
+    });
   }
 
   async function update(name: ToolName): Promise<ToolStatus> {
@@ -512,6 +592,7 @@ export function createManager(
     if (!entry) throw new Error(`unknown tool: ${name}`);
     const kind = entry.kind ?? 'binary';
     if (kind === 'brew') return updateBrewTool(entry);
+    if (kind === 'pip') return updatePipTool(entry);
     if (kind === 'detect') {
       // detect не имеет установки: update — это просто свежий детект системного бинарника.
       const status = (await buildStatusSnapshot()).find((s) => s.name === name)!;

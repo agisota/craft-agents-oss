@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { marketplacePaths, type MarketplaceEntry, type MarketplaceFetch } from '../catalog.ts'
 import { INSTALL_MARKER_NAME, readLock, readInstallMarker, writeInstallMarker, writeLock } from '../lock.ts'
-import { installEntry, removeEntry, type ExecFileFn } from '../installer.ts'
+import { installEntry, removeEntry, sha256Directory, sha256FileContent, type ExecFileFn } from '../installer.ts'
 
 const REF = 'd'.repeat(40)
 
@@ -121,6 +121,28 @@ describe('installEntry (context-doc)', () => {
     expect(readFileSync(target, 'utf8')).toBe('# USER edited agents.md')
     expect(asDoc.collisions?.some((c) => c.includes('locally-modified'))).toBe(true)
     expect(asDoc.targets).toEqual([target])
+  })
+
+  it('fails closed when expectedContentSha256 pin mismatches (no lock, no file)', async () => {
+    const pinned: MarketplaceEntry = {
+      ...DOC_ENTRY,
+      expectedContentSha256: { 'agents.md': '0'.repeat(64) },
+    }
+    await expect(installEntry(pinned, { configDir, fetchFn: docFetch })).rejects.toThrow(/content sha256 mismatch/)
+    expect(existsSync(join(configDir, 'context', 'agents.md'))).toBe(false)
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['soul-pack']).toBeUndefined()
+  })
+
+  it('succeeds when expectedContentSha256 pin matches document body', async () => {
+    const body = '# Agent Doc'
+    const pinned: MarketplaceEntry = {
+      ...DOC_ENTRY,
+      expectedContentSha256: { 'agents.md': sha256FileContent(body) },
+    }
+    const result = await installEntry(pinned, { configDir, fetchFn: docFetch })
+    expect(result.status).toBe('installed')
+    expect(readFileSync(join(configDir, 'context', 'agents.md'), 'utf8')).toBe(body)
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['soul-pack']?.status).toBe('installed')
   })
 })
 
@@ -240,6 +262,56 @@ describe('installEntry (skillpack, directory mode)', () => {
     // Чужой контент нетронут, lock на mega-pack не создан:
     expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toBe('# FOREIGN content')
     expect(readLock(marketplacePaths(configDir).lockFile).entries['mega-pack']).toBeUndefined()
+  })
+})
+
+describe('installEntry (skillpack content pin)', () => {
+  const PACK_ENTRY: MarketplaceEntry = {
+    id: 'mega-pack',
+    kind: 'skillpack',
+    title: 'Mega Pack',
+    descriptionRu: 'Тестовый пакет скиллов',
+    source: { type: 'github', repo: 'owner/pack', ref: REF },
+    installMode: 'directory',
+  }
+
+  const fakeGit: ExecFileFn = async (_file, args, options) => {
+    if (args.includes('checkout')) {
+      writeFileSync(join(options.cwd!, 'SKILL.md'), '# Mega Skill')
+      mkdirSync(join(options.cwd!, 'docs'), { recursive: true })
+      writeFileSync(join(options.cwd!, 'docs', 'GUIDE.md'), 'guide')
+    }
+    return { stdout: args[0] === 'rev-parse' ? `${REF}\n` : '', stderr: '' }
+  }
+
+  it('fails closed when expectedContentSha256 pin mismatches (no lock, no target)', async () => {
+    const pinned: MarketplaceEntry = {
+      ...PACK_ENTRY,
+      expectedContentSha256: { 'mega-pack': 'f'.repeat(64) },
+    }
+    await expect(installEntry(pinned, { configDir, skillsDir, execFileFn: fakeGit })).rejects.toThrow(
+      /content sha256 mismatch/,
+    )
+    expect(existsSync(join(skillsDir, 'mega-pack'))).toBe(false)
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['mega-pack']).toBeUndefined()
+  })
+
+  it('succeeds when expectedContentSha256 pin matches installed directory', async () => {
+    // First install without pin to discover the content hash of this fake tree.
+    await installEntry(PACK_ENTRY, { configDir, skillsDir, execFileFn: fakeGit })
+    const target = join(skillsDir, 'mega-pack')
+    const pin = sha256Directory(target)
+    removeEntry('mega-pack', { configDir })
+
+    const pinned: MarketplaceEntry = {
+      ...PACK_ENTRY,
+      expectedContentSha256: { 'mega-pack': pin },
+    }
+    const result = await installEntry(pinned, { configDir, skillsDir, execFileFn: fakeGit })
+    expect(result.status).toBe('installed')
+    expect(existsSync(join(skillsDir, 'mega-pack', 'SKILL.md'))).toBe(true)
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['mega-pack']?.status).toBe('installed')
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['mega-pack']?.contentSha256?.[target]).toBe(pin)
   })
 })
 

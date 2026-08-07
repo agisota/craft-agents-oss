@@ -59,6 +59,11 @@ function makeManager(
     disabledTools?: ToolName[];
     pathEnv?: string;
     brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
+    brewVersionImpl?: (ctx: {
+      brewBin: string;
+      formula: string;
+      entry: ToolEntry;
+    }) => Promise<string>;
     gitNpmInstallImpl?: (ctx: GitNpmInstallContext) => Promise<void>;
   } = {},
 ) {
@@ -77,6 +82,7 @@ function makeManager(
     disabledTools: opts.disabledTools,
     pathEnv: opts.pathEnv,
     brewInstallImpl: opts.brewInstallImpl,
+    brewVersionImpl: opts.brewVersionImpl,
     gitNpmInstallImpl: opts.gitNpmInstallImpl,
   });
   return { manager, paths, fetchCalls };
@@ -209,5 +215,108 @@ describe('kinds: git-npm (gbrain)', () => {
     expect(st.phase).toBe('ready');
     expect(st.installedVersion).toBe('15b9863d1363');
     expect(installs).toBe(1);
+  });
+});
+
+/** Префлайт `resolver.findExecutable('brew')`: фейковый brew в изолированном PATH. */
+function stubBrewPathEnv(): string {
+  const dir = path.join(tmpDir, `brewbin-${counter}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'brew'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  return dir;
+}
+
+function moleBrewEntry(version: string): ToolEntry {
+  return {
+    name: 'mole',
+    version,
+    kind: 'brew',
+    tier: 'opt-in',
+    displayName: 'mole',
+    systemBinary: 'mole',
+    brewFormula: 'mole',
+    artifacts: {},
+  };
+}
+
+describe('kinds: brew pin verify', () => {
+  it('pin match → ready with installedVersion = pin', async () => {
+    let brewCalls = 0;
+    const pin = '1.49.2';
+    const { manager } = makeManager([moleBrewEntry(pin)], {
+      pathEnv: stubBrewPathEnv(),
+      brewInstallImpl: async () => {
+        brewCalls++;
+      },
+      brewVersionImpl: async () => `mole ${pin}`,
+    });
+
+    const st = await manager.update('mole');
+    expect(st.phase).toBe('ready');
+    expect(st.installedVersion).toBe(pin);
+    expect(brewCalls).toBe(1);
+  });
+
+  it('pin mismatch → error; brewInstall was called', async () => {
+    let brewCalls = 0;
+    const pin = '1.49.2';
+    const { manager } = makeManager([moleBrewEntry(pin)], {
+      pathEnv: stubBrewPathEnv(),
+      brewInstallImpl: async () => {
+        brewCalls++;
+      },
+      brewVersionImpl: async () => 'mole 9.9.9',
+    });
+
+    const st = await manager.update('mole');
+    expect(st.phase).toBe('error');
+    expect(st.error).toContain('brew version mismatch');
+    expect(st.error).toContain(pin);
+    expect(brewCalls).toBe(1);
+  });
+
+  it("no pin (version 'system') → ready installedVersion 'system'", async () => {
+    let brewCalls = 0;
+    let versionCalls = 0;
+    const { manager } = makeManager([moleBrewEntry('system')], {
+      pathEnv: stubBrewPathEnv(),
+      brewInstallImpl: async () => {
+        brewCalls++;
+      },
+      brewVersionImpl: async () => {
+        versionCalls++;
+        return 'mole 1.0.0';
+      },
+    });
+
+    const st = await manager.update('mole');
+    expect(st.phase).toBe('ready');
+    expect(st.installedVersion).toBe('system');
+    expect(brewCalls).toBe(1);
+    expect(versionCalls).toBe(0);
+  });
+});
+
+describe('kinds: pip fail-closed', () => {
+  it('update without lock → error about requirements lock', async () => {
+    // pip kind reserved; no MANIFEST_DATA entry — synthetic fixture only.
+    const pipEntry: ToolEntry = {
+      name: 'jq', // reuse ToolName; kind pip overrides install path
+      version: '0.0.0-no-lock',
+      kind: 'pip',
+      tier: 'opt-in',
+      displayName: 'fake-pip',
+      artifacts: {},
+    };
+    const { manager } = makeManager([pipEntry], { pathEnv: '' });
+
+    // ensureAll always skips pip
+    await manager.ensureAll({ background: false });
+    expect((await manager.status()).find((s) => s.name === 'jq')?.phase).toBe('missing');
+
+    const st = await manager.update('jq');
+    expect(st.phase).toBe('error');
+    expect(st.error).toContain('requirements lock');
+    expect(st.error).toContain('fail-closed');
   });
 });
