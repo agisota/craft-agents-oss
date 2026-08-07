@@ -16,6 +16,9 @@ import {
   listContextDocs,
   readContextDoc,
   writeContextDoc,
+  readContextDocTemplate,
+  acceptContextDocTemplate,
+  keepMineContextDocTemplate,
   getContextDocsPromptBlock,
   parseContextDocVersion,
   MAX_CONTEXT_DOC_PROMPT_SIZE,
@@ -263,6 +266,46 @@ describe('getSystemPrompt integration', () => {
       expect(prompt).toContain('SOUL_TEMPLATE_MARKER');
       // Block sits before the memory injection in the assembled prompt
       expect(prompt.indexOf('<context_documents>')).toBeLessThan(prompt.indexOf('MEMORY_MARKER_LESSONS'));
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+});
+
+
+describe('template accept / keep mine', () => {
+  it('acceptContextDocTemplate overwrites user body with bundled template', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      writeContextDoc('rules.md', '<!-- context-doc-version: 1 -->\nUSER_BODY\n');
+      // bump template to v2
+      writeFileSync(join(dirs.templatesDir, 'rules.md'), '<!-- context-doc-version: 2 -->\nTEMPLATE_V2\n');
+      const info = acceptContextDocTemplate('rules.md');
+      expect(info.version).toBe(2);
+      expect(info.templateStale).toBe(false);
+      expect(readFileSync(join(dirs.docsDir, 'rules.md'), 'utf-8')).toContain('TEMPLATE_V2');
+      expect(readFileSync(join(dirs.docsDir, 'rules.md'), 'utf-8')).not.toContain('USER_BODY');
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+
+  it('keepMineContextDocTemplate keeps user text and clears stale via version bump', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      writeContextDoc('rules.md', '<!-- context-doc-version: 1 -->\nUSER_KEEP\n');
+      writeFileSync(join(dirs.templatesDir, 'rules.md'), '<!-- context-doc-version: 2 -->\nTEMPLATE_V2\n');
+      expect(listContextDocs().find((d) => d.filename === 'rules.md')?.templateStale).toBe(true);
+      const info = keepMineContextDocTemplate('rules.md');
+      expect(info.version).toBe(2);
+      expect(info.templateStale).toBe(false);
+      const body = readFileSync(join(dirs.docsDir, 'rules.md'), 'utf-8');
+      expect(body).toContain('USER_KEEP');
+      expect(body).toContain('context-doc-version: 2');
+      expect(body).not.toContain('TEMPLATE_V2');
+      expect(readContextDocTemplate('rules.md')).toContain('TEMPLATE_V2');
     } finally {
       teardownDirs(dirs);
     }

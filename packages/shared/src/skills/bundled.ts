@@ -478,3 +478,70 @@ function syncPack(
 
   return bundleManifest;
 }
+
+/**
+ * Read-only status of bundled packs without re-running a full disk sync.
+ * Uses the same pack discovery as ensureBundledSkills; disabled flag comes
+ * from config (or options). installed/localModified are best-effort from
+ * on-disk .bundled state + target dirs.
+ */
+export function listBundledSkillPacks(options?: EnsureBundledSkillsOptions): BundledSkillPackStatus[] {
+  const targetRoot = options?.targetRoot ?? GLOBAL_AGENT_SKILLS_DIR;
+  const bundleRoot = options?.bundleRoot ?? getBundledAssetsDir('skills');
+  if (!bundleRoot || !existsSync(bundleRoot)) return [];
+
+  let disabled = options?.disabled;
+  if (!disabled) {
+    try {
+      disabled = loadStoredConfig()?.bundledSkills?.disabled ?? [];
+    } catch {
+      disabled = [];
+    }
+  }
+  const disabledSet = new Set(disabled);
+  const lock = readSkillsLock(bundleRoot);
+  const packSlugs = readdirSync(bundleRoot, { withFileTypes: true })
+    .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+    .map(e => e.name)
+    .sort();
+
+  return packSlugs.map((slug) => {
+    const meta = lock.get(slug);
+    const packDir = join(bundleRoot, slug);
+    const skills = listPackSkillDirs(packDir);
+    const state = readPackState(targetRoot, slug);
+    const installed: string[] = [];
+    let localModified = false;
+    for (const skill of skills) {
+      const skillDir = join(targetRoot, skill);
+      if (!existsSync(skillDir)) continue;
+      installed.push(skill);
+      if (state) {
+        const keys = Object.keys(state.files).filter((k) => k.startsWith(`${skill}/`));
+        for (const key of keys) {
+          const rel = key.slice(skill.length + 1);
+          const filePath = join(skillDir, rel);
+          if (!existsSync(filePath)) {
+            localModified = true;
+            continue;
+          }
+          try {
+            if (sha256OfFile(filePath) !== state.files[key]) localModified = true;
+          } catch {
+            localModified = true;
+          }
+        }
+      }
+    }
+    return {
+      slug,
+      origin: meta?.origin ?? null,
+      commit: meta?.commit ?? meta?.upstream?.commit ?? null,
+      disabled: disabledSet.has(slug),
+      localModified,
+      skills,
+      installed,
+      conflicts: [],
+    } satisfies BundledSkillPackStatus;
+  });
+}

@@ -33,6 +33,8 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
 import type { ContextDocContent, ContextDocInfo } from '@craft-agent/shared/context-docs';
 export type { ContextDocContent, ContextDocInfo };
+import type { BundledSkillPackStatus } from '@craft-agent/shared/skills';
+export type { BundledSkillPackStatus };
 import type {
   MarketplaceCatalogResult,
   MarketplaceEntryStats,
@@ -1088,7 +1090,16 @@ export interface ElectronAPI {
   listContextDocs(): Promise<ContextDocInfo[]>
   readContextDoc(filename: string): Promise<ContextDocContent>
   writeContextDoc(filename: string, content: string): Promise<ContextDocInfo>
+  readContextDocTemplate(filename: string): Promise<string | null>
+  acceptContextDocTemplate(filename: string): Promise<ContextDocInfo>
+  keepMineContextDocTemplate(filename: string): Promise<ContextDocInfo>
   onContextDocsChanged(callback: () => void): () => void
+
+  // Bundled skill packs (preset skills)
+  listBundledSkillPacks(): Promise<BundledSkillPackStatus[]>
+  getBundledSkillsDisabled(): Promise<string[]>
+  setBundledSkillsDisabled(slugs: string[]): Promise<string[]>
+  onBundledSkillsChanged(callback: (payload: { disabled: string[] }) => void): () => void
 
   // Marketplace (curated catalog → local config-dir installs)
   getMarketplaceCatalog(): Promise<MarketplaceCatalogResult>

@@ -581,7 +581,16 @@ export const CHANNEL_MAP = {
   listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
   readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
   writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
+  readContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.READ_TEMPLATE),
+  acceptContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE),
+  keepMineContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE),
   onContextDocsChanged: listener(RPC_CHANNELS.contextDocs.CHANGED),
+
+  // Bundled skill packs (preset skills enable/disable)
+  listBundledSkillPacks: invoke(RPC_CHANNELS.bundledSkills.LIST),
+  getBundledSkillsDisabled: invoke(RPC_CHANNELS.bundledSkills.GET_DISABLED),
+  setBundledSkillsDisabled: invoke(RPC_CHANNELS.bundledSkills.SET_DISABLED),
+  onBundledSkillsChanged: listener(RPC_CHANNELS.bundledSkills.CHANGED),
 
   // Marketplace (curated skills/tools/context-docs)
   getMarketplaceCatalog: invoke(RPC_CHANNELS.marketplace.CATALOG),

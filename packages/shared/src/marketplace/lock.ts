@@ -27,9 +27,10 @@ export interface MarketplaceLockRecord {
   installedAt: number
   updatedAt?: number
   /**
-   * 'installed' — artifacts on disk.
-   * 'deferred'  — kind:tool recognized only; actual install happens via
-   *               toolchain:update (M4a performs no tool installation).
+   * 'installed' — artifacts on disk (skillpack/context-doc) OR kind:tool whose
+   *               toolchain.update completed with phase ready.
+   * 'deferred'  — kind:tool intent recorded; toolchain install not yet ready
+   *               (in progress / failed — user can retry Update).
    */
   status: 'installed' | 'deferred'
   /** Absolute paths of installed artifacts (skill dirs / doc files). */

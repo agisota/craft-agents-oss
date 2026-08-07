@@ -602,7 +602,16 @@ export const RPC_CHANNELS = {
     LIST: 'contextDocs:list',
     READ: 'contextDocs:read',
     WRITE: 'contextDocs:write',
+    READ_TEMPLATE: 'contextDocs:readTemplate',
+    ACCEPT_TEMPLATE: 'contextDocs:acceptTemplate',
+    KEEP_MINE_TEMPLATE: 'contextDocs:keepMineTemplate',
     CHANGED: 'contextDocs:CHANGED',
+  },
+  bundledSkills: {
+    LIST: 'bundledSkills:list',
+    GET_DISABLED: 'bundledSkills:getDisabled',
+    SET_DISABLED: 'bundledSkills:setDisabled',
+    CHANGED: 'bundledSkills:CHANGED',
   },
   marketplace: {
     CATALOG: 'marketplace:catalog',

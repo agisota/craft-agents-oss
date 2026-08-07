@@ -730,6 +730,24 @@ export function setToolchainDisabled(tools: string[]): void {
 }
 
 /**
+ * Bundled skill packs skipped by ensureBundledSkills (PRD §7.4).
+ * Disk files stay; only future sync is suppressed.
+ */
+export function getBundledSkillsDisabled(): string[] {
+  const config = loadStoredConfig();
+  return config?.bundledSkills?.disabled ?? [];
+}
+
+/** Persist bundledSkills.disabled (deduped, stable order). */
+export function setBundledSkillsDisabled(slugs: string[]): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  const cleaned = [...new Set(slugs.map((s) => s.trim()).filter(Boolean))];
+  config.bundledSkills = { ...config.bundledSkills, disabled: cleaned };
+  saveConfig(config);
+}
+
+/**
  * Runtime: пользовательские переменные окружения для всех агент-сессий
  * (config runtime.envOverrides). Сливаются в env подпроцесса ПОСЛЕ process.env
  * и proxy, но ДО per-session envOverrides (CRAFT_WORKSPACE_PATH и пр. побеждают).

@@ -5,6 +5,7 @@ import { registerAuthHandlers } from './auth'
 import { registerCloudRunsHandlers } from './cloud-runs'
 import { registerAutomationsHandlers } from './automations'
 import { registerContextDocsHandlers } from './context-docs'
+import { registerBundledSkillsHandlers } from './bundled-skills'
 import { registerMarketplaceHandlers } from './marketplace'
 import { registerFilesHandlers } from './files'
 import { registerLabelsHandlers } from './labels'
@@ -63,6 +64,7 @@ export function registerCoreRpcHandlers(
   registerAutomationsHandlers(server, deps)
   registerContextDocsHandlers(server, deps)
   registerMarketplaceHandlers(server, deps)
+  registerBundledSkillsHandlers(server, deps)
   registerFilesHandlers(server, deps)
   registerLabelsHandlers(server, deps)
   registerLlmConnectionsHandlers(server, deps)

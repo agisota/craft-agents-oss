@@ -233,7 +233,16 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.contextDocs.LIST,
   RPC_CHANNELS.contextDocs.READ,
   RPC_CHANNELS.contextDocs.WRITE,
+  RPC_CHANNELS.contextDocs.READ_TEMPLATE,
+  RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE,
+  RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE,
   RPC_CHANNELS.contextDocs.CHANGED,
+
+  // bundled skill packs — local config + ~/.agents/skills
+  RPC_CHANNELS.bundledSkills.LIST,
+  RPC_CHANNELS.bundledSkills.GET_DISABLED,
+  RPC_CHANNELS.bundledSkills.SET_DISABLED,
+  RPC_CHANNELS.bundledSkills.CHANGED,
 
   // marketplace — curated installs into the local config dir (skills/context/toolchain deferral)
   RPC_CHANNELS.marketplace.CATALOG,

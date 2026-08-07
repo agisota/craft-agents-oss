@@ -80,7 +80,7 @@ export type MarketplaceInstallResult =
       collisions?: string[]
     }
   | { id: string; kind: 'context-doc'; status: 'installed'; ref: string; targets: string[]; collisions?: string[] }
-  | { id: string; kind: 'tool'; status: 'deferred'; ref: string; toolName: string }
+  | { id: string; kind: 'tool'; status: 'deferred' | 'installed'; ref: string; toolName: string }
 
 export interface RemovedKept {
   path: string

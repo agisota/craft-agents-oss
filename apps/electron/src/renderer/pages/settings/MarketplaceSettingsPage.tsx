@@ -378,14 +378,39 @@ export default function MarketplaceSettingsPage() {
                           ))}
                         </div>
                         <div className="flex gap-2 shrink-0">
-                          {state === 'installed' || state === 'deferred' ? (
+                          {state === 'installed' ? (
                             <>
                               <span className="text-xs py-1 px-3 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 flex items-center gap-1">
                                 <CheckCircle2 className="w-3 h-3" />
-                                {state === 'deferred'
-                                  ? t('marketplace.deferred')
-                                  : t('marketplace.installed')}
+                                {t('marketplace.installed')}
                               </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void run(e.id, () => window.electronAPI.removeMarketplaceEntry(e.id), 'remove')
+                                }
+                                disabled={isBusy}
+                                className="text-xs px-3 py-1 rounded-md border hover:bg-muted disabled:opacity-40"
+                              >
+                                {t('marketplace.remove')}
+                              </button>
+                            </>
+                          ) : state === 'deferred' ? (
+                            <>
+                              <span className="text-xs py-1 px-3 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 flex items-center gap-1">
+                                {t('marketplace.deferred')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void run(e.id, () => window.electronAPI.updateMarketplaceEntry(e.id), 'update')
+                                }
+                                disabled={isBusy}
+                                className="text-xs px-4 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1.5 disabled:opacity-40"
+                              >
+                                {isBusy ? <Spinner className="w-3 h-3" /> : null}
+                                {t('marketplace.retry')}
+                              </button>
                               <button
                                 type="button"
                                 onClick={() =>

@@ -23,13 +23,13 @@ import {
   readLock,
   refreshCatalog,
   removeEntry,
+  upsertLockRecord,
   type MarketplaceCatalogResult,
   type MarketplaceEntry,
   type MarketplaceFetch,
   type MarketplaceMeta,
   type MarketplaceStatsFetch,
 } from '@craft-agent/shared/marketplace'
-
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.marketplace.CATALOG,
   RPC_CHANNELS.marketplace.STATS,
@@ -110,16 +110,63 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
     })
   })
 
-  // Install by catalog id. kind:tool → lock + toolchain.update (actual binary/npm).
+  const finalizeToolInstall = async (
+    entry: MarketplaceEntry,
+    toolName: string,
+    action: 'installed' | 'updated',
+  ) => {
+    const status = await getToolchainManager().update(toolName as ToolName)
+    const paths = marketplacePaths()
+    const lockPath = paths.lockFile
+    const existing = readLock(lockPath).entries[entry.id]
+    const now = Date.now()
+    if (status.phase === 'ready') {
+      upsertLockRecord(lockPath, {
+        id: entry.id,
+        kind: 'tool',
+        repo: entry.source.repo,
+        ref: entry.source.ref,
+        installedAt: existing?.installedAt ?? now,
+        updatedAt: now,
+        status: 'installed',
+        targets: status.installedPath ? [status.installedPath] : [],
+        toolName,
+      })
+      return {
+        id: entry.id,
+        kind: 'tool' as const,
+        status: 'installed' as const,
+        ref: entry.source.ref,
+        toolName,
+      }
+    }
+    // Keep deferred intent so Update can retry; surface failure to the client.
+    upsertLockRecord(lockPath, {
+      id: entry.id,
+      kind: 'tool',
+      repo: entry.source.repo,
+      ref: entry.source.ref,
+      installedAt: existing?.installedAt ?? now,
+      updatedAt: now,
+      status: 'deferred',
+      targets: [],
+      toolName,
+    })
+    throw new CodedError(
+      'MARKETPLACE_TOOL_INSTALL_FAILED',
+      `Toolchain install of '${toolName}' finished with phase '${status.phase}'${status.error ? `: ${status.error}` : ''}`,
+    )
+  }
+
+  // Install by catalog id. kind:tool → lock intent + toolchain.update; ready → installed.
   server.handle(RPC_CHANNELS.marketplace.INSTALL, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       const entry = await requireEntry(id)
       const result = await installEntry(entry, { fetchFn: catalogFetch })
       if (result.kind === 'tool' && result.toolName) {
-        // Fire-and-forget would leave the UI on "deferred" forever if update
-        // fails silently. Await so INSTALL rejects on toolchain failure and
-        // the lock can stay as the intent marker (user can retry Update).
-        await getToolchainManager().update(result.toolName as ToolName)
+        const final = await finalizeToolInstall(entry, result.toolName, 'installed')
+        pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'installed', ref: entry.source.ref })
+        return final
       }
       pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'installed', ref: entry.source.ref })
       return result
@@ -139,8 +186,7 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
     })
   })
 
-  // Update = re-install from the current catalog pin; requires an installed record.
-  // kind:tool: re-run toolchain.update so pinned version refresh lands.
+  // Update = re-install from the current catalog pin; requires an installed/deferred record.
   server.handle(RPC_CHANNELS.marketplace.UPDATE, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       if (!readLock(marketplacePaths().lockFile).entries[id]) {
@@ -149,7 +195,9 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
       const entry = await requireEntry(id)
       const result = await installEntry(entry, { fetchFn: catalogFetch })
       if (result.kind === 'tool' && result.toolName) {
-        await getToolchainManager().update(result.toolName as ToolName)
+        const final = await finalizeToolInstall(entry, result.toolName, 'updated')
+        pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'updated', ref: entry.source.ref })
+        return final
       }
       pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'updated', ref: entry.source.ref })
       return result

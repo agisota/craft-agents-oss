@@ -280,6 +280,62 @@ export function writeContextDoc(filename: string, content: string): ContextDocIn
   return buildDocInfo(filename, content, statMtimeMs(path));
 }
 
+/**
+ * Read the bundled template body for a known template filename (soul.md/rules.md).
+ * Returns null when the file is not a template or the bundle is missing.
+ */
+export function readContextDocTemplate(filename: string): string | null {
+  assertValidDocFilename(filename);
+  if (!(TEMPLATE_DOC_FILENAMES as readonly string[]).includes(filename as (typeof TEMPLATE_DOC_FILENAMES)[number])) {
+    return null;
+  }
+  try {
+    const templatePath = join(getTemplatesDir(), filename);
+    if (!existsSync(templatePath)) return null;
+    return readFileSync(templatePath, 'utf-8');
+  } catch (error) {
+    debug('[context-docs] Failed to read template body', filename, error);
+    return null;
+  }
+}
+
+/**
+ * Accept the newer bundled template: overwrite the installed doc with the
+ * template body (user edits discarded intentionally).
+ */
+export function acceptContextDocTemplate(filename: string): ContextDocInfo {
+  const template = readContextDocTemplate(filename);
+  if (template === null) {
+    throw new Error(`No bundled template for context document: ${filename}`);
+  }
+  return writeContextDoc(filename, template);
+}
+
+/**
+ * Keep user body but clear templateStale: rewrite only the version header to
+ * match the bundled template version (or prepend one if missing).
+ */
+export function keepMineContextDocTemplate(filename: string): ContextDocInfo {
+  assertValidDocFilename(filename);
+  const template = readContextDocTemplate(filename);
+  if (template === null) {
+    throw new Error(`No bundled template for context document: ${filename}`);
+  }
+  const templateVersion = parseContextDocVersion(template);
+  if (templateVersion === null) {
+    throw new Error(`Bundled template ${filename} has no context-doc-version header`);
+  }
+  const current = readContextDoc(filename);
+  const header = `<!-- context-doc-version: ${templateVersion} -->`;
+  let next: string;
+  if (VERSION_HEADER_PATTERN.test(current.content.slice(0, 256))) {
+    next = current.content.replace(VERSION_HEADER_PATTERN, header);
+  } else {
+    next = `${header}\n${current.content}`;
+  }
+  return writeContextDoc(filename, next);
+}
+
 // ============================================================
 // Prompt injection
 // ============================================================

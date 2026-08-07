@@ -89,6 +89,9 @@ export interface BroadcastEventMap {
   // Context documents broadcasts (global)
   [RPC_CHANNELS.contextDocs.CHANGED]: []
 
+  // Bundled skill packs (global) — disabled list changed
+  [RPC_CHANNELS.bundledSkills.CHANGED]: [payload: { disabled: string[] }]
+
   // Marketplace broadcasts (global) — pushed after an install/update/remove completes
   [RPC_CHANNELS.marketplace.CHANGED]: [payload: MarketplaceChangedPayload]
 

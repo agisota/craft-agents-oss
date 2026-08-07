@@ -29,6 +29,7 @@ export {
 } from './omp-discovery.ts';
 export {
   ensureBundledSkills,
+  listBundledSkillPacks,
   resetBundledSkillsInitialized,
   type BundledSkillPackStatus,
   type EnsureBundledSkillsOptions,
