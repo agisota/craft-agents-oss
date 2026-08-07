@@ -11,6 +11,7 @@ export {
   loadSkill,
   loadAllSkills,
   invalidateSkillsCache,
+  getDisabledBundledSkillSlugsFromDisk,
   loadSkillBySlug,
   getSkillIconPath,
   deleteSkill,

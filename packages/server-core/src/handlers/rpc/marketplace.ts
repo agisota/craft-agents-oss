@@ -162,7 +162,10 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
   server.handle(RPC_CHANNELS.marketplace.INSTALL, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       const entry = await requireEntry(id)
-      const result = await installEntry(entry, { fetchFn: catalogFetch })
+      const onProgress = (phase: 'clone' | 'verify' | 'install' | 'fetch' | 'collision', detail?: string) => {
+        pushTyped(server, RPC_CHANNELS.marketplace.PROGRESS, { to: 'all' }, { id, phase, detail })
+      }
+      const result = await installEntry(entry, { fetchFn: catalogFetch, onProgress })
       if (result.kind === 'tool' && result.toolName) {
         const final = await finalizeToolInstall(entry, result.toolName, 'installed')
         pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'installed', ref: entry.source.ref })
@@ -193,7 +196,10 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
         throw new CodedError('MARKETPLACE_ENTRY_NOT_INSTALLED', `Marketplace entry '${id}' is not installed`)
       }
       const entry = await requireEntry(id)
-      const result = await installEntry(entry, { fetchFn: catalogFetch })
+      const onProgress = (phase: 'clone' | 'verify' | 'install' | 'fetch' | 'collision', detail?: string) => {
+        pushTyped(server, RPC_CHANNELS.marketplace.PROGRESS, { to: 'all' }, { id, phase, detail })
+      }
+      const result = await installEntry(entry, { fetchFn: catalogFetch, onProgress })
       if (result.kind === 'tool' && result.toolName) {
         const final = await finalizeToolInstall(entry, result.toolName, 'updated')
         pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'updated', ref: entry.source.ref })

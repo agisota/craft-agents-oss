@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { ensureBundledSkills, type BundledSkillPackStatus } from '../bundled.ts';
+import { getDisabledBundledSkillSlugsFromDisk, loadAllSkills, invalidateSkillsCache } from '../storage.ts';
 
 // ============================================================
 // Temp dirs & fixtures
@@ -294,4 +295,15 @@ describe('bundled packs end-to-end (real bundle, synthetic HOME)', () => {
     expect(out.slugs).not.toContain('.bundled');
     expect(existsSync(join(home, '.agents', 'skills', '.bundled', 'superpowers.json'))).toBe(true);
   }, 30_000);
+});
+
+describe('disabled packs hidden from discovery', () => {
+  it('getDisabledBundledSkillSlugsFromDisk reads pack state skills', () => {
+    seedPackV1();
+    ensureBundledSkills({ bundleRoot, targetRoot, disabled: [] });
+    // Simulate config disabled=superpowers via explicit disabled list
+    const slugs = getDisabledBundledSkillSlugsFromDisk(targetRoot, ['superpowers']);
+    expect(slugs.has('alpha')).toBe(true);
+    expect(slugs.has('beta')).toBe(false);
+  });
 });

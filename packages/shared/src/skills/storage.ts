@@ -19,6 +19,7 @@ import matter from 'gray-matter';
 import type { LoadedSkill, SkillMetadata, SkillSource } from './types.ts';
 import { listOmpSkills } from './omp-discovery.ts';
 import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
+import { getBundledSkillsDisabled } from '../config/storage.ts';
 import {
   validateIconValue,
   findIconFile,
@@ -220,6 +221,38 @@ export function loadWorkspaceSkills(workspaceRoot: string): LoadedSkill[] {
 const skillsCache = new Map<string, { skills: LoadedSkill[]; ts: number }>();
 const SKILLS_CACHE_TTL = 5 * 60_000; // 5 minutes
 
+/** Dot-dir under ~/.agents/skills holding per-pack sync state (bundled.ts). */
+const BUNDLED_STATE_DIR = '.bundled';
+
+/**
+ * Skill slugs owned by disabled bundled packs (from .bundled/<pack>.json state).
+ * Kept local to avoid storage ↔ bundled import cycle.
+ */
+export function getDisabledBundledSkillSlugsFromDisk(
+  targetRoot: string = GLOBAL_AGENT_SKILLS_DIR,
+  disabled: string[] = getBundledSkillsDisabled(),
+): Set<string> {
+  const out = new Set<string>();
+  if (disabled.length === 0) return out;
+  const stateDir = join(targetRoot, BUNDLED_STATE_DIR);
+  if (!existsSync(stateDir)) return out;
+  for (const packSlug of disabled) {
+    try {
+      const path = join(stateDir, `${packSlug}.json`);
+      if (!existsSync(path)) continue;
+      const parsed = JSON.parse(readFileSync(path, 'utf-8')) as { pack?: string; files?: Record<string, string> };
+      if (!parsed || parsed.pack !== packSlug || typeof parsed.files !== 'object' || !parsed.files) continue;
+      for (const key of Object.keys(parsed.files)) {
+        const slash = key.indexOf('/');
+        if (slash > 0) out.add(key.slice(0, slash));
+      }
+    } catch {
+      // corrupt state — skip pack
+    }
+  }
+  return out;
+}
+
 /** Invalidate the skills cache (call on working dir change or skill file events). */
 export function invalidateSkillsCache(): void {
   skillsCache.clear();
@@ -256,7 +289,9 @@ export function loadAllSkills(workspaceRoot: string, projectRoot?: string, optio
   // passes includeOmp: true explicitly.
   const includeOmp = options?.includeOmp ?? false;
   const includeShadowedOmp = options?.includeShadowedOmp ?? false;
-  const cacheKey = `${workspaceRoot}::${projectRoot ?? ''}::${includeOmp}:${includeShadowedOmp}`;
+  // Disabled bundled packs stay on disk but must not appear in discovery.
+  const disabledKey = getBundledSkillsDisabled().slice().sort().join(',');
+  const cacheKey = `${workspaceRoot}::${projectRoot ?? ''}::${includeOmp}:${includeShadowedOmp}::d:${disabledKey}`;
   const now = Date.now();
   const cached = skillsCache.get(cacheKey);
   if (cached && now - cached.ts < SKILLS_CACHE_TTL) {
@@ -290,12 +325,16 @@ export function loadAllSkills(workspaceRoot: string, projectRoot?: string, optio
     skillsBySlug.set(skill.slug, skill);
   };
 
+  const disabledBundled = getDisabledBundledSkillSlugsFromDisk();
+
   // 1. Global skills (lowest craft priority): ~/.agents/skills/
+  //    Skip slugs owned by disabled bundled packs (files stay on disk).
   for (const skill of loadSkillsFromDir(GLOBAL_AGENT_SKILLS_DIR, 'global')) {
+    if (disabledBundled.has(skill.slug)) continue;
     mergeCraftSkill(skill);
   }
 
-  // 2. Workspace skills (medium priority)
+  // 2. Workspace skills (medium priority) — user/workspace content always visible.
   for (const skill of loadWorkspaceSkills(workspaceRoot)) {
     mergeCraftSkill(skill);
   }
@@ -333,7 +372,8 @@ export function loadSkillBySlug(workspaceRoot: string, slug: string, projectRoot
   const workspaceSkill = loadSkillFromDir(getWorkspaceSkillsPath(workspaceRoot), slug, 'workspace');
   if (workspaceSkill) return workspaceSkill;
 
-  // Lowest priority: global
+  // Lowest priority: global — hide slugs owned by disabled bundled packs
+  if (getDisabledBundledSkillSlugsFromDisk().has(slug)) return null;
   return loadSkillFromDir(GLOBAL_AGENT_SKILLS_DIR, slug, 'global');
 }
 

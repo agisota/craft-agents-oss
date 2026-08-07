@@ -29,6 +29,13 @@ export interface MarketplaceChangedPayload {
   ref?: string
 }
 
+/** Payload of marketplace:progress — live install/update phases. */
+export interface MarketplaceProgressPayload {
+  id: string
+  phase: 'clone' | 'verify' | 'install' | 'fetch' | 'collision'
+  detail?: string
+}
+
 export interface BroadcastEventMap {
   // Session events (workspace-scoped via broadcastToWorkspace)
   [RPC_CHANNELS.sessions.EVENT]: [event: SessionEvent]
@@ -93,6 +100,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.bundledSkills.CHANGED]: [payload: { disabled: string[] }]
 
   // Marketplace broadcasts (global) — pushed after an install/update/remove completes
+  [RPC_CHANNELS.marketplace.PROGRESS]: [payload: MarketplaceProgressPayload]
   [RPC_CHANNELS.marketplace.CHANGED]: [payload: MarketplaceChangedPayload]
 
   // Menu events (per-window, no payload)

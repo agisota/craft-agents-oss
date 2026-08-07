@@ -296,6 +296,7 @@ import type {
   NoteChangedPayload,
   NoteAsset,
   MarketplaceChangedPayload,
+  MarketplaceProgressPayload,
   NoteAssetImportResult,
   NoteAssetRenameResult,
   NoteBacklink,
@@ -1153,6 +1154,7 @@ export interface ElectronAPI {
   removeMarketplaceEntry(id: string): Promise<MarketplaceRemoveResult>
   updateMarketplaceEntry(id: string): Promise<MarketplaceInstallResult>
   refreshMarketplaceCatalog(): Promise<MarketplaceCatalogResult>
+  onMarketplaceProgress(callback: (payload: MarketplaceProgressPayload) => void): () => void
   onMarketplaceChanged(callback: (payload: MarketplaceChangedPayload) => void): () => void
 }
 

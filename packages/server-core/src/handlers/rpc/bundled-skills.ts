@@ -8,6 +8,7 @@ import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
   ensureBundledSkills,
+  invalidateSkillsCache,
   listBundledSkillPacks,
   resetBundledSkillsInitialized,
 } from '@craft-agent/shared/skills'
@@ -31,9 +32,10 @@ export function registerBundledSkillsHandlers(server: RpcServer, _deps: HandlerD
     const list = Array.isArray(slugs) ? slugs.filter((s): s is string => typeof s === 'string') : []
     setBundledSkillsDisabled(list)
     // Re-run sync so newly enabled packs install immediately; disabled packs
-    // stay on disk (PRD §7.4) but are skipped on subsequent boots.
+    // stay on disk (PRD §7.4) but are filtered out of discovery.
     resetBundledSkillsInitialized()
     ensureBundledSkills()
+    invalidateSkillsCache()
     const disabled = getBundledSkillsDisabled()
     pushTyped(server, RPC_CHANNELS.bundledSkills.CHANGED, { to: 'all' }, { disabled })
     return disabled

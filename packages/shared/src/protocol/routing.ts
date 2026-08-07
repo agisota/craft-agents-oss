@@ -251,6 +251,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.REMOVE,
   RPC_CHANNELS.marketplace.UPDATE,
   RPC_CHANNELS.marketplace.REFRESH,
+  RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
   // knowledge — engine status reflects local engine process state, never proxied

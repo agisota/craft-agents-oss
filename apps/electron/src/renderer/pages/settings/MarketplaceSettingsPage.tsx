@@ -66,6 +66,8 @@ export default function MarketplaceSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Live install phase text per entry id (from marketplace:progress). */
+  const [progressById, setProgressById] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     try {
@@ -85,14 +87,27 @@ export default function MarketplaceSettingsPage() {
 
   useEffect(() => {
     void load()
-    return window.electronAPI.onMarketplaceChanged(() => {
+    const offChanged = window.electronAPI.onMarketplaceChanged(() => {
       void load()
     })
+    const offProgress = window.electronAPI.onMarketplaceProgress((payload) => {
+      const label = payload.detail ? `${payload.phase}: ${payload.detail}` : payload.phase
+      setProgressById((prev) => ({ ...prev, [payload.id]: label }))
+    })
+    return () => {
+      offChanged()
+      offProgress()
+    }
   }, [load])
 
   const run = useCallback(
     async (id: string, fn: () => Promise<unknown>, successKey: string) => {
       setBusy((b) => ({ ...b, [id]: 'busy' }))
+      setProgressById((p) => {
+        const next = { ...p }
+        delete next[id]
+        return next
+      })
       try {
         await fn()
         await load()
@@ -101,6 +116,11 @@ export default function MarketplaceSettingsPage() {
       } finally {
         setBusy((b) => {
           const next = { ...b }
+          delete next[id]
+          return next
+        })
+        setProgressById((p) => {
+          const next = { ...p }
           delete next[id]
           return next
         })
@@ -326,6 +346,11 @@ export default function MarketplaceSettingsPage() {
                           <div className="text-xs opacity-70 mt-1 break-words">
                             {e.descriptionRu}
                           </div>
+                          {isBusy && progressById[e.id] ? (
+                            <div className="text-[11px] mt-1 text-primary/80 font-mono truncate">
+                              {progressById[e.id]}
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="text-xs text-right whitespace-nowrap shrink-0">

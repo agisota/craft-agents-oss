@@ -174,6 +174,7 @@ const EXPECTED_CHANNELS: string[] = [
   'marketplace:CHANGED',
   'marketplace:catalog',
   'marketplace:install',
+  'marketplace:progress',
   'marketplace:refresh',
   'marketplace:remove',
   'marketplace:stats',

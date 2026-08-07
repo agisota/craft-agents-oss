@@ -632,6 +632,8 @@ export const RPC_CHANNELS = {
     REMOVE: 'marketplace:remove',
     UPDATE: 'marketplace:update',
     REFRESH: 'marketplace:refresh',
+    /** Progress push during install/update (clone/verify/install/fetch). */
+    PROGRESS: 'marketplace:progress',
     CHANGED: 'marketplace:CHANGED',
   },
 } as const

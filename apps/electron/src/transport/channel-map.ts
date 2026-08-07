@@ -609,5 +609,6 @@ export const CHANNEL_MAP = {
   removeMarketplaceEntry: invoke(RPC_CHANNELS.marketplace.REMOVE),
   updateMarketplaceEntry: invoke(RPC_CHANNELS.marketplace.UPDATE),
   refreshMarketplaceCatalog: invoke(RPC_CHANNELS.marketplace.REFRESH),
+  onMarketplaceProgress: listener(RPC_CHANNELS.marketplace.PROGRESS),
   onMarketplaceChanged: listener(RPC_CHANNELS.marketplace.CHANGED),
 } satisfies ChannelMap
