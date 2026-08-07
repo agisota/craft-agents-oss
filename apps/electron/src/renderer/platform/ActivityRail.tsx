@@ -5,7 +5,8 @@
  * The destinations list mirrors AppShell's `links[]` via the shared
  * `APP_NAV_DESTINATIONS` config (no divergent copy); navigation goes through
  * NavigationContext's `navigate()` (the URL stays the source of truth).
- * Wave-gated destinations (Knowledge, W2) render disabled-with-tooltip.
+ * Wave-gated destinations (`route: null`) render disabled-with-tooltip;
+ * Knowledge navigates since W2 (flag-off state lives in the surface).
  *
  * Collapse state persists via `activityRailCollapsedAtom` (KEYS.activityRailCollapsed).
  * Collapsed = destinations hidden, only the expand chevron stays (atom contract).

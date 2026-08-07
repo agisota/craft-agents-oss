@@ -8,9 +8,17 @@ type FunctionKeys<T> = {
   [K in keyof T]-?: Extract<T[K], AnyFn> extends never ? never : K
 }[keyof T] & string
 
-type BrowserPaneKeys = `browserPane.${FunctionKeys<ElectronAPI['browserPane']>}`
+// Aliases are pre-extracted: the bun transpiler cannot parse a bracket-indexed
+// type inside `${...}` of a template-literal type (`ElectronAPI['x']}` fails);
+// the alias form is the identical type.
+type BrowserPaneApi = ElectronAPI['browserPane']
 // Knowledge (P1 read-only) nests like browserPane via dotted CHANNEL_MAP keys.
-type KnowledgeKeys = `knowledge.${FunctionKeys<ElectronAPI['knowledge']>}`
+type KnowledgeApi = ElectronAPI['knowledge']
+// SiYuan engine surfaces (P2) nest the same way.
+type SiyuanEngineApi = ElectronAPI['siyuanEngine']
+type BrowserPaneKeys = `browserPane.${FunctionKeys<BrowserPaneApi>}`
+type KnowledgeKeys = `knowledge.${FunctionKeys<KnowledgeApi>}`
+type SiyuanEngineKeys = `siyuanEngine.${FunctionKeys<SiyuanEngineApi>}`
 
 // Methods excluded from CHANNEL_MAP because they are implemented directly in the preload
 // (no IPC round-trip to the main process). Each reads local state or orchestrates client-side.
@@ -44,6 +52,7 @@ type ApiToChannelMapKeys = Exclude<
   | 'onSshConnectionStatus'
 > | BrowserPaneKeys
   | KnowledgeKeys
+  | SiyuanEngineKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 
 type AssertNever<T extends never> = true

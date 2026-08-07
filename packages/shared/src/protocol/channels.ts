@@ -166,6 +166,19 @@ export const RPC_CHANNELS = {
     ENGINE_STATUS: 'knowledge:engineStatus',
     CHANGED: 'knowledge:changed',
   },
+  // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
+  // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)
+  // for dedup + restore. Surface lifecycle manages local BrowserView compositing —
+  // all channels are LOCAL_ONLY (browserPane precedent), never proxied.
+  siyuan: {
+    CREATE_EMBEDDED: 'siyuan:createEmbedded',
+    DESTROY: 'siyuan:destroy',
+    LIST: 'siyuan:list',
+    SYNC_BOUNDS: 'siyuan:syncBounds',
+    FOCUS: 'siyuan:focus',
+    STATE_CHANGED: 'siyuan:stateChanged',
+    REMOVED: 'siyuan:removed',
+  },
   debug: {
     LOG: 'debug:log',
   },

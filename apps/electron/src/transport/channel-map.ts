@@ -265,6 +265,17 @@ export const CHANNEL_MAP = {
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
+  // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop
+  // panes keyed by durable document keys (`siyuan:{kind}:{id}`); the main-side
+  // registry/delegation lives in main/handlers/siyuan.ts over BrowserPaneManager.
+  'siyuanEngine.createEmbedded': invoke(RPC_CHANNELS.siyuan.CREATE_EMBEDDED),
+  'siyuanEngine.destroy': invoke(RPC_CHANNELS.siyuan.DESTROY),
+  'siyuanEngine.list': invoke(RPC_CHANNELS.siyuan.LIST),
+  'siyuanEngine.syncBounds': invoke(RPC_CHANNELS.siyuan.SYNC_BOUNDS),
+  'siyuanEngine.focus': invoke(RPC_CHANNELS.siyuan.FOCUS),
+  'siyuanEngine.onStateChanged': listener(RPC_CHANNELS.siyuan.STATE_CHANGED),
+  'siyuanEngine.onRemoved': listener(RPC_CHANNELS.siyuan.REMOVED),
+
   // Debug logging
   debugLog: invoke(RPC_CHANNELS.debug.LOG),
 

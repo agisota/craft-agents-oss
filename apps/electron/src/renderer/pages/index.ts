@@ -7,6 +7,7 @@
 export { default as ChatPage } from './ChatPage'
 export { default as SourceInfoPage } from './SourceInfoPage'
 export { default as BrowserPanelPage } from './BrowserPanelPage'
+export { default as KnowledgeSurfacePage } from './KnowledgeSurfacePage'
 // Settings pages
 export {
   SettingsNavigator,

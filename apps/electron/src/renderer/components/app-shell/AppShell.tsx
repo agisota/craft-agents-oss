@@ -117,6 +117,7 @@ import {
   useNavigation,
   useNavigationState,
   isSessionsNavigation,
+  isKnowledgeNavigation,
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
@@ -158,6 +159,7 @@ import { hasOpenOverlay } from "@/lib/overlay-detection"
 import { clearSourceIconCaches } from "@/lib/icon-cache"
 import { dispatchFocusInputEvent } from "./input/focus-input-events"
 import { WebBrowserPanel } from "../browser/WebBrowserPanel"
+import { KnowledgeNavigator } from "../../knowledge/KnowledgeNavigator"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -1854,6 +1856,11 @@ function AppShellContent({
     window.electronAPI.reorderStatuses(activeWorkspaceId, orderedIds)
   }, [activeWorkspaceId])
 
+  // Handler for knowledge home (knowledge navigator root, SiYuan surface)
+  const handleKnowledgeClick = useCallback(() => {
+    navigate(routes.view.knowledge())
+  }, [])
+
   // Handler for sources view (all sources)
   const handleSourcesClick = useCallback(() => {
     navigate(routes.view.sources())
@@ -2194,7 +2201,8 @@ function AppShellContent({
     }
     flattenTree(labelTree)
 
-    // 3. Sources, Skills, Settings
+    // 3. Knowledge, Sources, Skills, Settings
+    result.push({ id: 'nav:knowledge', type: 'nav', action: handleKnowledgeClick })
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
     result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
@@ -2204,7 +2212,7 @@ function AppShellContent({
     result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleKnowledgeClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -2313,6 +2321,11 @@ function AppShellContent({
 
   // Get title based on navigation state
   const listTitle = React.useMemo(() => {
+    // Knowledge navigator
+    if (isKnowledgeNavigation(navState)) {
+      return t('knowledge.nav.title')
+    }
+
     // Sources navigator
     if (isSourcesNavigation(navState)) {
       return t("sidebar.sources")
@@ -2618,6 +2631,14 @@ function AppShellContent({
                     },
                     // --- Separator ---
                     { id: "separator:chats-sources", type: "separator" },
+                    // --- Knowledge (W2 native mode; flag-off state renders in the surface) ---
+                    {
+                      id: "nav:knowledge",
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.knowledge.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.knowledge.icon,
+                      variant: isKnowledgeNavigation(navState) ? "default" : "ghost",
+                      onClick: handleKnowledgeClick,
+                    },
                     // --- Sources & Skills Section ---
                     {
                       id: "nav:sources",
@@ -3590,6 +3611,10 @@ function AppShellContent({
                 selectedSourceSlug={isSourcesNavigation(navState) && navState.details ? navState.details.sourceSlug : null}
                 localMcpEnabled={localMcpEnabled}
               />
+            )}
+            {isKnowledgeNavigation(navState) && (
+              /* Knowledge Navigator — SiYuan notebook/doc tree (W2, prop-less self-contained) */
+              <KnowledgeNavigator />
             )}
             {isSkillsNavigation(navState) && activeWorkspaceId && (
               /* Skills List */

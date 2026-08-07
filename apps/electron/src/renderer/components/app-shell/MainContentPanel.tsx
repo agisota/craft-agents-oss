@@ -35,12 +35,13 @@ import {
   isAutomationsNavigation,
   isProjectsNavigation,
   isBrowserNavigation,
+  isKnowledgeNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
 import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
-import { SourceInfoPage, ChatPage, BrowserPanelPage } from '@/pages'
+import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage } from '@/pages'
 import NotesPage from '@/pages/NotesPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
@@ -409,6 +410,25 @@ export function MainContentPanel({
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">{t('browser.noInstanceSelected', { defaultValue: 'No browser instance selected' })}</p>
+        </div>
+      </Panel>
+    )
+  }
+
+  // Knowledge navigator - embedded SiYuan surface panel (W2)
+  if (isKnowledgeNavigation(navState)) {
+    const details = navState.details?.type === 'knowledge' ? navState.details : null
+    if (details) {
+      return wrapWithStoplight(
+        <Panel variant="grow" className={className}>
+          <KnowledgeSurfacePage kind={details.kind} id={details.id} panelId={panelId} />
+        </Panel>
+      )
+    }
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">{t('knowledge.home.title')}</p>
         </div>
       </Panel>
     )

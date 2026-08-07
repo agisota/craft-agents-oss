@@ -9,9 +9,10 @@
  *   route (via NavigationContext) and active-state predicate.
  *
  * Do NOT duplicate this list per consumer: add a destination here once.
- * Wave-gated destinations (Knowledge in W1) carry `disabledTooltipKey`; the
- * rail renders them disabled-with-tooltip instead of navigating (spec
- * degradation rule), AppShell does not render them.
+ * Wave-gated destinations carry `route: null` + `disabledTooltipKey`; the
+ * rail renders them disabled-with-tooltip (spec degradation rule). Knowledge
+ * was rail-gated in W1 and navigates since W2 — when the feature flag is off
+ * the entry still renders and the surface shows the featureDisabled state.
  */
 import {
   BookOpen,
@@ -72,7 +73,7 @@ export interface AppNavDestination {
   disabledTooltipKey?: string
 }
 
-/** Rail order = `links[]` order in AppShell; knowledge stub per S-03 §3.2 (order 20, after sessions). */
+/** Rail order = `links[]` order in AppShell; knowledge live since W2 (order 20, after sessions). */
 export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
   {
     id: 'sessions',
@@ -86,10 +87,9 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     id: 'knowledge',
     linkId: 'nav:knowledge',
     icon: NotebookPen,
-    labelKey: 'sidebar.knowledge',
-    route: null,
+    labelKey: 'knowledge.nav.title',
+    route: () => routes.view.knowledge(),
     isActive: isKnowledgeNavigation,
-    disabledTooltipKey: 'rail.knowledgeDisabled',
   },
   {
     id: 'sources',
