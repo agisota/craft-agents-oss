@@ -1,8 +1,8 @@
 /**
  * git-npm supply-chain путь: installGitNpmPinned.
  * - апстрим bun.lock есть → checkout + HEAD pin verify + --frozen-lockfile + global из чекаута
- * - bun.lock нет → legacy 'github:<repo>#<commit>' + WARNING (transitives unpinned)
- * - git недоступен (ENOENT) → тот же legacy fallback + WARNING
+ * - bun.lock нет → throw fail-closed (refuse unpinned transitives); never github: global
+ * - git недоступен (ENOENT) → throw fail-closed; never github: global
  * - HEAD !== pin → throw (no install)
  */
 import { describe, expect, it } from 'bun:test';
@@ -61,7 +61,7 @@ describe('installGitNpmPinned', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('no upstream bun.lock → legacy global github:spec + WARNING', async () => {
+  it('no upstream bun.lock → throw fail-closed, never github: global', async () => {
     const { base, workDir, versionDir } = makePaths('nolock');
     const { calls, fn } = collectRunCmd(async (args, options) => {
       if (args.includes('checkout')) {
@@ -69,26 +69,25 @@ describe('installGitNpmPinned', () => {
         writeFileSync(join(options!.cwd!, 'package.json'), '{}');
       }
     });
-    const logs: string[] = [];
-    await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
-
-    const last = calls[calls.length - 1]!;
-    expect(last.args.join(' ')).toBe(`/bun install --global github:${REPO}#${COMMIT}`);
-    expect(logs.some((m) => m.includes('transitives unpinned'))).toBe(true);
+    await expect(
+      installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn }),
+    ).rejects.toThrow(/fail-closed.*bun\.lock/);
+    expect(calls.some((c) => c.args.includes('github:') || c.args.some((a) => a.startsWith('github:')))).toBe(false);
+    expect(calls.some((c) => c.args.includes('--frozen-lockfile'))).toBe(false);
+    expect(existsSync(workDir)).toBe(false); // cleaned up
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('git unavailable (ENOENT) → legacy global github:spec + WARNING, no throw', async () => {
+  it('git unavailable (ENOENT) → throw fail-closed, never github: global', async () => {
     const { base, workDir, versionDir } = makePaths('nogit');
     const { calls, fn } = collectRunCmd(async (args) => {
       if (args[0] === 'git') throw new Error('spawn git ENOENT');
     });
-    const logs: string[] = [];
-    await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
-
-    const last = calls[calls.length - 1]!;
-    expect(last.args.join(' ')).toBe(`/bun install --global github:${REPO}#${COMMIT}`);
-    expect(logs.some((m) => m.includes('git unavailable'))).toBe(true);
+    await expect(
+      installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn }),
+    ).rejects.toThrow(/fail-closed.*git unavailable/);
+    expect(calls.some((c) => c.args.includes('github:') || c.args.some((a) => a.startsWith('github:')))).toBe(false);
+    expect(calls.some((c) => c.args[0] === '/bun')).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
 

@@ -67,10 +67,16 @@ function teardownDirs(dirs: TestDirs): void {
   rmSync(dirs.configDir, { recursive: true, force: true });
 }
 
-afterEach(() => {
+afterEach(async () => {
   process.chdir(originalCwd);
   if (originalConfigDir === undefined) delete process.env.CRAFT_CONFIG_DIR;
   else process.env.CRAFT_CONFIG_DIR = originalConfigDir;
+  try {
+    const { setBundledAssetsRoot } = await import('../../utils/paths.ts');
+    setBundledAssetsRoot(undefined);
+  } catch {
+    // ignore
+  }
 });
 
 describe('ensureContextDocs seeding', () => {

@@ -67,7 +67,7 @@ export interface ManagerOptions {
   brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
   /**
    * DI для тестов: `brew list --versions <formula>` → строка версий.
-   * После успешного install при pinVersion сверяем substring.
+   * После успешного install при pinVersion сверяем token equality (не substring).
    */
   brewVersionImpl?: (ctx: {
     brewBin: string;
@@ -101,6 +101,26 @@ function isPinVersion(v: string | undefined): v is string {
   return !['system', 'latest', '*'].includes(t);
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Token-equality pin match for `brew list --versions` stdout.
+ * Tokens are whitespace-split; the leading formula name (when present) is dropped.
+ * A token matches when it equals `pin` exactly, or equals `pin` with an optional
+ * Homebrew `_N` revision suffix (`1.49.2_1`). Substring matches are rejected
+ * (`pin=1.4` must NOT match `mole 1.49.2`).
+ */
+export function brewVersionMatchesPin(stdout: string, pin: string, formula?: string): boolean {
+  let tokens = stdout.trim().split(/\s+/).filter(Boolean);
+  if (formula && tokens[0] === formula) {
+    tokens = tokens.slice(1);
+  }
+  const rev = new RegExp(`^${escapeRegex(pin)}(_\\d+)?$`);
+  return tokens.some((token) => token === pin || rev.test(token));
+}
+
 /**
  * `brew list --versions <formula>` → stdout (или '' при ошибке/пустом выводе).
  * runCommand void — локальный spawn с захватом stdout.
@@ -126,8 +146,8 @@ async function defaultBrewVersion(ctx: {
 /**
  * Реальная установка git-npm: чекаут pinned коммита + bun install --frozen-lockfile
  * в чекауте + bun install --global из каталога (транзитивы по апстрим bun.lock;
- * при отсутствии локфайла — legacy global github: с WARNING; логика и эмпирика
- * в toolchain/installer.ts installGitNpmPinned).
+ * нет локфайла / git ENOENT → throw fail-closed; логика и эмпирика в
+ * toolchain/installer.ts installGitNpmPinned).
  * Пин — git commit (content-addressed); url/sha256/size codeload-тарболла —
  * для аудита в git-locks.ts. Lock отсутствует → установка запрещена
  * (fail-closed, зеркалит npm-locks.ts).
@@ -552,7 +572,7 @@ export function createManager(
     if (pinVersion) {
       const verFn = opts.brewVersionImpl ?? defaultBrewVersion;
       const ver = await verFn({ brewBin, formula, entry });
-      if (!ver.includes(pinVersion)) {
+      if (!brewVersionMatchesPin(ver, pinVersion, formula)) {
         return setStatus({
           name: entry.name,
           phase: 'error',

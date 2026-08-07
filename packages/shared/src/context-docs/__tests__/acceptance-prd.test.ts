@@ -120,16 +120,26 @@ describe('PRD acceptance: context docs in system prompt', () => {
     const { setBundledAssetsRoot } = await import('../../utils/paths.ts')
     setBundledAssetsRoot(ELECTRON_ROOT)
 
-    const { ensureContextDocs, writeContextDoc, getContextDocsPromptBlock } = await import('../index.ts')
+    const { ensureContextDocs, writeContextDoc } = await import('../index.ts')
     ensureContextDocs()
     const marker = `OMP_APPEND_MARKER_${Date.now()}`
-    writeContextDoc('soul.md', `<!-- context-doc-version: 1 -->\n${marker}\n`)
+    writeContextDoc('rules.md', `<!-- context-doc-version: 1 -->\n${marker}\n`)
 
-    // Mirrors omp-agent buildCraftContextPrompt composition for context docs
-    const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory: configDir })
-    expect(contextDocsBlock).toContain(marker)
-    expect(contextDocsBlock).toContain('soul.md')
-    expect(contextDocsBlock).toContain('<context_documents>')
-    expect(contextDocsBlock.length).toBeGreaterThan(50)
+    const {
+      composeOmpAppendSystemPrompt,
+      getOmpSpawnSystemPromptArgs,
+    } = await import('../../agent/omp-agent.ts')
+
+    // Production compose path used by private buildCraftContextPrompt / spawn.
+    const composed = composeOmpAppendSystemPrompt({ workingDirectory: configDir })
+    expect(composed).toContain(marker)
+    expect(composed).toContain('context_documents')
+    expect(composed).toContain('soul.md')
+    expect(composed).toContain('rules.md')
+
+    // Spawn wires the composed prompt via --append-system-prompt (not source greps).
+    const spawnArgs = getOmpSpawnSystemPromptArgs(composed)
+    expect(spawnArgs).toEqual(['--append-system-prompt', composed])
+    expect(spawnArgs[1]).toContain(marker)
   })
 })

@@ -130,6 +130,37 @@ const OMP_CRAFT_CONTEXT_PROMPT = [
 ].join('\n');
 
 /**
+ * Compose the `--append-system-prompt` payload for OMP spawn.
+ * Ordering mirrors getSystemPrompt: craft briefing → preferences → project →
+ * context docs (rules/soul) → memory blocks.
+ */
+export function composeOmpAppendSystemPrompt(input: {
+  workingDirectory: string;
+  preferences?: string | null;
+  projectContextBlock?: string | null;
+  memoryBlocks?: { lessonsBlock?: string; memoryBlock?: string } | null;
+}): string {
+  const parts = [OMP_CRAFT_CONTEXT_PROMPT];
+  if (input.preferences) parts.push(input.preferences);
+  if (input.projectContextBlock) parts.push(input.projectContextBlock);
+  // Runtime context documents (rules.md, soul.md, user *.md from
+  // <CONFIG_DIR>/context/) — mirrors getSystemPrompt() placement
+  // (after the project block, before memory). Project-level
+  // soul.md/rules.md in the session cwd override same-named global docs.
+  const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory: input.workingDirectory });
+  if (contextDocsBlock) parts.push(contextDocsBlock);
+  const blocks = input.memoryBlocks;
+  if (blocks?.lessonsBlock) parts.push(blocks.lessonsBlock);
+  if (blocks?.memoryBlock) parts.push(blocks.memoryBlock);
+  return parts.join('\n');
+}
+
+/** Spawn argv fragment that pushes composed system prompt into OMP. */
+export function getOmpSpawnSystemPromptArgs(append: string): string[] {
+  return ['--append-system-prompt', append];
+}
+
+/**
  * Map a transport `err.code` to an agent-facing string for `browser_tool`
  * failures (copied from pi-agent.ts to keep both backends independent).
  */
@@ -301,21 +332,13 @@ export class OmpAgent extends BaseAgent {
    * Evaluated at spawn time, so a respawn picks up memory updates.
    */
   private buildCraftContextPrompt(): string {
-    const parts = [OMP_CRAFT_CONTEXT_PROMPT];
-    const preferences = formatPreferencesForPrompt();
-    if (preferences) parts.push(preferences);
     const projectContext = this.resolveProjectContext();
-    if (projectContext) parts.push(formatProjectContextForPrompt(projectContext));
-    // Runtime context documents (rules.md, soul.md, user *.md from
-    // <CONFIG_DIR>/context/) — mirrors getSystemPrompt() placement
-    // (after the project block, before memory). Project-level
-    // soul.md/rules.md in the session cwd override same-named global docs.
-    const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory: this.resolvedCwd() });
-    if (contextDocsBlock) parts.push(contextDocsBlock);
-    const blocks = this.config.memoryBlocks;
-    if (blocks?.lessonsBlock) parts.push(blocks.lessonsBlock);
-    if (blocks?.memoryBlock) parts.push(blocks.memoryBlock);
-    return parts.join('\n');
+    return composeOmpAppendSystemPrompt({
+      workingDirectory: this.resolvedCwd(),
+      preferences: formatPreferencesForPrompt(),
+      projectContextBlock: projectContext ? formatProjectContextForPrompt(projectContext) : null,
+      memoryBlocks: this.config.memoryBlocks,
+    });
   }
   private _sessionToolContext: SessionToolContext | null = null;
 
@@ -596,7 +619,7 @@ export class OmpAgent extends BaseAgent {
     } else {
       args.push('--no-session');
     }
-    args.push('--append-system-prompt', this.buildCraftContextPrompt());
+    args.push(...getOmpSpawnSystemPromptArgs(this.buildCraftContextPrompt()));
     if (this.autoApproveAtSpawn) {
       args.push('--approval-mode', 'yolo');
     }

@@ -426,19 +426,20 @@ export interface GitNpmPinnedInstall {
  * пакета — его dependencies bun разрешает по latest (ни github:-спека, ни
  * global-install из локального пути чужой bun.lock НЕ читают — проверено
  * эмпирически на bun 1.3.14: global из пути с bun.lock@picocolors-1.0.0 поставил
- * 1.1.1). Поэтому при наличии в апстриме bun.lock/bun.lockb:
+ * 1.1.1). Поэтому:
  *   1. clone pinned коммита (git fetch <sha> --depth 1, как marketplace.installer);
  *   2. `bun install --frozen-lockfile` В ЧЕКАУТЕ — транзитивы строго по локу,
  *      рассинхрон lock↔package.json → fail-closed (bun падает);
  *   3. `bun install --global <workDir>` — bun копирует каталог целиком, включая
  *      node_modules (проверено на 1.3.14: реальная копия, не symlink), поэтому
  *      runtime-резолв кода пакета идёт по вложенным pinned-зависимостям.
- * Локфайла нет (или git недоступен, напр. win32) — старое поведение
- * (`bun install -g github:<repo>#<commit>`) + WARNING в onLog.
+ *
+ * Fail-closed (no legacy unpinned fallback):
+ *   - нет bun.lock/bun.lockb в апстрим-чекауте → throw (refuse unpinned transitives);
+ *   - git недоступен (ENOENT) → throw (cannot verify pin/lock).
  */
 export async function installGitNpmPinned(req: GitNpmPinnedInstall): Promise<void> {
   const runCmd = req.runCmd ?? runCommand;
-  const log = req.onLog ?? ((message: string) => console.warn(message));
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     // BUN_INSTALL направляет глобальную установку внутрь toolchain-layout:
@@ -448,10 +449,6 @@ export async function installGitNpmPinned(req: GitNpmPinnedInstall): Promise<voi
     CRAFT_BUN_PATH: req.bun,
   };
   await fs.promises.mkdir(req.versionDir, { recursive: true });
-
-  const legacyGlobalSpec = async (): Promise<void> => {
-    await runCmd([req.bun, 'install', '--global', `github:${req.repo}#${req.commit}`], { env });
-  };
 
   let hasLockfile = false;
   await fs.promises.rm(req.workDir, { recursive: true, force: true });
@@ -473,21 +470,18 @@ export async function installGitNpmPinned(req: GitNpmPinnedInstall): Promise<voi
       fs.existsSync(path.join(req.workDir, 'bun.lock')) || fs.existsSync(path.join(req.workDir, 'bun.lockb'));
   } catch (error) {
     await fs.promises.rm(req.workDir, { recursive: true, force: true });
-    // git не установлен (win32 без git в PATH) — не ломаем установку, которую
-    // раньше обслуживал bun сам (он ходит на codeload напрямую, без git).
+    // git недоступен — fail-closed: без git нельзя верифицировать pin/lock.
     if (error instanceof Error && error.message.includes('ENOENT')) {
-      log(`WARNING: git unavailable — falling back to 'github:${req.repo}#${req.commit}' (transitives unpinned)`);
-      await legacyGlobalSpec();
-      return;
+      throw new Error(`git-npm fail-closed: git unavailable; cannot verify pin/lock for ${req.repo}`);
     }
     throw error;
   }
 
   if (!hasLockfile) {
     await fs.promises.rm(req.workDir, { recursive: true, force: true });
-    log(`WARNING: transitives unpinned: no bun.lock in upstream ${req.repo}@${req.commit}`);
-    await legacyGlobalSpec();
-    return;
+    throw new Error(
+      `git-npm fail-closed: no bun.lock/bun.lockb in ${req.repo}@${req.commit.slice(0, 8)} — refuse unpinned transitives`,
+    );
   }
 
   try {

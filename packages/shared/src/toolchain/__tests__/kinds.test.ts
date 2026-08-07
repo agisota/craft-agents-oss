@@ -275,6 +275,25 @@ describe('kinds: brew pin verify', () => {
     expect(brewCalls).toBe(1);
   });
 
+  it("pin '1.4' must NOT match stdout 'mole 1.49.2' (no substring)", async () => {
+    let brewCalls = 0;
+    const pin = '1.4';
+    const { manager } = makeManager([moleBrewEntry(pin)], {
+      pathEnv: stubBrewPathEnv(),
+      brewInstallImpl: async () => {
+        brewCalls++;
+      },
+      brewVersionImpl: async () => 'mole 1.49.2',
+    });
+
+    const st = await manager.update('mole');
+    expect(st.phase).toBe('error');
+    expect(st.error).toContain('brew version mismatch');
+    expect(st.error).toContain(pin);
+    expect(st.error).toContain('1.49.2');
+    expect(brewCalls).toBe(1);
+  });
+
   it("no pin (version 'system') → ready installedVersion 'system'", async () => {
     let brewCalls = 0;
     let versionCalls = 0;
