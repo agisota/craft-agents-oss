@@ -72,10 +72,16 @@ describe('PRD acceptance: context docs in system prompt', () => {
   const originalCwd = process.cwd()
   let configDir = ''
 
-  afterEach(() => {
+  afterEach(async () => {
     if (originalConfigDir === undefined) delete process.env.CRAFT_CONFIG_DIR
     else process.env.CRAFT_CONFIG_DIR = originalConfigDir
     process.chdir(originalCwd)
+    try {
+      const { setBundledAssetsRoot } = await import('../../utils/paths.ts')
+      setBundledAssetsRoot(undefined)
+    } catch {
+      // ignore
+    }
     if (configDir && existsSync(configDir)) rmSync(configDir, { recursive: true, force: true })
   })
 

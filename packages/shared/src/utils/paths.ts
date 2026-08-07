@@ -292,8 +292,9 @@ let _assetsRoot: string | undefined;
  *
  * After this, getBundledAssetsDir('docs') will resolve to `<__dirname>/resources/docs/`
  * in the packaged app, or fall back to dev paths if that doesn't exist.
+ * Pass `undefined` to clear (tests that chdir to fixtures).
  */
-export function setBundledAssetsRoot(dir: string): void {
+export function setBundledAssetsRoot(dir: string | undefined): void {
   _assetsRoot = dir;
 }
 
