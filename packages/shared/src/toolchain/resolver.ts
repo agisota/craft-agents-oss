@@ -58,7 +58,10 @@ async function toolchainCandidates(
       if (!artifact) continue;
       for (const binRel of artifact.binPaths) {
         const base = path.basename(binRel);
-        if (!baseNames.has(base.replace(/\.(exe|cmd|bat)$/i, '')) && !baseNames.has(base)) continue;
+        // Бинарь принадлежит запрашиваемому инструменту → принимаем безусловно
+        // (worktrunk шипит binary 'wt' — имя файла ≠ имени тула).
+        // Для чужих entry (общий прогон по манифесту) — только точные имена.
+        if (entry.name !== name && !baseNames.has(base.replace(/\.(exe|cmd|bat)$/i, '')) && !baseNames.has(base)) continue;
         found.push(path.join(paths.toolchainDir, entry.name, 'current', binRel));
       }
     }

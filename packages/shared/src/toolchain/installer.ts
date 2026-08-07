@@ -232,6 +232,22 @@ async function npmInstallDeps(
   }
   const pkgDir = path.join(toolDir, 'package');
   await fs.promises.writeFile(path.join(pkgDir, 'package-lock.json'), lock, 'utf8');
+  // LockFor: хэшируется генератором ПОСЛЕ удаления devDependencies (monorepo-пакеты
+  // тащат workspace:*), поэтому и на установке вычищаем те же поля из распакованного
+  // пакета — иначе npm ci валится EUSAGE "lock out of sync".
+  {
+    const pkgJsonPath = path.join(pkgDir, 'package.json');
+    const pkgJson = JSON.parse(await fs.promises.readFile(pkgJsonPath, 'utf8'));
+    delete pkgJson.devDependencies;
+    for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+      const deps = pkgJson[field];
+      if (!deps) continue;
+      for (const dep of Object.keys(deps)) {
+        if (String(deps[dep]).startsWith('workspace:')) delete deps[dep];
+      }
+    }
+    await fs.promises.writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf8');
+  }
 
   // toolchain node: npm живёт рядом с node (unix: <dir>/bin/npm; win: npm.cmd в корне).
   let npm: string | undefined;
@@ -259,7 +275,14 @@ async function npmInstallDeps(
     ...process.env,
     PATH: `${path.dirname(npm)}${path.delimiter}${process.env.PATH ?? ''}`,
   };
-  await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: pkgDir, env });
+  await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: pkgDir, env }).catch(async (err) => {
+    // Пакеты с prepare/postinstall, зависящим от scrubbed devDeps (напр. skills →
+    // `husky`): повторяем с --ignore-scripts. opencode-ai и ему подобные СКРИПТО-
+    // зависимые инструменты проходят первой попыткой, так что механизм их не ломает.
+    await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: pkgDir, env }).catch((err2) => {
+      throw err2 instanceof Error && err2.message ? err2 : err
+    })
+  });
 }
 
 /** chmod +x всем binPaths (unix). Windows не требует. */

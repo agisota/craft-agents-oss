@@ -25,6 +25,7 @@ import { CodedError } from '../protocol/types.ts'
 import { loadManifest } from '../toolchain/manifest.ts'
 import { atomicWriteFileSync, marketplacePaths, type MarketplaceDocument, type MarketplaceEntry, type MarketplaceFetch } from './catalog.ts'
 import {
+  INSTALL_MARKER_NAME,
   readLock,
   removeInstallMarker,
   removeLockRecord,
@@ -101,8 +102,12 @@ export function sha256Directory(dir: string): string {
   const hash = createHash('sha256')
   const files: string[] = []
   walkFiles(dir, dir, files)
-  files.sort()
-  for (const rel of files) {
+  // Install-маркер (.craft-marketplace.lock.json) пишется ПОСЛЕ записи sha в record —
+  // иначе первый remove читал бы «свежий» sha с маркером и объявлял директорию
+  // locally-modified (soft-clean ложный keep).
+  const comparable = files.filter((rel) => basename(rel) !== INSTALL_MARKER_NAME)
+  comparable.sort()
+  for (const rel of comparable) {
     hash.update(rel)
     hash.update('\0')
     hash.update(readFileSync(join(dir, rel)))

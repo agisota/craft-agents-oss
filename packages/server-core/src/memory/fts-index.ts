@@ -19,8 +19,27 @@
  */
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import type { Database } from 'bun:sqlite'
 import type { Lesson } from '@craft-agent/shared/memory/types'
+
+/**
+ * bun:sqlite доступен ТОЛЬКО под bun-рантаймом: electron-main (node) без lazy-резолва
+ * падает на require ещё при загрузке бандла. Резолвим лениво и fail-soft, как и всё
+ * остальное в этом файле: под node FTS выключен, search() отдаёт fallback на recency.
+ */
+type DatabaseCtor = new (path: string) => Database
+let cachedCtor: DatabaseCtor | null | undefined
+function getDatabaseCtor(): DatabaseCtor | null {
+  if (cachedCtor === undefined) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      cachedCtor = require('bun:sqlite').Database as DatabaseCtor
+    } catch {
+      cachedCtor = null
+    }
+  }
+  return cachedCtor ?? null
+}
 
 /** Index file name inside each scope's memory directory. */
 export const FTS_INDEX_FILE = 'index.db'
@@ -71,7 +90,9 @@ function openFor(memoryDir: string): Database | null {
   const cached = handles.get(memoryDir)
   if (cached) return cached
   try {
-    const db = new Database(dbPathFor(memoryDir))
+    const Ctor = getDatabaseCtor()
+    if (!Ctor) return null
+    const db = new Ctor(dbPathFor(memoryDir))
     db.exec('PRAGMA journal_mode = WAL')
     db.exec(
       'CREATE VIRTUAL TABLE IF NOT EXISTS lessons USING fts5(rule, category, scope UNINDEXED, ts UNINDEXED, rule_key UNINDEXED)',
