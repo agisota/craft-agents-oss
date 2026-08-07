@@ -17,7 +17,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { access, appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -51,18 +51,46 @@ interface StateFile extends RunStatus {}
  * the constructor and fall back through the workspace package symlink.
  */
 function resolveStubRunner(): string {
+  // Packaged Electron app: the runner is staged into resources at build time.
+  // Prefer env override, then packaged resources, then source-tree resolution.
+  const candidates: string[] = [];
+  if (process.env.CRAFT_STUB_RUNNER) candidates.push(process.env.CRAFT_STUB_RUNNER);
+  const resourcesPath = Reflect.get(process, 'resourcesPath');
+  if (typeof resourcesPath === 'string' && resourcesPath) {
+    candidates.push(
+      join(resourcesPath, 'app', 'resources', 'cloud-runner', 'stub-runner.js'),
+      join(resourcesPath, 'resources', 'cloud-runner', 'stub-runner.js'),
+    );
+  }
   if (typeof import.meta.url === 'string' && import.meta.url) {
-    return join(dirname(fileURLToPath(import.meta.url)), 'runners', 'stub-runner.ts');
+    candidates.push(join(dirname(fileURLToPath(import.meta.url)), 'runners', 'stub-runner.ts'));
   }
   try {
     const req = createRequire(join(process.cwd(), 'package.json'));
-    return join(
+    candidates.push(join(
       dirname(req.resolve('@craft-agent/cloud-runner/package.json')),
       'src', 'runners', 'stub-runner.ts',
-    );
-  } catch {
-    return join(process.cwd(), 'packages', 'cloud-runner', 'src', 'runners', 'stub-runner.ts');
+    ));
+  } catch { /* fall through */ }
+  candidates.push(join(process.cwd(), 'packages', 'cloud-runner', 'src', 'runners', 'stub-runner.ts'));
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
   }
+  return candidates[candidates.length - 1]!;
+}
+
+/** Bun runtime for spawning the runner: bundled vendor bun first (packaged),
+ * then a bun-like process.execPath, then PATH. */
+function resolveBunBinary(): string {
+  if (process.env.CRAFT_BUN_PATH && existsSync(process.env.CRAFT_BUN_PATH)) return process.env.CRAFT_BUN_PATH;
+  const resourcesPath = Reflect.get(process, 'resourcesPath');
+  const bunName = process.platform === 'win32' ? 'bun.exe' : 'bun';
+  if (typeof resourcesPath === 'string' && resourcesPath) {
+    const vendored = join(resourcesPath, 'app', 'vendor', 'bun', bunName);
+    if (existsSync(vendored)) return vendored;
+  }
+  if (process.execPath.endsWith('bun') || process.execPath.endsWith(bunName)) return process.execPath;
+  return 'bun';
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -88,7 +116,7 @@ export class LocalSubprocessProvider implements CloudRunProvider {
 
   constructor(opts: LocalProviderOptions) {
     this.baseDir = resolve(opts.baseDir);
-    this.runnerCommand = opts.runnerCommand ?? [process.execPath.endsWith('bun') ? process.execPath : 'bun', resolveStubRunner()];
+    this.runnerCommand = opts.runnerCommand ?? [resolveBunBinary(), resolveStubRunner()];
     this.pollMs = opts.pollMs ?? 100;
   }
 
@@ -140,6 +168,10 @@ export class LocalSubprocessProvider implements CloudRunProvider {
           ...state, state: 'failed', failureReason: 'runner_error', finishedAt: Date.now(),
         };
         await writeFile(join(dir, 'state.json'), JSON.stringify(dead, null, 2));
+        // Emit the transition so subscribeEvents consumers (UI chip, popover)
+        // leave 'queued' instead of waiting forever for a runner that exited
+        // before its first heartbeat.
+        await appendFile(join(dir, 'events.jsonl'), JSON.stringify({ type: 'state', status: dead }) + '\n');
         return dead;
       }
     }
