@@ -693,6 +693,26 @@ export type {
 } from '@craft-agent/core/knowledge'
 
 // ---------------------------------------------------------------------------
+// Knowledge publication pipeline — P4 wire types (spec 06). CANONICAL HOME:
+// packages/core/src/knowledge/publications.ts (thin re-export, same pattern as
+// mutation types above).
+// ---------------------------------------------------------------------------
+
+export type {
+  PublicationStatus,
+  CraftRef,
+  KnowledgeLinkRelation,
+  KnowledgeLinkRecord,
+  ExcludeReason,
+  ExcludedFragment,
+  PublishDraft,
+  PublicationProvenance,
+  PublicationRecord,
+  PublishPrepareResult,
+  PublishApplyResult,
+} from '@craft-agent/core/knowledge'
+
+// ---------------------------------------------------------------------------
 // LLM connection types
 // ---------------------------------------------------------------------------
 

@@ -197,11 +197,13 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
     if (ops.length > 1 && !this.caps.mutations.transactions) {
       throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" supports one op per proposal (transactions=false)`);
     }
-    const op = ops[0];
-    if (!op) throw new KnowledgeError('INVALID_REF', 'Mutation proposal needs at least one op');
-    if (!capabilityByOp[op.op]) {
-      throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" does not support mutation "${op.op}"`);
+    if (ops.length === 0) throw new KnowledgeError('INVALID_REF', 'Mutation proposal needs at least one op');
+    for (const candidate of ops) {
+      if (!capabilityByOp[candidate.op]) {
+        throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" does not support mutation "${candidate.op}"`);
+      }
     }
+    const op = ops[0]!;
 
     const id = `inmem-proposal-${++this.sequence}`;
     const baseReadAt = new Date().toISOString();
@@ -216,8 +218,10 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
       if (notebook.ref.kind !== 'notebook') {
         throw new KnowledgeError('INVALID_REF', `Mutation "createDocument" needs a notebook target, got ${notebook.ref.kind} "${op.notebook}"`);
       }
-      targetRef = { scheme: 'siyuan', kind: 'document', id: `inmem-document-${++this.sequence}` };
-      preAllocatedId = targetRef.id;
+      // Pre-allocate the document id. Wire targetRef on the provider proposal is the NEW document
+      // (historical InMemory contract); bridge RE-READ uses its own notebook-scoped proposal.
+      preAllocatedId = `inmem-document-${++this.sequence}`;
+      targetRef = { scheme: 'siyuan', kind: 'document', id: preAllocatedId };
       preState = '';
       pendingTargetId = null;
     } else {
@@ -226,7 +230,7 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
       }
       const target = this.nodeOrThrow(validateKnowledgeRef(input.targetRef).id);
       const opTargetId = op.op === 'appendBlock' ? op.documentId : op.blockId;
-      if (opTargetId !== target.ref.id) {
+      if (opTargetId !== target.ref.id && !opTargetId.startsWith('$insertedBlockId[')) {
         throw new KnowledgeError('INVALID_REF', `Mutation target "${opTargetId}" does not match targetRef "${target.ref.id}"`);
       }
       targetRef = { ...target.ref };
@@ -271,12 +275,13 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
       throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" is ${working.status}, cannot apply`);
     }
     working = transition(working, { type: 'beginApply' }).proposal;
-    const op = working.ops[0];
-    if (!op) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its op`);
+    const ops = working.ops;
+    if (ops.length === 0) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its op`);
+    const head = ops[0]!;
 
     // RE-READ + HASH CHECK. createDocument was absent at READ → hash of '' (no prior content to protect).
     let reReadContent = '';
-    if (op.op !== 'createDocument') {
+    if (head.op !== 'createDocument') {
       const target = pending.targetId ? this.nodes.get(pending.targetId) : undefined;
       if (!target) throw new KnowledgeError('NOT_FOUND', `Mutation target "${pending.targetId}" no longer exists`);
       reReadContent = target.markdown ?? '';
@@ -291,67 +296,80 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
     const nowMs = Date.now();
     const appliedAt = new Date(nowMs).toISOString();
     let createdRef: KnowledgeRef | undefined;
-    if (op.op === 'createDocument') {
-      const notebook = this.nodeOrThrow(op.notebook);
-      const newId = pending.preAllocatedId;
-      if (!newId) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pre-allocated id`);
-      createdRef = { scheme: 'siyuan', kind: 'document', id: newId };
-      this.nodes.set(newId, {
-        ref: createdRef,
-        title: op.title,
-        markdown: op.markdown,
-        parentRef: { ...notebook.ref },
-        path: op.path,
-        attributes: [],
-        createdAt: nowMs,
-        updatedAt: nowMs,
-        contentHash: await hashKnowledgeContent(op.markdown),
-        blockCount: 0,
-      });
-    } else if (op.op === 'appendBlock') {
-      const parent = this.nodeOrThrow(op.documentId);
-      const childId = pending.preAllocatedId;
-      if (!childId) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pre-allocated id`);
-      parent.updatedAt = nowMs;
-      parent.contentHash = await hashKnowledgeContent(parent.markdown ?? '');
-      createdRef = { scheme: 'siyuan', kind: 'block', id: childId };
-      this.nodes.set(childId, {
-        ref: createdRef,
-        title: (op.markdown.split('\n')[0] ?? '').slice(0, 80),
-        markdown: op.markdown,
-        parentRef: { ...parent.ref },
-        path: `${parent.path}/${childId}`,
-        attributes: [],
-        createdAt: nowMs,
-        updatedAt: nowMs,
-        contentHash: await hashKnowledgeContent(op.markdown),
-      });
-    } else if (op.op === 'updateBlock') {
-      const target = this.nodeOrThrow(op.blockId);
-      target.markdown = op.markdown;
-      target.updatedAt = nowMs;
-      target.contentHash = await hashKnowledgeContent(op.markdown);
-    } else {
-      const target = this.nodeOrThrow(op.blockId);
-      const existing = target.attributes.find((attribute) => attribute.key === op.name);
-      if (existing) existing.value = op.value;
-      else target.attributes.push({ key: op.name, value: op.value });
-      target.updatedAt = nowMs;
+    const createdByIndex: Record<number, string> = {};
+
+    const resolveId = (value: string): string =>
+      value.replace(/\$insertedBlockId\[(\d+)\]/g, (match, digits: string) => createdByIndex[Number(digits)] ?? pending.preAllocatedId ?? match);
+
+    for (let index = 0; index < ops.length; index++) {
+      const op = ops[index]!;
+      if (op.op === 'createDocument') {
+        const notebook = this.nodeOrThrow(op.notebook);
+        const newId = index === 0 && pending.preAllocatedId ? pending.preAllocatedId : `inmem-document-${++this.sequence}`;
+        createdByIndex[index] = newId;
+        createdRef = { scheme: 'siyuan', kind: 'document', id: newId };
+        this.nodes.set(newId, {
+          ref: createdRef,
+          title: op.title,
+          markdown: op.markdown,
+          parentRef: { ...notebook.ref },
+          path: op.path,
+          attributes: [],
+          createdAt: nowMs,
+          updatedAt: nowMs,
+          contentHash: await hashKnowledgeContent(op.markdown),
+          blockCount: 0,
+        });
+      } else if (op.op === 'appendBlock') {
+        const parentId = resolveId(op.documentId);
+        const parent = this.nodeOrThrow(parentId);
+        const childId = index === 0 && pending.preAllocatedId ? pending.preAllocatedId : `inmem-block-${++this.sequence}`;
+        createdByIndex[index] = childId;
+        parent.updatedAt = nowMs;
+        parent.contentHash = await hashKnowledgeContent(parent.markdown ?? '');
+        const childRef: KnowledgeRef = { scheme: 'siyuan', kind: 'block', id: childId };
+        if (!createdRef) createdRef = childRef;
+        this.nodes.set(childId, {
+          ref: childRef,
+          title: (op.markdown.split('\n')[0] ?? '').slice(0, 80),
+          markdown: op.markdown,
+          parentRef: { ...parent.ref },
+          path: `${parent.path}/${childId}`,
+          attributes: [],
+          createdAt: nowMs,
+          updatedAt: nowMs,
+          contentHash: await hashKnowledgeContent(op.markdown),
+        });
+      } else if (op.op === 'updateBlock') {
+        const target = this.nodeOrThrow(resolveId(op.blockId));
+        target.markdown = op.markdown;
+        target.updatedAt = nowMs;
+        target.contentHash = await hashKnowledgeContent(op.markdown);
+      } else {
+        const target = this.nodeOrThrow(resolveId(op.blockId));
+        const existing = target.attributes.find((attribute) => attribute.key === op.name);
+        if (existing) existing.value = op.value;
+        else target.attributes.push({ key: op.name, value: op.value });
+        target.updatedAt = nowMs;
+      }
     }
 
-    // Bind kernel-returned ids into the inverse ops (§3.8: id фиксируется ответом apply).
-    if (pending.preAllocatedId !== undefined) {
+    if (Object.keys(createdByIndex).length > 0 || pending.preAllocatedId !== undefined) {
+      const inserted = { ...createdByIndex };
+      if (pending.preAllocatedId !== undefined && inserted[0] === undefined) inserted[0] = pending.preAllocatedId;
       working = {
         ...working,
         inverseOps: computeInverseOps(
           { content: working.preState ?? '', attributes: working.preStateAttributes },
           working.ops,
-          { insertedBlockIds: { 0: pending.preAllocatedId }, at: appliedAt },
+          { insertedBlockIds: inserted, at: appliedAt },
         ),
       };
     }
-    const appliedTargetId = createdRef?.id ?? pending.targetId;
-    const postHash = await hashKnowledgeContent((appliedTargetId ? this.nodes.get(appliedTargetId)?.markdown : undefined) ?? '');
+    // Same-reader post-hash: original target (notebook/doc), not the created child.
+    const verifyId = pending.targetId ?? working.targetRef.id;
+    const verifyNode = this.nodes.get(verifyId);
+    const postHash = await hashKnowledgeContent(verifyNode?.markdown ?? '');
     working = transition(working, { type: 'applyOpsSucceeded', postHash }).proposal;
     this.proposals.set(proposalId, working);
     const result: ApplyResult = { proposalId, applied: true, conflicted: false, status: 'applied', appliedAt };

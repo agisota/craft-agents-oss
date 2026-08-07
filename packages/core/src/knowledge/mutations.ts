@@ -374,7 +374,10 @@ export function validateProposalOps(ops: MutationOp[], options: ValidateProposal
         break;
       }
       case 'updateBlock': {
-        requireFreshProof(proofs, op.blockId, now);
+        // Kernel-created ids ($insertedBlockId[N]) are bound at apply — no surface selection exists yet.
+        if (!op.blockId.startsWith(`${INSERTED_BLOCK_ID_REF}[`)) {
+          requireFreshProof(proofs, op.blockId, now);
+        }
         break;
       }
       case 'setAttribute': {
@@ -384,7 +387,9 @@ export function validateProposalOps(ops: MutationOp[], options: ValidateProposal
             `setAttribute name "${op.name}" must match ^(craft-|knowledge-) (system SiYuan attrs are read-only)`,
           );
         }
-        requireFreshProof(proofs, op.blockId, now);
+        if (!op.blockId.startsWith(`${INSERTED_BLOCK_ID_REF}[`)) {
+          requireFreshProof(proofs, op.blockId, now);
+        }
         break;
       }
     }
@@ -407,12 +412,13 @@ export function validateProposalOps(ops: MutationOp[], options: ValidateProposal
  * Источник capture: createProposalDraft(params.preStateChildren) (READ-side child-chain, T1).
  */
 export function assertOpsWithinTargetScope(ops: readonly MutationOp[], targetRef: KnowledgeRef, containment?: ReadonlySet<string>): void {
+  const createsInBatch = ops.some((op) => op.op === 'createDocument' || op.op === 'appendBlock');
   for (const op of ops) {
     switch (op.op) {
       case 'createDocument':
         break; // новая цель определяется самим op — внешнего scope конфликта быть не может
       case 'appendBlock':
-        if (op.documentId !== targetRef.id) {
+        if (op.documentId !== targetRef.id && !op.documentId.startsWith(`${INSERTED_BLOCK_ID_REF}[`)) {
           throw new MutationValidationError(
             'op-target-mismatch',
             `appendBlock targets document "${op.documentId}" outside the proposal target "${targetRef.id}" (one targetRef per proposal)`,
@@ -422,6 +428,8 @@ export function assertOpsWithinTargetScope(ops: readonly MutationOp[], targetRef
       case 'updateBlock':
       case 'setAttribute': {
         if (op.blockId === targetRef.id) break; // whole-target op
+        // Provenance attrs on a document created in the same batch address $insertedBlockId[N].
+        if (createsInBatch && op.blockId.startsWith(`${INSERTED_BLOCK_ID_REF}[`)) break;
         if (containment === undefined) {
           throw new MutationValidationError(
             'unknown-containment',
