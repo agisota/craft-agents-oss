@@ -44,7 +44,7 @@ export const KNOWLEDGE_AUDIT_ACTIONS = [
   'knowledge.proposal.approval_expired',
   'knowledge.snapshot.created',
   'knowledge.publication.created',
-  'publish.applied', // K-06 §3.7 / §5 audit name (alias of publication.created)
+  'knowledge.publish.applied', // K-06 §3.7 publish.applied under knowledge.* AuditAction template
   'knowledge.link.added',
   'knowledge.link.removed',
 ] as const

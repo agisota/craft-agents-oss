@@ -620,7 +620,7 @@ export class KnowledgePublicationService {
 
     await audit.append({
       actor: 'user',
-      action: 'publish.applied',
+      action: 'knowledge.publish.applied',
       target: `siyuan://blocks/${docRef.id}`,
       detail: JSON.stringify({
         publicationId,
