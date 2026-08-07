@@ -112,7 +112,7 @@ describe('mutation engine: §3.2 transition table T1–T11 on the InMemory subst
 
     const reviewed = transition(draft, { type: 'buildDiff' }, T0).proposal; // T2
     expect(reviewed.status).toBe('pending_review');
-    expect(reviewed.diff?.patched).toBe('block v2');
+    expect(reviewed.diffDocument?.patched).toBe('block v2');
 
     const approved = transition(reviewed, { type: 'approve' }, T0).proposal; // T3
     expect(approved.status).toBe('approved');
@@ -160,7 +160,7 @@ describe('mutation engine: §3.2 transition table T1–T11 on the InMemory subst
     const result = transition(applying, { type: 'resolveHashCheck', actualHash: await hashKnowledgeContent(currentContent), currentContent }, T0);
     expect(result.proposal.status).toBe('conflict');
     expect(effectOfKind(result.effects, 'execute-ops')).toBeUndefined(); // T7: НИЧЕГО не пишется
-    expect(result.proposal.conflictInfo?.expectedHash).toBe(approved.baseHash);
+    expect(result.proposal.conflictInfo?.baseHash).toBe(approved.baseHash);
     expect(result.proposal.conflictInfo?.actualHash).toBe(await hashKnowledgeContent('external edit'));
     expect(result.proposal.conflictInfo?.currentContent).toBe('external edit');
     expect(effectOfKind(result.effects, 'audit')?.action).toBe('knowledge.proposal.conflict');

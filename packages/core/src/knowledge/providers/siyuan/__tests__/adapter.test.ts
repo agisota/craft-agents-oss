@@ -650,7 +650,8 @@ describe('proposeMutation (P3) — validation before any network I/O', () => {
   test('missing targetRef / createDocument notebook mismatch → typed INVALID_REF', async () => {
     const { provider } = makeAdapter(boomHandlers);
     await expectKnowledgeError(
-      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'x' }] }),
+      // targetRef is wire-REQUIRED (canonical contract); cast probes the adapter's defense-in-depth guard.
+      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'x' }] } as Parameters<typeof provider.proposeMutation>[0]),
       'INVALID_REF',
     );
     await expectKnowledgeError(
@@ -676,7 +677,7 @@ describe('proposeMutation (P3) — draft capture through the get() reader', () =
     expect(proposal.status).toBe('draft');
     expect(proposal.preState).toBe('LINE 1\nLINE 2');
     expect(proposal.baseHash).toBe(await hashKnowledgeContent('LINE 1\nLINE 2'));
-    expect(proposal.diff?.patched).toBe('LINE 1\nLINE 2\nAPPENDED LINE');
+    expect(proposal.diffDocument?.patched).toBe('LINE 1\nLINE 2\nAPPENDED LINE');
     expect(proposal.sessionId).toBe('sess-1');
     expect(proposal.actor).toBe('agent');
     // read endpoints only — no write whitelist endpoint ever fired at propose.

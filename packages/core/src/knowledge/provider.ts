@@ -25,7 +25,7 @@ export type {
   MutationProposalStatus,
   MutationRejectionReason,
   PreStateSnapshot,
-  ProposalDiff,
+  ProposalDiffDocument,
   ProposalDiffLine,
   SelectionProof,
   StatusHistoryEntry,

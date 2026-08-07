@@ -71,9 +71,9 @@ export interface SelectionProof {
   selectedAt: string; // ISO; свежесть проверяется против SELECTION_PROOF_TTL_MS
 }
 
-/** Вход propose (wire `knowledge:proposeMutation` → bridge): ops + proofs + метаданные. */
+/** Вход propose (wire `knowledge:proposeMutation` → bridge): ops + proofs + метаданные. Wire contract (spec 05 §3.1): targetRef REQUIRED — для createDocument это notebook. */
 export interface MutationInput {
-  targetRef?: KnowledgeRef; // обязателен для всех op, кроме createDocument
+  targetRef: KnowledgeRef; // одна цель на proposal в v1 (для createDocument — notebook)
   ops: MutationOp[];
   selectionProofs?: SelectionProof[]; // по одному на каждый op вида updateBlock/setAttribute
   baseHash?: string; // хэш цели, прочитанный агентом до генерации patch (hint; bridge всё равно RE-READ)
@@ -81,12 +81,17 @@ export interface MutationInput {
   sessionId?: string;
   actor?: MutationActor; // default 'user'
   summary?: string; // человекочитаемое описание для Craft diff UI
+  /** T9 rebase (spec 05 §3.2/§3.5): id конфликтного proposal, который supersede-ится ДО нового T1 READ. */
+  rebaseOfProposalId?: string;
 }
 
-/** T7-диагностика конфликта; reason='partial-apply-rolled-back' при компенсированном сбое op k (§3.2 invariant). */
+/** T7-диагностика конфликта; reason='partial-apply-rolled-back' при компенсированном сбое op k (§3.2 invariant). Wire contract (spec 05 §3.2 T7). */
 export interface ConflictInfo {
-  expectedHash: string;
+  baseHash: string;
+  /** ISO-8601 исходного READ, с которого снят baseHash. */
+  baseReadAt: string;
   actualHash: string;
+  /** RE-READ контент на момент конфликта — рендерится в conflict-карточке (§3.5). */
   currentContent: string;
   reason?: string;
 }
@@ -104,8 +109,12 @@ export interface ProposalDiffLine {
   text: string;
 }
 
-/** Textual diff base→patched (T2 payload для KnowledgeDiff.tsx; dependency-free LCS). */
-export interface ProposalDiff {
+/**
+ * Engine-internal structured diff base→patched (T2 payload; dependency-free LCS).
+ * Distinct from the WIRE record's `diff`, which is a unified-diff STRING (wire contract wins —
+ * bridge renders this document to the string via renderUnifiedDiff for KnowledgeDiff.tsx).
+ */
+export interface ProposalDiffDocument {
   base: string;
   patched: string;
   lines: ProposalDiffLine[];
@@ -120,10 +129,11 @@ export interface MutationProposal {
   selectionProofs: SelectionProof[];
   baseHash: string; // sha256 канонической сериализации цели при READ
   baseReadAt: string; // ISO момента READ
-  preState?: string; // каноническая сериализация до apply (источник inverse)
+  preState: string; // wire contract: каноническая сериализация до apply (источник inverse), всегда захвачена на T1
   preStateAttributes?: Record<string, Record<string, string>>; // blockId → (name → value) при READ; для setAttribute inverse
   preStateChildren?: Record<string, string>; // child blockId → canonical markdown при READ (audit P1-4a: источник block-accurate inverse + containment set для guard §3.4.1)
-  diff?: ProposalDiff; // строится на T2
+  diff?: string; // WIRE contract (spec 05 §3.1): unified-diff string, строится на T2 (bridge рендерит из diffDocument)
+  diffDocument?: ProposalDiffDocument; // engine-internal structured diff (T2); на провод не уходит как объект
   inverseOps?: MutationOp[]; // вычисляются при APPROVE (T3) из зафиксированного preState
   hashAlgorithm: 'sha256-canonical-v1';
   status: MutationProposalStatus;
@@ -133,7 +143,7 @@ export interface MutationProposal {
   approvedBy?: 'user'; // v1: только человек (под future delegation)
   appliedHash?: string; // post-apply hash (T6 verify) — guard для T10 rollback
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string; // engine extra (не в wire DTO): момент последнего решения; engine всегда проставляет
   approvedAt?: string;
   appliedAt?: string;
   rolledBackAt?: string;
@@ -143,15 +153,26 @@ export interface MutationProposal {
 export type MutationProposalRecord = MutationProposal;
 export type MutationProposalFile = MutationProposal;
 
+/**
+ * Результат apply/rollback (rollback — тоже mutation pass с RE-READ + hash check, §3.8).
+ * Wire contract (spec 05 §3.3) + engine-optional поля applied/conflicted (для provider/bridge
+ * pass-through результатов; UI-роутинг опирается на status/reason).
+ */
 export interface ApplyResult {
   proposalId: string;
-  applied: boolean;
-  conflicted: boolean; // RE-READ hash mismatch (или partial-apply) → applied=false
+  /** 'applied' | 'conflict' после apply; 'rolled_back' после rollback (T10). */
   status: MutationProposalStatus;
-  reason?: string; // 'hash-mismatch' | 'partial-apply-rolled-back' | 'approval-expired' | …
-  currentHash?: string; // фактический хэш при конфликте
+  applied?: boolean; // engine extra
+  conflicted?: boolean; // engine extra: RE-READ hash mismatch (или partial-apply) → applied=false
+  reason?: string; // 'hash-mismatch' | 'partial-apply-rolled-back' | 'apply-failed' | 'rollback-failed' | 'approval-expired' | 'apply-stalled' | 'rollback-hash-mismatch'
+  currentHash?: string; // фактический хэш RE-READ цели при конфликте (conflict-карточка freshness)
   appliedAt?: string;
   createdRef?: KnowledgeRef; // для createDocument
+  conflictInfo?: ConflictInfo;
+  /** Коррелятор записи audit.jsonl (§3.8); append() пока не чеканит id — поле едет на будущее. */
+  auditId?: string;
+  /** ISO-8601 завершения T10 — только rollback-pass (не алиасится на appliedAt). */
+  rolledBackAt?: string;
 }
 
 /** Snap of the target captured at READ (T1): источник inverse ops (§3.8). */
@@ -462,7 +483,7 @@ export function diffLines(base: string, modified: string): ProposalDiffLine[] {
 }
 
 /** base + ops → текстовый diff (T2). setAttribute не меняет markdown-контент, поэтому в diff не попадает. */
-export function buildProposalDiff(preStateContent: string, ops: readonly MutationOp[]): ProposalDiff {
+export function buildProposalDiff(preStateContent: string, ops: readonly MutationOp[]): ProposalDiffDocument {
   let patched = preStateContent;
   for (const op of ops) {
     switch (op.op) {
@@ -481,12 +502,13 @@ export function buildProposalDiff(preStateContent: string, ops: readonly Mutatio
 }
 
 export function buildConflictInfo(
-  expectedHash: string,
+  baseHash: string,
+  baseReadAt: string,
   actualHash: string,
   currentContent: string,
   reason = 'hash-mismatch',
 ): ConflictInfo {
-  return { expectedHash, actualHash, currentContent, reason };
+  return { baseHash, baseReadAt, actualHash, currentContent, reason };
 }
 
 // ── Inverse ops (§3.8, soft-rollback semantics verbatim) ────────────────────────────────────
@@ -579,7 +601,7 @@ export function sliceCompensationInverses(
 
 /** draft/pending_review 7 суток без решения (updatedAt как момент последнего решения) → авто-T4. */
 export function isDraftExpired(proposal: MutationProposal, now: number = Date.now()): boolean {
-  return (proposal.status === 'draft' || proposal.status === 'pending_review') && now - Date.parse(proposal.updatedAt) > DRAFT_TTL_MS;
+  return (proposal.status === 'draft' || proposal.status === 'pending_review') && now - Date.parse(proposal.updatedAt ?? proposal.createdAt) > DRAFT_TTL_MS;
 }
 
 /** approved 24h → apply отклонён, proposal возвращается в pending_review (approval-expired). */
@@ -594,7 +616,7 @@ export function isApprovalExpired(proposal: MutationProposal, now: number = Date
  * навсегда un-actionable и файл протекает). T8 retry обновляет updatedAt ⇒ живой retry не 'stuck'.
  */
 export function isApplyStuck(proposal: MutationProposal, now: number = Date.now()): boolean {
-  return proposal.status === 'applying' && now - Date.parse(proposal.updatedAt) > APPLY_STUCK_TIMEOUT_MS;
+  return proposal.status === 'applying' && now - Date.parse(proposal.updatedAt ?? proposal.createdAt) > APPLY_STUCK_TIMEOUT_MS;
 }
 
 /**
@@ -612,7 +634,7 @@ export function isTransientProviderFailure(error: unknown): boolean {
 // ── State machine (§3.2, T1–T11) — pure: effects are plan objects, not executions ──────────
 
 export type ProposalAction =
-  | { type: 'buildDiff'; diff?: ProposalDiff } // T2 (diff вычисляется из preState, если не передан)
+  | { type: 'buildDiff'; diff?: ProposalDiffDocument } // T2 (diff вычисляется из preState, если не передан)
   | { type: 'approve' } // T3 (v1: approvedBy всегда 'user')
   | { type: 'reject'; reason?: string } // T4 (draft|pending_review → ∅; «Отменить» на conflict-карточке §3.5)
   | { type: 'expire' } // lazy TTL sweep (§3.7): draft|pending_review старше DRAFT_TTL_MS → T4; applying старше APPLY_STUCK_TIMEOUT_MS → conflict 'apply-stalled' (P1-6b)
@@ -646,7 +668,7 @@ export interface CreateProposalParams {
   ops: MutationOp[];
   baseHash: string;
   baseReadAt: string; // ISO момента READ
-  preState?: string;
+  preState: string; // wire contract: T2 diff + T3 inverse source; '' для createDocument (READ блокнота)
   preStateAttributes?: Record<string, Record<string, string>>;
   preStateChildren?: Record<string, string>; // child-chain capture при READ (P1-4); обязателен, если ops адресуют child-блоки (guard 'unknown-containment')
   selectionProofs?: SelectionProof[];
@@ -687,6 +709,7 @@ export function createProposalDraft(params: CreateProposalParams, options: Creat
     selectionProofs: params.selectionProofs ?? [],
     baseHash: params.baseHash,
     baseReadAt: params.baseReadAt,
+    preState: params.preState,
     hashAlgorithm: 'sha256-canonical-v1',
     status: 'draft',
     statusHistory: [], // история = переходы; ∅→draft создание пишется в audit effect
@@ -695,7 +718,6 @@ export function createProposalDraft(params: CreateProposalParams, options: Creat
     updatedAt: at,
   };
   if (params.sessionId !== undefined) proposal.sessionId = params.sessionId;
-  if (params.preState !== undefined) proposal.preState = params.preState;
   if (params.preStateAttributes !== undefined) proposal.preStateAttributes = params.preStateAttributes;
   if (params.preStateChildren !== undefined) proposal.preStateChildren = params.preStateChildren;
   return {
@@ -744,8 +766,8 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
   switch (action.type) {
     case 'buildDiff': {
       if (proposal.status !== 'draft') fail(proposal.status, action);
-      const diff = action.diff ?? buildProposalDiff(proposal.preState ?? '', proposal.ops);
-      const next = withEntry(proposal, 'pending_review', 'user', now, undefined, { diff });
+      const diffDocument = action.diff ?? buildProposalDiff(proposal.preState, proposal.ops);
+      const next = withEntry(proposal, 'pending_review', 'user', now, undefined, { diffDocument });
       return { proposal: next, effects: [persist(next), pushChanged] };
     }
     case 'approve': {
@@ -792,7 +814,7 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
       // скрыл бы возможные записи. actualHash неизвестен sweep'у → baseHash-плейсхолдер по precedent
       // partial-apply (action.actualHash ?? proposal.baseHash).
       if (isApplyStuck(proposal, now)) {
-        const conflictInfo = buildConflictInfo(proposal.baseHash, proposal.baseHash, '', 'apply-stalled');
+        const conflictInfo = buildConflictInfo(proposal.baseHash, proposal.baseReadAt, proposal.baseHash, '', 'apply-stalled');
         const next = withEntry(proposal, 'conflict', 'automation', now, 'apply-stalled', { conflictInfo });
         return { proposal: next, effects: [persist(next), audit('conflict', { reason: 'apply-stalled' }), pushChanged] };
       }
@@ -815,7 +837,7 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
       if (action.actualHash === proposal.baseHash) {
         return { proposal, effects: [{ kind: 'execute-ops', ops: proposal.ops }] };
       }
-      const conflictInfo = buildConflictInfo(proposal.baseHash, action.actualHash, action.currentContent);
+      const conflictInfo = buildConflictInfo(proposal.baseHash, proposal.baseReadAt, action.actualHash, action.currentContent);
       const next = withEntry(proposal, 'conflict', 'automation', now, 'hash-mismatch', { conflictInfo });
       // T7: НИЧЕГО не пишется в SiYuan
       return { proposal: next, effects: [persist(next), audit('conflict', { reason: 'hash-mismatch' }), pushChanged] };
@@ -835,6 +857,7 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
       if (proposal.status !== 'applying') fail(proposal.status, action);
       const conflictInfo = buildConflictInfo(
         proposal.baseHash,
+        proposal.baseReadAt,
         action.actualHash ?? proposal.baseHash,
         '',
         'partial-apply-rolled-back',
