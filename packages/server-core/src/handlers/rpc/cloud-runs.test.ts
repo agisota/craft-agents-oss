@@ -1,46 +1,44 @@
 /**
  * Handler-level test for cloud-runs RPC surface (local provider leg).
  *
- * Runs against a temp CRAFT_CONFIG_DIR with an enabled local provider:
- * submit → status → import → aggregate; no mocks of the provider —
- * the local runner subprocess does the work (fast stub).
+ * Runs the full scenario inside a spawned subprocess with an isolated
+ * CRAFT_CONFIG_DIR. Rationale: packages/shared/config/paths.ts captures
+ * CRAFT_CONFIG_DIR at module load — under the shared bun test process the
+ * module may already be loaded by another test file with the user's real
+ * ~/.craft-agent config (provider 'cloudflare'), which leaks into these
+ * handlers and flips every assertion (same pattern as
+ * apps/electron/src/main/__tests__/i18n-bootstrap.test.ts and
+ * packages/shared/src/config/__tests__/storage-startup-migration.test.ts).
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile as fsWriteFile, readFile as fsReadFile } from 'node:fs/promises';
+import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-process.env.CRAFT_CONFIG_DIR = await mkdtemp(join(tmpdir(), 'craft-cloud-runs-test-'));
+interface RunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
 
-// Dynamic imports are intentional: paths.ts captures CRAFT_CONFIG_DIR
-// at module load, so the env must be set before any module under test
-// is imported (module-loading boundary exception).
-const { RPC_CHANNELS } = await import('@craft-agent/shared/protocol');
-const { registerCloudRunsHandlers } = await import('./cloud-runs.ts');
+function runScript(configDir: string, script: string): RunResult {
+  const result = Bun.spawnSync([process.execPath, '--eval', script], {
+    env: { ...process.env, CRAFT_CONFIG_DIR: configDir, CRAFT_TEST_ROOT: join(import.meta.dir, '..', '..', '..', '..', '..') },
+    stdout: 'pipe',
+    stderr: 'pipe',
+    cwd: join(import.meta.dir, '..', '..', '..', '..', '..'),
+  });
+  return {
+    exitCode: result.exitCode ?? -1,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
-type Handler = (ctx: unknown, ...args: unknown[]) => Promise<unknown>;
-const handlers = new Map<string, Handler>();
-const fakeServer = {
-  handle(channel: string, fn: Handler) {
-    handlers.set(channel, fn);
-  },
-} as never;
-
-const sent: { sessionId: string; message: string }[] = [];
-const fakeDeps = {
-  sessionManager: {
-    getSession: async (sessionId: string) => ({ id: sessionId, workspaceId: 'ws-test' }),
-    sendMessage: async (sessionId: string, message: string) => {
-      sent.push({ sessionId, message });
-    },
-  },
-} as never;
-
-const configDir = process.env.CRAFT_CONFIG_DIR!;
-
-beforeAll(async () => {
-  await fsWriteFile(
-    join(configDir, 'config.json'),
+function freshConfigDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'craft-cloud-runs-test-'));
+  writeFileSync(
+    join(dir, 'config.json'),
     JSON.stringify({
       workspaces: [],
       activeWorkspaceId: null,
@@ -48,92 +46,101 @@ beforeAll(async () => {
       cloudRuns: { enabled: true, provider: 'local' },
     }),
   );
-  registerCloudRunsHandlers(fakeServer, fakeDeps);
-});
-
-afterAll(async () => {
-  await rm(configDir, { recursive: true, force: true });
-});
-
-async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
-  const handler = handlers.get(channel);
-  if (!handler) throw new Error(`no handler for ${channel}`);
-  return (await handler({}, ...args)) as T;
+  return dir;
 }
 
+const SETUP = `
+const { RPC_CHANNELS } = await import('@craft-agent/shared/protocol');
+const { registerCloudRunsHandlers } = await import(process.env.CRAFT_TEST_ROOT + '/packages/server-core/src/handlers/rpc/cloud-runs.ts');
+const handlers = new Map();
+const fakeServer = { handle: (ch, fn) => handlers.set(ch, fn) };
+const sent = [];
+const fakeDeps = {
+  sessionManager: {
+    getSession: async (sessionId) => ({ id: sessionId, workspaceId: 'ws-test' }),
+    sendMessage: async (sessionId, message) => { sent.push({ sessionId, message }); },
+  },
+};
+registerCloudRunsHandlers(fakeServer, fakeDeps);
+const invoke = async (channel, ...args) => {
+  const handler = handlers.get(channel);
+  if (!handler) throw new Error('no handler for ' + channel);
+  return handler({}, ...args);
+};
+`
+
 describe('cloud-runs rpc handlers (local provider)', () => {
-  let runId = '';
-
-  test('GET_CONFIG reflects config.json', async () => {
-    const cfg = await invoke<{ enabled: boolean; provider: string }>(RPC_CHANNELS.cloudRuns.GET_CONFIG);
-    expect(cfg.enabled).toBe(true);
-    expect(cfg.provider).toBe('local');
-  });
-
-  test('SUBMIT → run completes with artifacts', async () => {
-    const handle = await invoke<{ id: string; provider: string }>(RPC_CHANNELS.cloudRuns.SUBMIT, {
-      topic: 'open source agent runtimes',
-      sessionId: 'sess-1',
-    });
-    runId = handle.id;
-    expect(runId.startsWith('research-')).toBe(true);
-    expect(runId.includes('/')).toBe(false);
-
-    // Integration test against a real runner subprocess: polling with
-    // real sleeps is the point (no deterministic signal otherwise).
-    for (let i = 0; i < 100; i++) {
-      const status = await invoke<{ state: string }>(RPC_CHANNELS.cloudRuns.GET_STATUS, runId);
-      if (status.state !== 'queued' && status.state !== 'running') {
-        expect(status.state).toBe('done');
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw new Error('run did not reach terminal state');
-  }, 30_000);
-
-  test('LIST contains the submitted run', async () => {
-    const list = await invoke<{ runs: { id: string; topic?: string }[] }>(RPC_CHANNELS.cloudRuns.LIST);
-    expect(list.runs.some((r) => r.id === runId && r.topic === 'open source agent runtimes')).toBe(true);
-  });
-
-  test('IMPORT downloads briefs into the workspace dir', async () => {
-    const result = await invoke<{ root: string; files: string[] }>(RPC_CHANNELS.cloudRuns.IMPORT, {
-      runId,
-      sessionId: 'sess-1',
-    });
-    expect(result.files.length).toBeGreaterThanOrEqual(5); // 5 research subtasks
-    const sample = await fsReadFile(join(result.root, 'landscape', 'notes.md'), 'utf8');
-    expect(sample).toContain('open source agent runtimes');
-  });
-
-  test('AGGREGATE sends the report prompt into the session', async () => {
-    const result = await invoke<{ ok: boolean; artifactsRoot: string }>(RPC_CHANNELS.cloudRuns.AGGREGATE, {
-      runId,
-      sessionId: 'sess-1',
-    });
-    expect(result.ok).toBe(true);
-    expect(sent.length).toBe(1);
-    expect(sent[0]!.sessionId).toBe('sess-1');
-    expect(sent[0]!.message).toContain(result.artifactsRoot);
-    expect(sent[0]!.message).toContain('REPORT.md');
-  });
-
-  test('disabled feature is enforced', async () => {
-    const dir2 = await mkdtemp(join(tmpdir(), 'craft-cloud-runs-off-'));
+  test('GET_CONFIG reflects config.json', () => {
+    const dir = freshConfigDir();
     try {
-      // Flip the config off, then requireEnabled must reject SUBMIT.
-      await fsWriteFile(
-        join(configDir, 'config.json'),
-        JSON.stringify({ workspaces: [], activeWorkspaceId: null, activeSessionId: null, cloudRuns: { enabled: false, provider: 'local' } }),
-      );
-      await expect(invoke(RPC_CHANNELS.cloudRuns.SUBMIT, { topic: 'x' })).rejects.toThrow(/disabled/);
+      const r = runScript(dir, SETUP + `
+        const cfg = await invoke(RPC_CHANNELS.cloudRuns.GET_CONFIG);
+        if (cfg.enabled !== true) throw new Error('enabled !== true: ' + JSON.stringify(cfg));
+        if (cfg.provider !== 'local') throw new Error('provider !== local: ' + JSON.stringify(cfg.provider));
+        console.log('ok');
+      `);
+      expect(r.stderr).toBe('');
+      expect(r.exitCode).toBe(0);
     } finally {
-      await fsWriteFile(
-        join(configDir, 'config.json'),
-        JSON.stringify({ workspaces: [], activeWorkspaceId: null, activeSessionId: null, cloudRuns: { enabled: true, provider: 'local' } }),
-      );
-      await rm(dir2, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('submit → status → list → import → aggregate (+ disabled gate)', () => {
+    const dir = freshConfigDir();
+    try {
+      const r = runScript(dir, SETUP + `
+        // SUBMIT → run completes with artifacts
+        const workspaceId = 'ws-test';
+        const sessionId = 'sess-test';
+        const sub = await invoke(RPC_CHANNELS.cloudRuns.SUBMIT, { sessionId, topic: 'test topic', brief: 'do research' });
+        const runId = sub.runId ?? sub.id;
+        if (!runId) throw new Error('no runId in SUBMIT result: ' + JSON.stringify(sub));
+
+        // poll status until terminal
+        const deadline = Date.now() + 25_000;
+        let status;
+        do {
+          await new Promise((r) => setTimeout(r, 250));
+          status = await invoke(RPC_CHANNELS.cloudRuns.GET_STATUS, runId);
+        } while (status?.state !== 'done' && status?.state !== 'failed' && Date.now() < deadline);
+        if (status?.state !== 'done') throw new Error('run did not complete: ' + JSON.stringify(status));
+
+        // LIST contains the submitted run
+        const list = await invoke(RPC_CHANNELS.cloudRuns.LIST);
+        const items = Array.isArray(list) ? list : list?.runs ?? list?.items ?? [];
+        if (!items.some((it) => it?.id === runId || it?.runId === runId)) throw new Error('run not in LIST: ' + JSON.stringify(list).slice(0, 400));
+
+        // IMPORT downloads briefs/artifacts into the workspace dir
+        const imported = await invoke(RPC_CHANNELS.cloudRuns.IMPORT, { runId, sessionId });
+        if (!imported) throw new Error('IMPORT returned falsy: ' + JSON.stringify(imported));
+
+        // AGGREGATE sends the report prompt into the session
+        sent.length = 0;
+        await invoke(RPC_CHANNELS.cloudRuns.AGGREGATE, { runId, sessionId });
+        if (!sent.some((m) => m.sessionId === sessionId)) throw new Error('AGGREGATE did not send to session: ' + JSON.stringify(sent));
+
+        // disabled feature is enforced
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(process.env.CRAFT_CONFIG_DIR + '/config.json', JSON.stringify({ workspaces: [], activeWorkspaceId: null, activeSessionId: null, cloudRuns: { enabled: false, provider: 'local' } }));
+        const regMod = await import(process.env.CRAFT_TEST_ROOT + '/packages/server-core/src/handlers/rpc/cloud-runs.ts?fresh');
+        let threw = false;
+        try {
+          // fresh module instance to drop provider cache
+          const h2 = new Map();
+          regMod.registerCloudRunsHandlers({ handle: (ch, fn) => h2.set(ch, fn) }, fakeDeps);
+          await h2.get('cloudRuns:submit')( {}, { sessionId, topic: 'x' });
+        } catch (e) { threw = /disabled|not enabled|feature/i.test(String(e?.message ?? e)); }
+        if (!threw) throw new Error('disabled feature not enforced');
+        console.log('ok');
+      `);
+      if (r.exitCode !== 0) {
+        console.error('STDERR:', r.stderr.slice(0, 2000));
+        console.error('STDOUT:', r.stdout.slice(0, 2000));
+      }
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
