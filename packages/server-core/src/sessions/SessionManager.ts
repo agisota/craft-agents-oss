@@ -108,6 +108,13 @@ import { KnowledgeBridgeService } from '../knowledge/bridge-service'
 import { KnowledgeMutationProposalsStore } from '../knowledge/proposals-store'
 import { KnowledgeAuditLog } from '../knowledge/knowledge-audit'
 import { getKnowledgeBridge, getKnowledgeProviderResolver, registerKnowledgeBridge } from '../knowledge/bridge-registry'
+import {
+  startKnowledgeWatch,
+  stopKnowledgeWatchesForWorkspace,
+  stopAllKnowledgeWatches,
+} from '../knowledge/change-watcher'
+import { KnowledgeConnectionsStore, credentialIdFromRef } from '../knowledge/connections-store'
+import { submitCloudRunInternal } from '../handlers/rpc/cloud-runs'
 import { buildBackendRuntimeSignature, buildRestartRequiredSignature, filterAttachmentsForModelInput } from './runtime-config'
 import { validateArchiveTarget } from './archive-guards'
 
@@ -1855,6 +1862,13 @@ export class SessionManager implements ISessionManager {
       })
       this.automationSystems.set(workspaceRootPath, automationSystem)
       sessionLog.info(`Initialized AutomationSystem for workspace ${workspaceId}`)
+      // Auto-start knowledge change watchers for connections scoped to this workspace
+      void this.autoStartKnowledgeWatches(workspaceRootPath, workspaceId).catch((error) => {
+        sessionLog.warn(
+          `Failed to auto-start knowledge watches for ${workspaceId}:`,
+          error instanceof Error ? error.message : error,
+        )
+      })
     }
   }
 
@@ -1916,10 +1930,56 @@ export class SessionManager implements ISessionManager {
     }
   }
 
-  private createCloudRunSubmitExecutor(_workspaceRootPath: string, _workspaceId: string): CloudRunSubmitExecutor {
+  private createCloudRunSubmitExecutor(workspaceRootPath: string, workspaceId: string): CloudRunSubmitExecutor {
     const executor = new ServerKnowledgeActionExecutor({
       getBridge: () => {
         throw new Error('cloud_run.submit does not use the knowledge bridge')
+      },
+      submitCloudRun: async (action, ctx) => {
+        const topic =
+          (action.topic && action.topic.trim().length > 0 ? action.topic : undefined) ??
+          (typeof ctx.payload.title === 'string' ? ctx.payload.title : undefined) ??
+          (typeof ctx.payload.topic === 'string' ? ctx.payload.topic : undefined) ??
+          action.skillSlug ??
+          'automation cloud run'
+        const sessionId =
+          action.sessionId ??
+          (typeof ctx.payload.sessionId === 'string' ? ctx.payload.sessionId : undefined)
+        const callbackTag =
+          action.callbackTag ??
+          (typeof ctx.payload.callbackTag === 'string' ? ctx.payload.callbackTag : undefined)
+        const result = await submitCloudRunInternal({
+          topic,
+          sessionId,
+          workspaceId: ctx.workspaceId || workspaceId,
+          labels: action.labels,
+          callbackTag,
+          skillSlug: action.skillSlug,
+        })
+        if (result.ok && result.runId) {
+          return { ok: true, runId: result.runId }
+        }
+        // Synthetic fallback when cloud runs disabled or provider submit failed.
+        const runId = `run_auto_${randomUUID()}`
+        sessionLog.warn(
+          `[cloud_run.submit] real submit failed (${result.error ?? 'unknown'}); using synthetic runId=${runId}. ` +
+            `Enable settings.cloudRuns.enabled and configure provider for live runs. workspace=${workspaceRootPath}`,
+        )
+        const audit = new KnowledgeAuditLog(ctx.workspaceRootPath || workspaceRootPath)
+        await audit.append({
+          actor: 'automation',
+          action: 'knowledge.automation.cloud_run_submit',
+          target: `craft:run/${runId}`,
+          detail: JSON.stringify({
+            skillSlug: action.skillSlug,
+            topic,
+            labels: action.labels,
+            callbackTag,
+            intentOnly: true,
+            realSubmitError: result.error,
+          }),
+        })
+        return { ok: true, runId }
       },
     })
     return {
@@ -1929,10 +1989,59 @@ export class SessionManager implements ISessionManager {
           payload: ctx.payload,
           matcherId: ctx.matcherId,
           automationName: ctx.automationName,
-          workspaceId: ctx.workspaceId,
-          workspaceRootPath: ctx.workspaceRootPath,
+          workspaceId: ctx.workspaceId || workspaceId,
+          workspaceRootPath: ctx.workspaceRootPath || workspaceRootPath,
           env: ctx.env,
         }),
+    }
+  }
+
+  /**
+   * Start KnowledgeChangeWatcher for each knowledge connection that belongs
+   * to this workspace (credentialRef embeds workspaceId). Process-level
+   * (no clientId) so daemon headless still gets AttributeChanged events.
+   */
+  private async autoStartKnowledgeWatches(workspaceRootPath: string, workspaceId: string): Promise<void> {
+    const store = new KnowledgeConnectionsStore()
+    const connections = store.list()
+    if (connections.length === 0) return
+
+    const emit = this.emitWorkspaceEvent.bind(this)
+
+    for (const record of connections) {
+      const cred = credentialIdFromRef(record.credentialRef)
+      // Prefer workspace-scoped connections; if credential is unscoped and only
+      // one workspace is active, still start (single-workspace installs).
+      if (cred?.workspaceId && cred.workspaceId !== workspaceId) continue
+
+      try {
+        startKnowledgeWatch({
+          connectionId: record.id,
+          workspaceId,
+          workspaceRoot: workspaceRootPath,
+          intervalMs: 60_000,
+          getProvider: async () => {
+            const resolver = getKnowledgeProviderResolver(workspaceRootPath)
+            if (resolver) return resolver(record.id)
+            // Lazy: without a registered resolver, skip this tick by throwing (fail-soft).
+            throw new Error(
+              `knowledge watch: no provider resolver for workspace ${workspaceId} (open knowledge UI or call knowledge.watch once)`,
+            )
+          },
+          onEvent: async (event, payload) => {
+            await emit(workspaceId, event, {
+              ...payload,
+              connectionId: record.id,
+            })
+          },
+        })
+        sessionLog.info(`Auto-started knowledge watch for connection ${record.id} in ${workspaceId}`)
+      } catch (error) {
+        sessionLog.warn(
+          `autoStartKnowledgeWatches: skip ${record.id}:`,
+          error instanceof Error ? error.message : error,
+        )
+      }
     }
   }
 
@@ -9693,12 +9802,14 @@ export class SessionManager implements ISessionManager {
     for (const [workspacePath, automationSystem] of this.automationSystems) {
       try {
         automationSystem.dispose()
+        stopKnowledgeWatchesForWorkspace(workspacePath)
         sessionLog.info(`Disposed AutomationSystem for ${workspacePath}`)
       } catch (error) {
         sessionLog.error(`Failed to dispose AutomationSystem for ${workspacePath}:`, error)
       }
     }
     this.automationSystems.clear()
+    stopAllKnowledgeWatches()
 
     // Clear all pending delta flush timers
     for (const [sessionId, timer] of this.deltaFlushTimers) {

@@ -29,7 +29,7 @@ import { InMemoryKnowledgeProvider } from '@craft-agent/core/knowledge'
 import { KnowledgeConnectionsStore, KnowledgeMutationProposalsStore } from '../../../knowledge'
 import type { KnowledgeProposalFileRecord } from '../../../knowledge/bridge-service'
 import type { SaveConnectionInput } from '../../../knowledge'
-import { HANDLED_CHANNELS, registerKnowledgeHandlers, __setKnowledgeTestConstructors } from '../knowledge'
+import { HANDLED_CHANNELS, registerKnowledgeHandlers, __setKnowledgeTestConstructors, __setSkipKnowledgeWatchAutoStart } from '../knowledge'
 
 const credentials = new Map<string, { value: string }>()
 let workspaceRoot: string
@@ -193,6 +193,7 @@ const SAMPLE_MESSAGES = [
 ]
 
 beforeEach(() => {
+  __setSkipKnowledgeWatchAutoStart(true)
   workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-publish-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()

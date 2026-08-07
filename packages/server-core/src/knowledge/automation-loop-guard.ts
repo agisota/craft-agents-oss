@@ -4,6 +4,9 @@
  *
  * Both KnowledgeChangeWatcher (before emit) and KnowledgeActionExecutor
  * (after propose) consult this registry. TTL defaults to 120s.
+ *
+ * Keys: `${connectionId}|${refId}|${attrName|*}|${automationId}`
+ * Watcher suppress uses shouldSuppressRef (any automation wrote this ref/attr).
  */
 
 export interface LoopGuardWriteMeta {
@@ -25,9 +28,22 @@ export interface LoopGuardCheckMeta {
   now?: number
 }
 
+export interface LoopGuardRefCheckMeta {
+  connectionId: string
+  refId: string
+  attrName?: string
+  /** Epoch ms; defaults to Date.now(). */
+  now?: number
+}
+
 const DEFAULT_TTL_MS = 120_000
 
-function keyOf(meta: { connectionId: string; refId: string; attrName?: string; automationId: string }): string {
+function keyOf(meta: {
+  connectionId: string
+  refId: string
+  attrName?: string
+  automationId: string
+}): string {
   const attr = meta.attrName ?? '*'
   return `${meta.connectionId}|${meta.refId}|${attr}|${meta.automationId}`
 }
@@ -62,7 +78,7 @@ export class AutomationLoopGuard {
 
   /**
    * True when the same automation wrote this ref (and optional attr) within TTL.
-   * Watcher should skip emit; handler should skip re-execution.
+   * Handler/executor should skip re-execution for the same automationId.
    */
   shouldSuppress(meta: LoopGuardCheckMeta): boolean {
     const now = meta.now ?? this.nowFn()
@@ -82,6 +98,32 @@ export class AutomationLoopGuard {
       if (contentTs !== undefined && now - contentTs <= this.ttlMs) return true
     }
 
+    return false
+  }
+
+  /**
+   * True if ANY automation wrote this ref(/attr) within TTL.
+   * Watcher emit path uses this — payloads normally lack automationId.
+   */
+  shouldSuppressRef(meta: LoopGuardRefCheckMeta): boolean {
+    const now = meta.now ?? this.nowFn()
+    this.prune(now)
+
+    const prefix = `${meta.connectionId}|${meta.refId}|`
+    for (const [k, ts] of this.entries) {
+      if (!k.startsWith(prefix)) continue
+      if (now - ts > this.ttlMs) continue
+      // key = connectionId|refId|attr|automationId
+      const rest = k.slice(prefix.length)
+      const attrPart = rest.split('|')[0] ?? '*'
+      if (meta.attrName) {
+        // Match exact attr or content wildcard (*)
+        if (attrPart === meta.attrName || attrPart === '*') return true
+      } else {
+        // Any write to this ref suppresses content-level events
+        return true
+      }
+    }
     return false
   }
 

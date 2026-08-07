@@ -17,7 +17,7 @@ import { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './se
 import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
 export { cleanupNotesWatchForClient } from './notes'
-import { registerKnowledgeHandlers } from './knowledge'
+import { registerKnowledgeHandlers, cleanupKnowledgeWatchForClient } from './knowledge'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -40,6 +40,7 @@ import { registerSkillsPendingHandlers } from './skills-pending'
 export function cleanupCoreClientResources(clientId: string): void {
   cleanupSessionFileWatchForClient(clientId)
   cleanupNotesWatchForClient(clientId)
+  cleanupKnowledgeWatchForClient(clientId)
 }
 import { registerBrowserPaneHandlers } from './browser-pane'
 

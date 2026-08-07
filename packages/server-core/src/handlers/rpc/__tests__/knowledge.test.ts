@@ -141,7 +141,7 @@ mock.module('@craft-agent/shared/config', () => ({
     workspaceRoot ? [{ id: 'ws1', name: 'ws1', rootPath: workspaceRoot }] : [],
 }))
 
-import { registerKnowledgeHandlers, HANDLED_CHANNELS } from '../knowledge'
+import { registerKnowledgeHandlers, HANDLED_CHANNELS, __setSkipKnowledgeWatchAutoStart } from '../knowledge'
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -188,6 +188,7 @@ function seedConnection(id: string, overrides: Partial<SaveConnectionInput> = {}
 }
 
 beforeEach(() => {
+  __setSkipKnowledgeWatchAutoStart(true)
   workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-test-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()

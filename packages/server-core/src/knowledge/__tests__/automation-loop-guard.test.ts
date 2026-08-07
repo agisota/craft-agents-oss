@@ -101,4 +101,58 @@ describe('AutomationLoopGuard', () => {
     ).toBe(false)
     expect(guard.size()).toBe(0)
   })
+
+  it('shouldSuppressRef suppresses without automationId (watcher emit path)', () => {
+    const now = 20_000_000
+    const guard = new AutomationLoopGuard({ ttlMs: 120_000, now: () => now })
+
+    guard.noteWrite({
+      connectionId: 'c1',
+      refId: 'doc-1',
+      attrName: 'workflow_status',
+      automationId: 'auto-a',
+      ts: now,
+    })
+
+    // Watcher has no automationId on payload — still suppress
+    expect(
+      guard.shouldSuppressRef({
+        connectionId: 'c1',
+        refId: 'doc-1',
+        attrName: 'workflow_status',
+        now,
+      }),
+    ).toBe(true)
+
+    // Content-level (DocumentUpdated) also suppressed via wildcard content marker
+    expect(
+      guard.shouldSuppressRef({
+        connectionId: 'c1',
+        refId: 'doc-1',
+        now,
+      }),
+    ).toBe(true)
+
+    // Different attr not suppressed by exact attr note alone... content * marker
+    // is set, so any attr on this ref is suppressed when attrName provided and *
+    // matches — shouldSuppressRef treats * as match for any attrName.
+    expect(
+      guard.shouldSuppressRef({
+        connectionId: 'c1',
+        refId: 'doc-1',
+        attrName: 'other_attr',
+        now,
+      }),
+    ).toBe(true)
+
+    // Different ref not suppressed
+    expect(
+      guard.shouldSuppressRef({
+        connectionId: 'c1',
+        refId: 'doc-2',
+        attrName: 'workflow_status',
+        now,
+      }),
+    ).toBe(false)
+  })
 })

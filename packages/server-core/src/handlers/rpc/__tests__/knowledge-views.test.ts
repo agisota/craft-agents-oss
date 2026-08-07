@@ -32,6 +32,7 @@ import {
   HANDLED_CHANNELS,
   registerKnowledgeHandlers,
   __setKnowledgeTestConstructors,
+  __setSkipKnowledgeWatchAutoStart,
 } from '../knowledge'
 
 const credentials = new Map<string, { value: string }>()
@@ -223,6 +224,7 @@ function seedConnection(id: string, overrides: Partial<SaveConnectionInput> = {}
 }
 
 beforeEach(() => {
+  __setSkipKnowledgeWatchAutoStart(true)
   workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-views-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
