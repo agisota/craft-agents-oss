@@ -219,6 +219,13 @@ export const routes = {
     knowledge: () => 'knowledge' as const,
 
     /**
+     * Saved knowledge view (P5) — `knowledge/view/{viewId}`.
+     * KnowledgeHome reads the viewId and runs viewRun.
+     */
+    knowledgeView: (viewId: string) =>
+      `knowledge/view/${encodeURIComponent(viewId)}` as const,
+
+    /**
      * Knowledge surface (SiYuan ref) — `knowledge/{kind}/{id}`.
      * Serves both SurfaceTab kinds `knowledge` and `database` (kind:'database').
      */

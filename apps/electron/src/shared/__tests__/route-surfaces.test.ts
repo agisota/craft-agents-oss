@@ -88,15 +88,29 @@ describe('route-parser: unified shell surfaces', () => {
     const route = routes.view.siyuan({ kind: 'document', id: 'doc/with space' })
     expect(route).toBe('knowledge/document/doc%2Fwith%20space')
     const state = parseRouteToNavigationState(route)!
-    expect(state.navigator === 'knowledge' && state.details?.id).toBe('doc/with space')
+    expect(state.navigator === 'knowledge' && state.details?.type === 'knowledge' && state.details.id).toBe('doc/with space')
     expect(buildRouteFromNavigationState(state)).toBe(route)
   })
 
   it('builds exact route strings (compat pins for the new builders)', () => {
     expect(routes.view.siyuan({ kind: 'block', id: 'b-1' })).toBe('knowledge/block/b-1')
+    expect(routes.view.knowledgeView('research-needs-review')).toBe(
+      'knowledge/view/research-needs-review',
+    )
     expect(routes.view.cloudRun('r 1')).toBe('cloud-run/r%201')
     expect(routes.view.extension('e/1', 'v 2')).toBe('extension/e%2F1/v%202')
     expect(routes.view.proposal('p#3')).toBe('diff/p%233')
+  })
+
+  it('parses knowledge/view/{viewId} into knowledge-view details and round-trips', () => {
+    const route = routes.view.knowledgeView('research-needs-review')
+    const state = parseRouteToNavigationState(route)!
+    expect(state.navigator).toBe('knowledge')
+    expect(state.navigator === 'knowledge' && state.details).toEqual({
+      type: 'knowledge-view',
+      viewId: 'research-needs-review',
+    })
+    expect(buildRouteFromNavigationState(state)).toBe(route)
   })
 
   // ------------------------------------------------------------------

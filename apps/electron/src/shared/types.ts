@@ -125,6 +125,8 @@ import type {
   KnowledgeConnection,
   KnowledgeNode,
   KnowledgeRef,
+  KnowledgeWorkEnvelope,
+  SearchHit,
   SearchInput,
   SearchPage,
 } from '@craft-agent/core/knowledge';
@@ -136,9 +138,14 @@ export type {
   KnowledgeConnection,
   KnowledgeNode,
   KnowledgeRef,
+  KnowledgeWorkEnvelope,
+  SearchHit,
   SearchInput,
   SearchPage,
 };
+
+import type { ViewConfig as KnowledgeViewConfig } from '@craft-agent/shared/views';
+export type { KnowledgeViewConfig };
 
 // Toolchain manager types (first-run download manager, spec 2026-08-06)
 import type { ToolStatus as ToolchainToolStatus, ToolName as ToolchainToolName } from '@craft-agent/shared/toolchain/types';
@@ -638,6 +645,30 @@ export interface ElectronAPI {
       craftId?: string
       knowledgeId?: string
     }): Promise<KnowledgeLinkRecord[]>
+    // P5 saved knowledge views + work envelopes (K-09 §3.5 / S-08).
+    // ViewConfig shape matches packages/shared views (domain knowledgeFilter
+    // fields optional until shared types land; UI treats unknown fields loosely).
+    viewsList(args?: { connectionId?: string }): Promise<KnowledgeViewConfig[]>
+    viewRun(args: {
+      connectionId: string
+      viewId: string
+      workspaceId?: string
+    }): Promise<{ items: SearchHit[]; view: KnowledgeViewConfig }>
+    viewSetAttribute(args: {
+      connectionId: string
+      ref: KnowledgeRef
+      name: string
+      value: string
+    }): Promise<{ proposalId: string }>
+    envelopeGet(args: {
+      connectionId?: string
+      ref: KnowledgeRef
+    }): Promise<KnowledgeWorkEnvelope | null>
+    envelopeUpsert(args: {
+      connectionId?: string
+      envelope: KnowledgeWorkEnvelope
+    }): Promise<KnowledgeWorkEnvelope>
+    envelopeList(args?: { connectionId?: string }): Promise<KnowledgeWorkEnvelope[]>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
@@ -1341,16 +1372,14 @@ export interface ProjectsNavigationState {
 /**
  * Browser navigation state (embedded browser instance panel)
  */
-/**
- * Browser navigation state (embedded browser instance panel)
- */
 export interface BrowserNavigationState {
   navigator: 'browser'
   details: { type: 'browser'; id: string } | null
   rightSidebar?: RightSidebarPanel
 }
+
 /**
- * Memory navigation state (self-learning memory panel — no detail pages)
+ * Memory navigator state (self-learning panel)
  */
 export interface MemoryNavigationState {
   navigator: 'memory'
@@ -1368,10 +1397,14 @@ export type KnowledgeRefKind = 'notebook' | 'document' | 'block' | 'database' | 
 /**
  * Knowledge surface navigation state (W1 scaffolding; host UI lands in W2).
  * `details.kind === 'database'` is the database SurfaceTab kind — same navigator.
+ * P5: `type: 'knowledge-view'` carries a saved-view id for KnowledgeHome deep-links.
  */
 export interface KnowledgeNavigationState {
   navigator: 'knowledge'
-  details: { type: 'knowledge'; kind: KnowledgeRefKind; id: string } | null
+  details:
+    | { type: 'knowledge'; kind: KnowledgeRefKind; id: string }
+    | { type: 'knowledge-view'; viewId: string }
+    | null
   rightSidebar?: RightSidebarPanel
 }
 
@@ -1527,6 +1560,9 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     if (state.details?.type === 'knowledge') {
       return `knowledge/${state.details.kind}/${encodeURIComponent(state.details.id)}`
     }
+    if (state.details?.type === 'knowledge-view') {
+      return `knowledge/view/${encodeURIComponent(state.details.viewId)}`
+    }
     return 'knowledge'
   }
   if (state.navigator === 'cloud-run') {
@@ -1639,6 +1675,12 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     const rest = key.slice(10)
     const kind = rest.split('/')[0]
     const id = rest.slice(kind.length + 1)
+    if (kind === 'view' && id) {
+      return {
+        navigator: 'knowledge',
+        details: { type: 'knowledge-view', viewId: decodeURIComponent(id) },
+      }
+    }
     if ((['notebook', 'document', 'block', 'database', 'asset'] as const).includes(kind as KnowledgeRefKind) && id) {
       return {
         navigator: 'knowledge',

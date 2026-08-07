@@ -187,6 +187,15 @@ export const RPC_CHANNELS = {
     PUBLISH_FINALIZE: 'knowledge:publishFinalize',
     PUBLISH_LIST: 'knowledge:publishList',
     LIST_LINKS: 'knowledge:listLinks',
+    // P5 saved knowledge views + work envelopes (spec K-09 §3.5 / S-08).
+    // All six are REMOTE_ELIGIBLE (views.json + work-envelopes.jsonl live under
+    // the workspace root on the workspace-owning server).
+    ENVELOPE_GET: 'knowledge:envelopeGet',
+    ENVELOPE_UPSERT: 'knowledge:envelopeUpsert',
+    ENVELOPE_LIST: 'knowledge:envelopeList',
+    VIEWS_LIST: 'knowledge:viewsList',
+    VIEW_RUN: 'knowledge:viewRun',
+    VIEW_SET_ATTRIBUTE: 'knowledge:viewSetAttribute',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)

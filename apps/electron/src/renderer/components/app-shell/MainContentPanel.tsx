@@ -17,7 +17,7 @@
 
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useAtomValue } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { useTranslation } from 'react-i18next'
 import { Panel } from './Panel'
 import { MultiSelectPanel } from './MultiSelectPanel'
@@ -53,7 +53,11 @@ import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
 import { KnowledgeDiff } from '../../knowledge/KnowledgeDiff'
-import { KnowledgeHome } from '../../knowledge/KnowledgeHome'
+import {
+  KnowledgeHome,
+  knowledgeActiveViewIdAtom,
+  knowledgeHomeViewAtom,
+} from '../../knowledge/KnowledgeHome'
 import { KnowledgeProposals } from '../../knowledge/KnowledgeProposals'
 
 export interface MainContentPanelProps {
@@ -105,11 +109,21 @@ export function MainContentPanel({
   const { clearMultiSelect } = useSessionSelection()
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const automations = useAtomValue(automationsAtom)
+  const setKnowledgeHomeView = useSetAtom(knowledgeHomeViewAtom)
+  const setKnowledgeActiveViewId = useSetAtom(knowledgeActiveViewIdAtom)
+
+  // P5: deep-link knowledge/view/{viewId} → KnowledgeHome saved-view surface.
+  useEffect(() => {
+    if (!isKnowledgeNavigation(navState)) return
+    if (navState.details?.type === 'knowledge-view') {
+      setKnowledgeActiveViewId(navState.details.viewId)
+      setKnowledgeHomeView('view')
+    }
+  }, [navState, setKnowledgeActiveViewId, setKnowledgeHomeView])
 
   // Execution history for the selected automation
   const selectedAutomationId = isAutomationsNavigation(navState) ? navState.details?.automationId : undefined
   const [executions, setExecutions] = useState<ExecutionEntry[]>([])
-
   useEffect(() => {
     if (!selectedAutomationId || !getAutomationHistory) {
       setExecutions([])

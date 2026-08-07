@@ -70,7 +70,7 @@ describe('channel routing behavior', () => {
   })
 })
 
-describe('knowledge channel routing (P1 read-only + P3 write-back)', () => {
+describe('knowledge channel routing (P1+P3+P4+P5)', () => {
   const REMOTE_READ_CHANNELS = [
     RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
     RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -94,6 +94,16 @@ describe('knowledge channel routing (P1 read-only + P3 write-back)', () => {
     RPC_CHANNELS.knowledge.LIST_PROPOSALS,
   ]
 
+  // P5 saved views + work envelopes (K-09 / S-08).
+  const P5_VIEW_CHANNELS = [
+    RPC_CHANNELS.knowledge.ENVELOPE_GET,
+    RPC_CHANNELS.knowledge.ENVELOPE_UPSERT,
+    RPC_CHANNELS.knowledge.ENVELOPE_LIST,
+    RPC_CHANNELS.knowledge.VIEWS_LIST,
+    RPC_CHANNELS.knowledge.VIEW_RUN,
+    RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+  ]
+
   test('knowledge read channels and CHANGED broadcast are REMOTE_ELIGIBLE', () => {
     for (const ch of REMOTE_READ_CHANNELS) {
       expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
@@ -108,18 +118,28 @@ describe('knowledge channel routing (P1 read-only + P3 write-back)', () => {
     }
   })
 
+  test('knowledge P5 view/envelope channels are REMOTE_ELIGIBLE', () => {
+    for (const ch of P5_VIEW_CHANNELS) {
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+
   test('knowledge ENGINE_STATUS is LOCAL_ONLY', () => {
     expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(true)
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
   })
 
-  test('knowledge namespace is exactly the P1+P3+P4 set (no engine-lifecycle channels)', () => {
+  test('knowledge namespace is exactly the P1+P3+P4+P5 set (no engine-lifecycle channels)', () => {
     expect([...Object.keys(RPC_CHANNELS.knowledge)].sort()).toEqual([
       'APPLY_PROPOSAL',
       'APPROVE_PROPOSAL',
       'CAPABILITIES',
       'CHANGED',
       'ENGINE_STATUS',
+      'ENVELOPE_GET',
+      'ENVELOPE_LIST',
+      'ENVELOPE_UPSERT',
       'GET',
       'GET_BACKLINKS',
       'GET_CONTEXT',
@@ -140,6 +160,9 @@ describe('knowledge channel routing (P1 read-only + P3 write-back)', () => {
       'SEARCH',
       'SNAPSHOT_CREATE',
       'SNAPSHOT_GET',
+      'VIEWS_LIST',
+      'VIEW_RUN',
+      'VIEW_SET_ATTRIBUTE',
     ])
     // Guard: no engine-lifecycle channels — engineStart/engineStop are P7.
     for (const ch of Object.values(RPC_CHANNELS.knowledge)) {
