@@ -80,8 +80,9 @@ describe('main-process i18n bootstrap', () => {
       const { persisted, resolved } = JSON.parse(r.stdout)
       expect(persisted).toBeNull()
       // Without LanguageDetector and without a hydration call, main-process i18n
-      // sits at fallbackLng — which is what made title generation default to English.
-      expect(resolved).toBe('en')
+      // sits at fallbackLng[0]. Since "Russian as default UI language" (4d5bc8e2f),
+      // fallbackLng is ["ru", "en"], so an unpersisted main process resolves to "ru".
+      expect(resolved).toBe('ru')
     } finally {
       rmSync(configDir, { recursive: true, force: true })
     }
