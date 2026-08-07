@@ -13,3 +13,6 @@ export * from './types/index.ts';
 
 // Re-export utilities
 export * from './utils/index.ts';
+
+// Re-export the KnowledgeProvider contract (K-03); zero deps on shared/server-core
+export * from './knowledge/index.ts';

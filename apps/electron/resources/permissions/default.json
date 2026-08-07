@@ -1,5 +1,5 @@
 {
-  "version": "2026-03-07",
+  "version": "2026-08-07",
   "allowedBashPatterns": [
     {
       "pattern": "^ls\\b",
@@ -942,6 +942,12 @@
     {
       "pattern": "fetch",
       "comment": "Fetch/retrieve data"
+    }
+  ],
+  "allowedKnowledgePatterns": [
+    {
+      "pattern": "^knowledge:(listConnections|capabilities|search|get|getContext|getBacklinks|snapshotCreate|snapshotGet|engineStatus)$",
+      "comment": "Knowledge provider READ operations (P1 read-only per spec 03 — mutation ops proposeMutation/applyMutation/discardMutation do not exist in P1 and must never be allowlisted). Read in Explore mode without prompting."
     }
   ],
   "allowedApiEndpoints": [],

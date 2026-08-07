@@ -7,6 +7,7 @@
  */
 
 import {
+  BookOpen,
   Building2,
   Cloud,
   FileText,
@@ -40,6 +41,7 @@ export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={
 export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
 export const RuntimeIcon = ({ className }: IconProps) => <Settings className={className} />
 export const ContextIcon = ({ className }: IconProps) => <FileText className={className} />
+export const KnowledgeIcon = ({ className }: IconProps) => <BookOpen className={className} />
 export const MarketplaceIcon = ({ className }: IconProps) => <ShoppingBag className={className} />
 
 /**
@@ -49,6 +51,7 @@ export const MarketplaceIcon = ({ className }: IconProps) => <ShoppingBag classN
 export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconProps>> = {
   runtime: RuntimeIcon,
   context: ContextIcon,
+  knowledge: KnowledgeIcon,
   marketplace: MarketplaceIcon,
   app: AppSettingsIcon,
   ai: AiSettingsIcon,

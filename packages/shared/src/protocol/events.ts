@@ -17,6 +17,7 @@ import type {
   DeepLinkNavigation,
   TaskGenerateResult,
   NoteChangedPayload,
+  KnowledgeChangedPayload,
 } from './dto'
 
 /** Payload of marketplace:CHANGED — pushed after an install/update/remove completes. */
@@ -46,6 +47,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.projects.CHANGED]: [workspaceId: string, projects: LoadedProject[]]
   [RPC_CHANNELS.tasks.GENERATED]: [workspaceId: string, result: TaskGenerateResult]
   [RPC_CHANNELS.notes.CHANGED]: [payload: NoteChangedPayload]
+  [RPC_CHANNELS.knowledge.CHANGED]: [payload: KnowledgeChangedPayload]
   [RPC_CHANNELS.llmConnections.CHANGED]: []
   [RPC_CHANNELS.permissions.DEFAULTS_CHANGED]: [value: null]
 
