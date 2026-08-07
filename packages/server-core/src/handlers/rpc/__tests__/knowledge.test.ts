@@ -14,9 +14,10 @@
  */
 import '../memory-test-setup' // must run before any module reading CRAFT_CONFIG_DIR
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { rmSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
-import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
+import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { CredentialId } from '@craft-agent/shared/credentials'
 import type { HandlerFn, RequestContext, RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../../handler-deps'
@@ -30,7 +31,8 @@ import type {
   SearchInput,
   SearchPage,
 } from '@craft-agent/core/knowledge'
-import { KnowledgeConnectionsStore } from '../../../knowledge'
+import { KnowledgeConnectionsStore, KnowledgeMutationProposalsStore } from '../../../knowledge'
+import type { KnowledgeProposalFileRecord } from '../../../knowledge/bridge-service'
 import type { SaveConnectionInput } from '../../../knowledge'
 
 // ---------------------------------------------------------------------------
@@ -130,9 +132,12 @@ mock.module('@craft-agent/shared/credentials', () => ({
   }),
 }))
 
+let workspaceRoot: string
+
 mock.module('@craft-agent/shared/config', () => ({
   getWorkspaceByNameOrId: (id: string) =>
-    id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: '/tmp/knowledge-test-ws' } : null,
+    id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: workspaceRoot } : null,
+  getWorkspaces: () => [],
 }))
 
 import { registerKnowledgeHandlers, HANDLED_CHANNELS } from '../knowledge'
@@ -182,6 +187,7 @@ function seedConnection(id: string, overrides: Partial<SaveConnectionInput> = {}
 }
 
 beforeEach(() => {
+  workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-test-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
   fetchCalls.length = 0
@@ -282,5 +288,105 @@ describe('engineStatus', () => {
     const { invoke } = createHarness()
     const status = await invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS, { connectionId: 'conn-1' })
     expect(status).toEqual({ mode: 'external-local', running: false })
+  })
+})
+
+// TC-3: handler-invoke error-shape contracts for the P3 proposal channels.
+describe('proposals wire errors', () => {
+  it('getProposal with an unknown id rejects with CodedError NOT_FOUND (no workspaces scanned)', async () => {
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.GET_PROPOSAL, { proposalId: 'p_missing' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('listProposals returns [] when no workspaces are registered', async () => {
+    const { invoke } = createHarness()
+    const proposals = await invoke(RPC_CHANNELS.knowledge.LIST_PROPOSALS, {})
+    expect(proposals).toEqual([])
+  })
+
+  it('proposeMutation with ops: [] rejects as typed INVALID_REF, never a generic 500', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    // Default permission mode is 'ask' (mode-manager), so the gate passes and
+    // the empty-ops admission guard (validateOpsWhitelist 'empty-ops') is what fires.
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-1',
+        input: { targetRef: DOC_REF, ops: [] },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+  })
+
+  it('proposeMutation with a missing targetRef rejects as typed INVALID_REF before touching the bridge', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-1',
+        input: { ops: [{ op: 'updateBlock', blockId: 'b-1', markdown: 'x' }] },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('proposeMutation without input rejects as typed INVALID_REF', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, { connectionId: 'conn-1' }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+  })
+
+  it('proposeMutation with an unknown connectionId still rejects NOT_FOUND (unchanged precedence)', async () => {
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-missing',
+        input: { targetRef: DOC_REF, ops: [{ op: 'updateBlock', blockId: 'b-1', markdown: 'x' }] },
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+describe('applyProposal guard mapping (§3.2 wire contract, P2-14)', () => {
+  it('pre-sweep demotes approval-expired proposals (recorded) and answers apply with a typed HASH_CONFLICT + re-approval hint', async () => {
+    const { invoke } = createHarness()
+    const approvedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    const expiredSeed: KnowledgeProposalFileRecord = {
+      id: 'p_expired',
+      connectionId: 'conn-1',
+      targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' },
+      ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'patched' }],
+      selectionProofs: [],
+      baseHash: 'deadbeef',
+      baseReadAt: approvedAt,
+      preState: 'original',
+      hashAlgorithm: 'sha256-canonical-v1',
+      status: 'approved',
+      statusHistory: [{ from: 'pending_review', to: 'approved', at: approvedAt, actor: 'user' }],
+      createdAt: approvedAt,
+      updatedAt: approvedAt,
+      actor: 'user',
+      approvedBy: 'user',
+      approvedAt,
+    }
+    new KnowledgeMutationProposalsStore(workspaceRoot).save(expiredSeed)
+
+    const error: unknown = await invoke(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, {
+      proposalId: 'p_expired',
+      workspaceId: 'ws1',
+    }).then(() => null, (caught: unknown) => caught)
+
+    // Typed wire error — never a raw engine ProposalTransitionError stack.
+    expect(error).toBeInstanceOf(CodedError)
+    expect(error).toMatchObject({ code: 'HASH_CONFLICT' })
+    expect((error as Error).message).toContain("beginApply")
+    expect((error as Error).message).toContain('approve it again')
+    // And the pre-sweep demotion was RECORDED (the informative UX state), not silently errored.
+    const record = new KnowledgeMutationProposalsStore(workspaceRoot).get('p_expired')
+    expect(record?.status).toBe('pending_review')
+    expect(record?.approvedAt).toBeUndefined()
   })
 })

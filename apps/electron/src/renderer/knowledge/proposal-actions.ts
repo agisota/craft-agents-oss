@@ -134,6 +134,9 @@ export async function rebaseProposalAction(
         ops: proposal.ops,
         selectionProofs: proposal.selectionProofs.length > 0 ? proposal.selectionProofs : undefined,
         sessionId: proposal.sessionId,
+        // Links this fresh cycle to the conflict it replaces: the bridge
+        // supersedes the old record (audited) before the new T1 READ (P1-6).
+        rebaseOfProposalId: proposal.id,
       },
     }),
   )

@@ -3,7 +3,8 @@
  *
  * - ./client.ts: typed SiYuan kernel REST client (verified against kernel router.go, own header).
  * - ./deep-links.ts: siyuan:// deep-link policy + canonical open() error (K-03 §3.5.3).
- * - ./adapter.ts: read-only KnowledgeProvider implementation over the client (P1).
+ * - ./adapter.ts: KnowledgeProvider over the client — P1 read surface + P3 write-back
+ *   (proposeMutation/applyMutation driving the kernel via ./mutation-adapter.ts).
  * - ./mutation-adapter.ts: sequential MutationOp executor + soft partial-apply compensation (P3).
  */
 

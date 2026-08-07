@@ -741,6 +741,13 @@ export interface MutationInput {
   selectionProofs?: SelectionProof[]
   sessionId?: string
   summary?: string
+  /**
+   * T9 rebase (spec 05 §3.2/§3.5 «Перечитать и пересобрать»): id of the conflict-ed
+   * proposal this fresh cycle supersedes. The bridge transitions it to `superseded`
+   * (statusHistory + audit, engine 'rebase' branch) BEFORE the new T1 READ — never a
+   * silent baseHash overwrite of the old record.
+   */
+  rebaseOfProposalId?: string
 }
 
 /** RE-READ hash mismatch details (spec 05 §3.2 T7; also partial-apply rollback per §3.2 invariants). */
@@ -768,8 +775,18 @@ export interface ApplyResult {
   conflictInfo?: ConflictInfo
   /** Ref of the created document — createDocument ops only. */
   createdRef?: KnowledgeRef
-  /** Correlator of the audit.jsonl entry (spec 05 §3.8). */
+  /**
+   * Correlator of the audit.jsonl entry (spec 05 §3.8). Currently left undefined by
+   * the server: KnowledgeAuditLog.append returns void (no entry id is minted), so there
+   * is nothing to correlate yet — the field rides the DTO for the day append() returns one.
+   */
   auditId?: string
+  /** ISO-8601 of the T10 completion — rollback pass only (distinct from appliedAt). */
+  rolledBackAt?: string
+  /** Machine-readable cause on non-clean outcomes: 'hash-mismatch' | 'partial-apply-rolled-back' | 'apply-failed' | 'rollback-failed' | 'approval-expired' | 'apply-stalled' | 'rollback-hash-mismatch'. */
+  reason?: string
+  /** Hash of the RE-READ target at conflict time (drives the conflict card's freshness line). */
+  currentHash?: string
 }
 
 /**

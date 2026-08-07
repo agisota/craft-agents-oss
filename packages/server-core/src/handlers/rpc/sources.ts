@@ -8,7 +8,7 @@ import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { getDefaultWorkspacesDir, loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
-import { KnowledgeConnectionsStore } from '../../knowledge'
+import { KnowledgeConnectionsStore, credentialIdFromRef } from '../../knowledge'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sources.GET,
@@ -151,9 +151,15 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
       // source_bearer::{workspaceId}::{connectionId} (spec 04 §3.3.1). Only
       // accept the fallback when a knowledge connection with this id exists,
       // so mistyped source slugs still fail loudly.
-      if (new KnowledgeConnectionsStore().get(sourceSlug)) {
+      const record = new KnowledgeConnectionsStore().get(sourceSlug)
+      if (record) {
+        // The read side resolves the record's credentialRef verbatim — the
+        // workspace segment of THAT key, not the active workspace from this
+        // call. On multi-workspace installs the two differ and a key written
+        // under the active workspace can never be read back (P2-12).
+        const id = credentialIdFromRef(record.credentialRef)
         await getCredentialManager().set(
-          { type: 'source_bearer', workspaceId, sourceId: sourceSlug },
+          { type: 'source_bearer', workspaceId: id?.workspaceId ?? workspaceId, sourceId: sourceSlug },
           { value: credential },
         )
         log.info(`Saved bearer credential for knowledge connection: ${sourceSlug}`)

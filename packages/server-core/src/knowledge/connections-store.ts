@@ -22,6 +22,22 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { join } from 'path'
 import { randomUUID } from 'node:crypto'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
+import type { CredentialId } from '@craft-agent/shared/credentials'
+
+/**
+ * Token key parser — the record's credentialRef IS a CredentialManager id
+ * string `source_bearer::{workspaceId}::{connectionId}` (file header above).
+ * The writer (sources:saveCredentials knowledge fallback) and the readers
+ * (readToken / requireConnectionWorkspaceRoot in handlers/rpc/knowledge.ts)
+ * MUST share this single parse: hand-rolling a second copy let tokens be
+ * saved under the active-workspace key while reads resolved the record's
+ * workspace, which is unrecoverable on multi-workspace installs.
+ */
+export function credentialIdFromRef(credentialRef: string): CredentialId | null {
+  const parts = credentialRef.split('::')
+  if (parts.length !== 3 || parts[0] !== 'source_bearer' || !parts[1] || !parts[2]) return null
+  return { type: 'source_bearer', workspaceId: parts[1], sourceId: parts[2] }
+}
 
 /** Cache of the last probe result for a connection (K-04 §3.3.1). */
 export type KnowledgeConnectionStatus = 'unknown' | 'ok' | 'needs_auth' | 'failed'

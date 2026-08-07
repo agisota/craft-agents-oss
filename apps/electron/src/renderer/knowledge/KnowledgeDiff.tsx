@@ -18,7 +18,7 @@ import { useAtomValue } from 'jotai'
 import { Check, ExternalLink, RotateCcw, Undo2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MutationOp, MutationProposal } from '@craft-agent/shared/protocol'
+import type { MutationOp, MutationProposal, MutationProposalStatus } from '@craft-agent/shared/protocol'
 import { windowWorkspaceIdAtom } from '@/atoms/sessions'
 import { Button } from '@/components/ui/button'
 import { useNavigation } from '@/contexts/NavigationContext'
@@ -37,6 +37,42 @@ import {
 
 /** TTL of an approved proposal server-side (spec 05 §3.7) — UI hint only. */
 const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000
+
+/** Action ids the KnowledgeDiff footer can render. */
+export type KnowledgeDiffActionId =
+  | 'approve'
+  | 'reject'
+  | 'apply'
+  | 'rebase'
+  | 'discard'
+  | 'openInSiyuan'
+  | 'rollback'
+
+/**
+ * The footer action set per proposal status (spec 05 §3.5). The conflict face
+ * offers EXACTLY rebase / discard / openInSiyuan — there is deliberately NO
+ * silent-overwrite action (§3.4.2, acceptance #10), and apply exists only on
+ * the approved face. The footer below renders by mapping over this list, so
+ * the returned ids are the rendered contract that knowledge-diff.test.ts
+ * pins (TC-1).
+ */
+export function conflictActionsFor(status: MutationProposalStatus): KnowledgeDiffActionId[] {
+  switch (status) {
+    case 'draft':
+    case 'pending_review':
+      return ['approve', 'reject']
+    case 'approved':
+      return ['apply']
+    case 'conflict':
+      return ['rebase', 'discard', 'openInSiyuan']
+    case 'applied':
+      return ['rollback']
+    default:
+      // applying / superseded / rolled_back — in-flight or terminal faces
+      // carry status, not actions.
+      return []
+  }
+}
 
 export function KnowledgeDiff({ proposalId }: { proposalId: string }) {
   const { t } = useTranslation()
@@ -118,6 +154,132 @@ export function KnowledgeDiff({ proposalId }: { proposalId: string }) {
     <OpsList ops={proposal.ops} />
   )
 
+  /** Renders one footer action id from conflictActionsFor — the ONLY rendering path. */
+  const renderAction = (action: KnowledgeDiffActionId) => {
+    switch (action) {
+      case 'approve':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              act(async (api, tt) => (await approveProposalAction(api, tt, proposalId)) !== null)
+            }
+          >
+            <Check className="size-3.5" aria-hidden />
+            {t('knowledge.diff.approve')}
+          </Button>
+        )
+      case 'reject':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              act(async (api, tt) => {
+                const ok = await rejectProposalAction(api, tt, proposalId)
+                if (ok) navigate(routes.view.knowledge())
+                return ok
+              })
+            }
+          >
+            <X className="size-3.5" aria-hidden />
+            {t('knowledge.diff.reject')}
+          </Button>
+        )
+      case 'apply':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              act(
+                async (api, tt) =>
+                  (await applyProposalAction(api, tt, proposalId, workspaceId ?? undefined)) !==
+                  null,
+              )
+            }
+          >
+            <Check className="size-3.5" aria-hidden />
+            {t('knowledge.diff.apply')}
+          </Button>
+        )
+      case 'rebase':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              act(async (api, tt) => {
+                const created = await rebaseProposalAction(api, tt, proposal)
+                if (created) navigate(routes.view.proposal(created.id))
+                return created !== null
+              })
+            }
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+            {t('knowledge.diff.rebase')}
+          </Button>
+        )
+      case 'discard':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              act(async (api, tt) => {
+                const ok = await rejectProposalAction(api, tt, proposalId)
+                if (ok) navigate(routes.view.knowledge())
+                return ok
+              })
+            }
+          >
+            <X className="size-3.5" aria-hidden />
+            {t('knowledge.diff.discard')}
+          </Button>
+        )
+      case 'openInSiyuan':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              navigate(
+                routes.view.siyuan({ kind: proposal.targetRef.kind, id: proposal.targetRef.id }),
+              )
+            }
+          >
+            <ExternalLink className="size-3.5" aria-hidden />
+            {t('knowledge.diff.openInSiyuan')}
+          </Button>
+        )
+      case 'rollback':
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              act(async (api, tt) => (await rollbackProposalAction(api, tt, proposalId)) !== null)
+            }
+          >
+            <Undo2 className="size-3.5" aria-hidden />
+            {t('knowledge.diff.rollback')}
+          </Button>
+        )
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-border px-4 py-2.5">
@@ -183,110 +345,8 @@ export function KnowledgeDiff({ proposalId }: { proposalId: string }) {
       )}
 
       <footer className="flex items-center gap-2 border-t border-border px-4 py-2.5">
-        {(proposal.status === 'draft' || proposal.status === 'pending_review') && (
-          <>
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                act(async (api, tt) => (await approveProposalAction(api, tt, proposalId)) !== null)
-              }
-            >
-              <Check className="size-3.5" aria-hidden />
-              {t('knowledge.diff.approve')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                act(async (api, tt) => {
-                  const ok = await rejectProposalAction(api, tt, proposalId)
-                  if (ok) navigate(routes.view.knowledge())
-                  return ok
-                })
-              }
-            >
-              <X className="size-3.5" aria-hidden />
-              {t('knowledge.diff.reject')}
-            </Button>
-          </>
-        )}
-        {proposal.status === 'approved' && (
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              act(
-                async (api, tt) =>
-                  (await applyProposalAction(api, tt, proposalId, workspaceId ?? undefined)) !==
-                  null,
-              )
-            }
-          >
-            <Check className="size-3.5" aria-hidden />
-            {t('knowledge.diff.apply')}
-          </Button>
-        )}
-        {proposal.status === 'conflict' && (
-          <>
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                act(async (api, tt) => {
-                  const created = await rebaseProposalAction(api, tt, proposal)
-                  if (created) navigate(routes.view.proposal(created.id))
-                  return created !== null
-                })
-              }
-            >
-              <RotateCcw className="size-3.5" aria-hidden />
-              {t('knowledge.diff.rebase')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                act(async (api, tt) => {
-                  const ok = await rejectProposalAction(api, tt, proposalId)
-                  if (ok) navigate(routes.view.knowledge())
-                  return ok
-                })
-              }
-            >
-              <X className="size-3.5" aria-hidden />
-              {t('knowledge.diff.discard')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                navigate(
-                  routes.view.siyuan({ kind: proposal.targetRef.kind, id: proposal.targetRef.id }),
-                )
-              }
-            >
-              <ExternalLink className="size-3.5" aria-hidden />
-              {t('knowledge.diff.openInSiyuan')}
-            </Button>
-          </>
-        )}
-        {proposal.status === 'applied' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              act(async (api, tt) => (await rollbackProposalAction(api, tt, proposalId)) !== null)
-            }
-          >
-            <Undo2 className="size-3.5" aria-hidden />
-            {t('knowledge.diff.rollback')}
-          </Button>
-        )}
+        {/* The selector owns the action set per status (TC-1 invariant). */}
+        {conflictActionsFor(proposal.status).map(renderAction)}
       </footer>
     </div>
   )

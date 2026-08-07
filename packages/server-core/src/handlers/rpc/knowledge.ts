@@ -47,13 +47,14 @@ import type {
 } from '@craft-agent/shared/protocol'
 import { getWorkspaceByNameOrId, getWorkspaces } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
-import type { CredentialId } from '@craft-agent/shared/credentials'
 import assertKnowledgeActionAllowed from '@craft-agent/shared/agent/knowledge-permissions'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
   createKnowledgeRegistry,
   KnowledgeError,
+  MutationValidationError,
+  ProposalTransitionError,
 } from '@craft-agent/core/knowledge'
 import type {
   ContextMode,
@@ -73,6 +74,7 @@ import {
   KnowledgeConnectionsStore,
   KnowledgeContextSnapshotsStore,
   KnowledgeMutationProposalsStore,
+  credentialIdFromRef,
 } from '../../knowledge'
 import {
   KnowledgeBridgeService,
@@ -198,13 +200,7 @@ function toContextSnapshot(record: KnowledgeContextSnapshotRecord): ContextSnaps
   }
 }
 
-/** Token key lives in the record's credentialRef: source_bearer::{workspaceId}::{connectionId}. */
-function credentialIdFromRef(credentialRef: string): CredentialId | null {
-  const parts = credentialRef.split('::')
-  if (parts.length !== 3 || parts[0] !== 'source_bearer' || !parts[1] || !parts[2]) return null
-  return { type: 'source_bearer', workspaceId: parts[1], sourceId: parts[2] }
-}
-
+/** Token key lives in the record's credentialRef — parsed once by credentialIdFromRef (knowledge/connections-store). */
 function assertContextMode(mode: unknown): asserts mode is ContextMode {
   if (mode !== 'snapshot' && mode !== 'live-reference') {
     throw new Error(`knowledge: invalid context mode '${String(mode)}' (expected 'snapshot' | 'live-reference')`)
@@ -351,6 +347,31 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     return proposalId
   }
 
+  /**
+   * Engine guard rejections (§3.2 closed table) cross the wire as TYPED errors, never raw
+   * engine throws. The common user-facing case: the handler-side pre-sweep demoted an
+   * approval-expired proposal to pending_review, so the apply click hits beginApply from
+   * pending_review — the correct answer is "approve it again" (informative), not a bare stack.
+   */
+  async function withProposalTransitions<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run()
+    } catch (error) {
+      if (error instanceof ProposalTransitionError) {
+        const expiryHint =
+          error.from === 'pending_review' && error.action === 'beginApply'
+            ? ' The proposal is awaiting (re-)approval — an approval TTL (24 h, spec 05 §3.7) sweep may have demoted it; approve it again before applying.'
+            : ''
+        throw new CodedError(
+          'HASH_CONFLICT',
+          `knowledge: proposal transition '${error.action}' is not allowed from status '${error.from}'` +
+            (error.reason ? ` (${error.reason})` : '') + '.' + expiryHint,
+        )
+      }
+      throw error
+    }
+  }
+
   // ——— LIST_CONNECTIONS({}) → KnowledgeConnection[] ———
   server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () =>
     new KnowledgeConnectionsStore().list().map(toContractConnection),
@@ -448,27 +469,39 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   // -------------------------------------------------------------------------
 
   // ——— PROPOSE_MUTATION({connectionId, input}) → MutationProposal ———
-  server.handle(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, (_ctx, args: KnowledgeProposeMutationArgs): Promise<MutationProposal> => {
+  server.handle(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, async (_ctx, args: KnowledgeProposeMutationArgs): Promise<MutationProposal> => {
     const record = requireConnection(args.connectionId)
-    if (!args?.input || typeof args.input !== 'object') {
-      throw new Error('knowledge.proposeMutation: input is required')
+    const input = args?.input
+    if (!input || typeof input !== 'object') {
+      throw new CodedError('INVALID_REF', 'knowledge.proposeMutation: input with targetRef and ops is required')
     }
+    assertKnowledgeRef(input.targetRef)
     const { rootPath, workspaceId } = requireConnectionWorkspaceRoot(record)
-    return bridgeFor(rootPath, workspaceId).propose({ connectionId: args.connectionId, input: args.input })
+    try {
+      return await bridgeFor(rootPath, workspaceId).propose({ connectionId: args.connectionId, input })
+    } catch (error) {
+      // T1 admission guards reject as MutationValidationError (a plain Error
+      // subclass); without this map the transport collapses them into a
+      // generic HANDLER_ERROR and the client cannot tell bad input from a crash.
+      if (error instanceof MutationValidationError) {
+        throw new CodedError('INVALID_REF', `knowledge.proposeMutation: ${error.reason}: ${error.message}`)
+      }
+      throw toTransportError(error)
+    }
   })
 
   // ——— APPROVE_PROPOSAL({proposalId}) → MutationProposal ———
   server.handle(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<MutationProposal> => {
     const proposalId = requireProposalId(args)
     const { bridge } = await locateProposalBridge(proposalId)
-    return bridge.approve(proposalId)
+    return withProposalTransitions(() => bridge.approve(proposalId))
   })
 
   // ——— REJECT_PROPOSAL({proposalId}) → { ok: true } ———
   server.handle(RPC_CHANNELS.knowledge.REJECT_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<{ ok: true }> => {
     const proposalId = requireProposalId(args)
     const { bridge } = await locateProposalBridge(proposalId)
-    return bridge.reject(proposalId)
+    return withProposalTransitions(() => bridge.reject(proposalId))
   })
 
   // ——— APPLY_PROPOSAL({proposalId, workspaceId?}) → ApplyResult ———
@@ -480,17 +513,17 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       if (!bridge.get(proposalId)) {
         throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
       }
-      return bridge.apply(proposalId)
+      return withProposalTransitions(() => bridge.apply(proposalId))
     }
     const { bridge } = await locateProposalBridge(proposalId)
-    return bridge.apply(proposalId)
+    return withProposalTransitions(() => bridge.apply(proposalId))
   })
 
   // ——— ROLLBACK_PROPOSAL({proposalId}) → ApplyResult ———
   server.handle(RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<ApplyResult> => {
     const proposalId = requireProposalId(args)
     const { bridge } = await locateProposalBridge(proposalId)
-    return bridge.rollback(proposalId)
+    return withProposalTransitions(() => bridge.rollback(proposalId))
   })
 
   // ——— GET_PROPOSAL({proposalId}) → MutationProposal ———

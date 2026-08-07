@@ -153,6 +153,21 @@ describe('executeMutationOps — happy path per op (endpoint + payload parity wi
     ]);
     expect(result.appliedOps).toEqual(ops);
     expect(result.createdIds).toEqual({ documentIds: ['doc-created-1'], blockIds: ['blk-new-1'] });
+    // §3.8 per-index capture map: $insertedBlockId[N] placeholders key on the ORIGINAL op index.
+    expect(result.createdIdsByOpIndex).toEqual({ 0: 'doc-created-1', 1: 'blk-new-1' });
+  });
+
+  test('createdIdsByOpIndex keys TWO creation ops to their own indices (not one shared id)', async () => {
+    const { client } = makeClient({
+      '/api/filetree/createDocWithMd': (() => {
+        let n = 0;
+        return () => ({ data: `doc-created-${++n}` });
+      })(),
+      '/api/block/appendBlock': () => ({ data: APPEND_TX }),
+    });
+    const result = await executeMutationOps(client, [CREATE_OP, APPEND_OP, { ...CREATE_OP, path: '/Inbox/Second', title: 'Second' }]);
+    expect(result.createdIds.documentIds).toEqual(['doc-created-1', 'doc-created-2']);
+    expect(result.createdIdsByOpIndex).toEqual({ 0: 'doc-created-1', 1: 'blk-new-1', 2: 'doc-created-2' });
   });
 });
 

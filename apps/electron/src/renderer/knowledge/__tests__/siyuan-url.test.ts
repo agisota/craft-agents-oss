@@ -41,8 +41,12 @@ describe('buildSiyuanSurfaceUrl', () => {
 })
 
 describe('DEFAULT_BASE_URL', () => {
-  it('is the local SiYuan kernel endpoint', () => {
-    expect(DEFAULT_BASE_URL).toBe('http://localhost:6806')
+  it('resolves to the local SiYuan kernel desktop surface through the URL builder', () => {
+    // Behavior assertion: the default base must compose into the local kernel
+    // endpoint — not a tautological check of the constant against itself.
+    expect(buildSiyuanSurfaceUrl(DEFAULT_BASE_URL)).toBe(
+      'http://localhost:6806/stage/build/desktop/',
+    )
   })
 })
 

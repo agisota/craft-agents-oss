@@ -35,6 +35,14 @@ export const HANDLED_CHANNELS = [
 /** Registry record: wire state plus the last bounds reported by the renderer. */
 interface SiyuanSurfaceRecord extends SiyuanSurfaceState {
   rect: EmbeddedBoundsRect | null
+  /**
+   * Holder refcount (P1-8): every createEmbedded call — including a dedup
+   * re-open onto an existing surface — takes one owner slot; DESTROY releases
+   * one slot. The native BrowserView is torn down only when the LAST owner
+   * releases, so concurrent holders (two panels, two windows, panel + compat
+   * view) never lose their surface to a sibling's destroy.
+   */
+  owners: number
 }
 
 /**
@@ -48,6 +56,13 @@ export class SiyuanSurfaceManager {
 
   get(durableKey: string): SiyuanSurfaceRecord | undefined {
     return this.byDurableKey.get(durableKey)
+  }
+
+  getByInstanceId(instanceId: string): SiyuanSurfaceRecord | undefined {
+    for (const record of this.byDurableKey.values()) {
+      if (record.instanceId === instanceId) return record
+    }
+    return undefined
   }
 
   register(record: SiyuanSurfaceRecord): void {
@@ -130,6 +145,13 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
       // compositing a second BrowserView for the same durable key. Re-broadcast
       // the state so renderers that missed the original push (e.g. a second
       // window) still receive the full surface record.
+      existing.owners += 1
+      // P2-11: refresh the workspace binding on re-open. A controller may
+      // reopen the same document from a different workspace context; the
+      // latest opener's binding wins so workspace-scoped LIST stays accurate.
+      if (input.workspaceId !== undefined) {
+        existing.workspaceId = input.workspaceId ?? null
+      }
       browserPaneManager.focus(existing.instanceId)
       pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(existing))
       return existing.instanceId
@@ -145,6 +167,7 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
       url: input.url,
       workspaceId: input.workspaceId ?? null,
       rect: null,
+      owners: 1,
     }
     surfaces.register(record)
     pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(record))
@@ -152,10 +175,18 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
   })
 
   server.handle(RPC_CHANNELS.siyuan.DESTROY, (_ctx, input: SiyuanInstanceInput) => {
+    const record = surfaces.getByInstanceId(input.instanceId)
+    if (record && record.owners > 1) {
+      // Shared durable surface: release only this owner's slot. The native
+      // instance and the REMOVED broadcast wait for the LAST owner, so the
+      // remaining holders' surfaces are untouched.
+      record.owners -= 1
+      return
+    }
     browserPaneManager.destroyInstance(input.instanceId)
-    const record = surfaces.remove(input.instanceId)
-    if (record) {
-      pushTyped(server, RPC_CHANNELS.siyuan.REMOVED, { to: 'all' }, record.instanceId)
+    const removed = surfaces.remove(input.instanceId)
+    if (removed) {
+      pushTyped(server, RPC_CHANNELS.siyuan.REMOVED, { to: 'all' }, removed.instanceId)
     }
   })
 

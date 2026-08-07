@@ -38,6 +38,11 @@ export interface MutationExecutionResult {
    * appendBlock → transaction doOperations[0].id). Anchors for §3.8 rollback + createdRef.
    */
   createdIds: { documentIds: string[]; blockIds: string[] };
+  /**
+   * Kernel-created id per ORIGINAL op index (createDocument/appendBlock only) — the capture map
+   * §3.8 per-index inverse binding keys on (`$insertedBlockId[N]` ⇔ ops[N]).
+   */
+  createdIdsByOpIndex: Record<number, string>;
 }
 
 export interface ExecuteMutationOpsOptions {
@@ -60,6 +65,7 @@ export async function executeMutationOps(
   options: ExecuteMutationOpsOptions = {},
 ): Promise<MutationExecutionResult> {
   const createdIds = { documentIds: [] as string[], blockIds: [] as string[] };
+  const createdIdsByOpIndex: Record<number, string> = {};
   const createdByIndex: Record<number, string> = {};
   const appliedOps: MutationOp[] = [];
 
@@ -69,6 +75,7 @@ export async function executeMutationOps(
       const createdId = await applyOne(client, op);
       if (createdId) {
         createdByIndex[index] = createdId;
+        createdIdsByOpIndex[index] = createdId;
         if (op.op === 'createDocument') createdIds.documentIds.push(createdId);
         else if (op.op === 'appendBlock') createdIds.blockIds.push(createdId);
       }
@@ -80,7 +87,7 @@ export async function executeMutationOps(
     }
   }
 
-  return { appliedOps, createdIds };
+  return { appliedOps, createdIds, createdIdsByOpIndex };
 }
 
 /** Execute one whitelisted op; resolves to the kernel-created id when the op creates a node. */

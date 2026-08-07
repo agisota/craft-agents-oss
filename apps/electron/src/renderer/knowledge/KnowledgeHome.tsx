@@ -167,13 +167,17 @@ export function KnowledgeHome() {
     [navigate],
   )
 
+  // Empty-state semantics: idle prompts the search, no-connections points at
+  // Settings, a finished search with zero hits says so. The previously
+  // borrowed keys lied (home.title is a title, surface.compatHint is the
+  // compat banner, search.placeholder is input copy) — P3-16.
   const emptyState =
     status === 'idle' ? (
-      <HomeHint text={t('knowledge.home.title')} />
-    ) : noConnections ? (
-      <HomeHint text={t('knowledge.surface.compatHint')} />
-    ) : (
       <HomeHint text={t('knowledge.search.placeholder')} />
+    ) : noConnections ? (
+      <HomeHint text={t('knowledge.home.noConnections')} />
+    ) : (
+      <HomeHint text={t('knowledge.home.noResults')} />
     )
 
   const proposalsEntry = (

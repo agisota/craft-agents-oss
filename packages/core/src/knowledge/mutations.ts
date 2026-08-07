@@ -18,6 +18,14 @@ import type { KnowledgeRef } from './refs.ts';
 
 export const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 суток без решения → авто-T4 (ttl-expired)
 export const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000; // approved 24h → apply отклонён (approval-expired)
+/**
+ * Stuck-apply TTL (audit P1-2/P1-6b): 'applying' — это один синхронный RE-READ+APPLY цикл; статус старше
+ * этого окна означает умерший/забытый producer (bridge упал до applyOpsSucceeded/Failure/T8). Sweep
+ * ОБЯЗАН эвакуировать такие proposals (см. isApplyStuck + expire) — blanket-исключение 'applying' из
+ * sweep запрещено: иначе proposal навсегда un-actionable и файл протекает (без этой константы T8-retry
+ * остаётся единственным выходом и живёт только пока жив producer).
+ */
+export const APPLY_STUCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 минут — на порядки больше любого apply+roundtrip
 export const SELECTION_PROOF_TTL_MS = 24 * 60 * 60 * 1000; // §3.4.1: proof свежесть ≤ 24 ч
 export const DEFAULT_MAX_BLOCK_BYTES = 256 * 1024; // §3.4.1 appendBlock cap (capability default 256 КБ)
 
@@ -114,6 +122,7 @@ export interface MutationProposal {
   baseReadAt: string; // ISO момента READ
   preState?: string; // каноническая сериализация до apply (источник inverse)
   preStateAttributes?: Record<string, Record<string, string>>; // blockId → (name → value) при READ; для setAttribute inverse
+  preStateChildren?: Record<string, string>; // child blockId → canonical markdown при READ (audit P1-4a: источник block-accurate inverse + containment set для guard §3.4.1)
   diff?: ProposalDiff; // строится на T2
   inverseOps?: MutationOp[]; // вычисляются при APPROVE (T3) из зафиксированного preState
   hashAlgorithm: 'sha256-canonical-v1';
@@ -149,6 +158,13 @@ export interface ApplyResult {
 export interface PreStateSnapshot {
   content: string; // канонический markdown цели
   attributes?: Record<string, Record<string, string>>; // blockId → (name → old value)
+  /**
+   * Child-chain capture (audit P1-4a): blockId → canonical markdown каждого захваченного потомка цели.
+   * Источник block-accurate inverse для updateBlock по CHILD-блоку (вместо whole-doc content) и
+   * containment set для assertOpsWithinTargetScope. Необязательно для обратной совместимости T1-захвата,
+   * но proposals с op против child-блока БЕЗ этого поля отклоняются T1-guard'ом ('unknown-containment').
+   */
+  children?: Record<string, string>;
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────────────────────
@@ -165,7 +181,9 @@ export type MutationRejectionReason =
   | 'selection-proof-expired'
   | 'selection-proof-ref-mismatch'
   | 'attribute-name-not-allowed'
-  | 'sql-not-select';
+  | 'sql-not-select'
+  | 'unknown-containment' // audit P1-4b: op по не-targetRef блоку, а child-chain capture отсутствует (fail closed)
+  | 'op-target-mismatch'; // audit P1-4b: op target вне scope proposal.targetRef (§3.1 ОДНА цель на proposal)
 
 /** Guard rejection at T1 / adapter guards; bridge пишет audit `knowledge.proposal.rejected` с этим reason. */
 export class MutationValidationError extends Error {
@@ -352,6 +370,55 @@ export function validateProposalOps(ops: MutationOp[], options: ValidateProposal
   }
 }
 
+// ── Op↔targetRef scope guard (audit P1-4b; §3.1 «ОДНА цель на proposal в v1») ───────────────
+
+/**
+ * Каждый op обязан адресовать scope proposal.targetRef. Allowed relations (fail closed):
+ * - updateBlock/setAttribute: blockId === targetRef.id (whole-target) ИЛИ blockId ∈ containment
+ *   (keys захваченного PreStateSnapshot.children — child chain цели). Containment отсутствует, а op
+ *   адресует не-targetRef блок → REJECT 'unknown-containment' — engine НЕ может доказать scope,
+ *   отказ есть единственное безопасное поведение (иначе inverse/restoration возможен по чужому блоку).
+ *   blockId ∉ известного containment → REJECT 'op-target-mismatch'.
+ * - appendBlock: documentId === targetRef.id. Engine не знает родительский документ блока (capture
+ *   несёт только child chain), поэтому append «мимо» цели всегда REJECT 'op-target-mismatch'.
+ * - createDocument: освобождён от guard — op сам определяет новую цель (документа ещё не существует;
+ *   notebook/path валидируются validateProposalOps), связывание targetRef↔notebook — задача bridge.
+ * Источник capture: createProposalDraft(params.preStateChildren) (READ-side child-chain, T1).
+ */
+export function assertOpsWithinTargetScope(ops: readonly MutationOp[], targetRef: KnowledgeRef, containment?: ReadonlySet<string>): void {
+  for (const op of ops) {
+    switch (op.op) {
+      case 'createDocument':
+        break; // новая цель определяется самим op — внешнего scope конфликта быть не может
+      case 'appendBlock':
+        if (op.documentId !== targetRef.id) {
+          throw new MutationValidationError(
+            'op-target-mismatch',
+            `appendBlock targets document "${op.documentId}" outside the proposal target "${targetRef.id}" (one targetRef per proposal)`,
+          );
+        }
+        break;
+      case 'updateBlock':
+      case 'setAttribute': {
+        if (op.blockId === targetRef.id) break; // whole-target op
+        if (containment === undefined) {
+          throw new MutationValidationError(
+            'unknown-containment',
+            `${op.op} targets child block "${op.blockId}" of "${targetRef.id}", but no child-chain capture (preStateChildren) was provided — scope is unprovable (fail closed)`,
+          );
+        }
+        if (!containment.has(op.blockId)) {
+          throw new MutationValidationError(
+            'op-target-mismatch',
+            `${op.op} targets block "${op.blockId}" outside the captured child chain of "${targetRef.id}" (one targetRef per proposal)`,
+          );
+        }
+        break;
+      }
+    }
+  }
+}
+
 // ── Textual diff (T2) ───────────────────────────────────────────────────────────────────────
 
 /** Dependency-free LCS line diff; remove-all/add-all fallback past MAX_DIFF_CELLS. */
@@ -444,6 +511,14 @@ export interface ComputeInverseOpsOptions {
  * appendBlock → tombstone updateBlock + setAttribute craft-rolled-back=true (delete запрещён, removeBlock не вызывается);
  * createDocument → setAttribute craft-rolled-back=true + tombstone-строка в документ (whitelist не содержит
  * rename-op — маркер «… (откачено)» переносится tombstone-строкой; физическое удаление запрещено).
+ *
+ * Block accuracy (audit P1-4a): inverse для updateBlock по CHILD-блоку несёт СОБСТВЕННЫЙ markdown этого
+ * блока из preState.children — НИКОГДА whole-target content (дофиксный путь затирал child содержимым
+ * всего документа: mutations.ts pre-fix «markdown: preState.content»). Whole-target fallback
+ * (preState.content) допустим ТОЛЬКО когда op.blockId === targetRef.id. LIMIT (документированный
+ * conflict-prone путь): child op без захваченного children[op.blockId] восстанавливает preState.content —
+ * точного восстановления нет, но drift НЕ проходит молча: T1-guard (assertOpsWithinTargetScope) делает
+ * такой proposal невозможным, а rollback RE-READ hash check ('rollback-hash-mismatch') ловит расхождение.
  */
 export function computeInverseOps(
   preState: PreStateSnapshot,
@@ -454,9 +529,16 @@ export function computeInverseOps(
   const inverse: MutationOp[] = [];
   ops.forEach((op, index) => {
     switch (op.op) {
-      case 'updateBlock':
-        inverse.push({ op: 'updateBlock', blockId: op.blockId, markdown: preState.content });
+      case 'updateBlock': {
+        // §3.8 + audit P1-4a: child op восстанавливает СОБСТВЕННЫЙ markdown блока из children-capture;
+        // preState.content (whole-target) — только когда capture для этого блока не существует. Инвариант
+        // «whole-target fallback ТОЛЬКО для op по самому targetRef» обеспечивается T1-guard
+        // (assertOpsWithinTargetScope): child op без capture отклоняется с 'unknown-containment', так что
+        // здесь uncaptured-child путь — документированный LIMIT для standalone-вызовов (rollback RE-READ
+        // hash check ловит drift), а не штатное состояние proposal.
+        inverse.push({ op: 'updateBlock', blockId: op.blockId, markdown: preState.children?.[op.blockId] ?? preState.content });
         break;
+      }
       case 'setAttribute': {
         const oldValue = preState.attributes?.[op.blockId]?.[op.name] ?? '';
         inverse.push({ op: 'setAttribute', blockId: op.blockId, name: op.name, value: oldValue });
@@ -505,18 +587,40 @@ export function isApprovalExpired(proposal: MutationProposal, now: number = Date
   return proposal.status === 'approved' && proposal.approvedAt !== undefined && now - Date.parse(proposal.approvedAt) > APPROVAL_TTL_MS;
 }
 
+/**
+ * Stuck-apply detection (T8 companion, audit P1-2/P1-6b): 'applying' — синхронный RE-READ+APPLY цикл;
+ * статус старше APPLY_STUCK_TIMEOUT_MS = producer умер до T6/T7/T8. Sweep ОБЯЗАН эвакуировать через
+ * expire → conflict('apply-stalled') — blanket-исключение 'applying' из sweep запрещено (иначе proposal
+ * навсегда un-actionable и файл протекает). T8 retry обновляет updatedAt ⇒ живой retry не 'stuck'.
+ */
+export function isApplyStuck(proposal: MutationProposal, now: number = Date.now()): boolean {
+  return proposal.status === 'applying' && now - Date.parse(proposal.updatedAt) > APPLY_STUCK_TIMEOUT_MS;
+}
+
+/**
+ * T8 retry-once применим ТОЛЬКО к transport-level network timeout (§3.2 producer contract, audit P1-6b).
+ * Producer (bridge/adapter) ОБЯЗАН эмитить applyTransientFailure лишь когда этот predicate true:
+ * Bun/undici fetch timeout → Error name='TimeoutError'; AbortSignal.timeout()/abort mid-flight → 'AbortError'.
+ * Всё остальное — НЕ transient и идёт своими ветками без retry: kernel error envelope / 4xx / 5xx →
+ * provider error (bridge решает), частичный сбой op → applyOpsPartialFailure, hash drift → resolveHashCheck,
+ * kernel busy (code 3, details.retryable) → provider-busy, не transport timeout.
+ */
+export function isTransientProviderFailure(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
 // ── State machine (§3.2, T1–T11) — pure: effects are plan objects, not executions ──────────
 
 export type ProposalAction =
   | { type: 'buildDiff'; diff?: ProposalDiff } // T2 (diff вычисляется из preState, если не передан)
   | { type: 'approve' } // T3 (v1: approvedBy всегда 'user')
   | { type: 'reject'; reason?: string } // T4 (draft|pending_review → ∅; «Отменить» на conflict-карточке §3.5)
-  | { type: 'expire' } // lazy TTL sweep (§3.7): draft|pending_review старше DRAFT_TTL_MS → T4
+  | { type: 'expire' } // lazy TTL sweep (§3.7): draft|pending_review старше DRAFT_TTL_MS → T4; applying старше APPLY_STUCK_TIMEOUT_MS → conflict 'apply-stalled' (P1-6b)
   | { type: 'beginApply' } // T5 (guard: approval TTL)
   | { type: 'resolveHashCheck'; actualHash: string; currentContent: string } // HASH CHECK: match → execute-ops plan; mismatch → T7
   | { type: 'applyOpsSucceeded'; postHash: string } // T6
   | { type: 'applyOpsPartialFailure'; failedOpIndex: number; message?: string; actualHash?: string } // invariant → compensation + conflict
-  | { type: 'applyTransientFailure'; message?: string } // T8 retry-once
+  | { type: 'applyTransientFailure'; message?: string } // T8 retry-once; producer эмитит ТОЛЬКО при isTransientProviderFailure(error) === true (network timeout only)
   | { type: 'rebase' } // T9 (старый proposal → superseded; новый цикл = новый createProposalDraft)
   | { type: 'rollback'; currentHash: string }; // T10
 
@@ -544,13 +648,15 @@ export interface CreateProposalParams {
   baseReadAt: string; // ISO момента READ
   preState?: string;
   preStateAttributes?: Record<string, Record<string, string>>;
+  preStateChildren?: Record<string, string>; // child-chain capture при READ (P1-4); обязателен, если ops адресуют child-блоки (guard 'unknown-containment')
   selectionProofs?: SelectionProof[];
   sessionId?: string;
   actor?: MutationActor;
 }
 
 export interface CreateProposalOptions {
-  /** false для InMemory-провайдера: proof-гейт живёт в bridge-service, провайдер моделирует стадию после него */
+  /** false для InMemory/adapter-internal batching: proof-гейт И op↔targetRef scope guard живут в вызывающем
+   * (bridge/adapter композирует §3.4.1 guards сам), провайдер моделирует стадию после них */
   enforceSelectionProofs?: boolean;
   maxBlockBytes?: number;
   now?: number;
@@ -566,6 +672,11 @@ export function createProposalDraft(params: CreateProposalParams, options: Creat
       maxBlockBytes: options.maxBlockBytes,
       now,
     });
+    // P1-4b: scope ops ограничен proposal.targetRef (§3.1); containment set = keys child-chain capture.
+    // Без capture op по не-targetRef блоку отклоняется 'unknown-containment' (fail closed). Под тем же
+    // enforce-флагом, что и proofs: provider-internal batching (rollback/inverse по kernel-created ids)
+    // композирует §3.4.1 gates сам и вызывает с enforceSelectionProofs:false.
+    assertOpsWithinTargetScope(ops, params.targetRef, params.preStateChildren === undefined ? undefined : new Set(Object.keys(params.preStateChildren)));
   }
   const at = new Date(now).toISOString();
   const proposal: MutationProposal = {
@@ -586,6 +697,7 @@ export function createProposalDraft(params: CreateProposalParams, options: Creat
   if (params.sessionId !== undefined) proposal.sessionId = params.sessionId;
   if (params.preState !== undefined) proposal.preState = params.preState;
   if (params.preStateAttributes !== undefined) proposal.preStateAttributes = params.preStateAttributes;
+  if (params.preStateChildren !== undefined) proposal.preStateChildren = params.preStateChildren;
   return {
     proposal,
     effects: [
@@ -639,7 +751,7 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
     case 'approve': {
       if (proposal.status !== 'pending_review') fail(proposal.status, action);
       const inverseOps = computeInverseOps(
-        { content: proposal.preState ?? '', attributes: proposal.preStateAttributes },
+        { content: proposal.preState ?? '', attributes: proposal.preStateAttributes, children: proposal.preStateChildren },
         proposal.ops,
         { at },
       );
@@ -665,15 +777,26 @@ export function transition(proposal: MutationProposal, action: ProposalAction, n
       };
     }
     case 'expire': {
-      if (!isDraftExpired(proposal, now)) fail(proposal.status, action, 'ttl-not-reached');
-      return {
-        proposal,
-        discarded: true,
-        effects: [
-          { kind: 'delete-proposal-file', proposalId: proposal.id },
-          audit('rejected', { reason: 'ttl-expired', from: proposal.status }),
-        ],
-      };
+      if (isDraftExpired(proposal, now)) {
+        return {
+          proposal,
+          discarded: true,
+          effects: [
+            { kind: 'delete-proposal-file', proposalId: proposal.id },
+            audit('rejected', { reason: 'ttl-expired', from: proposal.status }),
+          ],
+        };
+      }
+      // T8 companion (P1-2/P1-6b): 'applying' НЕ освобождён от sweep blanket — застрявший apply эвакуируется
+      // в actionable conflict (§3.5, файл сохраняется): producer мог умереть ПОСЛЕ части записей, discard
+      // скрыл бы возможные записи. actualHash неизвестен sweep'у → baseHash-плейсхолдер по precedent
+      // partial-apply (action.actualHash ?? proposal.baseHash).
+      if (isApplyStuck(proposal, now)) {
+        const conflictInfo = buildConflictInfo(proposal.baseHash, proposal.baseHash, '', 'apply-stalled');
+        const next = withEntry(proposal, 'conflict', 'automation', now, 'apply-stalled', { conflictInfo });
+        return { proposal: next, effects: [persist(next), audit('conflict', { reason: 'apply-stalled' }), pushChanged] };
+      }
+      fail(proposal.status, action, 'ttl-not-reached');
     }
     case 'beginApply': {
       if (proposal.status !== 'approved') fail(proposal.status, action);

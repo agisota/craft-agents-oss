@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { KnowledgeError, type KnowledgeErrorCode } from '../../../errors.ts';
+import { MutationValidationError, PartialApplyError, type MutationOp } from '../../../mutations.ts';
 import { hashKnowledgeContent } from '../../../provider.ts';
 import type { KnowledgeRef } from '../../../refs.ts';
 import { SiyuanKnowledgeProvider, type SiyuanKnowledgeProviderOptions } from '../adapter.ts';
@@ -128,7 +129,7 @@ const SEARCH_PAGE = {
 };
 
 describe('capabilities', () => {
-  test('reports kernel version and the P1 read-only flag matrix', async () => {
+  test('reports kernel version, the P1 feature matrix, and the P3 mutation matrix', async () => {
     const { provider } = makeAdapter({
       '/api/system/version': () => ({ data: '3.1.28' }),
     });
@@ -146,7 +147,16 @@ describe('capabilities', () => {
       watch: false,
       deepLinks: true,
     });
-    expect(Object.values(caps.mutations).every((flag) => flag === false)).toBe(true);
+    // K-05 §3.4.1 whitelist live; transactions/rollback stay false (no kernel atomicity;
+    // rollback is bridge-driven soft inverse ops — the provider owns no rollback primitive).
+    expect(caps.mutations).toEqual({
+      createDocument: true,
+      appendBlock: true,
+      updateBlock: true,
+      setAttribute: true,
+      transactions: false,
+      rollback: false,
+    });
   });
 });
 
@@ -439,16 +449,11 @@ describe('typed error mapping', () => {
   });
 });
 
-describe('P1 read-only contract', () => {
+describe('P1 read-only contract remnants', () => {
   const { provider } = makeAdapter({});
 
-  test('proposeMutation/applyMutation reject UNSUPPORTED_OPERATION (P3, spec 05)', async () => {
-    const propose = await expectKnowledgeError(
-      provider.proposeMutation({ ops: [{ op: 'appendBlock', documentId: 'blk-9', markdown: 'x' }], summary: 'read-only probe' }),
-      'UNSUPPORTED_OPERATION',
-    );
-    expect(propose.message).toContain('P3');
-    await expectKnowledgeError(provider.applyMutation('proposal-1'), 'UNSUPPORTED_OPERATION');
+  test('applyMutation rejects an unknown proposal id with NOT_FOUND', async () => {
+    await expectKnowledgeError(provider.applyMutation('proposal-1'), 'NOT_FOUND');
   });
 
   test('open() is Electron-side navigation: canonical error with deepLink + canOpenNatively', async () => {
@@ -458,7 +463,7 @@ describe('P1 read-only contract', () => {
     );
     expect(documentError.details).toEqual({
       ref: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
-      deepLink: 'siyuan://document/doc-1',
+      deepLink: 'siyuan://blocks/doc-1',
       canOpenNatively: true,
     });
 
@@ -477,5 +482,314 @@ describe('client parse check', () => {
     const call = calls[0]!;
     expect(call.endpoint).toBe('/api/system/version');
     expect((call.init.headers as Record<string, string>)['Authorization']).toBe('Token tok');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3 mutations (spec 05-mutation-safety.md): the provider drives the REAL
+// SiyuanKernelClient write whitelist end-to-end over the injected fetch seam.
+
+/** Stateful mini-kernel: docs/blocks/attrs mutate through the write endpoints like a real box. */
+function makeKernel() {
+  const state = {
+    docs: new Map<string, { markdown: string; notebook: string; hPath: string }>([
+      ['doc-1', { markdown: 'LINE 1\nLINE 2', notebook: 'nb-1', hPath: '/Inbox/Doc 1' }],
+    ]),
+    blocks: new Map<string, { markdown: string; docId: string }>([
+      ['blk-1', { markdown: 'BLOCK ORIGINAL', docId: 'doc-1' }],
+      ['blk-2', { markdown: 'BLOCK B', docId: 'doc-1' }],
+    ]),
+    attrs: new Map<string, Record<string, string>>(),
+    created: 0,
+  };
+
+  const handlers: Record<string, Handler> = {
+    '/api/block/checkBlockExist': (body) => ({
+      data: state.docs.has(String(body.id)) || state.blocks.has(String(body.id)) || String(body.id) === 'nb-1',
+    }),
+    '/api/export/exportMdContent': (body) => {
+      const doc = state.docs.get(String(body.id));
+      return { data: { hPath: doc?.hPath ?? '', content: doc?.markdown ?? '' } };
+    },
+    '/api/block/getDocInfo': (body) => ({
+      data: {
+        id: String(body.id),
+        rootID: String(body.id),
+        name: state.docs.get(String(body.id))?.hPath.split('/').pop() ?? 'doc',
+        refCount: 0,
+        subFileCount: 0,
+        refIDs: [],
+        ial: {},
+        icon: '',
+        attrViews: [],
+      },
+    }),
+    '/api/attr/getBlockAttrs': (body) => ({
+      data: state.attrs.get(String(body.id)) ?? { id: String(body.id), updated: '20260807120000' },
+    }),
+    '/api/block/getBlockKramdown': (body) => ({
+      data: {
+        id: String(body.id),
+        kramdown: state.blocks.get(String(body.id))?.markdown ?? state.docs.get(String(body.id))?.markdown ?? '',
+      },
+    }),
+    '/api/block/getBlockInfo': (body) => ({
+      data: {
+        box: 'nb-1',
+        path: '/20260807120000-a1.sy',
+        rootID: state.blocks.get(String(body.id))?.docId ?? String(body.id),
+        rootTitle: 'Doc 1',
+        rootTitleEmpty: false,
+        rootChildID: '',
+        rootIcon: '',
+      },
+    }),
+    '/api/filetree/getHPathByID': () => ({ data: '/Inbox/Doc 1' }),
+    '/api/notebook/lsNotebooks': () => ({
+      data: {
+        notebooks: [{ id: 'nb-1', name: 'Inbox', icon: '', sort: 0, sortMode: 0, closed: false, subFileCount: 3 }],
+        boxDocEnabled: false,
+      },
+    }),
+    '/api/filetree/createDocWithMd': (body) => {
+      const id = `doc-new-${++state.created}`;
+      state.docs.set(id, { markdown: String(body.markdown), notebook: String(body.notebook), hPath: String(body.path) });
+      return { data: id };
+    },
+    '/api/block/appendBlock': (body) => {
+      const id = `blk-new-${++state.created}`;
+      const parentID = String(body.parentID);
+      const data = String(body.data);
+      state.blocks.set(id, { markdown: data, docId: parentID });
+      const doc = state.docs.get(parentID);
+      if (doc) doc.markdown = doc.markdown === '' ? data : `${doc.markdown}\n${data}`;
+      return { data: [{ doOperations: [{ action: 'insert', data: null, id, parentID, retData: null }] }] };
+    },
+    '/api/block/updateBlock': (body) => {
+      const id = String(body.id);
+      const data = String(body.data);
+      if (data === 'KERNEL-FAIL') return { code: -1, msg: 'kernel write rejected' };
+      const block = state.blocks.get(id);
+      if (block) block.markdown = data;
+      else {
+        const doc = state.docs.get(id);
+        if (doc) doc.markdown = data;
+      }
+      return { data: [{ doOperations: [{ action: 'update', data: null, id, parentID: '', retData: null }] }] };
+    },
+    '/api/attr/setBlockAttrs': (body) => {
+      const id = String(body.id);
+      state.attrs.set(id, { ...(state.attrs.get(id) ?? { id }), ...(body.attrs as Record<string, string>) });
+      return { data: null };
+    },
+  };
+  return { state, handlers };
+}
+
+async function expectValidationError(
+  promise: Promise<unknown>,
+  reason: MutationValidationError['reason'],
+): Promise<MutationValidationError> {
+  let caught: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(MutationValidationError);
+  const error = caught as MutationValidationError;
+  expect(error.reason).toBe(reason);
+  return error;
+}
+
+describe('proposeMutation (P3) — validation before any network I/O', () => {
+  // A kernel that explodes on ANY call proves the guard ran pre-network.
+  const boomHandlers = new Proxy<Record<string, Handler>>({}, {
+    get: () => () => {
+      throw new Error('network must not be touched by propose-time validation');
+    },
+  });
+
+  test('ops whitelist / structural guards reject with typed MutationValidationError', async () => {
+    const { provider } = makeAdapter(boomHandlers);
+    await expectValidationError(provider.proposeMutation({ targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' }, ops: [] }), 'empty-ops');
+    await expectValidationError(
+      provider.proposeMutation({ targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' }, ops: [{ op: 'deleteBlock' as never, blockId: 'blk-1' } as never] }),
+      'unknown-op',
+    );
+    await expectValidationError(
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'notebook', id: 'nb-1' },
+        ops: [{ op: 'createDocument', notebook: 'nb-1', path: '/../escape', title: 'x', markdown: 'x' }],
+      }),
+      'invalid-path',
+    );
+    await expectValidationError(
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'notebook', id: 'nb-1' },
+        ops: [{ op: 'createDocument', notebook: 'nb-1', path: '/ok', title: '   ', markdown: 'x' }],
+      }),
+      'empty-title',
+    );
+    await expectValidationError(
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
+        ops: [{ op: 'appendBlock', documentId: 'doc-1', markdown: 'x'.repeat(256 * 1024 + 1) }],
+      }),
+      'block-too-large',
+    );
+    await expectValidationError(
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' },
+        ops: [{ op: 'setAttribute', blockId: 'blk-1', name: 'name', value: 'system attr write' }],
+      }),
+      'attribute-name-not-allowed',
+    );
+  });
+
+  test('missing targetRef / createDocument notebook mismatch → typed INVALID_REF', async () => {
+    const { provider } = makeAdapter(boomHandlers);
+    await expectKnowledgeError(
+      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'x' }] }),
+      'INVALID_REF',
+    );
+    await expectKnowledgeError(
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'notebook', id: 'nb-other' },
+        ops: [{ op: 'createDocument', notebook: 'nb-1', path: '/ok', title: 'x', markdown: 'x' }],
+      }),
+      'INVALID_REF',
+    );
+  });
+});
+
+describe('proposeMutation (P3) — draft capture through the get() reader', () => {
+  test('draft carries preState/baseHash/diff preview; status stays draft; NO write endpoint is called', async () => {
+    const kernel = makeKernel();
+    const { provider, calls } = makeAdapter(kernel.handlers);
+    const proposal = await provider.proposeMutation({
+      targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
+      ops: [{ op: 'appendBlock', documentId: 'doc-1', markdown: 'APPENDED LINE' }],
+      sessionId: 'sess-1',
+      actor: 'agent',
+    });
+    expect(proposal.status).toBe('draft');
+    expect(proposal.preState).toBe('LINE 1\nLINE 2');
+    expect(proposal.baseHash).toBe(await hashKnowledgeContent('LINE 1\nLINE 2'));
+    expect(proposal.diff?.patched).toBe('LINE 1\nLINE 2\nAPPENDED LINE');
+    expect(proposal.sessionId).toBe('sess-1');
+    expect(proposal.actor).toBe('agent');
+    // read endpoints only — no write whitelist endpoint ever fired at propose.
+    const writeEndpoints = calls.filter((call) =>
+      ['/api/filetree/createDocWithMd', '/api/block/appendBlock', '/api/block/updateBlock', '/api/attr/setBlockAttrs'].includes(call.endpoint),
+    );
+    expect(writeEndpoints).toHaveLength(0);
+  });
+});
+
+describe('applyMutation (P3)', () => {
+  test('updateBlock happy path: applies via kernel, returns applied + postHash + createdRef-free result', async () => {
+    const kernel = makeKernel();
+    const { provider } = makeAdapter(kernel.handlers);
+    const proposal = await provider.proposeMutation({
+      targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' },
+      ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'BLOCK REPLACED' }],
+    });
+    const result = await provider.applyMutation(proposal.id);
+    expect(result.applied).toBe(true);
+    expect(result.conflicted).toBe(false);
+    expect(result.status).toBe('applied');
+    expect(result.appliedAt).toBeDefined();
+    expect(result.createdRef).toBeUndefined();
+    expect(result.currentHash).toBe(await hashKnowledgeContent('BLOCK REPLACED'));
+    expect(kernel.state.blocks.get('blk-1')!.markdown).toBe('BLOCK REPLACED');
+  });
+
+  test('hash drift after propose → conflicted result with reason+currentHash; NOTHING written', async () => {
+    const kernel = makeKernel();
+    const { provider, calls } = makeAdapter(kernel.handlers);
+    const proposal = await provider.proposeMutation({
+      targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
+      ops: [{ op: 'appendBlock', documentId: 'doc-1', markdown: 'APPENDED LINE' }],
+    });
+    kernel.state.docs.get('doc-1')!.markdown = 'LINE 1\nLINE 2\nTAMPERED'; // concurrent edit lands
+    const result = await provider.applyMutation(proposal.id);
+    expect(result).toMatchObject({
+      proposalId: proposal.id,
+      applied: false,
+      conflicted: true,
+      status: 'conflict',
+      reason: 'hash-mismatch',
+      currentHash: await hashKnowledgeContent('LINE 1\nLINE 2\nTAMPERED'),
+    });
+    expect(callsFor(calls, '/api/block/appendBlock')).toHaveLength(0);
+
+    // The provider-side record is terminal (§3.2 T11): a repeat apply is a typed error.
+    const repeat = await expectKnowledgeError(provider.applyMutation(proposal.id), 'PROVIDER_ERROR');
+    expect(repeat.message).toContain('T11');
+  });
+
+  test('kernel typed error on the FIRST op propagates verbatim (no wrapping, no compensation)', async () => {
+    const kernel = makeKernel();
+    const { provider } = makeAdapter({
+      ...kernel.handlers,
+      '/api/block/updateBlock': () => ({ code: -1, msg: 'readonly mode' }),
+    });
+    const proposal = await provider.proposeMutation({
+      targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' },
+      ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'BLOCK REPLACED' }],
+    });
+    const error = await expectKnowledgeError(provider.applyMutation(proposal.id), 'PROVIDER_ERROR');
+    expect(error.details).toEqual({ kernelCode: -1, kernelMsg: 'readonly mode', retryable: false });
+  });
+
+  test('mid-batch failure → PartialApplyError verbatim; op 1 soft-compensated to preState', async () => {
+    const kernel = makeKernel();
+    const { provider } = makeAdapter(kernel.handlers);
+    const ops: MutationOp[] = [
+      { op: 'updateBlock', blockId: 'blk-1', markdown: 'BLOCK A-NEW' },
+      { op: 'updateBlock', blockId: 'blk-2', markdown: 'KERNEL-FAIL' },
+    ];
+    const proposal = await provider.proposeMutation({ targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' }, ops });
+
+    let caught: unknown;
+    try {
+      await provider.applyMutation(proposal.id);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PartialApplyError);
+    const error = caught as PartialApplyError;
+    expect(error.failedOpIndex).toBe(1);
+    expect(error.compensatedOps).toHaveLength(1);
+    // Soft compensation restored op 1 to the propose-time preState; op 2 never landed.
+    expect(kernel.state.blocks.get('blk-1')!.markdown).toBe('BLOCK ORIGINAL');
+    expect(kernel.state.blocks.get('blk-2')!.markdown).toBe('BLOCK B');
+  });
+});
+
+describe('IAL convention (§4.3 regression)', () => {
+  test('built-in SiYuan IAL keys never leak as domain attributes; custom-* only, prefix stripped', async () => {
+    const { provider } = makeAdapter({
+      '/api/block/checkBlockExist': () => ({ data: true }),
+      '/api/export/exportMdContent': () => ({ data: { hPath: '/Inbox/Doc 1', content: 'body' } }),
+      '/api/block/getDocInfo': () => ({
+        data: { id: 'doc-1', rootID: 'doc-1', name: 'Doc 1', refCount: 0, subFileCount: 0, refIDs: [], ial: {}, icon: '', attrViews: [] },
+      }),
+      '/api/attr/getBlockAttrs': () => ({
+        data: {
+          id: 'doc-1',
+          updated: '20260807120000',
+          name: 'k-name',
+          alias: 'k-alias',
+          memo: 'k-memo',
+          bookmark: 'k-bookmark',
+          anchor: 'k-anchor',
+          'custom-domain': 'knowledge',
+        },
+      }),
+    });
+    const node = await provider.get({ scheme: 'siyuan', kind: 'document', id: 'doc-1' });
+    expect(node.attributes).toEqual([{ key: 'domain', value: 'knowledge' }]);
   });
 });

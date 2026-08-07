@@ -128,16 +128,39 @@ export function formatKnowledgeDisplay(ref: KnowledgeRef): string {
   return `@${serializeKnowledgeRef(ref)}`;
 }
 
-/** 'siyuan://document/<id>' — external deep link into the native SiYuan editor. */
+/**
+ * External deep link into the native SiYuan editor. The real desktop protocol handler
+ * (parseSiYuanUriInfo, app/src/util/pathName.ts @ siyuan-note/siyuan eef1056838) resolves ONLY
+ * the `blocks` hostname: `siyuan://blocks/<\d{14}-\w{7}…>`. The `document`/`block` hostnames
+ * Craft emitted pre-P3 are silently dropped upstream (parse → null) — never emit them again.
+ * A SiYuan document IS its root block, so document refs open natively under the same
+ * blocks/<id> grammar.
+ */
 export function siyuanDeepLink(ref: KnowledgeRef): string {
+  if (ref.kind === 'document' || ref.kind === 'block') {
+    return `siyuan://blocks/${ref.id}`;
+  }
+  // notebook/database/asset refs have no native surface (deep-links.ts policy route them
+  // in-app): keep the legacy kind segment so the link stays parseable round-trip for callers
+  // that only ever build in-app routes from it (audit targets, envelope keys).
   return `siyuan://${ref.kind}/${ref.id}`;
 }
 
 export function parseSiyuanDeepLink(href: string): KnowledgeRef | null {
   const prefix = 'siyuan://';
   if (!href.startsWith(prefix)) return null;
-  // Deep-link body is the compact form; parseKnowledgeRef resolves the default provider.
-  return parseKnowledgeRef(href.slice(prefix.length));
+  const body = href.slice(prefix.length);
+  // Native grammar (parseSiYuanUriInfo): hostname 'blocks'. A document's root id lives under
+  // the same path, so the grammar alone cannot tell document from block (upstream resolves the
+  // containing document at open time) — parse to 'block'; kind provenance is the caller's job.
+  if (body.startsWith('blocks/')) {
+    const id = body.slice('blocks/'.length);
+    return id ? { scheme: 'siyuan', kind: 'block', id } : null;
+  }
+  // Legacy Craft-emitted grammar (siyuan://document/<id>, siyuan://block/<id>): the native
+  // handler never accepted these, but previously persisted strings (audit logs, envelopes)
+  // still resolve here. Body is the compact ref form; parseKnowledgeRef resolves the provider.
+  return parseKnowledgeRef(body);
 }
 
 /** Accepts canonical or provider (wire) form; returns the canonical KnowledgeRef. Throws INVALID_REF on bad input. */

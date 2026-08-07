@@ -370,7 +370,7 @@ describe('InMemoryKnowledgeProvider.open', () => {
   test('records the siyuan:// deep link for existing refs', async () => {
     const provider = await seededProvider();
     await provider.open({ scheme: 'siyuan', kind: 'document', id: 'doc-1' });
-    expect(provider.openedDeepLinks).toEqual(['siyuan://document/doc-1']);
+    expect(provider.openedDeepLinks).toEqual(['siyuan://blocks/doc-1']);
   });
 
   test('unknown ref → NOT_FOUND; invalid ref → INVALID_REF', async () => {

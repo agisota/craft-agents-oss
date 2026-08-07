@@ -14,7 +14,19 @@
  *   reason='partial-apply-rolled-back' (§3.2 invariant, compensation is
  *   provider-internal best-effort).
  * - No silent rebase: RE-READs happen only inside apply (T5) and rollback
- *   (T10); baseHash is never overwritten (T9 is a fresh propose call).
+ *   (T10); baseHash is never overwritten (T9 is a fresh propose call carrying
+ *   `rebaseOfProposalId`, which first supersedes the old conflict record).
+ * - One hash artifact (P1-3): T1 baseHash, T6 postHash and the T10 rollback
+ *   RE-READ ALL cover `provider.get(targetRef)` — the original target. A
+ *   created child ref (appendBlock/createDocument) is used only to bind
+ *   `$insertedBlockId[N]` inverse placeholders, never for hashing.
+ * - No stranded statuses (P1-2/P1-5): every provider failure inside apply
+ *   lands as an actionable `conflict` ('apply-failed'; partial-apply and
+ *   hash-mismatch keep their own reasons; transport timeouts get the single
+ *   T8 retry first); a failed rollback inverse leaves the record 'applied'
+ *   plus a `rollback_failed` audit — never a stamped rolled_back without the
+ *   inverse; the sweep evacuates 'applying' records stuck past
+ *   APPLY_STUCK_TIMEOUT_MS through the engine 'expire' branch.
  * - Approve is human-only in v1: `approvedBy` is always 'user' (engine-typed);
  *   an `actor='automation'` subject MAY create a proposal but every transition
  *   past T1 requires the explicit user clicks that issued the RPC.
@@ -53,9 +65,12 @@ import {
   MutationValidationError,
   PartialApplyError,
   ProposalTransitionError,
+  assertOpsWithinTargetScope,
   buildProposalDiff,
   createProposalDraft,
   hashKnowledgeContent,
+  isApplyStuck,
+  isTransientProviderFailure,
   siyuanDeepLink,
   transition,
   validateOpsWhitelist,
@@ -73,7 +88,7 @@ import type {
 } from '@craft-agent/core/knowledge'
 
 import { KnowledgeAuditLog } from './knowledge-audit'
-import { KnowledgeMutationProposalsStore, type ProposalListFilter } from './proposals-store'
+import { KnowledgeMutationProposalsStore, type ProposalListFilter, type ProposalSweepResult } from './proposals-store'
 
 /** Engine-driven status transitions whose audit actor is 'automation' (§3.2 table, initiator column). */
 const SYSTEM_ACTOR_AUDIT_ACTIONS: Record<string, true> = {
@@ -87,12 +102,14 @@ const DEFAULT_NO_SESSION = 'knowledge-ui' // mode-manager default ('ask') for se
 /**
  * Wire record + lifecycle extras persisted side-by-side in the proposal file.
  * Extras are absent from the wire DTO but required for cold-store approve
- * (preStateAttributes), the T10 rollback hash guard (appliedHash) and precise
- * TTL bookkeeping (updatedAt).
+ * (preStateAttributes/preStateChildren), the T10 rollback hash guard (appliedHash) and
+ * precise TTL bookkeeping (updatedAt).
  */
 export interface KnowledgeProposalFileRecord extends WireProposalRecord {
   updatedAt?: string
   preStateAttributes?: Record<string, Record<string, string>>
+  /** Child-chain capture at T1 READ (§3.4.1 scope guard data + P1-4 block-accurate inverse source). */
+  preStateChildren?: Record<string, string>
   appliedHash?: string
   rolledBackAt?: string
 }
@@ -100,6 +117,14 @@ export interface KnowledgeProposalFileRecord extends WireProposalRecord {
 /** Bridge apply/rollback result: core engine outcome + wire-mapped conflict details for the UI card. */
 export interface BridgeApplyResult extends CoreApplyResult {
   conflictInfo?: WireConflictInfo
+  /** T10 completion timestamp (wire ApplyResult.rolledBackAt) — never aliased onto appliedAt. */
+  rolledBackAt?: string
+}
+
+/** Sweep outcome: the store's TTL result plus bridge-side stuck-apply evacuations (engine 'expire'). */
+export interface BridgeSweepResult extends ProposalSweepResult {
+  /** 'applying' records evacuated to conflict {reason:'apply-stalled'} (APPLY_STUCK_TIMEOUT_MS, §3.2/§3.7). */
+  applyStalled: string[]
 }
 
 export interface KnowledgeBridgeProposeArgs {
@@ -157,6 +182,7 @@ export class KnowledgeBridgeService {
       // extras
       updatedAt: core.updatedAt,
       preStateAttributes: core.preStateAttributes,
+      preStateChildren: core.preStateChildren,
       appliedHash: core.appliedHash,
       rolledBackAt: core.rolledBackAt,
     }
@@ -198,6 +224,7 @@ export class KnowledgeBridgeService {
     if (wire.sessionId !== undefined) core.sessionId = wire.sessionId
     core.preState = wire.preState
     if (wire.preStateAttributes !== undefined) core.preStateAttributes = wire.preStateAttributes
+    if (wire.preStateChildren !== undefined) core.preStateChildren = wire.preStateChildren
     // Deterministic rebuild (buildProposalDiff is pure in preState+ops): no diff state is
     // route-tripped through the wire representation.
     if (wire.diff !== undefined) core.diff = buildProposalDiff(wire.preState, wire.ops)
@@ -227,6 +254,21 @@ export class KnowledgeBridgeService {
     const sessionId = args.input.sessionId
     this.gate('knowledge.propose', sessionId)
 
+    // T9 (§3.2, §3.5 «Перечитать и пересобрать»): an explicit rebase marker supersedes the old
+    // conflict through the engine 'rebase' transition (persist + audit superseded) BEFORE the
+    // fresh T1 cycle below — no silent rebase: the new proposal gets its own READ/baseHash.
+    if (args.input.rebaseOfProposalId !== undefined) {
+      const old = this.requireProposal(args.input.rebaseOfProposalId)
+      const oldCore = this.toCoreRecord(old)
+      if (oldCore.status !== 'conflict') {
+        throw new CodedError(
+          'HASH_CONFLICT',
+          `knowledge: rebase is allowed only on a conflict proposal (got '${oldCore.status}', spec 05 §3.2 T9)`,
+        )
+      }
+      await this.draftEffects(transition(oldCore, { type: 'rebase' }, this.now()).effects, 'user')
+    }
+
     // §3.4.1 admission guards run BEFORE the READ: cheap rejection, no wasted provider call.
     let ops: MutationOp[]
     try {
@@ -238,13 +280,7 @@ export class KnowledgeBridgeService {
       })
     } catch (error) {
       if (error instanceof MutationValidationError) {
-        // §3.4.1: guard rejections are audited as rejected proposals (no file is ever created).
-        await this.deps.audit.append({
-          actor,
-          action: 'knowledge.proposal.rejected',
-          target: args.input.targetRef ? siyuanDeepLink(args.input.targetRef) : 'knowledge:proposal',
-          detail: JSON.stringify({ reason: error.reason, connectionId: args.connectionId, sessionId }),
-        })
+        await this.auditRejectedProposal(error, args, sessionId)
       }
       throw error
     }
@@ -255,6 +291,33 @@ export class KnowledgeBridgeService {
     const preStateAttributes = {
       [node.ref.id]: Object.fromEntries(node.attributes.map((attribute) => [attribute.key, attribute.value])),
     }
+
+    // P1-4 scope guard, bridge-composed (§3.1 «one targetRef per proposal»; the engine runs the
+    // identical check for enforceSelectionProofs=true callers): ops may address ONLY the target
+    // or blocks inside its child chain captured AT THIS READ. The capture doubles as the
+    // block-accurate inverse source at approve (computeInverseOps children snapshot) and as the
+    // cold-store flight recorder.
+    let preStateChildren: Record<string, string> | undefined
+    try {
+      const offTarget = ops.some(
+        (op) => (op.op === 'updateBlock' || op.op === 'setAttribute') && op.blockId !== node.ref.id,
+      )
+      if (offTarget) {
+        const context = await provider.getContext(args.input.targetRef, 'snapshot')
+        preStateChildren = Object.fromEntries(context.children.map((child) => [child.blockId, child.content]))
+      }
+      assertOpsWithinTargetScope(
+        ops,
+        args.input.targetRef,
+        preStateChildren === undefined ? undefined : new Set(Object.keys(preStateChildren)),
+      )
+    } catch (error) {
+      if (error instanceof MutationValidationError) {
+        await this.auditRejectedProposal(error, args, sessionId)
+      }
+      throw error
+    }
+
     const baseHash = await hashKnowledgeContent(preState)
     const baseReadAt = new Date(this.now()).toISOString()
     const id = `p_${crypto.randomUUID()}`
@@ -269,6 +332,7 @@ export class KnowledgeBridgeService {
         baseReadAt,
         preState,
         preStateAttributes,
+        preStateChildren,
         selectionProofs: args.input.selectionProofs,
         sessionId,
         actor,
@@ -312,6 +376,24 @@ export class KnowledgeBridgeService {
         }
       } catch {
         /* inverse degrades to the '' remove-sense — intentional, never mask the approve */
+      }
+    }
+
+    // Same guard for the child-chain capture (P1-4, §3.8): stripped preStateChildren with
+    // off-target ops would degrade the approve-time inverse to a whole-preState restore —
+    // re-capture best-effort so the child-accurate inverse stands.
+    if (
+      core.preStateChildren === undefined &&
+      core.ops.some((op) => (op.op === 'updateBlock' || op.op === 'setAttribute') && op.blockId !== wire.targetRef.id)
+    ) {
+      try {
+        const context = await (await this.deps.providerResolver(wire.connectionId)).getContext(wire.targetRef, 'snapshot')
+        core = {
+          ...core,
+          preStateChildren: Object.fromEntries(context.children.map((child) => [child.blockId, child.content])),
+        }
+      } catch {
+        /* inverse degrades to the whole-preState restore — intentional, never mask the approve */
       }
     }
 
@@ -361,106 +443,167 @@ export class KnowledgeBridgeService {
     }
     await this.draftEffects(begun.effects, begun.proposal.actor) // T5 snapshot persisted
 
-    const provider = await this.deps.providerResolver(wire.connectionId)
-    const reRead = await provider.get(wire.targetRef)
-    const currentContent = reRead.markdown ?? ''
-    const actualHash = await hashKnowledgeContent(currentContent)
-
-    const resolved = transition(begun.proposal, { type: 'resolveHashCheck', actualHash, currentContent }, this.now())
-    if (resolved.proposal.status === 'conflict') {
-      // T7: nothing was written; conflictInfo + audit + push ride the engine effects.
-      await this.draftEffects(resolved.effects, 'automation')
-      return {
-        proposalId,
-        applied: false,
-        conflicted: true,
-        status: 'conflict',
-        reason: 'hash-mismatch',
-        currentHash: actualHash,
-        conflictInfo: this.toWireRecord(resolved.proposal).conflictInfo,
-      }
-    }
-
-    // execute-ops plan: the provider's mutation path (InMemory executes in memory; the real
-    // provider executes the kernel via its mutation adapter).
-    let appliedResult: CoreApplyResult
+    // P1-2: EVERY failure after the T5 persist lands as an actionable conflict (§3.5 card) —
+    // a rethrown provider/engine error would strand the record in 'applying' and make it
+    // permanently un-actionable (the stuck-apply sweep below is only the crash backstop).
+    let observedHash: string | undefined
     try {
-      appliedResult = await this.executeViaProvider(provider, resolved.proposal.ops, resolved.proposal)
-    } catch (error) {
-      if (error instanceof PartialApplyError) {
-        const failed = transition(
-          resolved.proposal,
-          {
-            type: 'applyOpsPartialFailure',
-            failedOpIndex: error.failedOpIndex,
-            message: `partial-apply: op ${error.failedOpIndex} failed, ${error.compensatedOps.length} inverse op(s) applied best-effort`,
-            actualHash,
-          },
-          this.now(),
-        )
-        await this.draftEffects(failed.effects, 'automation')
+      const provider = await this.deps.providerResolver(wire.connectionId)
+      const reRead = await provider.get(wire.targetRef)
+      const currentContent = reRead.markdown ?? ''
+      const actualHash = await hashKnowledgeContent(currentContent)
+      observedHash = actualHash
+
+      const resolved = transition(begun.proposal, { type: 'resolveHashCheck', actualHash, currentContent }, this.now())
+      if (resolved.proposal.status === 'conflict') {
+        // T7: nothing was written; conflictInfo + audit + push ride the engine effects.
+        await this.draftEffects(resolved.effects, 'automation')
         return {
           proposalId,
           applied: false,
           conflicted: true,
           status: 'conflict',
-          reason: 'partial-apply-rolled-back',
+          reason: 'hash-mismatch',
           currentHash: actualHash,
-          conflictInfo: this.toWireRecord(failed.proposal).conflictInfo,
+          conflictInfo: this.toWireRecord(resolved.proposal).conflictInfo,
         }
       }
-      throw error
-    }
-    if (appliedResult.conflicted) {
-      // Defensive: provider-side drift between our check and its write — map through the same T7 transition.
-      const drifted = transition(
-        resolved.proposal,
-        { type: 'resolveHashCheck', actualHash: appliedResult.currentHash ?? actualHash, currentContent },
-        this.now(),
-      )
-      await this.draftEffects(drifted.effects, 'automation')
-      return {
+
+      // execute-ops plan: the provider's mutation path (InMemory executes in memory; the real
+      // provider executes the kernel via its mutation adapter). T8 retry-once loop: ONLY
+      // transport-level timeouts (isTransientProviderFailure) re-arm a producer pass; the
+      // engine refuses a second retry via the statusHistory guard ('retry-already-used').
+      let current = resolved.proposal
+      for (;;) {
+        let appliedResult: CoreApplyResult
+        try {
+          appliedResult = await this.executeViaProvider(provider, current.ops, current)
+        } catch (error) {
+          if (error instanceof PartialApplyError) {
+            const failed = transition(
+              current,
+              {
+                type: 'applyOpsPartialFailure',
+                failedOpIndex: error.failedOpIndex,
+                message: `partial-apply: op ${error.failedOpIndex} failed, ${error.compensatedOps.length} inverse op(s) applied best-effort`,
+                actualHash,
+              },
+              this.now(),
+            )
+            await this.draftEffects(failed.effects, 'automation')
+            return {
+              proposalId,
+              applied: false,
+              conflicted: true,
+              status: 'conflict',
+              reason: 'partial-apply-rolled-back',
+              currentHash: actualHash,
+              conflictInfo: this.toWireRecord(failed.proposal).conflictInfo,
+            }
+          }
+          if (isTransientProviderFailure(error) && !current.statusHistory.some((entry) => entry.reason === 'retry-transient')) {
+            const retried = transition(current, { type: 'applyTransientFailure' }, this.now())
+            await this.draftEffects(retried.effects, 'automation')
+            current = retried.proposal
+            continue // the retried provider pass does its own RE-READ + hash-check; drift surfaces as conflicted
+          }
+          throw error // not a mapped path — the outer failure net takes it
+        }
+        if (appliedResult.conflicted) {
+          // Defensive: provider-side drift between our check and its write — map through the same T7 transition.
+          const drifted = transition(
+            current,
+            { type: 'resolveHashCheck', actualHash: appliedResult.currentHash ?? actualHash, currentContent },
+            this.now(),
+          )
+          await this.draftEffects(drifted.effects, 'automation')
+          return {
+            proposalId,
+            applied: false,
+            conflicted: true,
+            status: 'conflict',
+            reason: appliedResult.reason ?? 'hash-mismatch',
+            currentHash: appliedResult.currentHash,
+            conflictInfo: this.toWireRecord(drifted.proposal).conflictInfo,
+          }
+        }
+
+        // §3.8: kernel-assigned ids exist only at apply time — bind $insertedBlockId placeholders
+        // in the persisted inverse ops to the concrete created ref.
+        const inverseOps =
+          appliedResult.createdRef && current.inverseOps
+            ? bindInsertedBlockId(current.inverseOps, appliedResult.createdRef.id)
+            : current.inverseOps
+
+        // Verify RE-READ (§3.1 same-reader rule) — ONE artifact discipline at all three hash
+        // points (P1-3): T1 baseHash, this postHash and the T10 rollback RE-READ all cover
+        // provider.get(targetRef), the ORIGINAL target. appendBlock/createDocument land inside
+        // the target's own serialization, so hashing createdRef instead (as before) made every
+        // append/create rollback conflict by construction.
+        const verified = await provider.get(wire.targetRef)
+        const postHash = await hashKnowledgeContent(verified.markdown ?? '')
+
+        const succeeded = transition(current, { type: 'applyOpsSucceeded', postHash }, this.now())
+        const finalProposal = inverseOps && inverseOps !== succeeded.proposal.inverseOps
+          ? { ...succeeded.proposal, inverseOps }
+          : succeeded.proposal
+        const effects = finalProposal === succeeded.proposal
+          ? succeeded.effects
+          : succeeded.effects.map((effect) =>
+              effect.kind === 'persist-proposal' ? { ...effect, proposal: finalProposal } : effect,
+            )
+        await this.draftEffects(effects, 'automation')
+        const result: BridgeApplyResult = {
+          proposalId,
+          applied: true,
+          conflicted: false,
+          status: 'applied',
+          appliedAt: finalProposal.appliedAt,
+        }
+        if (appliedResult.createdRef) result.createdRef = appliedResult.createdRef
+        return result
+      }
+    } catch (error) {
+      // P1-2 failure net: anything that is not one of the mapped conflict paths above becomes
+      // conflict reason 'apply-failed'. The record moves applying → conflict with the error
+      // text as the card content — persisted, audited, pushed; NEVER a rethrown strand.
+      const message = error instanceof Error ? error.message : String(error)
+      const at = new Date(this.now()).toISOString()
+      const conflicted: CoreProposal = {
+        ...begun.proposal,
+        status: 'conflict',
+        updatedAt: at,
+        statusHistory: [
+          ...begun.proposal.statusHistory,
+          { from: begun.proposal.status, to: 'conflict', at, actor: 'automation', reason: 'apply-failed' },
+        ],
+        conflictInfo: {
+          expectedHash: begun.proposal.baseHash,
+          // The provider RE-READ may never have happened — baseHash placeholder, partial-apply precedent.
+          actualHash: observedHash ?? begun.proposal.baseHash,
+          currentContent: message, // the error text IS the actionable content of this card
+          reason: 'apply-failed',
+        },
+      }
+      this.deps.proposalsStore.save(this.toWireRecord(conflicted))
+      await this.deps.audit.append({
+        actor: 'automation',
+        action: 'knowledge.proposal.conflict',
+        target: this.auditTarget(conflicted),
+        detail: this.detail({ proposalId, reason: 'apply-failed', message }),
+      })
+      this.deps.push?.({ ref: conflicted.targetRef, change: 'updated' })
+      const result: BridgeApplyResult = {
         proposalId,
         applied: false,
         conflicted: true,
         status: 'conflict',
-        reason: appliedResult.reason ?? 'hash-mismatch',
-        currentHash: appliedResult.currentHash,
-        conflictInfo: this.toWireRecord(drifted.proposal).conflictInfo,
+        reason: 'apply-failed',
+        conflictInfo: this.toWireRecord(conflicted).conflictInfo,
       }
+      if (observedHash !== undefined) result.currentHash = observedHash
+      return result
     }
-
-    // §3.8: kernel-assigned ids exist only at apply time — bind $insertedBlockId placeholders
-    // in the persisted inverse ops to the concrete created ref.
-    const inverseOps =
-      appliedResult.createdRef && resolved.proposal.inverseOps
-        ? bindInsertedBlockId(resolved.proposal.inverseOps, appliedResult.createdRef.id)
-        : resolved.proposal.inverseOps
-
-    // Verify RE-READ (§3.1 same-reader rule): postHash proves the target's post-apply state.
-    const verifyRef = appliedResult.createdRef ?? wire.targetRef
-    const verified = await provider.get(verifyRef)
-    const postHash = await hashKnowledgeContent(verified.markdown ?? '')
-
-    const succeeded = transition(resolved.proposal, { type: 'applyOpsSucceeded', postHash }, this.now())
-    const finalProposal = inverseOps && inverseOps !== succeeded.proposal.inverseOps
-      ? { ...succeeded.proposal, inverseOps }
-      : succeeded.proposal
-    const effects = finalProposal === succeeded.proposal
-      ? succeeded.effects
-      : succeeded.effects.map((effect) =>
-          effect.kind === 'persist-proposal' ? { ...effect, proposal: finalProposal } : effect,
-        )
-    await this.draftEffects(effects, 'automation')
-    const result: BridgeApplyResult = {
-      proposalId,
-      applied: true,
-      conflicted: false,
-      status: 'applied',
-      appliedAt: finalProposal.appliedAt,
-    }
-    if (appliedResult.createdRef) result.createdRef = appliedResult.createdRef
-    return result
   }
 
   // -------------------------------------------------------------------------
@@ -530,19 +673,45 @@ export class KnowledgeBridgeService {
       throw error
     }
 
-    // execute-inverse plan: same provider mutation-pass semantics as apply (RE-READ + hash-check
-    // inside the provider path); the engine effect carries the inverse ops.
+    // execute-inverse plan: one provider mutation pass PER inverse op (P1-3/P1-5). transactions
+    // are an optional capability (InMemory defaults transactions=false) and §3.8 inverse ops may
+    // address kernel-created children (append/create tombstones), never targetRef itself — so a
+    // single-op pass with the op-implied ref is the only shape every provider accepts.
     const inverseEffect = planned.effects.find(
       (effect): effect is Extract<TransitionEffect, { kind: 'execute-inverse' }> => effect.kind === 'execute-inverse',
     )
-    await this.executeViaProvider(provider, inverseEffect?.ops ?? planned.proposal.inverseOps ?? [], planned.proposal)
+    const inverseOps = inverseEffect?.ops ?? planned.proposal.inverseOps ?? []
+    try {
+      for (const op of inverseOps) {
+        const opResult = await this.executeViaProvider(provider, [op], planned.proposal, inverseTargetRef(planned.proposal, op))
+        if (!opResult.applied || opResult.conflicted) {
+          throw new Error(
+            `inverse op '${op.op}' was not applied cleanly (provider reported ${opResult.reason ?? 'no effect'})`,
+          )
+        }
+      }
+    } catch (error) {
+      // P1-5: the inverse did NOT fully land → rolled_back is NEVER persisted. The record stays
+      // 'applied' (the rollback click remains retryable from the conflict/applied card) and the
+      // failure is audited + pushed instead of silently stamped.
+      const message = error instanceof Error ? error.message : String(error)
+      await this.deps.audit.append({
+        actor: 'automation',
+        action: 'knowledge.proposal.rollback_failed',
+        target: this.auditTarget(core),
+        detail: this.detail({ proposalId, reason: 'inverse-apply-failed', message }),
+      })
+      this.deps.push?.({ ref: core.targetRef, change: 'updated' })
+      return { proposalId, applied: false, conflicted: false, status: 'applied', reason: 'rollback-failed' }
+    }
     await this.draftEffects(planned.effects, 'user')
     return {
       proposalId,
       applied: true,
       conflicted: false,
       status: 'rolled_back',
-      appliedAt: planned.proposal.rolledBackAt,
+      // P1-5b: T10 carries rolledBackAt; it must NOT be reported through the appliedAt field.
+      rolledBackAt: planned.proposal.rolledBackAt,
     }
   }
 
@@ -562,8 +731,12 @@ export class KnowledgeBridgeService {
    * Lazy sweep (§3.7, no scheduler — invoked on bridge load): draft/pending_review past
    * DRAFT_TTL_MS are file-deleted (auto-T4, audit rejected reason='ttl-expired'); approved past
    * APPROVAL_TTL_MS are returned to pending_review by the store (audit approval_expired).
+   * Bridge-side addition (P1-2 backstop): a producer that died after the T5 persist strands
+   * its record in 'applying' — anything past APPLY_STUCK_TIMEOUT_MS is evacuated to an
+   * actionable conflict through the ENGINE 'expire' branch (closed §3.2 table, one mechanism;
+   * the store stays a dumb persistence layer — wire↔core mapping lives here).
    */
-  async sweepExpired(): Promise<{ discarded: string[]; approvalExpired: string[] }> {
+  async sweepExpired(): Promise<BridgeSweepResult> {
     const result = this.deps.proposalsStore.sweepExpired(this.now())
     for (const id of result.discarded) {
       await this.deps.audit.append({
@@ -582,12 +755,34 @@ export class KnowledgeBridgeService {
         detail: this.detail({ proposalId: id, reason: 'approval-expired' }),
       })
     }
-    return result
+    const applyStalled: string[] = []
+    for (const wire of this.deps.proposalsStore.list({ status: 'applying' })) {
+      const core = this.toCoreRecord(wire as KnowledgeProposalFileRecord)
+      if (!isApplyStuck(core, this.now())) continue
+      const evacuated = transition(core, { type: 'expire' }, this.now())
+      await this.draftEffects(evacuated.effects, 'automation')
+      applyStalled.push(wire.id)
+    }
+    return { ...result, applyStalled }
   }
 
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
+
+  /** §3.4.1: guard rejections are audited as rejected proposals (no file is ever created). */
+  private async auditRejectedProposal(
+    error: MutationValidationError,
+    args: KnowledgeBridgeProposeArgs,
+    sessionId: string | undefined,
+  ): Promise<void> {
+    await this.deps.audit.append({
+      actor: args.input.actor ?? 'user',
+      action: 'knowledge.proposal.rejected',
+      target: args.input.targetRef ? siyuanDeepLink(args.input.targetRef) : 'knowledge:proposal',
+      detail: JSON.stringify({ reason: error.reason, connectionId: args.connectionId, sessionId }),
+    })
+  }
 
   private requireProposal(proposalId: string): KnowledgeProposalFileRecord {
     const record = this.deps.proposalsStore.get(proposalId) as KnowledgeProposalFileRecord | null
@@ -652,14 +847,17 @@ export class KnowledgeBridgeService {
    * One mutation pass through the provider's adapter path: a fresh provider-side proposal carries
    * the op batch (proof/permission gates are bridge-side, already executed) and provider
    * applyMutation executes with its own RE-READ + hash-check (defense in depth).
+   * `targetRef` defaults to the proposal target; rollback passes one op-implied ref per inverse
+   * op because §3.8 tombstones address kernel-created children, never the original target.
    */
   private async executeViaProvider(
     provider: KnowledgeProvider,
     ops: MutationOp[],
     proposal: CoreProposal,
+    targetRef: KnowledgeRef = proposal.targetRef,
   ): Promise<CoreApplyResult> {
     const registered = await provider.proposeMutation({
-      targetRef: proposal.targetRef,
+      targetRef,
       ops,
       selectionProofs: proposal.selectionProofs,
       sessionId: proposal.sessionId,
@@ -675,6 +873,20 @@ function renderUnifiedDiff(diff: ProposalDiff): string {
     .map((line) => (line.kind === 'added' ? `+${line.text}` : line.kind === 'removed' ? `-${line.text}` : ` ${line.text}`))
     .join('\n')
   return `--- base\n+++ patched\n${body}`
+}
+
+/** Inverse-op implied target ref (§3.8): tombstone ops address kernel-created ids, not targetRef. */
+function inverseTargetRef(proposal: CoreProposal, op: MutationOp): KnowledgeRef {
+  const scheme = proposal.targetRef.scheme
+  switch (op.op) {
+    case 'updateBlock':
+    case 'setAttribute':
+      return { scheme, kind: 'block', id: op.blockId }
+    case 'appendBlock':
+      return { scheme, kind: 'document', id: op.documentId }
+    default:
+      return proposal.targetRef // createDocument never appears in an inverse batch
+  }
 }
 
 /** Bind `$insertedBlockId[N]` placeholders in persisted inverse ops to the kernel-created id (§3.8). */

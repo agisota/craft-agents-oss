@@ -256,6 +256,62 @@ describe('siyuan surface handlers', () => {
     expect(recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.REMOVED)).toHaveLength(0)
   })
 
+  it('shares one surface across holders: a non-last destroy keeps it alive, the last destroy removes it', () => {
+    register(recorder.server, makeDeps(calls))
+    const create = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const destroy = recorder.handlers.get(RPC_CHANNELS.siyuan.DESTROY)!
+    const list = recorder.handlers.get(RPC_CHANNELS.siyuan.LIST)!
+
+    // Two holders open the same durable document (two panels / panel + compat).
+    const first = create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x', workspaceId: 'ws-1' }) as string
+    const second = create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x', workspaceId: 'ws-1' })
+    expect(second).toBe(first)
+
+    // First holder closes: NO native teardown, NO REMOVED broadcast — the
+    // other holder's surface must stay up.
+    destroy(CTX, { instanceId: first })
+    expect(calls.destroyed).toEqual([])
+    expect(recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.REMOVED)).toHaveLength(0)
+    expect((list(CTX) as SiyuanSurfaceState[]).map((s) => s.instanceId)).toEqual([first])
+
+    // Last holder closes: native teardown + REMOVED + registry purge.
+    destroy(CTX, { instanceId: first })
+    expect(calls.destroyed).toEqual([first])
+    expect(list(CTX)).toEqual([])
+    const removedPushes = recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.REMOVED)
+    expect(removedPushes).toHaveLength(1)
+    expect(removedPushes[0].target).toEqual({ to: 'all' })
+    expect(removedPushes[0].args).toEqual([first])
+
+    // A fresh open after the last release spawns a new native instance.
+    const reopened = create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x', workspaceId: 'ws-1' })
+    expect(reopened).not.toBe(first)
+    expect(calls.created).toHaveLength(2)
+  })
+
+  it('dedup re-open refreshes the workspace binding when provided, keeps it when omitted', () => {
+    register(recorder.server, makeDeps(calls))
+    const create = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const list = recorder.handlers.get(RPC_CHANNELS.siyuan.LIST)!
+
+    create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x', workspaceId: 'ws-1' })
+    // A controller in another workspace re-opens the same document: the
+    // binding follows the latest opener so scoped LIST stays accurate.
+    create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x', workspaceId: 'ws-2' })
+
+    expect(list(CTX, { workspaceId: 'ws-1' })).toEqual([])
+    const ws2 = list(CTX, { workspaceId: 'ws-2' }) as SiyuanSurfaceState[]
+    expect(ws2).toHaveLength(1)
+    expect(ws2[0].workspaceId).toBe('ws-2')
+
+    // Re-open without a workspace id leaves the refreshed binding untouched.
+    create(CTX, { durableKey: 'siyuan:doc:x', url: 'u://x' })
+    const after = list(CTX, { workspaceId: 'ws-2' }) as SiyuanSurfaceState[]
+    expect(after).toHaveLength(1)
+    expect(after[0].workspaceId).toBe('ws-2')
+    expect(calls.created).toHaveLength(1)
+  })
+
   it('focus forwards to the browser pane manager (contract-complete no-op for embedded)', () => {
     register(recorder.server, makeDeps(calls))
     const focus = recorder.handlers.get(RPC_CHANNELS.siyuan.FOCUS)!
