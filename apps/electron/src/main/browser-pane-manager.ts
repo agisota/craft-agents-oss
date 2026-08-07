@@ -2477,17 +2477,26 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     }
 
     this.destroyingIds.delete(instance.id)
-    this.closePopupsForParent(instance.id, 'parent_destroy')
-    this.applyAgentControlLock(instance, false)
-    this.updateNativeOverlayState(instance)
-    if (instance.embedded) {
+    // Finalization must be best-effort: a failing cleanup step must never
+    // escape destroyInstance or leave the instance stuck in the map.
+    const runCleanup = (label: string, action: () => void): void => {
       try {
-        this.detachEmbeddedViews(instance)
+        action()
       } catch (error) {
-        mainLog.warn(`[browser-pane] embedded detach during finalize failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
+        mainLog.warn(`[browser-pane] finalize cleanup failed id=${instance.id} step=${label} source=${source} error=${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    instance.cdp.detach()
+    runCleanup('closePopupsForParent', () => this.closePopupsForParent(instance.id, 'parent_destroy'))
+    runCleanup('applyAgentControlLock', () => this.applyAgentControlLock(instance, false))
+    runCleanup('updateNativeOverlayState', () => this.updateNativeOverlayState(instance))
+    if (instance.embedded) {
+      runCleanup('detachEmbeddedViews', () => this.detachEmbeddedViews(instance))
+    }
+    try {
+      instance.cdp.detach()
+    } catch (error) {
+      mainLog.warn(`[browser-pane] finalize cdp detach failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
+    }
     this.instances.delete(instance.id)
     this.removedCallback?.(instance.id)
     mainLog.info(`[browser-pane] Destroyed instance: ${instance.id} (${source})`)
