@@ -307,10 +307,15 @@ import type {
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
   KnowledgeEngineStatus,
+  KnowledgeLinkRecord,
   MutationInput,
   MutationProposal,
   MutationProposalStatus,
   ApplyResult,
+  PublicationRecord,
+  PublishApplyResult,
+  PublishDraft,
+  PublishPrepareResult,
   SiyuanSurfaceState,
 } from '@craft-agent/shared/protocol'
 
@@ -564,7 +569,7 @@ export interface ElectronAPI {
   onNotesChanged(callback: (payload: NoteChangedPayload | string) => void): () => void
 
   // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03 §3.5.1;
-  // P3 write-back mutation proposals — spec 05).
+  // P3 write-back mutation proposals — spec 05; P4 publication pipeline — spec 06).
   // Nested namespace via dotted CHANNEL_MAP keys + buildClientApi (browserPane pattern);
   // the WS-mode preload needs no per-domain wiring.
   knowledge: {
@@ -592,6 +597,46 @@ export interface ElectronAPI {
     rollbackProposal(args: { proposalId: string }): Promise<ApplyResult>
     getProposal(args: { proposalId: string }): Promise<MutationProposal>
     listProposals(args: { workspaceId?: string; connectionId?: string; status?: MutationProposalStatus }): Promise<MutationProposal[]>
+    // P4 publication pipeline (spec 06): Session→Knowledge distill/prepare/apply/finalize.
+    publishDistill(args: {
+      connectionId: string
+      sessionId?: string
+      runIds?: string[]
+      language?: string
+      messages?: Array<{ id: string; role: string; content: string }>
+      model?: { connectionSlug: string; modelId: string }
+    }): Promise<PublishDraft>
+    publishGetDraft(args: { draftId: string; connectionId?: string }): Promise<PublishDraft | null>
+    publishUpdateDraft(args: {
+      draftId: string
+      connectionId?: string
+      title?: string
+      markdown?: string
+    }): Promise<PublishDraft>
+    publishPrepare(args: {
+      draftId: string
+      connectionId: string
+      notebookId: string
+      path: string
+      adoptExisting?: boolean
+    }): Promise<PublishPrepareResult>
+    publishApply(args: { draftId: string; connectionId: string }): Promise<PublishApplyResult>
+    publishFinalize(args: {
+      draftId: string
+      proposalId: string
+      connectionId?: string
+      appliedDocRef?: KnowledgeRef
+    }): Promise<PublishApplyResult>
+    publishList(args: {
+      connectionId?: string
+      sessionId?: string
+      runId?: string
+    }): Promise<PublicationRecord[]>
+    listLinks(args: {
+      connectionId?: string
+      craftId?: string
+      knowledgeId?: string
+    }): Promise<KnowledgeLinkRecord[]>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void

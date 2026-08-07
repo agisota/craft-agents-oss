@@ -393,6 +393,17 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.GET_PROPOSAL,
   RPC_CHANNELS.knowledge.LIST_PROPOSALS,
 
+  // knowledge — P4 publication pipeline (spec 06): drafts/publications/links
+  // are workspace data under {workspaceRoot}/knowledge/.
+  RPC_CHANNELS.knowledge.PUBLISH_DISTILL,
+  RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT,
+  RPC_CHANNELS.knowledge.PUBLISH_UPDATE_DRAFT,
+  RPC_CHANNELS.knowledge.PUBLISH_PREPARE,
+  RPC_CHANNELS.knowledge.PUBLISH_APPLY,
+  RPC_CHANNELS.knowledge.PUBLISH_FINALIZE,
+  RPC_CHANNELS.knowledge.PUBLISH_LIST,
+  RPC_CHANNELS.knowledge.LIST_LINKS,
+
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
   RPC_CHANNELS.memory.ADD_LESSON,

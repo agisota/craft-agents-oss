@@ -70,14 +70,17 @@ export async function executeMutationOps(
   const appliedOps: MutationOp[] = [];
 
   for (let index = 0; index < ops.length; index++) {
-    const op = ops[index]!;
+    const raw = ops[index]!;
+    // Bind $insertedBlockId[N] on forward ops so createDocument + setAttribute batches work
+    // (placeholders are only known after earlier create/append ops return kernel ids).
+    const op = substituteInsertedIds(raw, createdByIndex);
     try {
       const createdId = await applyOne(client, op);
       if (createdId) {
         createdByIndex[index] = createdId;
         createdIdsByOpIndex[index] = createdId;
-        if (op.op === 'createDocument') createdIds.documentIds.push(createdId);
-        else if (op.op === 'appendBlock') createdIds.blockIds.push(createdId);
+        if (raw.op === 'createDocument') createdIds.documentIds.push(createdId);
+        else if (raw.op === 'appendBlock') createdIds.blockIds.push(createdId);
       }
       appliedOps.push(op);
     } catch (cause) {

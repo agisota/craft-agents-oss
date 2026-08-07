@@ -143,6 +143,7 @@ import { FabNewChat } from "./FabNewChat"
 import { SendToWorkspaceDialog } from "./SendToWorkspaceDialog"
 import { CreateProjectDialog } from "../projects/CreateProjectDialog"
 import { MessagingDialogHost } from "@/components/messaging/MessagingDialogHost"
+import { PublishSessionDialogHost } from "@/components/knowledge/PublishSessionDialogHost"
 import { EditPopover, getEditConfig, type EditContextKey } from "@/components/ui/EditPopover"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
 import {
@@ -4036,6 +4037,7 @@ function AppShellContent({
       {/* Messaging dialogs (pairing-code + WA connect) — driven by messagingDialogAtom.
           Mounted here so they survive context-menu / dropdown close. */}
       <MessagingDialogHost />
+      <PublishSessionDialogHost />
 
       {/* Y4: first-run memory onboarding — shown once when no lessons exist */}
       <OnboardingDialog workspaceId={activeWorkspaceId ?? undefined} />

@@ -232,7 +232,7 @@ describe('ensureBundledSkills conflicts', () => {
 // ============================================================
 
 describe('bundled packs end-to-end (real bundle, synthetic HOME)', () => {
-  it('ensureBundledSkills installs the 4 vendored packs and loadAllSkills discovers them', () => {
+  it('ensureBundledSkills installs the vendored packs and loadAllSkills discovers them', () => {
     const home = join(tempDir, 'home');
     const workspace = join(tempDir, 'ws');
     mkdirSync(home, { recursive: true });
@@ -269,8 +269,9 @@ describe('bundled packs end-to-end (real bundle, synthetic HOME)', () => {
       slugs: string[];
     };
 
-    // All four packs synced with zero errors and no false localModified flags.
+    // All vendored packs synced with zero errors and no false localModified flags.
     expect(out.packs.map(p => p.slug).sort()).toEqual([
+      'craft-knowledge',
       'mattpocock-skills',
       'superpowers',
       'vercel-agent-skills',

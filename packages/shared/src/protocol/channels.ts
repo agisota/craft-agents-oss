@@ -152,8 +152,9 @@ export const RPC_CHANNELS = {
     CHANGED: 'notes:changed',
   },
   // knowledge — P1 read-only knowledge provider (spec 03) plus P3 write-back
-  // mutation-proposal channels (spec 05). Engine lifecycle (engineStart/
-  // engineStop) remains P7 and MUST NOT be added here.
+  // mutation-proposal channels (spec 05) plus P4 Session→Knowledge publication
+  // pipeline (spec 06). Engine lifecycle (engineStart/engineStop) remains P7
+  // and MUST NOT be added here.
   knowledge: {
     LIST_CONNECTIONS: 'knowledge:listConnections',
     CAPABILITIES: 'knowledge:capabilities',
@@ -175,6 +176,17 @@ export const RPC_CHANNELS = {
     ROLLBACK_PROPOSAL: 'knowledge:rollbackProposal',
     GET_PROPOSAL: 'knowledge:getProposal',
     LIST_PROPOSALS: 'knowledge:listProposals',
+    // P4 publication pipeline, spec 06 — Session→Knowledge distill/prepare/
+    // apply/finalize. All eight are REMOTE_ELIGIBLE (drafts/publications/links
+    // live under {workspaceRoot}/knowledge/).
+    PUBLISH_DISTILL: 'knowledge:publishDistill',
+    PUBLISH_GET_DRAFT: 'knowledge:publishGetDraft',
+    PUBLISH_UPDATE_DRAFT: 'knowledge:publishUpdateDraft',
+    PUBLISH_PREPARE: 'knowledge:publishPrepare',
+    PUBLISH_APPLY: 'knowledge:publishApply',
+    PUBLISH_FINALIZE: 'knowledge:publishFinalize',
+    PUBLISH_LIST: 'knowledge:publishList',
+    LIST_LINKS: 'knowledge:listLinks',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)

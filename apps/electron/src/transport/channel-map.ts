@@ -252,7 +252,8 @@ export const CHANNEL_MAP = {
   onNotesChanged: listener(RPC_CHANNELS.notes.CHANGED),
 
   // Knowledge — 9 P1 reads (spec 2026-08-07-siyuan-integration/03) plus the
-  // 7 P3 write-back proposal channels (spec 05), all REMOTE_ELIGIBLE.
+  // 7 P3 write-back proposal channels (spec 05) plus 8 P4 publication channels
+  // (spec 06), all REMOTE_ELIGIBLE except engineStatus (LOCAL_ONLY).
   // Dotted keys nest into api.knowledge.*, mirroring the browserPane surface.
   'knowledge.listConnections': invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS),
   'knowledge.capabilities': invoke(RPC_CHANNELS.knowledge.CAPABILITIES),
@@ -271,6 +272,15 @@ export const CHANNEL_MAP = {
   'knowledge.rollbackProposal': invoke(RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL),
   'knowledge.getProposal': invoke(RPC_CHANNELS.knowledge.GET_PROPOSAL),
   'knowledge.listProposals': invoke(RPC_CHANNELS.knowledge.LIST_PROPOSALS),
+  // P4 publication pipeline (spec 06): Session→Knowledge distill/prepare/apply.
+  'knowledge.publishDistill': invoke(RPC_CHANNELS.knowledge.PUBLISH_DISTILL),
+  'knowledge.publishGetDraft': invoke(RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT),
+  'knowledge.publishUpdateDraft': invoke(RPC_CHANNELS.knowledge.PUBLISH_UPDATE_DRAFT),
+  'knowledge.publishPrepare': invoke(RPC_CHANNELS.knowledge.PUBLISH_PREPARE),
+  'knowledge.publishApply': invoke(RPC_CHANNELS.knowledge.PUBLISH_APPLY),
+  'knowledge.publishFinalize': invoke(RPC_CHANNELS.knowledge.PUBLISH_FINALIZE),
+  'knowledge.publishList': invoke(RPC_CHANNELS.knowledge.PUBLISH_LIST),
+  'knowledge.listLinks': invoke(RPC_CHANNELS.knowledge.LIST_LINKS),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop

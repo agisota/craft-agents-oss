@@ -7,6 +7,7 @@ export * from './refs.ts';
 export * from './capabilities.ts';
 export * from './context.ts';
 export * from './mutations.ts';
+export * from './publications.ts';
 export * from './provider.ts';
 export * from './errors.ts';
 export * from './providers/inmemory.ts';

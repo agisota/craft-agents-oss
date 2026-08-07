@@ -1,17 +1,17 @@
 /**
  * Knowledge provider RPC handlers — 9 read channels (P1, spec
  * 2026-08-07-siyuan-integration/03 §§3.2–3.6, storage per spec 04 §3.3) plus
- * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md).
+ * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md)
+ * plus 8 Session→Knowledge publication channels (P4, spec 06).
  *
  * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
- * channels + the 7 spec-05 proposal channels. Every mutation channel routes
- * through KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
- * draft → diff → review → apply, with inverse-ops rollback) — no direct
- * provider write path is registered from this file, and engine-lifecycle
- * channels remain P7 and absent by design. Everything OUTSIDE the declared
- * seven write-back channels keeps the P1 read-only invariant verbatim: no
- * other mutation channel constant, handler, or store write path towards
- * SiYuan exists here.
+ * channels + the 7 spec-05 proposal channels + the 8 spec-06 publication
+ * channels. Every mutation channel routes through KnowledgeBridgeService
+ * (the spec-05 pipeline: validate → base-hash → draft → diff → review → apply,
+ * with inverse-ops rollback) — no direct provider write path is registered
+ * from this file, and engine-lifecycle channels remain P7 and absent by
+ * design. Publication APPLY only creates a proposal; FINALIZE commits
+ * publications/links after the proposal reaches 'applied' via P3 UI.
  *
  * Proposal wiring: one memoized KnowledgeBridgeService per workspace root —
  * proposals/audit are workspace data at {root}/knowledge/{proposals,
@@ -40,10 +40,15 @@ import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type {
   ApplyResult,
   KnowledgeEngineStatus,
+  KnowledgeLinkRecord,
   MutationActor,
   MutationInput,
   MutationProposal,
   MutationProposalStatus,
+  PublicationRecord,
+  PublishApplyResult,
+  PublishDraft,
+  PublishPrepareResult,
 } from '@craft-agent/shared/protocol'
 import { getWorkspaceByNameOrId, getWorkspaces } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
@@ -74,6 +79,8 @@ import {
   KnowledgeConnectionsStore,
   KnowledgeContextSnapshotsStore,
   KnowledgeMutationProposalsStore,
+  KnowledgePublicationService,
+  KnowledgePublishDraftsStore,
   credentialIdFromRef,
 } from '../../knowledge'
 import {
@@ -104,7 +111,7 @@ export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor
   }
 }
 
-/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back proposal channels; asserted verbatim by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication; asserted verbatim by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -122,6 +129,15 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
   RPC_CHANNELS.knowledge.GET_PROPOSAL,
   RPC_CHANNELS.knowledge.LIST_PROPOSALS,
+  // P4 publication pipeline (spec 06)
+  RPC_CHANNELS.knowledge.PUBLISH_DISTILL,
+  RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT,
+  RPC_CHANNELS.knowledge.PUBLISH_UPDATE_DRAFT,
+  RPC_CHANNELS.knowledge.PUBLISH_PREPARE,
+  RPC_CHANNELS.knowledge.PUBLISH_APPLY,
+  RPC_CHANNELS.knowledge.PUBLISH_FINALIZE,
+  RPC_CHANNELS.knowledge.PUBLISH_LIST,
+  RPC_CHANNELS.knowledge.LIST_LINKS,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -178,10 +194,65 @@ export interface KnowledgeApplyProposalArgs extends KnowledgeProposalArgs {
 }
 
 export interface KnowledgeListProposalsArgs {
-  /** Scoped list when present; absent → aggregate across every workspace. */
   workspaceId?: string
   connectionId?: string
   status?: MutationProposalStatus
+}
+
+// ---------------------------------------------------------------------------
+// P4 publication wire shapes (spec 06)
+// ---------------------------------------------------------------------------
+
+export interface KnowledgePublishDistillArgs {
+  connectionId: string
+  sessionId?: string
+  runIds?: string[]
+  language?: string
+  /** Optional override for tests / when session message load is unavailable. */
+  messages?: Array<{ id: string; role: string; content: string }>
+  model?: { connectionSlug: string; modelId: string }
+}
+
+export interface KnowledgePublishDraftArgs {
+  draftId: string
+  connectionId?: string
+}
+
+export interface KnowledgePublishUpdateDraftArgs extends KnowledgePublishDraftArgs {
+  title?: string
+  markdown?: string
+}
+
+export interface KnowledgePublishPrepareArgs {
+  draftId: string
+  connectionId: string
+  notebookId: string
+  path: string
+  adoptExisting?: boolean
+}
+
+export interface KnowledgePublishApplyArgs {
+  draftId: string
+  connectionId: string
+}
+
+export interface KnowledgePublishFinalizeArgs {
+  draftId: string
+  proposalId: string
+  connectionId?: string
+  appliedDocRef?: KnowledgeRef
+}
+
+export interface KnowledgePublishListArgs {
+  connectionId?: string
+  sessionId?: string
+  runId?: string
+}
+
+export interface KnowledgeListLinksArgs {
+  connectionId?: string
+  craftId?: string
+  knowledgeId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -345,14 +416,20 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     if (workspaces.length === 1 && only) return { rootPath: only.rootPath, workspaceId: only.id }
     throw new CodedError('INVALID_REF', `knowledge: cannot resolve workspace for connection '${record.id}'`)
   }
-
   /** Proposal-id-only channels: locate the owning workspace by scanning getWorkspaces(). */
-  async function locateProposalBridge(proposalId: string): Promise<{ bridge: KnowledgeBridgeService; record: KnowledgeProposalFileRecord }> {
+  async function locateProposalBridge(proposalId: string): Promise<{
+    bridge: KnowledgeBridgeService
+    record: KnowledgeProposalFileRecord
+    rootPath: string
+    workspaceId: string
+  }> {
     for (const workspace of getWorkspaces()) {
       const bridge = bridgeFor(workspace.rootPath, workspace.id)
       await bridge.sweepExpired()
       const record = bridge.get(proposalId)
-      if (record) return { bridge, record }
+      if (record) {
+        return { bridge, record, rootPath: workspace.rootPath, workspaceId: workspace.id }
+      }
     }
     throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
   }
@@ -523,18 +600,37 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   })
 
   // ——— APPLY_PROPOSAL({proposalId, workspaceId?}) → ApplyResult ———
+  // After a successful apply, fail-soft auto-finalize any matching publish draft that is
+  // still 'publishing' for this proposalId (so UI chip works without a separate finalize hop).
   server.handle(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, async (_ctx, args: KnowledgeApplyProposalArgs): Promise<ApplyResult> => {
     const proposalId = requireProposalId(args)
+    let rootPath: string
+    let workspaceId: string | undefined
+    let bridge: KnowledgeBridgeService
     if (args?.workspaceId) {
-      const bridge = bridgeFor(requireWorkspaceRoot(args.workspaceId), args.workspaceId)
+      workspaceId = args.workspaceId
+      rootPath = requireWorkspaceRoot(workspaceId)
+      bridge = bridgeFor(rootPath, workspaceId)
       await bridge.sweepExpired()
       if (!bridge.get(proposalId)) {
         throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
       }
-      return withProposalTransitions(() => bridge.apply(proposalId))
+    } else {
+      const located = await locateProposalBridge(proposalId)
+      bridge = located.bridge
+      rootPath = located.rootPath
+      workspaceId = located.workspaceId
     }
-    const { bridge } = await locateProposalBridge(proposalId)
-    return withProposalTransitions(() => bridge.apply(proposalId))
+    const result = await withProposalTransitions(() => bridge.apply(proposalId))
+    if ((result.status === 'applied' || result.applied) && rootPath) {
+      await tryAutoFinalizePublication({
+        rootPath,
+        proposalId,
+        createdRef: result.createdRef,
+        log,
+      })
+    }
+    return result
   })
 
   // ——— ROLLBACK_PROPOSAL({proposalId}) → ApplyResult ———
@@ -562,5 +658,281 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       proposals.push(...bridge.list({ status: args.status, connectionId: args.connectionId }))
     }
     return proposals
+  })
+
+  // -------------------------------------------------------------------------
+  // P4 publication pipeline (spec 06) — distill → prepare → apply(propose) →
+  // finalize. Drafts/publications/links live under {workspaceRoot}/knowledge/.
+  // -------------------------------------------------------------------------
+  const publications = new KnowledgePublicationService()
+
+  /**
+   * Fail-soft: after APPLY_PROPOSAL succeeds, finalize any matching draft still in
+   * 'publishing' for this proposalId. Never throws into the apply response.
+   */
+  async function tryAutoFinalizePublication(args: {
+    rootPath: string
+    proposalId: string
+    createdRef?: KnowledgeRef
+    log: { debug: (...a: unknown[]) => void; warn: (...a: unknown[]) => void }
+  }): Promise<void> {
+    try {
+      const drafts = new KnowledgePublishDraftsStore(args.rootPath)
+      const match = drafts.list({ status: 'publishing' }).find((d) => d.proposalId === args.proposalId)
+      if (!match) return
+      const appliedDocRef =
+        args.createdRef ??
+        (match.targetDocId
+          ? { scheme: 'siyuan' as const, kind: 'document' as const, id: match.targetDocId }
+          : undefined)
+      await publications.finalize({
+        workspaceRoot: args.rootPath,
+        draftId: match.id,
+        proposalId: args.proposalId,
+        appliedDocRef,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      args.log.debug(
+        `knowledge.applyProposal: auto-finalize failed for proposal ${args.proposalId} (user can retry finalize): ${message}`,
+      )
+    }
+  }
+
+  /** Map plain service Errors (P4 service throws Error, not KnowledgeError) onto CodedError. */
+  function toPublishError(error: unknown, prefix: string): unknown {
+    if (error instanceof CodedError || error instanceof KnowledgeError) return toTransportError(error)
+    if (error instanceof MutationValidationError) {
+      return new CodedError('INVALID_REF', `${prefix}: ${error.reason}: ${error.message}`)
+    }
+    if (error instanceof Error) {
+      const msg = error.message
+      if (/not found/i.test(msg)) return new CodedError('NOT_FOUND', `${prefix}: ${msg}`)
+      if (/cannot edit|expected 'applied'|status is|already/i.test(msg)) {
+        return new CodedError('HASH_CONFLICT', `${prefix}: ${msg}`)
+      }
+      return new CodedError('INVALID_REF', `${prefix}: ${msg}`)
+    }
+    return error
+  }
+
+  async function loadSessionMessages(
+    sessionId: string | undefined,
+  ): Promise<Array<{ id: string; role: string; content: string }> | undefined> {
+    if (!sessionId) return undefined
+    try {
+      const session = await deps.sessionManager.getSession?.(sessionId)
+      const raw = (session as { messages?: Array<Record<string, unknown>> } | null)?.messages
+      if (!Array.isArray(raw)) return undefined
+      return raw.map((m, index) => {
+        const id = typeof m.id === 'string' ? m.id : `msg_${index}`
+        // StoredMessage uses `type` for role; runtime Message may use `role`.
+        const role = typeof m.role === 'string' ? m.role : typeof m.type === 'string' ? m.type : 'unknown'
+        const content = typeof m.content === 'string' ? m.content : ''
+        return { id, role, content }
+      })
+    } catch {
+      return undefined
+    }
+  }
+
+  function resolvePublishWorkspace(connectionId: string | undefined): {
+    rootPath: string
+    workspaceId: string
+    record?: KnowledgeConnectionRecord
+  } {
+    if (connectionId) {
+      const record = requireConnection(connectionId)
+      const ws = requireConnectionWorkspaceRoot(record)
+      return { ...ws, record }
+    }
+    const workspaces = getWorkspaces()
+    const only = workspaces[0]
+    if (workspaces.length === 1 && only) return { rootPath: only.rootPath, workspaceId: only.id }
+    throw new CodedError('INVALID_REF', 'knowledge.publish: connectionId is required to resolve workspace')
+  }
+
+  // ——— PUBLISH_DISTILL({connectionId, sessionId?, runIds?, messages?, model?}) → PublishDraft ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_DISTILL, async (_ctx, args: KnowledgePublishDistillArgs): Promise<PublishDraft> => {
+    if (!args?.connectionId || typeof args.connectionId !== 'string') {
+      throw new CodedError('INVALID_REF', 'knowledge.publishDistill: connectionId is required')
+    }
+    const record = requireConnection(args.connectionId)
+    const { rootPath } = requireConnectionWorkspaceRoot(record)
+    let messages = args.messages
+    if (!messages?.length && args.sessionId) {
+      messages = await loadSessionMessages(args.sessionId)
+    }
+    try {
+      return await publications.distill({
+        workspaceRoot: rootPath,
+        connectionId: args.connectionId,
+        sessionId: args.sessionId,
+        runIds: args.runIds,
+        language: args.language,
+        messages,
+        model: args.model,
+      })
+    } catch (error) {
+      throw toPublishError(error, 'knowledge.publishDistill')
+    }
+  })
+
+  // ——— PUBLISH_GET_DRAFT({draftId, connectionId?}) → PublishDraft | null ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT, (_ctx, args: KnowledgePublishDraftArgs): PublishDraft | null => {
+    if (typeof args?.draftId !== 'string' || args.draftId.length === 0) {
+      throw new CodedError('INVALID_REF', 'knowledge.publishGetDraft: draftId is required')
+    }
+    const { rootPath } = resolvePublishWorkspace(args.connectionId)
+    return publications.getDraft(rootPath, args.draftId)
+  })
+
+  // ——— PUBLISH_UPDATE_DRAFT({draftId, title?, markdown?, connectionId?}) → PublishDraft ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_UPDATE_DRAFT, (_ctx, args: KnowledgePublishUpdateDraftArgs): PublishDraft => {
+    if (typeof args?.draftId !== 'string' || args.draftId.length === 0) {
+      throw new CodedError('INVALID_REF', 'knowledge.publishUpdateDraft: draftId is required')
+    }
+    const { rootPath } = resolvePublishWorkspace(args.connectionId)
+    try {
+      return publications.updateDraft(rootPath, args.draftId, {
+        title: args.title,
+        markdown: args.markdown,
+      })
+    } catch (error) {
+      throw toPublishError(error, 'knowledge.publishUpdateDraft')
+    }
+  })
+
+  // ——— PUBLISH_PREPARE({draftId, connectionId, notebookId, path, adoptExisting?}) → PublishPrepareResult ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_PREPARE, async (_ctx, args: KnowledgePublishPrepareArgs): Promise<PublishPrepareResult> => {
+    if (!args?.connectionId || typeof args.draftId !== 'string') {
+      throw new CodedError('INVALID_REF', 'knowledge.publishPrepare: connectionId and draftId are required')
+    }
+    if (typeof args.notebookId !== 'string' || typeof args.path !== 'string') {
+      throw new CodedError('INVALID_REF', 'knowledge.publishPrepare: notebookId and path are required')
+    }
+    const record = requireConnection(args.connectionId)
+    const { rootPath } = requireConnectionWorkspaceRoot(record)
+    const provider = await resolveProvider(args.connectionId)
+    try {
+      return await publications.prepare({
+        workspaceRoot: rootPath,
+        draftId: args.draftId,
+        notebookId: args.notebookId,
+        path: args.path,
+        adoptExisting: args.adoptExisting,
+        provider,
+      })
+    } catch (error) {
+      throw toPublishError(error, 'knowledge.publishPrepare')
+    }
+  })
+
+  // ——— PUBLISH_APPLY({draftId, connectionId}) → PublishApplyResult ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_APPLY, async (_ctx, args: KnowledgePublishApplyArgs): Promise<PublishApplyResult> => {
+    if (!args?.connectionId || typeof args.draftId !== 'string') {
+      throw new CodedError('INVALID_REF', 'knowledge.publishApply: connectionId and draftId are required')
+    }
+    const record = requireConnection(args.connectionId)
+    const { rootPath, workspaceId } = requireConnectionWorkspaceRoot(record)
+    const provider = await resolveProvider(args.connectionId)
+    const bridge = bridgeFor(rootPath, workspaceId)
+    try {
+      return await publications.apply({
+        workspaceRoot: rootPath,
+        draftId: args.draftId,
+        provider,
+        bridge,
+        actor: 'user',
+      })
+    } catch (error) {
+      throw toPublishError(error, 'knowledge.publishApply')
+    }
+  })
+
+  // ——— PUBLISH_FINALIZE({draftId, proposalId, connectionId?, appliedDocRef?}) → PublishApplyResult ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_FINALIZE, async (_ctx, args: KnowledgePublishFinalizeArgs): Promise<PublishApplyResult> => {
+    if (typeof args?.draftId !== 'string' || typeof args?.proposalId !== 'string') {
+      throw new CodedError('INVALID_REF', 'knowledge.publishFinalize: draftId and proposalId are required')
+    }
+    let rootPath: string
+    let workspaceId: string | undefined
+    if (args.connectionId) {
+      const record = requireConnection(args.connectionId)
+      ;({ rootPath, workspaceId } = requireConnectionWorkspaceRoot(record))
+    } else {
+      // Prefer single-workspace install; otherwise require connectionId.
+      const workspaces = getWorkspaces()
+      const only = workspaces[0]
+      if (workspaces.length === 1 && only) {
+        rootPath = only.rootPath
+        workspaceId = only.id
+      } else {
+        // Best-effort: scan workspaces for a draft file via publication service.
+        const hit = workspaces.find((ws) => publications.getDraft(ws.rootPath, args.draftId) != null)
+        if (!hit) {
+          throw new CodedError(
+            'INVALID_REF',
+            'knowledge.publishFinalize: connectionId is required when multiple workspaces are present',
+          )
+        }
+        rootPath = hit.rootPath
+        workspaceId = hit.id
+      }
+    }
+
+    // Contract: finalize only after P3 apply — proposal must be 'applied'.
+    // Prefer stored proposal.createdRef so create-mode finalize works after reload without UI appliedDocRef.
+    let appliedDocRef = args.appliedDocRef
+    if (workspaceId) {
+      const bridge = bridgeFor(rootPath, workspaceId)
+      await bridge.sweepExpired()
+      const proposal = bridge.get(args.proposalId)
+      if (!proposal) {
+        throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${args.proposalId}`)
+      }
+      if (proposal.status !== 'applied') {
+        throw new CodedError(
+          'HASH_CONFLICT',
+          `knowledge.publishFinalize: proposal '${args.proposalId}' status is '${proposal.status}', expected 'applied'`,
+        )
+      }
+      const draft = publications.getDraft(rootPath, args.draftId)
+      appliedDocRef =
+        args.appliedDocRef ??
+        proposal.createdRef ??
+        (draft?.targetDocId
+          ? { scheme: 'siyuan', kind: 'document', id: draft.targetDocId }
+          : undefined)
+    }
+
+    try {
+      return await publications.finalize({
+        workspaceRoot: rootPath,
+        draftId: args.draftId,
+        proposalId: args.proposalId,
+        appliedDocRef,
+      })
+    } catch (error) {
+      throw toPublishError(error, 'knowledge.publishFinalize')
+    }
+  })
+
+  // ——— PUBLISH_LIST({connectionId?, sessionId?, runId?}) → PublicationRecord[] ———
+  server.handle(RPC_CHANNELS.knowledge.PUBLISH_LIST, (_ctx, args: KnowledgePublishListArgs = {}): PublicationRecord[] => {
+    const { rootPath } = resolvePublishWorkspace(args.connectionId)
+    return publications.listPublications(rootPath, {
+      sessionId: args.sessionId,
+      runId: args.runId,
+    })
+  })
+
+  // ——— LIST_LINKS({connectionId?, craftId?, knowledgeId?}) → KnowledgeLinkRecord[] ———
+  server.handle(RPC_CHANNELS.knowledge.LIST_LINKS, (_ctx, args: KnowledgeListLinksArgs = {}): KnowledgeLinkRecord[] => {
+    const { rootPath } = resolvePublishWorkspace(args.connectionId)
+    return publications.listLinks(rootPath, {
+      craftId: args.craftId,
+      knowledgeId: args.knowledgeId,
+    })
   })
 }

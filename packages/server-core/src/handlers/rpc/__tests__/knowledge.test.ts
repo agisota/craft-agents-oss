@@ -137,7 +137,8 @@ let workspaceRoot: string
 mock.module('@craft-agent/shared/config', () => ({
   getWorkspaceByNameOrId: (id: string) =>
     id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: workspaceRoot } : null,
-  getWorkspaces: () => [],
+  getWorkspaces: () =>
+    workspaceRoot ? [{ id: 'ws1', name: 'ws1', rootPath: workspaceRoot }] : [],
 }))
 
 import { registerKnowledgeHandlers, HANDLED_CHANNELS } from '../knowledge'
@@ -199,7 +200,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read + 7 P3 write-back channels — no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + 7 P3 write-back + 8 P4 publication channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -217,11 +218,20 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
       RPC_CHANNELS.knowledge.GET_PROPOSAL,
       RPC_CHANNELS.knowledge.LIST_PROPOSALS,
+      RPC_CHANNELS.knowledge.PUBLISH_DISTILL,
+      RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT,
+      RPC_CHANNELS.knowledge.PUBLISH_UPDATE_DRAFT,
+      RPC_CHANNELS.knowledge.PUBLISH_PREPARE,
+      RPC_CHANNELS.knowledge.PUBLISH_APPLY,
+      RPC_CHANNELS.knowledge.PUBLISH_FINALIZE,
+      RPC_CHANNELS.knowledge.PUBLISH_LIST,
+      RPC_CHANNELS.knowledge.LIST_LINKS,
     ])
     // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
     expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
+    expect(HANDLED_CHANNELS).toHaveLength(24) // 9 P1 + 7 P3 + 8 P4
   })
 
   it('registers a handler for every declared channel and nothing else', () => {

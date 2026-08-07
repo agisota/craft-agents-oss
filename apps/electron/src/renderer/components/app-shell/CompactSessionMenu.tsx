@@ -49,6 +49,7 @@ import {
   Send,
   Tag,
   Trash2,
+  BookOpen,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -79,6 +80,8 @@ import { getSessionStatus, hasUnreadMeta, hasMessagesMeta } from '@/utils/sessio
 import { getFileManagerName } from '@/lib/platform'
 import { useMessagingConnect, type MessagingPlatform } from '@/components/messaging/MessagingSessionMenuItem'
 import { useSessionMenuActions } from '@/hooks/useSessionMenuActions'
+import { useSetAtom } from 'jotai'
+import { publishSessionDialogAtom } from '@/atoms/knowledge-publish'
 
 type View = 'root' | 'status' | 'labels' | 'share' | 'messaging'
 
@@ -184,6 +187,22 @@ export function CompactSessionMenu({
   const _hasUnread = hasUnreadMeta(item)
 
   const actions = useSessionMenuActions({ item, onLabelsChange })
+
+  const setPublishDialog = useSetAtom(publishSessionDialogAtom)
+  const [hasKnowledgeConnection, setHasKnowledgeConnection] = React.useState(false)
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await window.electronAPI?.knowledge?.listConnections?.()
+        if (!cancelled) setHasKnowledgeConnection(Array.isArray(list) && list.length > 0)
+      } catch {
+        if (!cancelled) setHasKnowledgeConnection(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
 
   const flatLabelItems = React.useMemo(
     (): LabelMenuItem[] => createLabelMenuItems(labels),
@@ -301,6 +320,8 @@ export function CompactSessionMenu({
               hasMessages={_hasMessages}
               hasUnread={_hasUnread}
               hasTransferTargets={hasTransferTargets}
+              hasKnowledgeConnection={hasKnowledgeConnection}
+              onPublish={closeAfter(() => setPublishDialog({ open: true, sessionId: item.id }))}
               onShare={closeAfter(actions.share)}
               onOpenShareSub={() => setView('share')}
               onSendToWorkspace={closeAfter(onSendToWorkspace)}
@@ -374,6 +395,8 @@ interface RootPaneProps {
   hasMessages: boolean
   hasUnread: boolean
   hasTransferTargets?: boolean
+  hasKnowledgeConnection?: boolean
+  onPublish?: () => void
   onShare?: () => void
   onOpenShareSub: () => void
   onSendToWorkspace?: () => void
@@ -405,6 +428,8 @@ function RootPane({
   hasMessages,
   hasUnread,
   hasTransferTargets,
+  hasKnowledgeConnection,
+  onPublish,
   onShare,
   onOpenShareSub,
   onSendToWorkspace,
@@ -457,6 +482,13 @@ function RootPane({
         label={t('sessionMenu.connectMessaging')}
         chevron
         onTap={onOpenMessagingSub}
+      />
+
+      <Row
+        icon={<BookOpen className="h-4 w-4" />}
+        label={t('knowledge.publish.menu')}
+        disabled={!hasKnowledgeConnection}
+        onTap={onPublish}
       />
 
       <Separator />
@@ -631,6 +663,7 @@ interface RowProps {
   icon: React.ReactNode
   label: React.ReactNode
   trailing?: React.ReactNode
+  disabled?: boolean
   chevron?: boolean
   radioSelected?: boolean
   destructive?: boolean
@@ -644,17 +677,20 @@ function Row({
   chevron,
   radioSelected,
   destructive,
+  disabled,
   onTap,
 }: RowProps) {
   if (!onTap) return null
   return (
     <button
       type="button"
-      onClick={onTap}
+      onClick={disabled ? undefined : onTap}
+      disabled={disabled}
       className={cn(
         'flex items-center gap-3 w-full px-3 py-3 rounded-[10px] text-left transition-colors',
         'hover:bg-foreground/5 active:bg-foreground/10',
         destructive && 'text-destructive hover:bg-destructive/10 active:bg-destructive/15',
+        disabled && 'opacity-40 pointer-events-none',
       )}
     >
       <span className="shrink-0 inline-flex items-center justify-center h-5 w-5">

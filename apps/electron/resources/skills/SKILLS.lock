@@ -107,6 +107,17 @@
         "writing-fragments",
         "writing-shape"
       ]
+    },
+    {
+      "slug": "craft-knowledge",
+      "origin": "bundled",
+      "commit": "local",
+      "license": "MIT",
+      "licenseFile": null,
+      "note": "First-party Craft knowledge skills (P4 publication pipeline). Not cloned from an external origin; shipped under resources/skills/craft-knowledge.",
+      "skills": [
+        "knowledge-distill"
+      ]
     }
   ]
 }
