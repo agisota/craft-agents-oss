@@ -13,9 +13,9 @@
  * Mounted by `UnifiedShellLayout` (platform/index.tsx) — rendered only when
  * `featureUnifiedShellAtom` is ON.
  */
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { DatabaseZap, Globe, MessageSquare, PanelTop, Settings, X, Zap, type LucideIcon } from 'lucide-react'
+import { BookOpen, DatabaseZap, Globe, MessageSquare, PanelTop, Settings, X, Zap, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   closePanelAtom,
@@ -24,10 +24,13 @@ import {
   type PanelType,
 } from '@/atoms/panel-stack'
 import { sessionMetaMapAtom } from '@/atoms/sessions'
+import { useActiveWorkspace } from '@/context/AppShellContext'
 import { cn } from '@/lib/utils'
 import { getSessionTitle } from '@/utils/session'
+import { surfaceTabFromRoute, type SurfaceKnowledgeRef } from './layout-snapshot'
 import {
   buildSurfaceTabViews,
+  knowledgeRefKey,
   type SurfaceTabView,
 } from './surface-tab-model'
 
@@ -44,6 +47,8 @@ function tabIcon(tab: SurfaceTabView): LucideIcon {
       return Settings
     case 'skills':
       return Zap
+    case 'knowledge':
+      return BookOpen
     default:
       return PanelTop
   }
@@ -107,6 +112,8 @@ export function SurfaceTabs() {
   const entries = useAtomValue(panelStackAtom)
   const focusedPanelId = useAtomValue(focusedPanelIdAtom)
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+  const workspace = useActiveWorkspace()
+  const workspaceId = workspace?.id
 
   const resolveSessionTitle = useCallback(
     (sessionId: string) => {
@@ -116,10 +123,70 @@ export function SurfaceTabs() {
     [sessionMetaMap],
   )
 
+  // Knowledge tab titles (P3-16): each knowledge/database route carries its
+  // durable ref — resolve node titles once per (workspace, ref) and cache by
+  // ref key; tabs render the kind-qualified fallback until the title lands.
+  const knowledgeRefs = useMemo(() => {
+    const refs: SurfaceKnowledgeRef[] = []
+    for (const entry of entries) {
+      const surface = surfaceTabFromRoute(entry.route)
+      if (surface?.kind === 'knowledge' || surface?.kind === 'database') {
+        refs.push(surface.ref)
+      }
+    }
+    return refs
+  }, [entries])
+
+  const [knowledgeTitles, setKnowledgeTitles] = useState<ReadonlyMap<string, string>>(new Map())
+  const requestedRefKeys = useRef(new Set<string>())
+  useEffect(() => {
+    if (knowledgeRefs.length === 0 || !workspaceId) return
+    const api = typeof window === 'undefined' ? undefined : window.electronAPI?.knowledge
+    if (!api?.get || !api?.listConnections) return
+    let cancelled = false
+    void (async () => {
+      let connectionId: string | null = null
+      const resolved: Array<readonly [string, string]> = []
+      for (const ref of knowledgeRefs) {
+        const key = `${workspaceId}:${knowledgeRefKey(ref)}`
+        if (requestedRefKeys.current.has(key)) continue
+        requestedRefKeys.current.add(key)
+        if (connectionId === null) {
+          connectionId = (await api.listConnections().catch(() => []))[0]?.id ?? ''
+          if (!connectionId) return
+        }
+        try {
+          const node = await api.get({ workspaceId, connectionId, ref })
+          const title = node?.title?.trim()
+          if (title) resolved.push([key, title] as const)
+        } catch {
+          // Title unavailable — the tab keeps its kind-qualified fallback.
+        }
+      }
+      if (!cancelled && resolved.length > 0) {
+        setKnowledgeTitles((prev) => {
+          const next = new Map(prev)
+          for (const [key, title] of resolved) next.set(key, title)
+          return next
+        })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [knowledgeRefs, workspaceId])
+
+  const resolveKnowledgeTitle = useCallback(
+    (ref: SurfaceKnowledgeRef) =>
+      knowledgeTitles.get(`${workspaceId}:${knowledgeRefKey(ref)}`) ?? null,
+    [knowledgeTitles, workspaceId],
+  )
+
   const tabs = buildSurfaceTabViews({
     entries,
     focusedPanelId,
     resolveSessionTitle,
+    resolveKnowledgeTitle,
     labels: {
       untitled: t('surfaceTabs.untitled'),
       browser: t('surfaceTabs.browser'),
@@ -127,6 +194,8 @@ export function SurfaceTabs() {
       source: t('surfaceTabs.source'),
       settings: t('surfaceTabs.settings'),
       skills: t('surfaceTabs.skills'),
+      knowledge: t('knowledge.nav.title'),
+      knowledgeDiff: t('knowledge.diff.review'),
     },
   })
 

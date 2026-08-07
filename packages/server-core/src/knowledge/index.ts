@@ -5,3 +5,5 @@
  */
 export * from './connections-store'
 export * from './snapshots-store'
+export * from './proposals-store'
+export * from './knowledge-audit'

@@ -1,15 +1,18 @@
 /**
  * Deep links for the SiYuan provider (K-03 §3.5.3 + §3.1).
  *
- * Grammar (`siyuan://<kind>/<id>` build/parse) is owned by `../../refs.ts`
+ * Grammar (`siyuan://<hostname>/<id>` build/parse) is owned by `../../refs.ts`
  * (siyuanDeepLink/parseSiyuanDeepLink) — the single source of ref formats; re-exported here
  * for consumers of the provider subpath. This module adds only policy: which kinds the native
  * SiYuan editor can open, and the typed error the headless adapter raises in `open()` so the
  * Electron side can perform the navigation itself (renderer builds `routes.view.knowledge(...)`;
  * native fallback is the protocol link).
  *
- * NOTE (verified against the SiYuan desktop protocol handler): the native editor resolves
- * document- and block-anchored links (`siyuan://document/<id>`, `siyuan://block/<id>`).
+ * NOTE (re-verified against the SiYuan desktop protocol handler — parseSiYuanUriInfo,
+ * app/src/util/pathName.ts @ siyuan-note/siyuan eef1056838, 2026-08-07): the native handler
+ * resolves ONLY the `blocks` hostname — `siyuan://blocks/<\d{14}-\w{7}…>`; `document`/`block`
+ * hostnames parse to null upstream (silent no-op), which is why refs.ts siyuanDeepLink emits
+ * `siyuan://blocks/<id>` for both document and block refs (a SiYuan document IS its root block).
  * notebook/database/asset refs have no stable native surface — the Electron shell renders
  * those in-app (`knowledge/<kind>/<id>` route), never through the protocol handler.
  */

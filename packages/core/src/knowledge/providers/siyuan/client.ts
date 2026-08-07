@@ -28,14 +28,30 @@
  * Envelope everywhere: `{ code: 0, msg: '', data: T }` — code != 0 is a kernel-level error
  * (code 1 = generic/query error, -1 = exception, 3 = index in progress).
  *
- * P1 READ-ONLY (K-11): this client MUST NOT call any mutating kernel endpoint
- * (block/insertBlock, block/updateBlock, block/deleteBlock, attr/setBlockAttrs, filetree/createDoc*,
- * notebook/createNotebook, export/* write targets, filetree/remove*, etc.). query/sql is issued
- * exclusively with mode: 'readonly' + SELECT statements. Changing a mutations.* capability in
- * capabilities.ts without landing K-05 (P3) is a contract violation.
+ * P3 WRITE WHITELIST (K-05 §3.4.1, docs/specs/2026-08-07-siyuan-integration/05-mutation-safety.md) —
+ * the ONLY mutating endpoints this client wraps. Arg names/response shapes verified verbatim
+ * against siyuan-note/siyuan @ eef10568384e2e7cf547adb029ae46a72e43c287 (2026-08-07); NOTE: the
+ * public API doc MOVED from repo-root API_zh_CN.md to docs/API.zh-CN.md:
+ *
+ *   POST /api/filetree/createDocWithMd   args { notebook, path, markdown } → data: string (new doc id)
+ *      docs/API.zh-CN.md §"通过 Markdown 创建文档" L336-362; same-path re-call never overwrites.
+ *   POST /api/block/appendBlock          args { dataType: 'markdown'|'dom', data, parentID } →
+ *      data: [{ doOperations: [{ action:'insert', id: NEW_BLOCK_ID, parentID, ... }] }]  (§"插入后置子块" L733-778)
+ *   POST /api/block/updateBlock          args { dataType: 'markdown'|'dom', data, id } →
+ *      data: [{ doOperations: [{ action:'update', id, ... }] }]  (§"更新块" L780-821)
+ *   POST /api/attr/setBlockAttrs         args { id, attrs } → data: null
+ *      (§"设置块属性" L1033-1056; kernel requires custom-* attr names — craft-* and knowledge-* allowlist
+ *      guard lives in mutations.ts validators, §3.4.1)
+ *
+ * §3.4.2 DELIBERATE ABSENCE — no delete/remove/move/rename endpoint is or will be wrapped by this
+ * client in v1: no /api/block/deleteBlock (doc L823-860), no /api/filetree/removeDoc, no
+ * /api/filetree/renameDoc, no notebook-level writes. §3.8 rollback is SOFT: tombstone updateBlock +
+ * craft-rolled-back attribute. query/sql is SELECT-only, enforced client-side by assertSelectOnly
+ * (../../mutations.ts, throw before any network I/O) on top of server-side mode: 'readonly'.
  */
 
 import { KnowledgeError } from '../..';
+import { assertSelectOnly } from '../../mutations.ts';
 
 export const SIYUAN_DEFAULT_BASE_URL = 'http://127.0.0.1:6806';
 /** P1 compatibility floor (K-03 §3.6); enforced by settings/connection UI, not here. */
@@ -174,6 +190,23 @@ export interface SiyuanGetBacklinkResult {
 
 export interface SiyuanSqlRow {
   [column: string]: unknown;
+}
+
+// -- Write-endpoint response shapes (P3 §3.4.1; docs/API.zh-CN.md refs in the file header) ------
+
+/** One operation inside a kernel transaction response (appendBlock/updateBlock). */
+export interface SiyuanTransactionOperation {
+  action: string; // 'insert' | 'update' | ...
+  data: string | null; // rendered DOM of the affected block
+  id: string; // affected block id (created block id for appendBlock)
+  parentID?: string;
+  previousID?: string;
+  retData?: unknown;
+}
+
+export interface SiyuanBlockTransaction {
+  doOperations: SiyuanTransactionOperation[];
+  undoOperations: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,9 +354,11 @@ export class SiyuanKernelClient {
 
   /**
    * Read-only SQL projection (blocks table). READ-ONLY: always sent with mode: 'readonly'
-   * (server-side single-statement + non-mutating check; admin role). SELECT only.
+   * (server-side single-statement + non-mutating check; admin role). SELECT only — enforced
+   * client-side by assertSelectOnly (§3.4.2: non-SELECT throws before any network I/O).
    */
   sql<T extends SiyuanSqlRow = SiyuanSqlRow>(stmt: string): Promise<T[]> {
+    assertSelectOnly(stmt);
     return this.post<T[]>('/api/query/sql', { stmt, mode: 'readonly' });
   }
 
@@ -391,5 +426,59 @@ export class SiyuanKernelClient {
       yfm: false,
       addTitle: false,
     });
+  }
+
+  // -- Mutations (P3 whitelist §3.4.1 — verbatim arg names/refs in the file header) -------------
+  //
+  // These four are the ONLY write methods this class will ever expose (§3.4.2). Nothing named
+  // delete*/remove*/move*/rename* may be added; rollback is soft (tombstone + craft-rolled-back).
+
+  /**
+   * createDocument: create a document from GFM markdown; resolves to the new document id
+   * (kernel: same-path re-call never overwrites an existing document).
+   */
+  createDocWithMd(input: { notebook: string; path: string; markdown: string }): Promise<string> {
+    return this.post<string>('/api/filetree/createDocWithMd', {
+      notebook: input.notebook,
+      path: input.path,
+      markdown: input.markdown,
+    });
+  }
+
+  /**
+   * appendBlock: append markdown as trailing children of parentID (document id for doc-end
+   * appends). Resolves to the FIRST created block id (data[0].doOperations[0].id) — the anchor
+   * for the §3.8 soft-rollback tombstone.
+   */
+  async appendBlock(input: { parentID: string; data: string; dataType?: 'markdown' | 'dom' }): Promise<string> {
+    const transactions = await this.post<SiyuanBlockTransaction[]>('/api/block/appendBlock', {
+      dataType: input.dataType ?? 'markdown',
+      data: input.data,
+      parentID: input.parentID,
+    });
+    const createdId = transactions?.[0]?.doOperations?.[0]?.id;
+    if (!createdId) {
+      throw new KnowledgeError('PROVIDER_ERROR', 'SiYuan kernel appendBlock returned no created block id', {
+        endpoint: '/api/block/appendBlock',
+      });
+    }
+    return createdId;
+  }
+
+  /** updateBlock: replace a block's content (markdown). Transaction response carries no state we need. */
+  async updateBlock(input: { id: string; data: string; dataType?: 'markdown' | 'dom' }): Promise<void> {
+    await this.post<SiyuanBlockTransaction[]>('/api/block/updateBlock', {
+      dataType: input.dataType ?? 'markdown',
+      data: input.data,
+      id: input.id,
+    });
+  }
+
+  /**
+   * setAttribute: set IAL attrs on a block/document. Kernel requires custom-* names (doc L1050);
+   * the craft-* and knowledge-* allowlist guard runs in mutations.ts validators before this call.
+   */
+  async setBlockAttrs(input: { id: string; attrs: Record<string, string> }): Promise<void> {
+    await this.post<null>('/api/attr/setBlockAttrs', { id: input.id, attrs: input.attrs });
   }
 }

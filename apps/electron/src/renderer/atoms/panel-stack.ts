@@ -80,7 +80,10 @@ export function getPanelTypeFromRoute(route: ViewRoute): PanelType {
     // SiYuan Knowledge surface — routes.view.siyuan → 'knowledge/{kind}/{id}' (W2).
     // The route prefix is 'knowledge'; the deep-link scheme is 'siyuan' but never
     // appears as a route prefix.
+    // 'diff/{proposalId}' (P3 write-back review surface) is knowledge-domain UI —
+    // reuse the knowledge PanelType rather than widening the union.
     case 'knowledge':
+    case 'diff':
       return 'knowledge'
     default:
       return 'other'

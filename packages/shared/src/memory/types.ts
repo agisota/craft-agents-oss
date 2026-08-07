@@ -93,9 +93,18 @@ export interface ProjectMemoryDto {
   memoryContent: string
 }
 
-export type AuditActor = 'ui' | 'distill' | 'rpc' | 'queue'
+export type AuditActor = 'ui' | 'distill' | 'rpc' | 'queue' | 'user' | 'agent' | 'automation'
 
-export type AuditAction = 'add' | 'update' | 'delete' | 'promote' | 'conflict' | 'approved' | 'dismissed'
+export type AuditAction =
+  | 'add'
+  | 'update'
+  | 'delete'
+  | 'promote'
+  | 'conflict'
+  | 'approved'
+  | 'dismissed'
+  /** Knowledge bridge actions (spec K-05 §3.8: knowledge.proposal.created/…). */
+  | `knowledge.${string}`
 
 /**
  * One append-only audit line in {scope}/memory/audit.jsonl (spec F2).

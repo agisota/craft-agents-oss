@@ -251,9 +251,9 @@ export const CHANNEL_MAP = {
   unwatchNotes: invoke(RPC_CHANNELS.notes.UNWATCH),
   onNotesChanged: listener(RPC_CHANNELS.notes.CHANGED),
 
-  // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03).
+  // Knowledge — 9 P1 reads (spec 2026-08-07-siyuan-integration/03) plus the
+  // 7 P3 write-back proposal channels (spec 05), all REMOTE_ELIGIBLE.
   // Dotted keys nest into api.knowledge.*, mirroring the browserPane surface.
-  // No mutation entries exist at P1: propose/apply/discard land with P3.
   'knowledge.listConnections': invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS),
   'knowledge.capabilities': invoke(RPC_CHANNELS.knowledge.CAPABILITIES),
   'knowledge.search': invoke(RPC_CHANNELS.knowledge.SEARCH),
@@ -263,6 +263,14 @@ export const CHANNEL_MAP = {
   'knowledge.createSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE),
   'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
+  // P3 write-back (spec 05): mutation-proposal lifecycle.
+  'knowledge.proposeMutation': invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION),
+  'knowledge.approveProposal': invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL),
+  'knowledge.rejectProposal': invoke(RPC_CHANNELS.knowledge.REJECT_PROPOSAL),
+  'knowledge.applyProposal': invoke(RPC_CHANNELS.knowledge.APPLY_PROPOSAL),
+  'knowledge.rollbackProposal': invoke(RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL),
+  'knowledge.getProposal': invoke(RPC_CHANNELS.knowledge.GET_PROPOSAL),
+  'knowledge.listProposals': invoke(RPC_CHANNELS.knowledge.LIST_PROPOSALS),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop

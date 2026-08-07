@@ -70,7 +70,7 @@ describe('channel routing behavior', () => {
   })
 })
 
-describe('knowledge channel routing (P1 read-only)', () => {
+describe('knowledge channel routing (P1 read-only + P3 write-back)', () => {
   const REMOTE_READ_CHANNELS = [
     RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
     RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -83,8 +83,26 @@ describe('knowledge channel routing (P1 read-only)', () => {
     RPC_CHANNELS.knowledge.CHANGED,
   ]
 
+  // P3 write-back (spec 05): the declared mutation-proposal lifecycle set.
+  const P3_WRITE_CHANNELS = [
+    RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
+    RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
+    RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
+    RPC_CHANNELS.knowledge.APPLY_PROPOSAL,
+    RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
+    RPC_CHANNELS.knowledge.GET_PROPOSAL,
+    RPC_CHANNELS.knowledge.LIST_PROPOSALS,
+  ]
+
   test('knowledge read channels and CHANGED broadcast are REMOTE_ELIGIBLE', () => {
     for (const ch of REMOTE_READ_CHANNELS) {
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+
+  test('knowledge P3 write-back proposal channels are REMOTE_ELIGIBLE', () => {
+    for (const ch of P3_WRITE_CHANNELS) {
       expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
       expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
     }
@@ -95,22 +113,34 @@ describe('knowledge channel routing (P1 read-only)', () => {
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
   })
 
-  test('knowledge namespace is exactly the P1 read-only set (no mutation/engine-lifecycle channels)', () => {
+  test('knowledge namespace is exactly the P1 read set + P3 write-back set (no engine-lifecycle channels)', () => {
     expect([...Object.keys(RPC_CHANNELS.knowledge)].sort()).toEqual([
+      'APPLY_PROPOSAL',
+      'APPROVE_PROPOSAL',
       'CAPABILITIES',
       'CHANGED',
       'ENGINE_STATUS',
       'GET',
       'GET_BACKLINKS',
       'GET_CONTEXT',
+      'GET_PROPOSAL',
       'LIST_CONNECTIONS',
+      'LIST_PROPOSALS',
+      'PROPOSE_MUTATION',
+      'REJECT_PROPOSAL',
+      'ROLLBACK_PROPOSAL',
       'SEARCH',
       'SNAPSHOT_CREATE',
       'SNAPSHOT_GET',
     ])
-    // P3/P7: proposeMutation/applyMutation/discardMutation/engineStart/engineStop MUST NOT exist in P1.
+    // Guard: no mutation/engine-lifecycle channels outside the declared P3 set —
+    // engineStart/engineStop are P7 and MUST NOT exist yet.
+    const declared: readonly string[] = P3_WRITE_CHANNELS
     for (const ch of Object.values(RPC_CHANNELS.knowledge)) {
-      expect(ch).not.toMatch(/mutation|engineStart|engineStop/i)
+      expect(ch).not.toMatch(/engineStart|engineStop/i)
+      if (!declared.includes(ch)) {
+        expect(ch).not.toMatch(/mutation|proposal/i)
+      }
     }
   })
 })

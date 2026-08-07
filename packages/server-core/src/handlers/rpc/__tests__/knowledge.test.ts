@@ -13,10 +13,11 @@
  * stubbed at the module seam so no network ever happens.
  */
 import '../memory-test-setup' // must run before any module reading CRAFT_CONFIG_DIR
-import { beforeEach, afterAll, describe, expect, it, mock } from 'bun:test'
-import { rmSync } from 'fs'
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
-import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
+import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { CredentialId } from '@craft-agent/shared/credentials'
 import type { HandlerFn, RequestContext, RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../../handler-deps'
@@ -30,7 +31,8 @@ import type {
   SearchInput,
   SearchPage,
 } from '@craft-agent/core/knowledge'
-import { KnowledgeConnectionsStore } from '../../../knowledge'
+import { KnowledgeConnectionsStore, KnowledgeMutationProposalsStore } from '../../../knowledge'
+import type { KnowledgeProposalFileRecord } from '../../../knowledge/bridge-service'
 import type { SaveConnectionInput } from '../../../knowledge'
 
 // ---------------------------------------------------------------------------
@@ -39,70 +41,87 @@ import type { SaveConnectionInput } from '../../../knowledge'
 
 const DOC_REF: KnowledgeRef = { scheme: 'siyuan', kind: 'document', id: 'doc-1' }
 
-const fakeCapabilities: KnowledgeCapabilities = {
-  provider: 'siyuan',
-  version: '3.1.28',
-  minSupportedVersion: '2.10.0',
-  features: {
-    search: true,
-    backlinks: true,
-    attributes: true,
-    databases: true,
-    assets: true,
-    liveReference: true,
-    watch: false,
-    deepLinks: true,
+// Kernel-wire fixture for the REAL SiyuanKnowledgeProvider search mapping (fullTextSearchBlock).
+const KERNEL_SEARCH_RESPONSE = {
+  code: 0,
+  msg: '',
+  data: {
+    blocks: [
+      {
+        box: 'nb-1',
+        path: '/20260807142000-x1afz9.sy',
+        hPath: '/Research/Kernel Guide',
+        id: 'doc-1',
+        rootID: 'doc-1',
+        parentID: '',
+        name: 'Kernel Guide',
+        alias: '',
+        memo: '',
+        tag: '',
+        content: 'the siyuan <span data-type="search-mark">kernel</span> contract',
+        fcontent: '',
+        markdown: '',
+        folded: false,
+        type: 'NodeDocument',
+        subType: '',
+        refText: '',
+        refs: null,
+        defID: '',
+        defPath: '',
+        ial: '',
+        children: null,
+        depth: 0,
+        count: 0,
+        sort: 0,
+        created: '20260807000000',
+        updated: '20260807120000',
+      },
+    ],
+    matchedBlockCount: 1,
+    matchedRootCount: 1,
+    pageCount: 1,
+    docMode: false,
   },
-  mutations: {
-    createDocument: false,
-    appendBlock: false,
-    updateBlock: false,
-    setAttribute: false,
-    transactions: false,
-    rollback: false,
-  },
-}
-
-const fakeSearchPage: SearchPage = {
-  items: [
-    { ref: DOC_REF, title: 'Kernel Guide', snippet: 'the siyuan kernel …', notebookPath: '/Research/Kernel Guide', updatedAt: 1760400000000 },
-  ],
-  totalEstimate: 1,
 }
 
 const credentials = new Map<string, { value: string }>()
-const providerCtorArgs: Array<{ connection: KnowledgeConnection; token?: string }> = []
-let lastSearchInput: SearchInput | null = null
+const fetchCalls: Array<{ url: string; init: RequestInit }> = []
 let kernelProbeError: Error | null = null
 
-class FakeSiyuanKnowledgeProvider {
-  constructor(opts: { connection: KnowledgeConnection; token?: string }) {
-    providerCtorArgs.push(opts)
-  }
-  capabilities = async (): Promise<KnowledgeCapabilities> => fakeCapabilities
-  search = async (input: SearchInput): Promise<SearchPage> => {
-    lastSearchInput = input
-    return fakeSearchPage
-  }
-  get = async (_ref: KnowledgeRef): Promise<KnowledgeNode> => {
-    throw new Error('not exercised in these tests')
-  }
-  getContext = async (_ref: KnowledgeRef, _mode: ContextMode): Promise<ContextPayload> => {
-    throw new Error('not exercised in these tests')
-  }
-  proposeMutation = async (): Promise<never> => {
-    throw new Error('P1 is read-only')
-  }
-  applyMutation = async (): Promise<never> => {
-    throw new Error('P1 is read-only')
-  }
-  open = async (): Promise<never> => {
-    throw new Error('P1 is read-only')
-  }
+// globalThis.fetch seam: bun's mock.module registry is process-global and leaks into OTHER
+// test files in combined runs (the adapter's own suite observed this fake module and failed
+// 19/19 with our fixtures). Fetch, by contrast, is consulted per handler invocation — the
+// handler constructs SiyuanKernelClient without fetchImpl, so the real client+adapter run
+// end-to-end against this stub. Restored to the captured original in afterAll.
+const originalFetch = globalThis.fetch
+
+function installFetchSeam() {
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url)
+    fetchCalls.push({ url: u, init: init as RequestInit })
+    if (kernelProbeError) throw kernelProbeError
+    if (u.endsWith('/api/system/version')) {
+      return new Response(JSON.stringify({ code: 0, msg: '', data: '3.1.28' }), { status: 200 })
+    }
+    if (u.endsWith('/api/search/fullTextSearchBlock')) {
+      return new Response(JSON.stringify(KERNEL_SEARCH_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    throw new Error(`unmocked kernel endpoint: ${u}`)
+  }) as unknown as typeof fetch
 }
+installFetchSeam()
+
+afterAll(() => {
+  globalThis.fetch = originalFetch
+})
 
 // ---------------------------------------------------------------------------
-// Module seams (registered before the module under test loads)
+// Module seams: workspace registry + CredentialManager only. The SiYuan
+// provider/client run REAL through the fetch seam above — module mocks must
+// never target packages another suite imports directly (bun leak, see above).
 // ---------------------------------------------------------------------------
 
 mock.module('@craft-agent/shared/credentials', () => ({
@@ -113,26 +132,15 @@ mock.module('@craft-agent/shared/credentials', () => ({
   }),
 }))
 
+let workspaceRoot: string
+
 mock.module('@craft-agent/shared/config', () => ({
   getWorkspaceByNameOrId: (id: string) =>
-    id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: '/tmp/knowledge-test-ws' } : null,
+    id === 'ws1' ? { id: 'ws1', name: 'ws1', rootPath: workspaceRoot } : null,
+  getWorkspaces: () => [],
 }))
 
-import { registerKnowledgeHandlers, HANDLED_CHANNELS, __setKnowledgeTestConstructors } from '../knowledge'
-
-// Локальный seam вместо процесс-глобального mock.module на siyuan-баррель:
-// mock.module ломал packages/core adapter-тесты в полном прогоне сьюта.
-__setKnowledgeTestConstructors(
-  FakeSiyuanKnowledgeProvider as never,
-  class {
-    constructor(readonly opts: { baseUrl?: string; token: string }) {}
-    async getVersion(): Promise<string> {
-      if (kernelProbeError) throw kernelProbeError
-      return '3.1.28'
-    }
-  } as never,
-)
-afterAll(() => __setKnowledgeTestConstructors(null))
+import { registerKnowledgeHandlers, HANDLED_CHANNELS } from '../knowledge'
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -179,10 +187,10 @@ function seedConnection(id: string, overrides: Partial<SaveConnectionInput> = {}
 }
 
 beforeEach(() => {
+  workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-test-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
-  providerCtorArgs.length = 0
-  lastSearchInput = null
+  fetchCalls.length = 0
   kernelProbeError = null
 })
 
@@ -191,7 +199,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read channels — no mutation, no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + 7 P3 write-back channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -202,10 +210,16 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
       RPC_CHANNELS.knowledge.SNAPSHOT_GET,
       RPC_CHANNELS.knowledge.ENGINE_STATUS,
+      RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
+      RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
+      RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
+      RPC_CHANNELS.knowledge.APPLY_PROPOSAL,
+      RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
+      RPC_CHANNELS.knowledge.GET_PROPOSAL,
+      RPC_CHANNELS.knowledge.LIST_PROPOSALS,
     ])
-    // Roadmap P1 exit criterion: 0 write channels. Mutation channels (proposeMutation/
-    // applyMutation/discardMutation) and engine lifecycle (engineStart/engineStop) are P3/P7.
-    expect(HANDLED_CHANNELS.some((ch) => /mutation|engine(Start|Stop)/i.test(ch))).toBe(false)
+    // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
+    expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
   })
@@ -232,33 +246,30 @@ describe('listConnections', () => {
 })
 
 describe('search', () => {
-  it('resolves the provider with the CredentialManager token and passes input through untouched', async () => {
+  it('serves the query through the real provider with the CredentialManager token', async () => {
     seedConnection('conn-1', { status: 'ok' })
     credentials.set('source_bearer::ws1::conn-1', { value: 'secret-token-1' })
     const { invoke } = createHarness()
-    const input: SearchInput = { query: 'kernel' }
-    const page = await invoke(RPC_CHANNELS.knowledge.SEARCH, { connectionId: 'conn-1', input })
+    const page = (await invoke(RPC_CHANNELS.knowledge.SEARCH, { connectionId: 'conn-1', input: { query: 'kernel' } })) as SearchPage
 
-    expect(page).toBe(fakeSearchPage)
-    expect(lastSearchInput).toBe(input)
-    expect(providerCtorArgs.at(-1)).toEqual({
-      connection: {
-        id: 'conn-1',
-        provider: 'siyuan',
-        label: 'http://127.0.0.1:6806',
-        baseUrl: 'http://127.0.0.1:6806',
-        status: 'connected',
-      },
-      token: 'secret-token-1',
-    })
+    // Real adapter mapping of the kernel fixture (title from hPath leaf, markup stripped).
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]!.title).toBe('Kernel Guide')
+    expect(page.items[0]!.snippet).toBe('the siyuan kernel contract')
+    expect(page.items[0]!.ref).toEqual(DOC_REF)
+
+    // End-to-end plumbing: exact kernel endpoint, bearer token at protocol layer, query passthrough.
+    const call = fetchCalls.find((c) => c.url.endsWith('/api/search/fullTextSearchBlock'))!
+    expect((call.init.headers as Record<string, string>)['Authorization']).toBe('Token secret-token-1')
+    expect((JSON.parse(String(call.init.body)) as Record<string, unknown>)['query']).toBe('kernel')
   })
 
-  it('rejects an unknown connectionId with CodedError NOT_FOUND before touching the provider', async () => {
+  it('rejects an unknown connectionId with CodedError NOT_FOUND before touching the kernel', async () => {
     const { invoke } = createHarness()
     await expect(
       invoke(RPC_CHANNELS.knowledge.SEARCH, { connectionId: 'conn-missing', input: { query: 'x' } }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
-    expect(providerCtorArgs).toHaveLength(0)
+    expect(fetchCalls).toHaveLength(0)
   })
 })
 
@@ -277,5 +288,105 @@ describe('engineStatus', () => {
     const { invoke } = createHarness()
     const status = await invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS, { connectionId: 'conn-1' })
     expect(status).toEqual({ mode: 'external-local', running: false })
+  })
+})
+
+// TC-3: handler-invoke error-shape contracts for the P3 proposal channels.
+describe('proposals wire errors', () => {
+  it('getProposal with an unknown id rejects with CodedError NOT_FOUND (no workspaces scanned)', async () => {
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.GET_PROPOSAL, { proposalId: 'p_missing' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('listProposals returns [] when no workspaces are registered', async () => {
+    const { invoke } = createHarness()
+    const proposals = await invoke(RPC_CHANNELS.knowledge.LIST_PROPOSALS, {})
+    expect(proposals).toEqual([])
+  })
+
+  it('proposeMutation with ops: [] rejects as typed INVALID_REF, never a generic 500', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    // Default permission mode is 'ask' (mode-manager), so the gate passes and
+    // the empty-ops admission guard (validateOpsWhitelist 'empty-ops') is what fires.
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-1',
+        input: { targetRef: DOC_REF, ops: [] },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+  })
+
+  it('proposeMutation with a missing targetRef rejects as typed INVALID_REF before touching the bridge', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-1',
+        input: { ops: [{ op: 'updateBlock', blockId: 'b-1', markdown: 'x' }] },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('proposeMutation without input rejects as typed INVALID_REF', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, { connectionId: 'conn-1' }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+  })
+
+  it('proposeMutation with an unknown connectionId still rejects NOT_FOUND (unchanged precedence)', async () => {
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, {
+        connectionId: 'conn-missing',
+        input: { targetRef: DOC_REF, ops: [{ op: 'updateBlock', blockId: 'b-1', markdown: 'x' }] },
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+describe('applyProposal guard mapping (§3.2 wire contract, P2-14)', () => {
+  it('pre-sweep demotes approval-expired proposals (recorded) and answers apply with a typed HASH_CONFLICT + re-approval hint', async () => {
+    const { invoke } = createHarness()
+    const approvedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    const expiredSeed: KnowledgeProposalFileRecord = {
+      id: 'p_expired',
+      connectionId: 'conn-1',
+      targetRef: { scheme: 'siyuan', kind: 'block', id: 'blk-1' },
+      ops: [{ op: 'updateBlock', blockId: 'blk-1', markdown: 'patched' }],
+      selectionProofs: [],
+      baseHash: 'deadbeef',
+      baseReadAt: approvedAt,
+      preState: 'original',
+      hashAlgorithm: 'sha256-canonical-v1',
+      status: 'approved',
+      statusHistory: [{ from: 'pending_review', to: 'approved', at: approvedAt, actor: 'user' }],
+      createdAt: approvedAt,
+      updatedAt: approvedAt,
+      actor: 'user',
+      approvedBy: 'user',
+      approvedAt,
+    }
+    new KnowledgeMutationProposalsStore(workspaceRoot).save(expiredSeed)
+
+    const error: unknown = await invoke(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, {
+      proposalId: 'p_expired',
+      workspaceId: 'ws1',
+    }).then(() => null, (caught: unknown) => caught)
+
+    // Typed wire error — never a raw engine ProposalTransitionError stack.
+    expect(error).toBeInstanceOf(CodedError)
+    expect(error).toMatchObject({ code: 'HASH_CONFLICT' })
+    expect((error as Error).message).toContain("beginApply")
+    expect((error as Error).message).toContain('approve it again')
+    // And the pre-sweep demotion was RECORDED (the informative UX state), not silently errored.
+    const record = new KnowledgeMutationProposalsStore(workspaceRoot).get('p_expired')
+    expect(record?.status).toBe('pending_review')
+    expect(record?.approvedAt).toBeUndefined()
   })
 })

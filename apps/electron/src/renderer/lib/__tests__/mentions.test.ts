@@ -171,6 +171,42 @@ describe('removeMention - skill pattern with workspace IDs', () => {
 })
 
 // ============================================================================
+// removeMention - Knowledge Pattern Tests (P3-16)
+// ============================================================================
+
+describe('removeMention - knowledge tokens', () => {
+  it('removes the picker-inserted full-form token', () => {
+    const result = removeMention('see [knowledge:siyuan/block/b-1] please', 'knowledge', 'siyuan/block/b-1')
+    expect(result).toBe('see please')
+  })
+
+  it('removes the hand-typed compact token (provider segment omitted)', () => {
+    const result = removeMention('see [knowledge:block/b-1] please', 'knowledge', 'siyuan/block/b-1')
+    expect(result).toBe('see please')
+  })
+
+  it('removes compact and full spellings of the same ref together', () => {
+    const result = removeMention('[knowledge:block/b-1] and [knowledge:siyuan/block/b-1]', 'knowledge', 'siyuan/block/b-1')
+    expect(result).toBe('and')
+  })
+
+  it('removes a non-default-provider token by its full form', () => {
+    const result = removeMention('see [knowledge:yuan/block/b-1] please', 'knowledge', 'yuan/block/b-1')
+    expect(result).toBe('see please')
+  })
+
+  it('does not remove a compact default-provider token when a non-default provider badge is removed', () => {
+    const result = removeMention('[knowledge:block/b-1] stays', 'knowledge', 'yuan/block/b-1')
+    expect(result).toBe('[knowledge:block/b-1] stays')
+  })
+
+  it('does not remove a different block that extends the id', () => {
+    const result = removeMention('[knowledge:block/b-12]', 'knowledge', 'siyuan/block/b-1')
+    expect(result).toBe('[knowledge:block/b-12]')
+  })
+})
+
+// ============================================================================
 // stripAllMentions - Replaces mentions with slugs
 // ============================================================================
 

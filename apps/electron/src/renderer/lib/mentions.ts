@@ -163,11 +163,26 @@ export function removeMention(text: string, type: MentionItemType, id: string): 
     case 'folder':
       pattern = new RegExp(`\\[folder:${escapeRegExp(id)}\\]`, 'g')
       break
-    case 'knowledge':
-      // id is the serialized 'siyuan/<kind>/<id>' ref — matches the full-form token
-      // inserted by the mention picker ([knowledge:siyuan/<kind>/<id>])
-      pattern = new RegExp(`\\[knowledge:${escapeRegExp(id)}\\]`, 'g')
+    case 'knowledge': {
+      // id is the serialized '<provider>/<kind>/<id>' ref. The token grammar
+      // (spec K-03 §3.5.2) also permits the compact form `[knowledge:<kind>/<id>]`,
+      // where the provider segment is absent and defaults to siyuan — hand-typed
+      // compact tokens must be removable as well as picker-inserted full-form ones.
+      // A non-default provider keeps the exact full-form match (its compact token
+      // would resolve to the default provider, which is a different badge).
+      const segments = id.split('/')
+      if (segments.length < 2) {
+        pattern = new RegExp(`\\[knowledge:${escapeRegExp(id)}\\]`, 'g')
+      } else {
+        const [provider = DEFAULT_KNOWLEDGE_PROVIDER, ...rest] = segments
+        const kindAndId = rest.map(escapeRegExp).join('/')
+        pattern =
+          provider === DEFAULT_KNOWLEDGE_PROVIDER
+            ? new RegExp(`\\[knowledge:(?:${escapeRegExp(provider)}/)?${kindAndId}\\]`, 'g')
+            : new RegExp(`\\[knowledge:${escapeRegExp(provider)}/${kindAndId}\\]`, 'g')
+      }
       break
+    }
     case 'skill':
     default:
       // Match both [skill:slug] and [skill:workspaceId:slug]

@@ -1,9 +1,12 @@
 /**
- * SiyuanKnowledgeProvider — READ-ONLY KnowledgeProvider over SiyuanKernelClient (P1, K-03 §3.2).
+ * SiyuanKnowledgeProvider — KnowledgeProvider over SiyuanKernelClient: P1 read surface
+ * (K-03 §3.2) + P3 write-back (K-05 §3.2/§3.4.1, see "mutations" below).
  *
  * Endpoint decisions (each verified against wire shapes in ./client.ts — do not re-derive):
- * - capabilities()      → GET /api/system/version via client.getVersion(); features/mutations
- *                         flags are the P1 matrix below (K-03 §3.6: every mutation flag false).
+ * - capabilities()      → POST /api/system/version via client.getVersion(); features are the P1
+ *                         matrix below; mutations flags are the P3 matrix (K-03 §3.6 — the four
+ *                         §3.4.1 whitelisted ops true, transactions/rollback false with the
+ *                         rationale in the matrix comments below).
  * - search()            → POST /api/search/fullTextSearchBlock — /api/search/searchBlock does
  *                         NOT exist in the kernel (client header, router.go eef1056838).
  *                         kinds → kernel `types` map: 'document'→{document:true},
@@ -31,6 +34,20 @@
  *                         fresh state: 'snapshot' captures now, 'live-reference' re-reads now
  *                         (persistence/replay lives in server-core's snapshots store).
  * - open()              → canonical deep-links.ts throw (Electron-side navigation, K-03 §3.5.3).
+ * - proposeMutation()   → §3.4.1 structural validation (ops whitelist + path/size/attr-prefix
+ *                         guards) → READ target through get() (§3.1 same-reader rule) →
+ *                         in-memory DRAFT proposal {baseHash, preState, preStateAttributes,
+ *                         diff preview}. Review/approve is bridge-side engine work — the
+ *                         provider proposal never leaves 'draft'.
+ * - applyMutation()     → RE-READ through get() → HASH CHECK against the propose-time baseHash
+ *                         (defense in depth; the bridge checks first) → executeMutationOps
+ *                         (sequential + soft compensation, ./mutation-adapter.ts). PartialApplyError
+ *                         and kernel-typed KnowledgeErrors propagate VERBATIM; hash drift returns
+ *                         a conflicted ApplyResult {reason:'hash-mismatch', currentHash}.
+ *                         Selection-proof freshness/match is NOT re-run here: the bridge gates
+ *                         proofs at propose, and its T10 rollback pass legitimately sends inverse
+ *                         ops targeting kernel-created ids that carry no proof (same convention
+ *                         as InMemory's enforceSelectionProofs:false).
  *
  * Attributes convention: kernel IAL keys `custom-*` are the only domain attributes (§4.3) —
  * exposed with the prefix stripped; system IAL keys (id/title/created/updated) are dropped.
@@ -41,6 +58,17 @@
 import type { KnowledgeCapabilities } from '../../capabilities.ts';
 import type { ContextMode, ContextPayload } from '../../context.ts';
 import { KnowledgeError } from '../../errors.ts';
+import {
+  buildProposalDiff,
+  createProposalDraft,
+  DEFAULT_MAX_BLOCK_BYTES,
+  isAllowedAttributeName,
+  MutationValidationError,
+  normalizeDocumentPath,
+  PartialApplyError,
+  validateOpsWhitelist,
+  type MutationOp,
+} from '../../mutations.ts';
 import {
   hashKnowledgeContent,
   type ApplyResult,
@@ -54,6 +82,7 @@ import {
 } from '../../provider.ts';
 import { canonicalKnowledgeRef, siyuanDeepLink, type KnowledgeKind, type KnowledgeRef } from '../../refs.ts';
 import { nativeOpenUnsupportedError } from './deep-links.ts';
+import { executeMutationOps, type MutationExecutionResult } from './mutation-adapter.ts';
 import {
   SIYUAN_MIN_SUPPORTED_VERSION,
   SiyuanKernelClient,
@@ -148,12 +177,21 @@ export class SiyuanKnowledgeProvider implements KnowledgeProvider {
         deepLinks: true,
       },
       mutations: {
-        // P1: strictly read-only — every mutation flag is false (K-03 §3.6).
-        createDocument: false,
-        appendBlock: false,
-        updateBlock: false,
-        setAttribute: false,
+        // P3 (K-05 §3.4.1): the four whitelisted ops execute via ./mutation-adapter.ts
+        // (sequential, soft partial-apply compensation). K-03 §3.6: UI/MCP read THIS matrix
+        // only — flags must reflect real behavior.
+        createDocument: true,
+        appendBlock: true,
+        updateBlock: true,
+        setAttribute: true,
+        // FALSE, deliberately: the kernel has no multi-op atomicity on this path — batches run
+        // sequentially with best-effort inverse compensation (K-05 §3.2 invariant), which is
+        // NOT a transaction; claiming one would let callers skip hash/overlap discipline.
         transactions: false,
+        // FALSE, deliberately: rollback is SOFT and bridge-driven (K-05 §3.8/T10 — inverse ops
+        // flow back through proposeMutation/applyMutation as a second pass). The provider
+        // itself owns no rollback primitive, so the flag does not claim one; the bridge's
+        // persisted proposals store holds the inverse patch.
         rollback: false,
       },
     };
@@ -347,18 +385,147 @@ export class SiyuanKnowledgeProvider implements KnowledgeProvider {
 
   // -- mutations (P3 — docs/specs/2026-08-07-siyuan-integration/05-mutation-safety.md) ----------
 
-  async proposeMutation(_input: MutationInput): Promise<MutationProposal> {
-    throw new KnowledgeError(
-      'UNSUPPORTED_OPERATION',
-      'Knowledge mutations are unavailable in P1 (read-only provider). Propose/apply land at P3 — see docs/specs/2026-08-07-siyuan-integration/05-mutation-safety.md',
+  /**
+   * Provider-side op-batch registry for the bridge's propose→apply pair (bridge-service
+   * executeViaProvider issues them back-to-back). Bounded so a crashed pass can never grow the
+   * map without limit — entries past the cap drop oldest-first (a dropped draft applies as
+   * NOT_FOUND, which the bridge maps to its own typed failure, never to a silent write).
+   */
+  private readonly proposals = new Map<string, MutationProposal>();
+  private static readonly MAX_QUEUED_PROPOSALS = 256;
+
+  /**
+   * T1 provider-side: VALIDATE (§3.4.1 structural guards) → READ via get() (§3.1 same-reader
+   * rule: apply RE-READs through this same code path) → in-memory DRAFT proposal carrying
+   * baseHash/preState/diff preview. Status stays 'draft' — review/approve (T2/T3) is the
+   * bridge-side engine's job; the provider proposal never models it.
+   *
+   * Validation scope (deliberate): ops whitelist + path/title/256KB/attr-prefix guards hold
+   * for BOTH original ops and bridge-derived T10 inverse ops. Selection-proof freshness/match
+   * and the §3.6 permission gate are NOT re-run here: the bridge proves them at propose, and
+   * its rollback pass legitimately sends inverse ops targeting kernel-created ids that carry
+   * no proof — enforcing here would break soft rollback end-to-end (InMemory's
+   * enforceSelectionProofs:false precedent; mutation-adapter "ops are assumed already
+   * validated" contract).
+   */
+  async proposeMutation(input: MutationInput): Promise<MutationProposal> {
+    const ops = validateOpsWhitelist(input.ops);
+    assertStructuralOpGuards(ops);
+    if (!input.targetRef) {
+      throw new KnowledgeError('INVALID_REF', 'Siyuan proposeMutation requires targetRef (v1: one target per proposal)');
+    }
+    const targetRef = canonicalKnowledgeRef(input.targetRef);
+    for (const op of ops) {
+      // createDocument's baseHash protects the CONTAINING notebook read; anything else makes
+      // the T1/T6 same-reader hash meaningless (op targets a different notebook than the read).
+      if (op.op === 'createDocument' && (targetRef.kind !== 'notebook' || targetRef.id !== op.notebook)) {
+        throw new KnowledgeError(
+          'INVALID_REF',
+          `createDocument needs targetRef = the containing notebook "${op.notebook}", got ${targetRef.kind}/${targetRef.id}`,
+        );
+      }
+    }
+
+    // READ: get() preflights existence (NOT_FOUND). Notebooks have no markdown → preState ''
+    // and baseHash = sha256('') mark a not-yet-existing createDocument target.
+    const node = await this.get(targetRef);
+    const preState = node.markdown ?? '';
+    const preStateAttributes = {
+      [node.ref.id]: Object.fromEntries(node.attributes.map((attribute) => [attribute.key, attribute.value])),
+    };
+    const baseHash = await hashKnowledgeContent(preState);
+    const baseReadAt = new Date().toISOString();
+
+    const draft = createProposalDraft(
+      {
+        id: `sp_${crypto.randomUUID()}`,
+        connectionId: this.connection.id,
+        targetRef,
+        ops,
+        baseHash,
+        baseReadAt,
+        preState,
+        preStateAttributes,
+        selectionProofs: input.selectionProofs,
+        sessionId: input.sessionId,
+        actor: input.actor ?? 'user',
+      },
+      { enforceSelectionProofs: false }, // proof/scope gates are bridge-side (see method header)
     );
+    // Diff PREVIEW rides the draft for consumers that read provider proposals directly; the
+    // engine's T2 hop (draft → pending_review) is the bridge's, so status stays 'draft' while
+    // the diff field is filled by the same buildProposalDiff the engine would use.
+    const proposal: MutationProposal = { ...draft.proposal, diffDocument: buildProposalDiff(preState, ops) };
+    if (this.proposals.size >= SiyuanKnowledgeProvider.MAX_QUEUED_PROPOSALS) {
+      const oldest = this.proposals.keys().next().value;
+      if (oldest !== undefined) this.proposals.delete(oldest);
+    }
+    this.proposals.set(proposal.id, proposal);
+    return structuredClone(proposal);
   }
 
-  async applyMutation(_proposalId: string): Promise<ApplyResult> {
-    throw new KnowledgeError(
-      'UNSUPPORTED_OPERATION',
-      'Knowledge mutations are unavailable in P1 (read-only provider). Propose/apply land at P3 — see docs/specs/2026-08-07-siyuan-integration/05-mutation-safety.md',
-    );
+  /**
+   * T5→T6/T7 provider-side defense in depth: RE-READ via get() → HASH CHECK vs the
+   * propose-time baseHash → executeMutationOps (strictly sequential; a mid-batch failure is
+   * soft-compensated inside the adapter and surfaces as PartialApplyError). PartialApplyError
+   * and kernel-typed KnowledgeErrors propagate VERBATIM — the bridge maps them to its own
+   * T7/T8 bookkeeping; hash drift RETURNS the conflicted ApplyResult the wire type describes
+   * (reason/currentHash populated — UI toast routing keys on them).
+   */
+  async applyMutation(proposalId: string): Promise<ApplyResult> {
+    const stored = this.proposals.get(proposalId);
+    if (!stored) throw new KnowledgeError('NOT_FOUND', `Mutation proposal "${proposalId}" not found`);
+    if (stored.status !== 'draft') {
+      // §3.2 T11: a resolved provider-side proposal is terminal; a repeat write is a NEW pass.
+      throw new KnowledgeError(
+        'PROVIDER_ERROR',
+        `Mutation proposal "${proposalId}" already resolved (${stored.status}); repeat apply needs a new proposal (§3.2 T11)`,
+      );
+    }
+
+    // RE-READ + HASH CHECK through the same reader as propose. createDocument reads the
+    // notebook (content '' both times) — the check is vacuous by construction: there is no
+    // prior content to protect.
+    const reRead = await this.get(stored.targetRef);
+    const currentHash = await hashKnowledgeContent(reRead.markdown ?? '');
+    if (currentHash !== stored.baseHash) {
+      this.proposals.set(proposalId, { ...stored, status: 'conflict', updatedAt: new Date().toISOString() });
+      return { proposalId, applied: false, conflicted: true, status: 'conflict', reason: 'hash-mismatch', currentHash };
+    }
+
+    let execution: MutationExecutionResult;
+    try {
+      execution = await executeMutationOps(this.client, stored.ops, {
+        preState: { content: stored.preState ?? '', attributes: stored.preStateAttributes },
+      });
+    } catch (error) {
+      if (error instanceof PartialApplyError) {
+        // Local mirror of the bridge's T7 bookkeeping; the error itself propagates verbatim.
+        this.proposals.set(proposalId, { ...stored, status: 'conflict', updatedAt: new Date().toISOString() });
+      }
+      throw error;
+    }
+
+    const appliedAt = new Date().toISOString();
+    // Wire ApplyResult carries ONE createdRef (v1 contract): the document wins over child
+    // blocks; the full per-op-index capture lives on MutationExecutionResult.createdIdsByOpIndex.
+    const createdRef: KnowledgeRef | undefined =
+      execution.createdIds.documentIds.length > 0
+        ? { scheme: 'siyuan', kind: 'document', id: execution.createdIds.documentIds[0]! }
+        : execution.createdIds.blockIds.length > 0
+          ? { scheme: 'siyuan', kind: 'block', id: execution.createdIds.blockIds[0]! }
+          : undefined;
+
+    // Verify RE-READ (§3.1 same-reader): created nodes verify on themselves, everything else on
+    // the target. currentHash on SUCCESS is the post-apply hash — the bridge's own T6 verify
+    // re-derives it; on the conflict path above it was the observed drift hash.
+    const verified = await this.get(createdRef ?? stored.targetRef);
+    const postHash = await hashKnowledgeContent(verified.markdown ?? '');
+
+    this.proposals.set(proposalId, { ...stored, status: 'applied', appliedAt, appliedHash: postHash, updatedAt: appliedAt });
+    const result: ApplyResult = { proposalId, applied: true, conflicted: false, status: 'applied', appliedAt, currentHash: postHash };
+    if (createdRef) result.createdRef = createdRef;
+    return result;
   }
 
   // -- open (Electron-side navigation, K-03 §3.5.3) ------------------------------
@@ -468,12 +635,57 @@ function ialToAttributes(ial: Record<string, string>): {
 } {
   const attributes: KnowledgeNode['attributes'] = [];
   for (const [key, value] of Object.entries(ial)) {
+    // §4.3 convention: domain attributes are custom-* IAL keys ONLY — built-in SiYuan IAL keys
+    // (name/alias/memo/bookmark/anchor/…, beyond the SYSTEM_IAL_KEYS subset) are kernel node
+    // metadata and must never surface as domain attributes. SYSTEM_IAL_KEYS stays as
+    // belt+braces for the system subset even though the custom-* gate already excludes it.
     if (SYSTEM_IAL_KEYS[key]) continue;
-    attributes.push({ key: key.startsWith('custom-') ? key.slice('custom-'.length) : key, value });
+    if (!key.startsWith('custom-')) continue;
+    attributes.push({ key: key.slice('custom-'.length), value });
   }
   attributes.sort((a, b) => a.key.localeCompare(b.key));
   const updatedAt = parseSiyuanTimestamp(ial['updated']);
   return { attributes, createdAt: parseSiyuanTimestamp(ial['created']) || updatedAt, updatedAt };
+}
+
+const structuralGuardEncoder = new TextEncoder();
+
+/**
+ * §3.4.1 guards that hold for BOTH original ops and bridge-derived inverse ops: document-path
+ * sanity + non-empty title, appendBlock 256KB cap, attribute-name prefix. Ops-whitelist shape
+ * is validateOpsWhitelist (called first); selection-proof freshness/match is a bridge-side
+ * permission gate — T10 rollback inverse ops target kernel-created ids that carry no proofs,
+ * so the provider must not require them (see proposeMutation header).
+ */
+function assertStructuralOpGuards(ops: readonly MutationOp[]): void {
+  for (const op of ops) {
+    switch (op.op) {
+      case 'createDocument':
+        normalizeDocumentPath(op.path); // throws 'invalid-path' on '..'/resolving to root
+        if (op.title.trim() === '') {
+          throw new MutationValidationError('empty-title', 'createDocument title must be non-empty');
+        }
+        break;
+      case 'appendBlock':
+        if (structuralGuardEncoder.encode(op.markdown).length > DEFAULT_MAX_BLOCK_BYTES) {
+          throw new MutationValidationError(
+            'block-too-large',
+            `appendBlock markdown exceeds maxBlockBytes (${DEFAULT_MAX_BLOCK_BYTES})`,
+          );
+        }
+        break;
+      case 'setAttribute':
+        if (!isAllowedAttributeName(op.name)) {
+          throw new MutationValidationError(
+            'attribute-name-not-allowed',
+            `setAttribute name "${op.name}" must match ^(craft-|knowledge-) (system SiYuan attrs are read-only)`,
+          );
+        }
+        break;
+      case 'updateBlock':
+        break; // whitelist shape is the whole structural guard; the proof gate is bridge-side
+    }
+  }
 }
 
 function sqlString(value: string): string {

@@ -673,6 +673,26 @@ export interface KnowledgeEngineStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Knowledge mutation safety — P3 write-back wire types (spec 05 K-05 §3.1/§3.2,
+// persistence shape in K-04 §3.3.4). CANONICAL HOME: packages/core/src/knowledge/mutations.ts
+// (type convergence — the wire contract is the canonical shape; this module is a thin
+// re-export so every shared/protocol consumer keeps its import site unchanged).
+// ---------------------------------------------------------------------------
+
+export type {
+  MutationProposalStatus,
+  MutationActor,
+  StatusHistoryEntry,
+  MutationOp,
+  SelectionProof,
+  MutationInput,
+  ConflictInfo,
+  ApplyResult,
+  MutationProposalRecord,
+  MutationProposal,
+} from '@craft-agent/core/knowledge'
+
+// ---------------------------------------------------------------------------
 // LLM connection types
 // ---------------------------------------------------------------------------
 

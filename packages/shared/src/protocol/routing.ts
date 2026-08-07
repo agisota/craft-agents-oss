@@ -363,7 +363,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.notes.DELETE_FOLDER,
 
   // knowledge — P1 read-only knowledge provider (workspace-data read ops +
-  // change broadcast, proxied to the workspace-owning server; no mutations in P1)
+  // change broadcast, proxied to the workspace-owning server)
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
   RPC_CHANNELS.knowledge.SEARCH,
@@ -373,6 +373,16 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.CHANGED,
+
+  // knowledge — P3 write-back (spec 05): mutation-proposal lifecycle operates
+  // on workspace data, so all seven are proxied to the workspace-owning server.
+  RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
+  RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
+  RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
+  RPC_CHANNELS.knowledge.APPLY_PROPOSAL,
+  RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
+  RPC_CHANNELS.knowledge.GET_PROPOSAL,
+  RPC_CHANNELS.knowledge.LIST_PROPOSALS,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,

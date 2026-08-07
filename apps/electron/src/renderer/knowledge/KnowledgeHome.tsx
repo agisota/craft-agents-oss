@@ -18,8 +18,8 @@
  * routing happy path and the no-connections empty state without a DOM harness
  * (the electron renderer test convention is logic-level bun:test).
  */
-import { useAtomValue } from 'jotai'
-import { Bookmark, Search } from 'lucide-react'
+import { atom, useAtom, useAtomValue } from 'jotai'
+import { Bookmark, FileDiff, Search } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SearchHit } from '@craft-agent/core/knowledge'
@@ -28,6 +28,15 @@ import { EntityList } from '@/components/ui/entity-list'
 import { useNavigation } from '@/contexts/NavigationContext'
 import { routes } from '@/lib/navigate'
 import { cn } from '@/lib/utils'
+import { KnowledgeProposals } from './KnowledgeProposals'
+import { countActionableProposals, resolveKnowledgeMutationsApi } from './proposal-actions'
+
+/**
+ * Which body KnowledgeHome renders. Module-level atom so other column hosts
+ * (KnowledgeNavigator link) can surface the proposals list explicitly; the
+ * section entry below search toggles it in place.
+ */
+export const knowledgeHomeViewAtom = atom<'search' | 'proposals'>('search')
 
 // ---------------------------------------------------------------------------
 // Search logic (exported for tests — see header).
@@ -92,6 +101,31 @@ export function KnowledgeHome() {
   const [hits, setHits] = useState<SearchHit[]>([])
   const [status, setStatus] = useState<SearchStatus>('idle')
   const [noConnections, setNoConnections] = useState(false)
+  const [view, setView] = useAtom(knowledgeHomeViewAtom)
+  const [actionableProposalCount, setActionableProposalCount] = useState(0)
+
+  // Proposals section entry badge: count of proposals awaiting the user
+  // (pending_review/conflict), re-read on knowledge:changed (P3 push wiring).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    const refreshCount = async () => {
+      const api = resolveKnowledgeMutationsApi()
+      if (!api) return
+      try {
+        const count = await countActionableProposals(api, workspaceId ?? undefined)
+        if (!cancelled) setActionableProposalCount(count)
+      } catch {
+        /* leave the previous count in place */
+      }
+    }
+    void refreshCount()
+    const unsubscribe = window.electronAPI?.knowledge?.onChanged?.(() => void refreshCount())
+    return () => {
+      cancelled = true
+      unsubscribe?.()
+    }
+  }, [workspaceId])
 
   const runSearch = useCallback(
     async (q: string) => {
@@ -133,42 +167,83 @@ export function KnowledgeHome() {
     [navigate],
   )
 
+  // Empty-state semantics: idle prompts the search, no-connections points at
+  // Settings, a finished search with zero hits says so. The previously
+  // borrowed keys lied (home.title is a title, surface.compatHint is the
+  // compat banner, search.placeholder is input copy) — P3-16.
   const emptyState =
     status === 'idle' ? (
-      <HomeHint text={t('knowledge.home.title')} />
-    ) : noConnections ? (
-      <HomeHint text={t('knowledge.surface.compatHint')} />
-    ) : (
       <HomeHint text={t('knowledge.search.placeholder')} />
+    ) : noConnections ? (
+      <HomeHint text={t('knowledge.home.noConnections')} />
+    ) : (
+      <HomeHint text={t('knowledge.home.noResults')} />
     )
+
+  const proposalsEntry = (
+    <div className="px-3 pb-2">
+      <button
+        type="button"
+        onClick={() => setView(view === 'proposals' ? 'search' : 'proposals')}
+        aria-pressed={view === 'proposals'}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-md bg-muted/40 px-2.5 py-2 text-left',
+          'hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          view === 'proposals' && 'ring-1 ring-ring',
+        )}
+      >
+        <FileDiff className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/80">
+          {t('knowledge.proposals.title')}
+        </span>
+        {actionableProposalCount > 0 && (
+          <span className="shrink-0 rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {t('knowledge.proposals.count', { count: actionableProposalCount })}
+          </span>
+        )}
+      </button>
+    </div>
+  )
+
+  if (view === 'proposals') {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b border-border pt-3">{proposalsEntry}</div>
+        <KnowledgeProposals className="min-h-0 flex-1" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
       <EntityList<SearchHit>
         className="flex-1"
         header={
-          <form
-            className="sticky top-0 z-10 bg-background px-3 pb-2 pt-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void runSearch(query)
-            }}
-          >
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t('knowledge.search.placeholder')}
-                aria-label={t('knowledge.search.placeholder')}
-                className={cn(
-                  'w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-[13px]',
-                  'placeholder:text-muted-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                )}
-              />
-            </div>
-          </form>
+          <>
+            <form
+              className="sticky top-0 z-10 bg-background px-3 pb-2 pt-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void runSearch(query)
+              }}
+            >
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t('knowledge.search.placeholder')}
+                  aria-label={t('knowledge.search.placeholder')}
+                  className={cn(
+                    'w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-[13px]',
+                    'placeholder:text-muted-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  )}
+                />
+              </div>
+            </form>
+            {proposalsEntry}
+          </>
         }
         items={status === 'done' ? hits : []}
         getKey={(hit) => `${hit.ref.kind}:${hit.ref.id}`}

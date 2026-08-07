@@ -2,23 +2,31 @@
  * InMemoryKnowledgeProvider — full in-memory implementation of the KnowledgeProvider
  * contract (K-03 §3.3: «полная реализация в памяти для unit/component-тестов»).
  *
- * Mutation semantics (documented choice for the P1 batch): instead of throwing for the
- * P3-only methods, the provider implements the full READ → CAPTURE BASE HASH → LOCAL PATCH
- * flow in memory. proposeMutation builds diffPreview/inversePatch without touching the graph;
- * applyMutation re-reads the target and enforces the hash-conflict check (conflicted=true on
- * mismatch). This keeps the FULL interface live for contract-conformance tests; nothing is persisted.
+ * Mutation semantics (documented choice): the provider implements the full READ → CAPTURE BASE
+ * HASH → proposal lifecycle in memory, running the P3 engine (../mutations.ts) for the status
+ * machine. proposeMutation creates a draft and builds the diff (draft → pending_review);
+ * applyMutation auto-approves (the human approval + permission gates live in bridge-service —
+ * a provider test double models the stage AFTER them), then does RE-READ → HASH CHECK → APPLY →
+ * verify, reporting conflict on hash drift. Selection-proof guards are bridge-side too
+ * (spec §3.4.1), so the engine is created with enforceSelectionProofs=false here. Nothing is persisted.
  */
 
 import type { KnowledgeCapabilities } from '../capabilities.ts';
 import type { ContextMode, ContextPayload } from '../context.ts';
 import { KnowledgeError } from '../errors.ts';
 import {
+  computeInverseOps,
+  createProposalDraft,
+  transition,
+  validateOpsWhitelist,
+  type MutationOpKind,
+} from '../mutations.ts';
+import {
   hashKnowledgeContent,
   type ApplyResult,
   type KnowledgeNode,
   type KnowledgeProvider,
   type MutationInput,
-  type MutationOp,
   type MutationProposal,
   type SearchInput,
   type SearchPage,
@@ -46,8 +54,6 @@ interface PendingMutation {
   targetId: string | null;
   preAllocatedId?: string;
 }
-
-const PROPOSAL_TTL_MS = 15 * 60_000;
 
 function snippetOf(node: KnowledgeNode, query: string): string {
   const text = (node.markdown ?? node.title).replace(/\s+/g, ' ').trim();
@@ -181,135 +187,132 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
   }
 
   async proposeMutation(input: MutationInput): Promise<MutationProposal> {
-    const op = input.op;
-    const capabilityByOp: Record<MutationOp['type'], boolean> = {
-      'create-document': this.caps.mutations.createDocument,
-      'append-block': this.caps.mutations.appendBlock,
-      'update-block': this.caps.mutations.updateBlock,
-      'set-attribute': this.caps.mutations.setAttribute,
+    const ops = validateOpsWhitelist(input.ops); // shape guard; per-op proof/permissions guards are bridge-side
+    const capabilityByOp: Record<MutationOpKind, boolean> = {
+      createDocument: this.caps.mutations.createDocument,
+      appendBlock: this.caps.mutations.appendBlock,
+      updateBlock: this.caps.mutations.updateBlock,
+      setAttribute: this.caps.mutations.setAttribute,
     };
-    if (!capabilityByOp[op.type]) {
-      throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" does not support mutation "${op.type}"`);
+    if (ops.length > 1 && !this.caps.mutations.transactions) {
+      throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" supports one op per proposal (transactions=false)`);
+    }
+    const op = ops[0];
+    if (!op) throw new KnowledgeError('INVALID_REF', 'Mutation proposal needs at least one op');
+    if (!capabilityByOp[op.op]) {
+      throw new KnowledgeError('UNSUPPORTED_OPERATION', `Provider "${this.caps.provider}" does not support mutation "${op.op}"`);
     }
 
-    const createdAt = Date.now();
     const id = `inmem-proposal-${++this.sequence}`;
+    const baseReadAt = new Date().toISOString();
     let targetRef: KnowledgeRef;
     let preAllocatedId: string | undefined;
-    let diffPreview: MutationProposal['diffPreview'];
-    let inversePatch: MutationOp;
     let pendingTargetId: string | null;
-    let baseHash: string;
+    let preState: string;
+    let preStateAttributes: Record<string, Record<string, string>> | undefined;
 
-    if (op.type === 'create-document') {
-      const notebook = this.nodeOrThrow(op.notebookId);
+    if (op.op === 'createDocument') {
+      const notebook = this.nodeOrThrow(op.notebook);
       if (notebook.ref.kind !== 'notebook') {
-        throw new KnowledgeError('INVALID_REF', `Mutation "create-document" needs a notebook target, got ${notebook.ref.kind} "${op.notebookId}"`);
+        throw new KnowledgeError('INVALID_REF', `Mutation "createDocument" needs a notebook target, got ${notebook.ref.kind} "${op.notebook}"`);
       }
       targetRef = { scheme: 'siyuan', kind: 'document', id: `inmem-document-${++this.sequence}` };
       preAllocatedId = targetRef.id;
-      diffPreview = { before: '', after: op.markdown };
-      // In-memory approximation of delete (no delete op in MutationOp): rollback empties the created doc.
-      inversePatch = { type: 'update-block', blockId: targetRef.id, markdown: '' };
+      preState = '';
       pendingTargetId = null;
-      baseHash = await hashKnowledgeContent('');
     } else {
       if (!input.targetRef) {
-        throw new KnowledgeError('INVALID_REF', `Mutation "${op.type}" requires targetRef`);
+        throw new KnowledgeError('INVALID_REF', `Mutation "${op.op}" requires targetRef`);
       }
       const target = this.nodeOrThrow(validateKnowledgeRef(input.targetRef).id);
-      const opTargetId = op.type === 'append-block' ? op.parentId : op.type === 'update-block' ? op.blockId : op.targetId;
+      const opTargetId = op.op === 'appendBlock' ? op.documentId : op.blockId;
       if (opTargetId !== target.ref.id) {
         throw new KnowledgeError('INVALID_REF', `Mutation target "${opTargetId}" does not match targetRef "${target.ref.id}"`);
       }
-      const before = target.markdown ?? '';
-      switch (op.type) {
-        case 'append-block': {
-          preAllocatedId = `inmem-block-${++this.sequence}`;
-          diffPreview = { before, after: before ? `${before}\n${op.markdown}` : op.markdown };
-          // Rollback empties the appended child (no delete op in MutationOp).
-          inversePatch = { type: 'update-block', blockId: preAllocatedId, markdown: '' };
-          break;
-        }
-        case 'update-block': {
-          diffPreview = { before, after: op.markdown };
-          inversePatch = { type: 'update-block', blockId: op.blockId, markdown: before };
-          break;
-        }
-        case 'set-attribute': {
-          const old = target.attributes.find((attribute) => attribute.key === op.key)?.value ?? '';
-          diffPreview = { before: `${op.key}=${old}`, after: `${op.key}=${op.value}` };
-          inversePatch = { type: 'set-attribute', targetId: op.targetId, key: op.key, value: old };
-          break;
-        }
-      }
       targetRef = { ...target.ref };
+      preState = target.markdown ?? '';
+      preStateAttributes = { [target.ref.id]: Object.fromEntries(target.attributes.map((attribute) => [attribute.key, attribute.value])) };
+      if (op.op === 'appendBlock') preAllocatedId = `inmem-block-${++this.sequence}`;
       pendingTargetId = target.ref.id;
-      baseHash = await hashKnowledgeContent(before);
     }
+    const baseHash = await hashKnowledgeContent(preState);
 
-    const proposal: MutationProposal = {
-      id,
-      connectionId: this.connectionId,
-      sessionId: input.sessionId,
-      input,
-      targetRef,
-      baseHash,
-      diffPreview,
-      inversePatch,
-      status: 'pending',
-      createdAt,
-      expiresAt: createdAt + PROPOSAL_TTL_MS,
-    };
-    this.proposals.set(id, proposal);
+    const draft = createProposalDraft(
+      {
+        id,
+        connectionId: this.connectionId,
+        targetRef,
+        ops,
+        baseHash,
+        baseReadAt,
+        preState,
+        preStateAttributes,
+        sessionId: input.sessionId,
+        actor: input.actor ?? 'user',
+      },
+      { enforceSelectionProofs: false },
+    );
+    const built = transition(draft.proposal, { type: 'buildDiff' });
+    this.proposals.set(id, built.proposal);
     this.pendingMutations.set(id, { targetId: pendingTargetId, preAllocatedId });
-    return structuredClone(proposal);
+    return structuredClone(built.proposal);
   }
 
   async applyMutation(proposalId: string): Promise<ApplyResult> {
-    const proposal = this.proposals.get(proposalId);
-    if (!proposal) throw new KnowledgeError('NOT_FOUND', `Mutation proposal "${proposalId}" not found`);
-    if (proposal.status !== 'pending') {
-      throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" is ${proposal.status}, cannot apply`);
-    }
+    const stored = this.proposals.get(proposalId);
+    if (!stored) throw new KnowledgeError('NOT_FOUND', `Mutation proposal "${proposalId}" not found`);
     const pending = this.pendingMutations.get(proposalId);
     if (!pending) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pending op`);
-    const op = proposal.input.op;
 
-    if (op.type !== 'create-document') {
+    // Auto-approve (T3) — documented InMemory shortcut: approval/permission gates are bridge-side.
+    let working = stored;
+    if (working.status === 'pending_review') working = transition(working, { type: 'approve' }).proposal;
+    if (working.status !== 'approved') {
+      throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" is ${working.status}, cannot apply`);
+    }
+    working = transition(working, { type: 'beginApply' }).proposal;
+    const op = working.ops[0];
+    if (!op) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its op`);
+
+    // RE-READ + HASH CHECK. createDocument was absent at READ → hash of '' (no prior content to protect).
+    let reReadContent = '';
+    if (op.op !== 'createDocument') {
       const target = pending.targetId ? this.nodes.get(pending.targetId) : undefined;
       if (!target) throw new KnowledgeError('NOT_FOUND', `Mutation target "${pending.targetId}" no longer exists`);
-      const currentHash = await hashKnowledgeContent(target.markdown ?? '');
-      if (currentHash !== proposal.baseHash) {
-        proposal.status = 'conflicted';
-        return { proposalId, applied: false, conflicted: true, currentHash };
-      }
+      reReadContent = target.markdown ?? '';
+    }
+    const actualHash = await hashKnowledgeContent(reReadContent);
+    working = transition(working, { type: 'resolveHashCheck', actualHash, currentContent: reReadContent }).proposal;
+    if (working.status === 'conflict') {
+      this.proposals.set(proposalId, working);
+      return { proposalId, applied: false, conflicted: true, status: 'conflict', reason: 'hash-mismatch', currentHash: actualHash };
     }
 
-    const now = Date.now();
+    const nowMs = Date.now();
+    const appliedAt = new Date(nowMs).toISOString();
     let createdRef: KnowledgeRef | undefined;
-    if (op.type === 'create-document') {
-      const notebook = this.nodeOrThrow(op.notebookId);
-      const id = pending.preAllocatedId;
-      if (!id) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pre-allocated id`);
-      createdRef = { scheme: 'siyuan', kind: 'document', id };
-      this.nodes.set(id, {
+    if (op.op === 'createDocument') {
+      const notebook = this.nodeOrThrow(op.notebook);
+      const newId = pending.preAllocatedId;
+      if (!newId) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pre-allocated id`);
+      createdRef = { scheme: 'siyuan', kind: 'document', id: newId };
+      this.nodes.set(newId, {
         ref: createdRef,
-        title: op.path.split('/').filter(Boolean).pop() ?? op.path,
+        title: op.title,
         markdown: op.markdown,
         parentRef: { ...notebook.ref },
         path: op.path,
         attributes: [],
-        createdAt: now,
-        updatedAt: now,
+        createdAt: nowMs,
+        updatedAt: nowMs,
         contentHash: await hashKnowledgeContent(op.markdown),
         blockCount: 0,
       });
-    } else if (op.type === 'append-block') {
-      const parent = this.nodeOrThrow(op.parentId);
+    } else if (op.op === 'appendBlock') {
+      const parent = this.nodeOrThrow(op.documentId);
       const childId = pending.preAllocatedId;
       if (!childId) throw new KnowledgeError('PROVIDER_ERROR', `Mutation proposal "${proposalId}" lost its pre-allocated id`);
-      parent.updatedAt = now;
+      parent.updatedAt = nowMs;
       parent.contentHash = await hashKnowledgeContent(parent.markdown ?? '');
       createdRef = { scheme: 'siyuan', kind: 'block', id: childId };
       this.nodes.set(childId, {
@@ -319,25 +322,39 @@ export class InMemoryKnowledgeProvider implements KnowledgeProvider {
         parentRef: { ...parent.ref },
         path: `${parent.path}/${childId}`,
         attributes: [],
-        createdAt: now,
-        updatedAt: now,
+        createdAt: nowMs,
+        updatedAt: nowMs,
         contentHash: await hashKnowledgeContent(op.markdown),
       });
-    } else if (op.type === 'update-block') {
+    } else if (op.op === 'updateBlock') {
       const target = this.nodeOrThrow(op.blockId);
       target.markdown = op.markdown;
-      target.updatedAt = now;
+      target.updatedAt = nowMs;
       target.contentHash = await hashKnowledgeContent(op.markdown);
     } else {
-      const target = this.nodeOrThrow(op.targetId);
-      const existing = target.attributes.find((attribute) => attribute.key === op.key);
+      const target = this.nodeOrThrow(op.blockId);
+      const existing = target.attributes.find((attribute) => attribute.key === op.name);
       if (existing) existing.value = op.value;
-      else target.attributes.push({ key: op.key, value: op.value });
-      target.updatedAt = now;
+      else target.attributes.push({ key: op.name, value: op.value });
+      target.updatedAt = nowMs;
     }
 
-    proposal.status = 'applied';
-    const result: ApplyResult = { proposalId, applied: true, conflicted: false, appliedAt: now };
+    // Bind kernel-returned ids into the inverse ops (§3.8: id фиксируется ответом apply).
+    if (pending.preAllocatedId !== undefined) {
+      working = {
+        ...working,
+        inverseOps: computeInverseOps(
+          { content: working.preState ?? '', attributes: working.preStateAttributes },
+          working.ops,
+          { insertedBlockIds: { 0: pending.preAllocatedId }, at: appliedAt },
+        ),
+      };
+    }
+    const appliedTargetId = createdRef?.id ?? pending.targetId;
+    const postHash = await hashKnowledgeContent((appliedTargetId ? this.nodes.get(appliedTargetId)?.markdown : undefined) ?? '');
+    working = transition(working, { type: 'applyOpsSucceeded', postHash }).proposal;
+    this.proposals.set(proposalId, working);
+    const result: ApplyResult = { proposalId, applied: true, conflicted: false, status: 'applied', appliedAt };
     if (createdRef) result.createdRef = createdRef;
     return result;
   }

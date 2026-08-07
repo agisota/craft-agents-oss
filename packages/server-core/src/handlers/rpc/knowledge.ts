@@ -1,14 +1,27 @@
 /**
- * P1 read-only knowledge provider RPC handlers (spec 2026-08-07-siyuan-integration/03
- * §§3.2–3.6, storage per spec 04 §3.3).
+ * Knowledge provider RPC handlers — 9 read channels (P1, spec
+ * 2026-08-07-siyuan-integration/03 §§3.2–3.6, storage per spec 04 §3.3) plus
+ * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md).
  *
- * READ-ONLY WIRE GUARANTEE: HANDLED_CHANNELS below is the complete P1 read set —
- * the 9 spec-03 read channels and nothing else. No mutation channel constant,
- * handler, or store write path towards SiYuan exists at P1 by design
- * (roadmap P1 exit criterion: «0 write-каналов»). Mutations (proposeMutation /
- * applyMutation / discard / engine lifecycle) land with P3/P7 — see spec 05
- * (05-mutation-safety.md); mutation TYPES exist in @craft-agent/core/knowledge
- * strictly as type-level declarations for forward compatibility.
+ * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
+ * channels + the 7 spec-05 proposal channels. Every mutation channel routes
+ * through KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
+ * draft → diff → review → apply, with inverse-ops rollback) — no direct
+ * provider write path is registered from this file, and engine-lifecycle
+ * channels remain P7 and absent by design. Everything OUTSIDE the declared
+ * seven write-back channels keeps the P1 read-only invariant verbatim: no
+ * other mutation channel constant, handler, or store write path towards
+ * SiYuan exists here.
+ *
+ * Proposal wiring: one memoized KnowledgeBridgeService per workspace root —
+ * proposals/audit are workspace data at {root}/knowledge/{proposals,
+ * audit.jsonl} while connections stay global. proposeMutation resolves its
+ * workspace from the connection's credentialRef
+ * (`source_bearer::{workspaceId}::…`, the same parse as readToken);
+ * proposal-id-only channels locate their workspace by scanning
+ * getWorkspaces(). The bridge `push` dep fans out as knowledge:changed with
+ * {ref, change:'updated'} after created/approved/applied/conflict/
+ * rolled_back transitions.
  *
  * Provider wiring: every content channel resolves connectionId → record from
  * KnowledgeConnectionsStore, reads the bearer token via CredentialManager at
@@ -24,15 +37,24 @@
  * CONNECTION_UNAVAILABLE), mirroring the notes.ts/marketplace.ts conventions.
  */
 import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import type { KnowledgeEngineStatus } from '@craft-agent/shared/protocol'
-import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
+import type {
+  ApplyResult,
+  KnowledgeEngineStatus,
+  MutationActor,
+  MutationInput,
+  MutationProposal,
+  MutationProposalStatus,
+} from '@craft-agent/shared/protocol'
+import { getWorkspaceByNameOrId, getWorkspaces } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
-import type { CredentialId } from '@craft-agent/shared/credentials'
-import type { RpcServer } from '@craft-agent/server-core/transport'
+import assertKnowledgeActionAllowed from '@craft-agent/shared/agent/knowledge-permissions'
+import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
   createKnowledgeRegistry,
   KnowledgeError,
+  MutationValidationError,
+  ProposalTransitionError,
 } from '@craft-agent/core/knowledge'
 import type {
   ContextMode,
@@ -48,9 +70,16 @@ import {
   SiyuanKnowledgeProvider,
 } from '@craft-agent/core/knowledge/providers/siyuan'
 import {
+  KnowledgeAuditLog,
   KnowledgeConnectionsStore,
   KnowledgeContextSnapshotsStore,
+  KnowledgeMutationProposalsStore,
+  credentialIdFromRef,
 } from '../../knowledge'
+import {
+  KnowledgeBridgeService,
+  type KnowledgeProposalFileRecord,
+} from '../../knowledge/bridge-service'
 import type {
   KnowledgeConnectionRecord,
   KnowledgeConnectionStatus,
@@ -75,7 +104,7 @@ export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor
   }
 }
 
-/** The complete P1 read set — asserted verbatim by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back proposal channels; asserted verbatim by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -86,6 +115,13 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
+  RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
+  RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
+  RPC_CHANNELS.knowledge.APPLY_PROPOSAL,
+  RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
+  RPC_CHANNELS.knowledge.GET_PROPOSAL,
+  RPC_CHANNELS.knowledge.LIST_PROPOSALS,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -124,6 +160,31 @@ export interface KnowledgeSnapshotGetArgs {
 }
 
 // ---------------------------------------------------------------------------
+// P3 write-back wire shapes (spec 05 §3.5 proposal RPC table)
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeProposeMutationArgs extends KnowledgeConnectionArgs {
+  /** Wire MutationInput; `actor` rides as an optional extension (agent/automation origins). */
+  input: MutationInput & { actor?: MutationActor }
+}
+
+export interface KnowledgeProposalArgs {
+  proposalId: string
+}
+
+export interface KnowledgeApplyProposalArgs extends KnowledgeProposalArgs {
+  /** Optional workspace hint — skips the cross-workspace proposal scan. */
+  workspaceId?: string
+}
+
+export interface KnowledgeListProposalsArgs {
+  /** Scoped list when present; absent → aggregate across every workspace. */
+  workspaceId?: string
+  connectionId?: string
+  status?: MutationProposalStatus
+}
+
+// ---------------------------------------------------------------------------
 // Record ↔ contract mapping
 // ---------------------------------------------------------------------------
 
@@ -157,13 +218,7 @@ function toContextSnapshot(record: KnowledgeContextSnapshotRecord): ContextSnaps
   }
 }
 
-/** Token key lives in the record's credentialRef: source_bearer::{workspaceId}::{connectionId}. */
-function credentialIdFromRef(credentialRef: string): CredentialId | null {
-  const parts = credentialRef.split('::')
-  if (parts.length !== 3 || parts[0] !== 'source_bearer' || !parts[1] || !parts[2]) return null
-  return { type: 'source_bearer', workspaceId: parts[1], sourceId: parts[2] }
-}
-
+/** Token key lives in the record's credentialRef — parsed once by credentialIdFromRef (knowledge/connections-store). */
 function assertContextMode(mode: unknown): asserts mode is ContextMode {
   if (mode !== 'snapshot' && mode !== 'live-reference') {
     throw new Error(`knowledge: invalid context mode '${String(mode)}' (expected 'snapshot' | 'live-reference')`)
@@ -253,6 +308,88 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     return workspace.rootPath
   }
 
+  // ——— P3 write-back: one memoized KnowledgeBridgeService per workspace root ———
+  // Proposals/audit are workspace data ({root}/knowledge/{proposals,audit.jsonl});
+  // providerResolver reuses resolveProvider above so token rotation semantics are
+  // identical to the read channels. push fans out as knowledge:changed.
+  const bridges = new Map<string, KnowledgeBridgeService>()
+
+  function bridgeFor(rootPath: string, workspaceId: string): KnowledgeBridgeService {
+    let bridge = bridges.get(rootPath)
+    if (!bridge) {
+      bridge = new KnowledgeBridgeService({
+        providerResolver: resolveProvider,
+        proposalsStore: new KnowledgeMutationProposalsStore(rootPath),
+        audit: new KnowledgeAuditLog(rootPath),
+        assertAllowed: assertKnowledgeActionAllowed,
+        push: (payload) => {
+          pushTyped(server, RPC_CHANNELS.knowledge.CHANGED, { to: 'workspace', workspaceId }, payload)
+        },
+        workspaceId,
+      })
+      bridges.set(rootPath, bridge)
+    }
+    return bridge
+  }
+
+  /** proposeMutations carry no workspaceId: resolve it from the connection's credentialRef. */
+  function requireConnectionWorkspaceRoot(record: KnowledgeConnectionRecord): { rootPath: string; workspaceId: string } {
+    const credentialId = credentialIdFromRef(record.credentialRef)
+    if (credentialId?.workspaceId) {
+      const workspace = getWorkspaceByNameOrId(credentialId.workspaceId)
+      if (workspace) return { rootPath: workspace.rootPath, workspaceId: workspace.id }
+    }
+    // Unscoped/malformed credentialRef — single-workspace installs resolve unambiguously.
+    const workspaces = getWorkspaces()
+    const only = workspaces[0]
+    if (workspaces.length === 1 && only) return { rootPath: only.rootPath, workspaceId: only.id }
+    throw new CodedError('INVALID_REF', `knowledge: cannot resolve workspace for connection '${record.id}'`)
+  }
+
+  /** Proposal-id-only channels: locate the owning workspace by scanning getWorkspaces(). */
+  async function locateProposalBridge(proposalId: string): Promise<{ bridge: KnowledgeBridgeService; record: KnowledgeProposalFileRecord }> {
+    for (const workspace of getWorkspaces()) {
+      const bridge = bridgeFor(workspace.rootPath, workspace.id)
+      await bridge.sweepExpired()
+      const record = bridge.get(proposalId)
+      if (record) return { bridge, record }
+    }
+    throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
+  }
+
+  function requireProposalId(args: { proposalId?: unknown } | undefined): string {
+    const proposalId = args?.proposalId
+    if (typeof proposalId !== 'string' || proposalId.length === 0) {
+      throw new Error('knowledge: proposalId must be a non-empty string')
+    }
+    return proposalId
+  }
+
+  /**
+   * Engine guard rejections (§3.2 closed table) cross the wire as TYPED errors, never raw
+   * engine throws. The common user-facing case: the handler-side pre-sweep demoted an
+   * approval-expired proposal to pending_review, so the apply click hits beginApply from
+   * pending_review — the correct answer is "approve it again" (informative), not a bare stack.
+   */
+  async function withProposalTransitions<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run()
+    } catch (error) {
+      if (error instanceof ProposalTransitionError) {
+        const expiryHint =
+          error.from === 'pending_review' && error.action === 'beginApply'
+            ? ' The proposal is awaiting (re-)approval — an approval TTL (24 h, spec 05 §3.7) sweep may have demoted it; approve it again before applying.'
+            : ''
+        throw new CodedError(
+          'HASH_CONFLICT',
+          `knowledge: proposal transition '${error.action}' is not allowed from status '${error.from}'` +
+            (error.reason ? ` (${error.reason})` : '') + '.' + expiryHint,
+        )
+      }
+      throw error
+    }
+  }
+
   // ——— LIST_CONNECTIONS({}) → KnowledgeConnection[] ———
   server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () =>
     new KnowledgeConnectionsStore().list().map(toContractConnection),
@@ -330,14 +467,100 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   // running:false (the channel's answer), never a thrown provider error.
   server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
     const record = requireConnection(args.connectionId)
-    const token = await readToken(record)
-    const client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
     try {
+      // Construction itself may fail (missing token / bad baseUrl) — probe semantics
+      // still answer running:false rather than throw a provider error to the wire.
+      const token = await readToken(record)
+      const client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
       const version = await client.getVersion()
       return { mode: record.mode, running: true, version }
     } catch (error) {
       log?.debug?.(`KNOWLEDGE_ENGINE_STATUS: probe failed for connection ${record.id}: ${String((error as Error)?.message ?? error)}`)
       return { mode: record.mode, running: false }
     }
+  })
+
+  // -------------------------------------------------------------------------
+  // P3 write-back (spec 05) — the mutation-proposal lifecycle. All seven
+  // delegate to KnowledgeBridgeService; the bridge owns validation, the
+  // permission gate, the state machine, audit and knowledge:changed push.
+  // -------------------------------------------------------------------------
+
+  // ——— PROPOSE_MUTATION({connectionId, input}) → MutationProposal ———
+  server.handle(RPC_CHANNELS.knowledge.PROPOSE_MUTATION, async (_ctx, args: KnowledgeProposeMutationArgs): Promise<MutationProposal> => {
+    const record = requireConnection(args.connectionId)
+    const input = args?.input
+    if (!input || typeof input !== 'object') {
+      throw new CodedError('INVALID_REF', 'knowledge.proposeMutation: input with targetRef and ops is required')
+    }
+    assertKnowledgeRef(input.targetRef)
+    const { rootPath, workspaceId } = requireConnectionWorkspaceRoot(record)
+    try {
+      return await bridgeFor(rootPath, workspaceId).propose({ connectionId: args.connectionId, input })
+    } catch (error) {
+      // T1 admission guards reject as MutationValidationError (a plain Error
+      // subclass); without this map the transport collapses them into a
+      // generic HANDLER_ERROR and the client cannot tell bad input from a crash.
+      if (error instanceof MutationValidationError) {
+        throw new CodedError('INVALID_REF', `knowledge.proposeMutation: ${error.reason}: ${error.message}`)
+      }
+      throw toTransportError(error)
+    }
+  })
+
+  // ——— APPROVE_PROPOSAL({proposalId}) → MutationProposal ———
+  server.handle(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<MutationProposal> => {
+    const proposalId = requireProposalId(args)
+    const { bridge } = await locateProposalBridge(proposalId)
+    return withProposalTransitions(() => bridge.approve(proposalId))
+  })
+
+  // ——— REJECT_PROPOSAL({proposalId}) → { ok: true } ———
+  server.handle(RPC_CHANNELS.knowledge.REJECT_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<{ ok: true }> => {
+    const proposalId = requireProposalId(args)
+    const { bridge } = await locateProposalBridge(proposalId)
+    return withProposalTransitions(() => bridge.reject(proposalId))
+  })
+
+  // ——— APPLY_PROPOSAL({proposalId, workspaceId?}) → ApplyResult ———
+  server.handle(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, async (_ctx, args: KnowledgeApplyProposalArgs): Promise<ApplyResult> => {
+    const proposalId = requireProposalId(args)
+    if (args?.workspaceId) {
+      const bridge = bridgeFor(requireWorkspaceRoot(args.workspaceId), args.workspaceId)
+      await bridge.sweepExpired()
+      if (!bridge.get(proposalId)) {
+        throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
+      }
+      return withProposalTransitions(() => bridge.apply(proposalId))
+    }
+    const { bridge } = await locateProposalBridge(proposalId)
+    return withProposalTransitions(() => bridge.apply(proposalId))
+  })
+
+  // ——— ROLLBACK_PROPOSAL({proposalId}) → ApplyResult ———
+  server.handle(RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<ApplyResult> => {
+    const proposalId = requireProposalId(args)
+    const { bridge } = await locateProposalBridge(proposalId)
+    return withProposalTransitions(() => bridge.rollback(proposalId))
+  })
+
+  // ——— GET_PROPOSAL({proposalId}) → MutationProposal ———
+  server.handle(RPC_CHANNELS.knowledge.GET_PROPOSAL, async (_ctx, args: KnowledgeProposalArgs): Promise<MutationProposal> => {
+    const { record } = await locateProposalBridge(requireProposalId(args))
+    return record
+  })
+
+  // ——— LIST_PROPOSALS({workspaceId?, connectionId?, status?}) → MutationProposal[] ———
+  server.handle(RPC_CHANNELS.knowledge.LIST_PROPOSALS, async (_ctx, args: KnowledgeListProposalsArgs = {}): Promise<MutationProposal[]> => {
+    const roots = args.workspaceId
+      ? [{ workspaceId: args.workspaceId, rootPath: requireWorkspaceRoot(args.workspaceId) }]
+      : getWorkspaces().map((workspace) => ({ workspaceId: workspace.id, rootPath: workspace.rootPath }))
+    const proposals: MutationProposal[] = []
+    for (const { workspaceId, rootPath } of roots) {
+      const bridge = bridgeFor(rootPath, workspaceId)
+      await bridge.sweepExpired()
+      proposals.push(...bridge.list({ status: args.status, connectionId: args.connectionId }))
+    }
+    return proposals
   })
 }

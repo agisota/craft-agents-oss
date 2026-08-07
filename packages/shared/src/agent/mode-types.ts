@@ -187,6 +187,31 @@ export const KNOWLEDGE_READ_ONLY_OPERATIONS: readonly string[] = [
 ];
 
 // ============================================================
+// Knowledge Write Operations Vocabulary (P3 mutation proposals)
+// ============================================================
+
+/**
+ * Knowledge WRITE capability names (P3, spec 05 §3.6): the proposal-creation
+ * tools of the mutation pipeline. Unlike KNOWLEDGE_READ_ONLY_OPERATIONS (bare
+ * operation names matched by the anchored `allowedKnowledgePatterns` regex),
+ * these are dot-namespaced capability identifiers matched EXACTLY (Set lookup)
+ * through `blockedTools` — same mechanism as the hardcoded core write tools.
+ *
+ * Safety invariant: in `safe` (Explore) mode these four are always blocked —
+ * the bundled default.json seeds them into `blockedTools` and the merge is
+ * additive (union-only, never removable). They MUST NOT be added to
+ * `allowedKnowledgePatterns` or to KNOWLEDGE_READ_ONLY_OPERATIONS: even in
+ * `allow-all`, every SiYuan write flows through an approved MutationProposal
+ * (spec 05 §3.6: no mode bypasses the pipeline; no auto-approve exists).
+ */
+export const KNOWLEDGE_WRITE_OPERATIONS: readonly string[] = [
+  'knowledge.propose_update',
+  'knowledge.create_document',
+  'knowledge.append_block',
+  'knowledge.set_attribute',
+];
+
+// ============================================================
 // Mode Config Types
 // ============================================================
 

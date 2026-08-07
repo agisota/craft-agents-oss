@@ -114,14 +114,35 @@ describe('KNOWLEDGE_MENTION_PATTERN and mention helpers', () => {
 });
 
 describe('siyuan:// deep links', () => {
-  test('format siyuan://<kind>/<id>', () => {
+  test('document/block refs emit the native siyuan://blocks/<id> grammar', () => {
+    // parseSiYuanUriInfo (app/src/util/pathName.ts @ eef1056838) resolves ONLY the blocks
+    // hostname; a document opens natively by its root-block id under the same grammar.
     expect(siyuanDeepLink({ scheme: 'siyuan', kind: 'document', id: '20240101120000-abcde' })).toBe(
-      'siyuan://document/20240101120000-abcde',
+      'siyuan://blocks/20240101120000-abcde',
     );
+    expect(siyuanDeepLink({ scheme: 'siyuan', kind: 'block', id: '20240101120000-fghij' })).toBe(
+      'siyuan://blocks/20240101120000-fghij',
+    );
+    // Native-open-less kinds keep the legacy kind segment (in-app route consumers only).
+    expect(siyuanDeepLink({ scheme: 'siyuan', kind: 'notebook', id: 'nb-1' })).toBe('siyuan://notebook/nb-1');
   });
 
-  test('parse round-trips through the compact ref form', () => {
+  test('block refs round-trip through the native blocks grammar', () => {
+    const blockRef = { scheme: 'siyuan', kind: 'block', id: 'blk-1' } as const;
+    expect(parseSiyuanDeepLink(siyuanDeepLink(blockRef))).toEqual(blockRef);
+    // A document id under blocks/ parses as a block — the grammar itself cannot tell a
+    // document from its root block (upstream resolves the doc at open time).
+    expect(parseSiyuanDeepLink(siyuanDeepLink({ scheme: 'siyuan', kind: 'document', id: 'doc-1' }))).toEqual({
+      scheme: 'siyuan',
+      kind: 'block',
+      id: 'doc-1',
+    });
+  });
+
+  test('parse keeps legacy document/block hostnames resolvable', () => {
     expect(parseSiyuanDeepLink('siyuan://document/doc-1')).toEqual({ scheme: 'siyuan', kind: 'document', id: 'doc-1' });
+    expect(parseSiyuanDeepLink('siyuan://block/blk-1')).toEqual({ scheme: 'siyuan', kind: 'block', id: 'blk-1' });
+    expect(parseSiyuanDeepLink('siyuan://blocks/')).toBeNull();
     expect(parseSiyuanDeepLink('https://siyuan.example/doc-1')).toBeNull();
   });
 });

@@ -45,6 +45,7 @@ const EMPTY_STATE: KnowledgeNodeState = { node: null, backlinks: [], loading: fa
  * re-created per render cannot retrigger the fetch loop.
  */
 export function useKnowledgeNode(knowledgeRef: KnowledgeRef | null): KnowledgeNodeState {
+  const { t } = useTranslation()
   const workspace = useActiveWorkspace()
   const workspaceId = workspace?.id
   const scheme = knowledgeRef?.scheme
@@ -65,7 +66,7 @@ export function useKnowledgeNode(knowledgeRef: KnowledgeRef | null): KnowledgeNo
       try {
         const connections = await window.electronAPI.knowledge.listConnections()
         const connectionId = connections[0]?.id
-        if (!connectionId) throw new Error('No knowledge connection configured')
+        if (!connectionId) throw new Error(t('knowledge.inspector.noConnection'))
         const args = { workspaceId, connectionId, ref }
         const [node, backlinks] = await Promise.all([
           window.electronAPI.knowledge.get(args),
@@ -81,7 +82,7 @@ export function useKnowledgeNode(knowledgeRef: KnowledgeRef | null): KnowledgeNo
     return () => {
       cancelled = true
     }
-  }, [scheme, kind, id, provider, workspaceId])
+  }, [scheme, kind, id, provider, workspaceId, t])
 
   return state
 }

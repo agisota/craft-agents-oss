@@ -28,10 +28,6 @@ function formatKnowledgeDisplay(ref: KnowledgeRef): string {
   return `@${ref.provider ?? ref.scheme}/${ref.kind}/${ref.id}`
 }
 
-/** Plain string, not an i18n key: the contract key list ships no "unavailable" copy. */
-const CTAS_DISABLED_REASON =
-  'Not available yet — creating an agent session from a document needs an initial-text channel that lands with the agent-integration slice.'
-
 export function KnowledgeAgentPanel({ knowledgeRef }: KnowledgeAgentPanelProps) {
   const { t } = useTranslation()
   const { node, loading } = useKnowledgeNode(knowledgeRef)
@@ -57,7 +53,7 @@ export function KnowledgeAgentPanel({ knowledgeRef }: KnowledgeAgentPanelProps) 
       </div>
       {/* Wrapper owns the tooltip: the Button sets disabled:pointer-events-none,
           which would swallow title on the button itself. */}
-      <div className="flex flex-col gap-2" title={CTAS_DISABLED_REASON}>
+      <div className="flex flex-col gap-2" title={t('knowledge.agent.ctasDisabled')}>
         <Button size="sm" disabled aria-disabled="true">
           {t('knowledge.agent.askAbout')}
         </Button>

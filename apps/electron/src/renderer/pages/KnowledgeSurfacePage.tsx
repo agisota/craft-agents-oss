@@ -50,6 +50,10 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
   const [removed, setRemoved] = useState(false)
   const focusedPanelId = useAtomValue(focusedPanelIdAtom)
   const { activeWorkspaceId } = useAppShellContext()
+  // Evaluated once at hook scope (P1-9): when the feature is off, effects
+  // early-return — no listConnections, no createEmbedded, no registry entries
+  // — and the render below shows the disabled copy instead of the surface.
+  const [knowledgeEnabled] = useState(() => isKnowledgeFeatureEnabled())
   // Without a panelId (rendered outside the panel stack) assume focused.
   const isFocused = panelId === undefined || focusedPanelId === panelId
 
@@ -58,25 +62,58 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
 
   // Resolve the base URL and create (or re-attach to) the durable instance once.
   useEffect(() => {
+    if (!knowledgeEnabled) return
     let cancelled = false
+    // P1-7: the instance id is captured locally so it can be destroyed even
+    // when React never hands it to state (unmount/re-key racing the async
+    // create). `released` guards against double-destroy with the [instanceId]
+    // destroy effect below, which owns cleanup once the id is handed off.
+    let createdId: string | null = null
+    let released = false
+    const releaseOrphan = () => {
+      if (createdId === null || released) return
+      released = true
+      const orphanId = createdId
+      void (async () => {
+        try {
+          await window.electronAPI.siyuanEngine.syncBounds({ instanceId: orphanId, rect: null })
+        } catch {
+          // Best-effort hide; instance cleanup continues regardless
+        }
+        try {
+          await window.electronAPI.siyuanEngine.destroy({ instanceId: orphanId })
+        } catch {
+          // Instance may already be gone (window teardown)
+        }
+      })()
+    }
     void (async () => {
       try {
         const connections = await window.electronAPI.knowledge.listConnections()
+        if (cancelled) return
         const baseUrl = connections.find((c) => c.baseUrl)?.baseUrl ?? DEFAULT_BASE_URL
-        const createdId = await window.electronAPI.siyuanEngine.createEmbedded({
+        createdId = await window.electronAPI.siyuanEngine.createEmbedded({
           durableKey: buildSiyuanDurableKey(ref),
           url: buildSiyuanSurfaceUrl(baseUrl, ref),
           workspaceId: activeWorkspaceId,
         })
-        if (!cancelled) setInstanceId(createdId)
+        if (cancelled) {
+          // Unmounted (or re-keyed) while main was creating the native view —
+          // the destroy effect never saw this id, so release it here.
+          releaseOrphan()
+          return
+        }
+        released = true // ownership moves to the [instanceId] destroy effect
+        setInstanceId(createdId)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
       }
     })()
     return () => {
       cancelled = true
+      releaseOrphan()
     }
-  }, [ref, activeWorkspaceId])
+  }, [knowledgeEnabled, ref, activeWorkspaceId])
 
   // Push current bounds (or null when hidden) to the main process
   const syncBounds = useCallback(() => {
@@ -160,11 +197,12 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
 
   const fullSurface = <div ref={containerRef} className="h-full w-full bg-background" />
 
-  if (!isKnowledgeFeatureEnabled()) {
+  if (!knowledgeEnabled) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-background text-muted-foreground">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-background px-6 text-center text-muted-foreground">
         <p className="text-sm font-medium">{t('knowledge.featureDisabled.title')}</p>
         <p className="text-sm">{t('knowledge.featureDisabled.body')}</p>
+        <p className="text-xs">{t('knowledge.featureDisabled.envHint')}</p>
       </div>
     )
   }
@@ -178,9 +216,10 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
   }
 
   if (removed) {
+    // Deliberate teardown (main broadcast REMOVED), not a load failure.
     return (
       <div className="flex items-center justify-center h-full w-full bg-background text-muted-foreground">
-        <p className="text-sm">{t('knowledge.surface.error', { defaultValue: 'Knowledge surface closed' })}</p>
+        <p className="text-sm">{t('knowledge.surface.removed')}</p>
       </div>
     )
   }

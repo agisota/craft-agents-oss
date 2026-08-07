@@ -18,11 +18,12 @@ function makePaths(name: string) {
 const REPO = 'garrytan/gbrain';
 const COMMIT = 'a'.repeat(40);
 
-function collectRunCmd(impl: (args: string[], options: { cwd?: string }) => Promise<{ stdout: string; stderr: string }>) {
+function collectRunCmd(impl: (args: string[], options: { cwd?: string }) => Promise<{ stdout: string; stderr: string } | void>) {
   const calls: { args: string[]; cwd?: string }[] = [];
-  const fn = async (args: string[], options: { cwd?: string }) => {
+  // runCommand contract is Promise<void> — discard stdout/stderr from the stub body.
+  const fn = async (args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }): Promise<void> => {
     calls.push({ args, cwd: options?.cwd });
-    return impl(args, options);
+    await impl(args, options ?? {});
   };
   return { calls, fn };
 }
