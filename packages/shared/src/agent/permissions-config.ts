@@ -141,6 +141,9 @@ function migratePermissions(
   const existingMcpPatterns = new Set(
     (installed.allowedMcpPatterns || []).map(getPatternString)
   );
+  const existingKnowledgePatterns = new Set(
+    (installed.allowedKnowledgePatterns || []).map(getPatternString)
+  );
 
   // Find new patterns not already in installed
   const newBashPatterns = (bundled.allowedBashPatterns || []).filter(
@@ -148,6 +151,9 @@ function migratePermissions(
   );
   const newMcpPatterns = (bundled.allowedMcpPatterns || []).filter(
     p => !existingMcpPatterns.has(getPatternString(p))
+  );
+  const newKnowledgePatterns = (bundled.allowedKnowledgePatterns || []).filter(
+    p => !existingKnowledgePatterns.has(getPatternString(p))
   );
 
   // Merge blocked command hints (dedupe by command + whenNotMatching + reason)
@@ -161,6 +167,7 @@ function migratePermissions(
 
   debug('[Permissions] Adding', newBashPatterns.length, 'new bash patterns');
   debug('[Permissions] Adding', newMcpPatterns.length, 'new MCP patterns');
+  debug('[Permissions] Adding', newKnowledgePatterns.length, 'new knowledge patterns');
   debug('[Permissions] Adding', newBlockedCommandHints.length, 'new blocked command hints');
 
   return {
@@ -173,6 +180,10 @@ function migratePermissions(
     allowedMcpPatterns: [
       ...(installed.allowedMcpPatterns || []),
       ...newMcpPatterns,
+    ],
+    allowedKnowledgePatterns: [
+      ...(installed.allowedKnowledgePatterns || []),
+      ...newKnowledgePatterns,
     ],
     blockedCommandHints: [
       ...installedHints,
@@ -238,6 +249,12 @@ export interface PermissionsCustomConfig {
   allowedBashPatterns: PatternWithComment[];
   /** Additional MCP patterns to allow (as regex strings) */
   allowedMcpPatterns: string[];
+  /**
+   * Additional knowledge operation patterns to allow (as regex strings,
+   * matched against knowledge operation names like "knowledge:search").
+   * Read-only by definition: P1 ships no mutation operations (spec 03).
+   */
+  allowedKnowledgePatterns: string[];
   /** API endpoint rules for fine-grained control */
   allowedApiEndpoints: ApiEndpointRule[];
   /** File paths to allow writes in Explore mode (glob pattern strings) */
@@ -257,6 +274,8 @@ export interface MergedPermissionsConfig {
   /** Command-specific hints for blocked Bash command explanations */
   blockedCommandHints: CompiledBlockedCommandHint[];
   readOnlyMcpPatterns: RegExp[];
+  /** Read-only knowledge operation patterns (allowed without prompting in Explore mode) */
+  readOnlyKnowledgePatterns: RegExp[];
   /** Fine-grained API endpoint rules */
   allowedApiEndpoints: CompiledApiEndpointRule[];
   /** File paths allowed for writes in Explore mode (glob patterns) */
@@ -289,6 +308,7 @@ export function parsePermissionsJson(content: string): PermissionsCustomConfig {
   const emptyConfig: PermissionsCustomConfig = {
     allowedBashPatterns: [],
     allowedMcpPatterns: [],
+    allowedKnowledgePatterns: [],
     allowedApiEndpoints: [],
     allowedWritePaths: [],
     blockedCommandHints: [],
@@ -329,6 +349,7 @@ export function parsePermissionsJson(content: string): PermissionsCustomConfig {
     return {
       allowedBashPatterns: normalizeBashPatterns(data.allowedBashPatterns),
       allowedMcpPatterns: normalizePatterns(data.allowedMcpPatterns),
+      allowedKnowledgePatterns: normalizePatterns(data.allowedKnowledgePatterns),
       allowedApiEndpoints: data.allowedApiEndpoints ?? [],
       allowedWritePaths: normalizePatterns(data.allowedWritePaths),
       blockedCommandHints: data.blockedCommandHints ?? [],
@@ -403,6 +424,7 @@ export function validatePermissionsConfig(config: PermissionsConfigFile): string
 
   checkPatterns(config.allowedBashPatterns, 'allowedBashPatterns');
   checkPatterns(config.allowedMcpPatterns, 'allowedMcpPatterns');
+  checkPatterns(config.allowedKnowledgePatterns, 'allowedKnowledgePatterns');
 
   // Validate API endpoint patterns
   if (config.allowedApiEndpoints) {
@@ -687,6 +709,7 @@ class PermissionsConfigCache {
       readOnlyBashPatterns: [...defaults.readOnlyBashPatterns],
       blockedCommandHints: [...(defaults.blockedCommandHints ?? [])],
       readOnlyMcpPatterns: [...defaults.readOnlyMcpPatterns],
+      readOnlyKnowledgePatterns: [...defaults.readOnlyKnowledgePatterns],
       allowedApiEndpoints: [],
       allowedWritePaths: [],
       displayName: defaults.displayName,
@@ -761,6 +784,16 @@ class PermissionsConfigCache {
       }
     }
 
+    // Add allowed knowledge operation patterns (P1 read-only — see default.json)
+    for (const pattern of config.allowedKnowledgePatterns) {
+      const regex = validateRegex(pattern);
+      if (regex) {
+        merged.readOnlyKnowledgePatterns.push(regex);
+      } else {
+        debug(`[Permissions] Invalid default knowledge pattern, skipping: ${pattern}`);
+      }
+    }
+
     // Add allowed API endpoints
     for (const rule of config.allowedApiEndpoints) {
       const pathRegex = validateRegex(rule.path);
@@ -813,6 +846,16 @@ class PermissionsConfigCache {
         merged.readOnlyMcpPatterns.push(regex);
       } else {
         debug(`[Permissions] Invalid MCP pattern, skipping: ${pattern}`);
+      }
+    }
+
+    // Add allowed knowledge operation patterns (read-only; not source-scoped)
+    for (const pattern of custom.allowedKnowledgePatterns) {
+      const regex = validateRegex(pattern);
+      if (regex) {
+        merged.readOnlyKnowledgePatterns.push(regex);
+      } else {
+        debug(`[Permissions] Invalid knowledge pattern, skipping: ${pattern}`);
       }
     }
 
@@ -910,6 +953,17 @@ class PermissionsConfigCache {
       const compiled = compileBlockedCommandHint(hint);
       if (compiled) {
         merged.blockedCommandHints.push(compiled);
+      }
+    }
+
+    // Knowledge operation patterns - apply normally (knowledge ops are not
+    // source-scoped; P1 allows only read operations)
+    for (const pattern of custom.allowedKnowledgePatterns) {
+      const regex = validateRegex(pattern);
+      if (regex) {
+        merged.readOnlyKnowledgePatterns.push(regex);
+      } else {
+        debug(`[Permissions] Invalid knowledge pattern after source config, skipping: ${pattern}`);
       }
     }
   }

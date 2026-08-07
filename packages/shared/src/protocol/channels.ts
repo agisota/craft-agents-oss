@@ -151,6 +151,21 @@ export const RPC_CHANNELS = {
     UNWATCH: 'notes:unwatch',
     CHANGED: 'notes:changed',
   },
+  // knowledge — P1 read-only knowledge provider (spec 03). READ-ONLY set only:
+  // mutation channels (proposeMutation/applyMutation/discardMutation) and engine
+  // lifecycle (engineStart/engineStop) are P3/P7 and MUST NOT be added here.
+  knowledge: {
+    LIST_CONNECTIONS: 'knowledge:listConnections',
+    CAPABILITIES: 'knowledge:capabilities',
+    SEARCH: 'knowledge:search',
+    GET: 'knowledge:get',
+    GET_CONTEXT: 'knowledge:getContext',
+    GET_BACKLINKS: 'knowledge:getBacklinks',
+    SNAPSHOT_CREATE: 'knowledge:snapshotCreate',
+    SNAPSHOT_GET: 'knowledge:snapshotGet',
+    ENGINE_STATUS: 'knowledge:engineStatus',
+    CHANGED: 'knowledge:changed',
+  },
   debug: {
     LOG: 'debug:log',
   },

@@ -1,0 +1,395 @@
+/**
+ * SiyuanKernelClient — typed HTTP client for the SiYuan kernel REST API (external-local mode, K-07).
+ *
+ * Verified against siyuan-note/siyuan kernel master (kernel/api/router.go + handlers, commit
+ * eef1056838, checked 2026-08-07; public doc: docs/API.md). Endpoint surface used by P1:
+ *
+ *   POST /api/system/version                 data: string kernel version ("3.1.28")
+ *   POST /api/system/currentTime             data: number (epoch ms)
+ *   POST /api/notebook/lsNotebooks           data: { notebooks: Box[], boxDocEnabled: boolean }
+ *   POST /api/search/fullTextSearchBlock     data: { blocks: Block[], matchedBlockCount, matchedRootCount, pageCount, docMode }
+ *                                            NOTE: /api/search/searchBlock does NOT exist in the kernel;
+ *                                            the full-text endpoint above is the canonical block search.
+ *   POST /api/query/sql                      data: row[]  (we always send mode: 'readonly' — server-side
+ *                                            single-statement + read-only check; admin role required)
+ *   POST /api/block/getBlockInfo             data: { box, path, rootID, rootTitle, rootTitleEmpty, rootChildID, rootIcon }
+ *   POST /api/block/getBlockKramdown         data: { id, kramdown }  (mode: 'md' | 'textmark')
+ *   POST /api/block/getChildBlocks           data: ChildBlock[] { id, type, subType?, content?, markdown? }  (admin role)
+ *   POST /api/block/getDocInfo               data: BlockInfo { id, rootID, name, refCount, subFileCount, refIDs, ial, icon, attrViews }
+ *   POST /api/block/checkBlockExist          data: boolean
+ *   POST /api/attr/getBlockAttrs             data: Record<name, value>
+ *   POST /api/ref/getBacklink                data: { backlinks: Path[], linkRefsCount, backmentions: Path[], mentionsCount, k, mk, box }
+ *                                            NOTE: k/mk are MANDATORY string args (kernel panics without them); we send ''.
+ *   POST /api/ref/getBackmentionDoc          data: { backmentions, keywords }
+ *   POST /api/filetree/getHPathByID          data: string human path
+ *   POST /api/filetree/getPathByID           data: { path, notebook }
+ *   POST /api/export/exportMdContent         data: { hPath, content }  (admin role)
+ *
+ * Envelope everywhere: `{ code: 0, msg: '', data: T }` — code != 0 is a kernel-level error
+ * (code 1 = generic/query error, -1 = exception, 3 = index in progress).
+ *
+ * P1 READ-ONLY (K-11): this client MUST NOT call any mutating kernel endpoint
+ * (block/insertBlock, block/updateBlock, block/deleteBlock, attr/setBlockAttrs, filetree/createDoc*,
+ * notebook/createNotebook, export/* write targets, filetree/remove*, etc.). query/sql is issued
+ * exclusively with mode: 'readonly' + SELECT statements. Changing a mutations.* capability in
+ * capabilities.ts without landing K-05 (P3) is a contract violation.
+ */
+
+import { KnowledgeError } from '../..';
+
+export const SIYUAN_DEFAULT_BASE_URL = 'http://127.0.0.1:6806';
+/** P1 compatibility floor (K-03 §3.6); enforced by settings/connection UI, not here. */
+export const SIYUAN_MIN_SUPPORTED_VERSION = '3.0.0';
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+// ---------------------------------------------------------------------------
+// Wire types (verified field-for-field against kernel Go structs)
+
+export interface SiyuanNotebook {
+  id: string;
+  name: string;
+  icon: string;
+  sort: number;
+  sortMode: number;
+  closed: boolean;
+  subFileCount: number;
+  encrypted?: boolean;
+  unlocked?: boolean;
+}
+
+export interface SiyuanSearchBlock {
+  box: string;
+  path: string;
+  hPath: string;
+  id: string;
+  rootID: string;
+  parentID: string;
+  name: string;
+  alias: string;
+  memo: string;
+  tag: string;
+  content: string;
+  fcontent: string;
+  markdown: string;
+  folded: boolean;
+  /** Full AST node type ('NodeDocument' | 'NodeParagraph' | 'NodeHeading' | ...): FromAbbrType in kernel. */
+  type: string;
+  subType: string;
+  refText: string;
+  defID: string;
+  defPath: string;
+  ial: Record<string, string>;
+  depth: number;
+  count: number;
+  refCount: number;
+  sort: number;
+  /** 'yyyyMMddHHmmss' local time. */
+  created: string;
+  /** 'yyyyMMddHHmmss' local time. */
+  updated: string;
+}
+
+export type SiyuanSearchMethod = 0 | 1 | 2 | 3; // 0 keyword, 1 query syntax, 2 SQL, 3 regex
+export type SiyuanSearchOrderBy = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7; // 0 type, 1 created↑, 2 created↓, 3 updated↑, 4 updated↓, 5 content order, 6 relevance↑, 7 relevance↓
+export type SiyuanSearchGroupBy = 0 | 1; // 0 none, 1 group by document
+
+export interface SiyuanFullTextSearchInput {
+  query: string;
+  page?: number;                         // 1-based, default 1
+  pageSize?: number;                     // kernel default 32
+  paths?: string[];                      // 'boxId' or 'boxId/doc/path' segments (kernel splits first segment as box)
+  types?: Record<string, boolean>;       // document|heading|list|listItem|codeBlock|mathBlock|table|blockquote|superBlock|paragraph|htmlBlock|embedBlock|databaseBlock|audioBlock|videoBlock|iframeBlock|widgetBlock|callout
+  subTypes?: Record<string, boolean>;    // h1..h6 | o|u|t
+  method?: SiyuanSearchMethod;
+  orderBy?: SiyuanSearchOrderBy;
+  groupBy?: SiyuanSearchGroupBy;
+}
+
+export interface SiyuanFullTextSearchResult {
+  blocks: SiyuanSearchBlock[];
+  matchedBlockCount: number;
+  matchedRootCount: number;
+  pageCount: number;
+  docMode: boolean;
+}
+
+export interface SiyuanBlockInfo {
+  box: string;
+  path: string;
+  rootID: string;
+  rootTitle: string;
+  rootTitleEmpty: boolean;
+  rootChildID: string;
+  rootIcon: string;
+}
+
+export interface SiyuanDocInfo {
+  id: string;
+  rootID: string;
+  name: string;
+  refCount: number;
+  subFileCount: number;
+  refIDs: string[];
+  ial: Record<string, string>;
+  icon: string;
+  attrViews: Array<{ id: string; name: string }>;
+}
+
+export interface SiyuanChildBlock {
+  id: string;
+  /** Abbreviated type ('p' | 'h' | 'i' | 'd' | ...), per treenode.TypeAbbr. */
+  type: string;
+  subType?: string;
+  content?: string;
+  markdown?: string;
+}
+
+export interface SiyuanBacklinkPath {
+  id: string;
+  box: string;
+  name: string;
+  hPath: string;
+  type: string;
+  nodeType: string;
+  subType: string;
+  blocks?: SiyuanSearchBlock[];
+  children?: SiyuanBacklinkPath[];
+  depth: number;
+  count: number;
+  folded: boolean;
+  created: string;
+  updated: string;
+}
+
+export interface SiyuanGetBacklinkResult {
+  backlinks: SiyuanBacklinkPath[];
+  linkRefsCount: number;
+  backmentions: SiyuanBacklinkPath[];
+  mentionsCount: number;
+  k: string;
+  mk: string;
+  box: string;
+}
+
+export interface SiyuanSqlRow {
+  [column: string]: unknown;
+}
+
+// ---------------------------------------------------------------------------
+
+export interface SiyuanKernelClientOptions {
+  /** Kernel HTTP endpoint; default {@link SIYUAN_DEFAULT_BASE_URL}. */
+  baseUrl?: string;
+  /** API token (SiYuan Settings → About); sent as `Authorization: Token <token>`. */
+  token: string;
+  /** Per-request timeout; default 10s. Timeout maps to CONNECTION_UNAVAILABLE. */
+  timeoutMs?: number;
+  /** Injectable fetch (tests). */
+  fetchImpl?: typeof fetch;
+}
+
+interface SiyuanEnvelope<T> {
+  code: number;
+  msg: string;
+  data: T;
+}
+
+export class SiyuanKernelClient {
+  readonly baseUrl: string;
+  private readonly token: string;
+  private readonly timeoutMs: number;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: SiyuanKernelClientOptions) {
+    if (!options.token) {
+      throw new KnowledgeError('CONNECTION_UNAVAILABLE', 'SiYuan kernel token is required');
+    }
+    this.baseUrl = (options.baseUrl ?? SIYUAN_DEFAULT_BASE_URL).replace(/\/+$/, '');
+    this.token = options.token;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  }
+
+  /** POST <baseUrl><endpoint> with auth + timeout; unwraps the kernel envelope. */
+  private async post<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Token ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw this.transportError(endpoint, error);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      throw this.httpError(endpoint, response.status);
+    }
+
+    let envelope: SiyuanEnvelope<T>;
+    try {
+      envelope = (await response.json()) as SiyuanEnvelope<T>;
+    } catch {
+      throw new KnowledgeError('PROVIDER_ERROR', `SiYuan kernel returned non-JSON for ${endpoint}`, {
+        httpStatus: response.status,
+      });
+    }
+
+    if (typeof envelope?.code !== 'number') {
+      throw new KnowledgeError('PROVIDER_ERROR', `SiYuan kernel returned malformed envelope for ${endpoint}`, {
+        body: envelope,
+      });
+    }
+    if (envelope.code !== 0) {
+      // code 3 (index in progress) is transient — surfaced with retryable flag (K-03 §3.6 degraded state)
+      throw new KnowledgeError('PROVIDER_ERROR', `SiYuan kernel error (${endpoint}): ${envelope.msg}`, {
+        kernelCode: envelope.code,
+        kernelMsg: envelope.msg,
+        retryable: envelope.code === 3,
+      });
+    }
+    return envelope.data;
+  }
+
+  private transportError(endpoint: string, error: unknown): KnowledgeError {
+    const cause = error instanceof Error ? error : new Error(String(error));
+    const timedOut = cause.name === 'AbortError' || /aborted|timeout/i.test(cause.message);
+    const message = timedOut
+      ? `SiYuan kernel timed out after ${this.timeoutMs}ms (${endpoint})`
+      : `SiYuan kernel unreachable (${endpoint}): ${cause.message}`;
+    return new KnowledgeError('CONNECTION_UNAVAILABLE', message, { cause: cause.message, timedOut });
+  }
+
+  private httpError(endpoint: string, status: number): KnowledgeError {
+    const details = { endpoint, httpStatus: status };
+    if (status === 401 || status === 403) {
+      // Token rejected/missing — settings UI flips KnowledgeConnection.status to 'needs_auth'
+      return new KnowledgeError('PROVIDER_ERROR', `SiYuan kernel rejected the API token (HTTP ${status})`, details);
+    }
+    if (status >= 500) {
+      return new KnowledgeError('CONNECTION_UNAVAILABLE', `SiYuan kernel unavailable (HTTP ${status})`, details);
+    }
+    return new KnowledgeError('PROVIDER_ERROR', `SiYuan kernel HTTP ${status} (${endpoint})`, details);
+  }
+
+  // -- System ---------------------------------------------------------------
+
+  /** Kernel version string, e.g. "3.1.28" — the ENGINE_STATUS / capability-discovery probe (K-03 §3.6). */
+  getVersion(): Promise<string> {
+    return this.post<string>('/api/system/version', {});
+  }
+
+  getCurrentTime(): Promise<number> {
+    return this.post<number>('/api/system/currentTime', {});
+  }
+
+  // -- Notebooks ------------------------------------------------------------
+
+  async listNotebooks(): Promise<SiyuanNotebook[]> {
+    const data = await this.post<{ notebooks: SiyuanNotebook[]; boxDocEnabled: boolean }>(
+      '/api/notebook/lsNotebooks',
+      {},
+    );
+    return data?.notebooks ?? [];
+  }
+
+  // -- Search ---------------------------------------------------------------
+
+  async fullTextSearchBlock(input: SiyuanFullTextSearchInput): Promise<SiyuanFullTextSearchResult> {
+    const body: Record<string, unknown> = { query: input.query };
+    if (input.page !== undefined) body.page = input.page;
+    if (input.pageSize !== undefined) body.pageSize = input.pageSize;
+    if (input.paths?.length) body.paths = input.paths;
+    if (input.types) body.types = input.types;
+    if (input.subTypes) body.subTypes = input.subTypes;
+    if (input.method !== undefined) body.method = input.method;
+    if (input.orderBy !== undefined) body.orderBy = input.orderBy;
+    if (input.groupBy !== undefined) body.groupBy = input.groupBy;
+    return this.post<SiyuanFullTextSearchResult>('/api/search/fullTextSearchBlock', body);
+  }
+
+  /**
+   * Read-only SQL projection (blocks table). READ-ONLY: always sent with mode: 'readonly'
+   * (server-side single-statement + non-mutating check; admin role). SELECT only.
+   */
+  sql<T extends SiyuanSqlRow = SiyuanSqlRow>(stmt: string): Promise<T[]> {
+    return this.post<T[]>('/api/query/sql', { stmt, mode: 'readonly' });
+  }
+
+  // -- Blocks ---------------------------------------------------------------
+
+  getBlockInfo(id: string): Promise<SiyuanBlockInfo> {
+    return this.post<SiyuanBlockInfo>('/api/block/getBlockInfo', { id });
+  }
+
+  async getBlockKramdown(id: string, mode: 'md' | 'textmark' = 'md'): Promise<string> {
+    const data = await this.post<{ id: string; kramdown: string }>('/api/block/getBlockKramdown', { id, mode });
+    return data?.kramdown ?? '';
+  }
+
+  async getChildBlocks(id: string): Promise<SiyuanChildBlock[]> {
+    return (await this.post<SiyuanChildBlock[]>('/api/block/getChildBlocks', { id })) ?? [];
+  }
+
+  getDocInfo(id: string): Promise<SiyuanDocInfo> {
+    return this.post<SiyuanDocInfo>('/api/block/getDocInfo', { id });
+  }
+
+  checkBlockExist(id: string): Promise<boolean> {
+    return this.post<boolean>('/api/block/checkBlockExist', { id });
+  }
+
+  // -- Attributes -----------------------------------------------------------
+
+  async getBlockAttrs(id: string): Promise<Record<string, string>> {
+    return (await this.post<Record<string, string>>('/api/attr/getBlockAttrs', { id })) ?? {};
+  }
+
+  // -- Backlinks / mentions (K-03 §3.2 backlinks) ---------------------------
+
+  /** k/mk are mandatory on the kernel side; empty strings mean "no sub-filter". */
+  getBacklink(id: string, options: { k?: string; mk?: string; beforeLen?: number } = {}): Promise<SiyuanGetBacklinkResult> {
+    return this.post<SiyuanGetBacklinkResult>('/api/ref/getBacklink', {
+      id,
+      k: options.k ?? '',
+      mk: options.mk ?? '',
+      ...(options.beforeLen !== undefined ? { beforeLen: options.beforeLen } : {}),
+    });
+  }
+
+  getBackmentionDoc(defID: string, refTreeID: string): Promise<{ backmentions: unknown[]; keywords: string[] }> {
+    return this.post('/api/ref/getBackmentionDoc', { defID, refTreeID, keyword: '' });
+  }
+
+  // -- Filetree -------------------------------------------------------------
+
+  getHPathByID(id: string): Promise<string> {
+    return this.post<string>('/api/filetree/getHPathByID', { id });
+  }
+
+  getPathByID(id: string): Promise<{ path: string; notebook: string }> {
+    return this.post<{ path: string; notebook: string }>('/api/filetree/getPathByID', { id });
+  }
+
+  // -- Export (read-only markdown projection of a document) ------------------
+
+  /** Body markdown of a document. yfm/addTitle off: stable body for contentHash. */
+  exportMdContent(id: string): Promise<{ hPath: string; content: string }> {
+    return this.post<{ hPath: string; content: string }>('/api/export/exportMdContent', {
+      id,
+      yfm: false,
+      addTitle: false,
+    });
+  }
+}

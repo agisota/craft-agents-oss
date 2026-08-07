@@ -95,6 +95,14 @@ export type ErrorCode =
   | 'MARKETPLACE_ENTRY_NOT_FOUND'
   | 'MARKETPLACE_ENTRY_NOT_INSTALLED'
   | 'MARKETPLACE_OPERATION_IN_FLIGHT'
+  // Knowledge provider (P1 read-only), spec 03 §3.2 KnowledgeErrorCode
+  | 'CONNECTION_UNAVAILABLE'
+  | 'UNSUPPORTED_OPERATION'
+  | 'NOT_FOUND'
+  | 'HASH_CONFLICT'
+  | 'INVALID_REF'
+  | 'CAPABILITY_DISABLED'
+  | 'PROVIDER_ERROR'
 
 const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'HANDLER_ERROR',
@@ -119,6 +127,13 @@ const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'MARKETPLACE_ENTRY_NOT_FOUND',
   'MARKETPLACE_ENTRY_NOT_INSTALLED',
   'MARKETPLACE_OPERATION_IN_FLIGHT',
+  'CONNECTION_UNAVAILABLE',
+  'UNSUPPORTED_OPERATION',
+  'NOT_FOUND',
+  'HASH_CONFLICT',
+  'INVALID_REF',
+  'CAPABILITY_DISABLED',
+  'PROVIDER_ERROR',
 ])
 
 export function isErrorCode(value: unknown): value is ErrorCode {

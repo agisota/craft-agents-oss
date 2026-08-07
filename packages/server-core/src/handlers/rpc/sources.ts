@@ -8,6 +8,7 @@ import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { getDefaultWorkspacesDir, loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
+import { KnowledgeConnectionsStore } from '../../knowledge'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sources.GET,
@@ -145,6 +146,19 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
 
     const source = loadSource(workspace.rootPath, sourceSlug)
     if (!source) {
+      // Knowledge bridge (P1): knowledge connections are not sources, but their
+      // bearer token is stored under the same key contract
+      // source_bearer::{workspaceId}::{connectionId} (spec 04 §3.3.1). Only
+      // accept the fallback when a knowledge connection with this id exists,
+      // so mistyped source slugs still fail loudly.
+      if (new KnowledgeConnectionsStore().get(sourceSlug)) {
+        await getCredentialManager().set(
+          { type: 'source_bearer', workspaceId, sourceId: sourceSlug },
+          { value: credential },
+        )
+        log.info(`Saved bearer credential for knowledge connection: ${sourceSlug}`)
+        return
+      }
       throw new Error(`Source not found: ${sourceSlug}`)
     }
 
