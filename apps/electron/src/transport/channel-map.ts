@@ -288,6 +288,8 @@ export const CHANNEL_MAP = {
   'knowledge.envelopeGet': invoke(RPC_CHANNELS.knowledge.ENVELOPE_GET),
   'knowledge.envelopeUpsert': invoke(RPC_CHANNELS.knowledge.ENVELOPE_UPSERT),
   'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
+  'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
+  'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop

@@ -673,6 +673,9 @@ export interface ElectronAPI {
       envelope: KnowledgeWorkEnvelope
     }): Promise<KnowledgeWorkEnvelope>
     envelopeList(args?: { connectionId?: string }): Promise<KnowledgeWorkEnvelope[]>
+    /** P6: start polling watcher → AutomationSystem knowledge events. */
+    watch(args: { connectionId: string; workspaceId: string; intervalMs?: number }): Promise<{ ok: true }>
+    unwatch(args: { connectionId: string; workspaceId: string }): Promise<{ ok: true }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void

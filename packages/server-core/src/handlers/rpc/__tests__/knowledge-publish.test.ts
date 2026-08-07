@@ -211,7 +211,7 @@ describe('P4 publication channels registration', () => {
       RPC_CHANNELS.knowledge.LIST_LINKS,
     ]
     for (const ch of publish) expect(HANDLED_CHANNELS).toContain(ch)
-    expect(HANDLED_CHANNELS).toHaveLength(30) // 9 P1 + 7 P3 + 8 P4 + 6 P5
+    expect(HANDLED_CHANNELS).toHaveLength(32) // 9 P1 + 7 P3 + 8 P4 + 6 P5
   })
 
   it('registers handlers for every publish channel', () => {

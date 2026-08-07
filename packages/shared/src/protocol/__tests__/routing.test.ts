@@ -130,7 +130,7 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
   })
 
-  test('knowledge namespace is exactly the P1+P3+P4+P5 set (no engine-lifecycle channels)', () => {
+  test('knowledge namespace is exactly the P1+P3+P4+P5+P6 set (no engine-lifecycle channels)', () => {
     expect([...Object.keys(RPC_CHANNELS.knowledge)].sort()).toEqual([
       'APPLY_PROPOSAL',
       'APPROVE_PROPOSAL',
@@ -160,9 +160,11 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
       'SEARCH',
       'SNAPSHOT_CREATE',
       'SNAPSHOT_GET',
+      'UNWATCH',
       'VIEWS_LIST',
       'VIEW_RUN',
       'VIEW_SET_ATTRIBUTE',
+      'WATCH',
     ])
     // Guard: no engine-lifecycle channels — engineStart/engineStop are P7.
     for (const ch of Object.values(RPC_CHANNELS.knowledge)) {

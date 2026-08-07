@@ -102,7 +102,12 @@ import { listLabels, loadLabelConfig } from '@craft-agent/shared/labels/storage'
 import { extractLabelId, resolveSessionLabels, findTaskItemLabelId } from '@craft-agent/shared/labels'
 import { ensureLabelsExist, ensureTaskItemLabel } from '@craft-agent/shared/labels/crud'
 import { loadStatusConfig } from '@craft-agent/shared/statuses/storage'
-import { AutomationSystem, createPromptHistoryEntry, appendAutomationHistoryEntry, type AutomationSystemMetadataSnapshot } from '@craft-agent/shared/automations'
+import { AutomationSystem, createPromptHistoryEntry, appendAutomationHistoryEntry, type AutomationSystemMetadataSnapshot, type KnowledgeActionExecutor, type CloudRunSubmitExecutor, type KnowledgeActionExecutorContext, type KnowledgeAutomationAction, type CloudRunSubmitAction, type CloudRunSubmitExecutorContext } from '@craft-agent/shared/automations'
+import { ServerKnowledgeActionExecutor } from '../knowledge/automation-actions'
+import { KnowledgeBridgeService } from '../knowledge/bridge-service'
+import { KnowledgeMutationProposalsStore } from '../knowledge/proposals-store'
+import { KnowledgeAuditLog } from '../knowledge/knowledge-audit'
+import { getKnowledgeBridge, getKnowledgeProviderResolver, registerKnowledgeBridge } from '../knowledge/bridge-registry'
 import { buildBackendRuntimeSignature, buildRestartRequiredSignature, filterAttachmentsForModelInput } from './runtime-config'
 import { validateArchiveTarget } from './archive-guards'
 
@@ -1800,6 +1805,8 @@ export class SessionManager implements ISessionManager {
         workspaceRootPath,
         workspaceId,
         enableScheduler: true,
+        knowledgeExecutor: this.createKnowledgeActionExecutor(workspaceRootPath, workspaceId),
+        cloudRunSubmitExecutor: this.createCloudRunSubmitExecutor(workspaceRootPath, workspaceId),
         onPromptsReady: async (prompts) => {
           // Execute prompt automations by creating new sessions
           const settled = await Promise.allSettled(
@@ -1859,6 +1866,76 @@ export class SessionManager implements ISessionManager {
     const watcher = this.configWatchers.get(workspaceRootPath)
     watcher?.notifyFileChange(relativePath)
   }
+
+
+  /**
+   * Emit an AppEvent into the workspace AutomationSystem bus (P6 knowledge watcher).
+   */
+  async emitWorkspaceEvent(workspaceId: string, event: string, payload: Record<string, unknown>): Promise<void> {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    const workspaceRootPath = workspace?.rootPath
+      ?? (this.automationSystems.size === 1 ? this.automationSystems.keys().next().value : undefined)
+    if (!workspaceRootPath) return
+    const automationSystem = this.automationSystems.get(workspaceRootPath)
+    if (!automationSystem || automationSystem.isDisposed()) return
+    await automationSystem.emit(event as Parameters<AutomationSystem['emit']>[0], {
+      workspaceId,
+      timestamp: Date.now(),
+      ...payload,
+    } as Parameters<AutomationSystem['emit']>[1])
+  }
+
+  /** Knowledge action executor bound to workspace bridge (P6). */
+  private createKnowledgeActionExecutor(workspaceRootPath: string, workspaceId: string): KnowledgeActionExecutor {
+    const executor = new ServerKnowledgeActionExecutor({
+      getBridge: (root, wsId) => {
+        const existing = getKnowledgeBridge(root)
+        if (existing) return existing
+        const resolver = getKnowledgeProviderResolver(root)
+        const bridge = new KnowledgeBridgeService({
+          providerResolver: resolver ?? (async (connectionId) => {
+            throw new Error(
+              `knowledge automation: no provider resolver for workspace (connection=${connectionId}). Start knowledge WATCH or open knowledge UI first.`,
+            )
+          }),
+          proposalsStore: new KnowledgeMutationProposalsStore(root),
+          audit: new KnowledgeAuditLog(root),
+          workspaceId: wsId,
+        })
+        registerKnowledgeBridge(root, bridge, resolver)
+        return bridge
+      },
+      resolveConnectionId: (ctx) => {
+        const p = ctx.payload.connectionId
+        return typeof p === 'string' && p.length > 0 ? p : undefined
+      },
+    })
+    return {
+      execute: (action: KnowledgeAutomationAction, ctx: KnowledgeActionExecutorContext) =>
+        executor.execute(action, ctx),
+    }
+  }
+
+  private createCloudRunSubmitExecutor(_workspaceRootPath: string, _workspaceId: string): CloudRunSubmitExecutor {
+    const executor = new ServerKnowledgeActionExecutor({
+      getBridge: () => {
+        throw new Error('cloud_run.submit does not use the knowledge bridge')
+      },
+    })
+    return {
+      submit: (action: CloudRunSubmitAction, ctx: CloudRunSubmitExecutorContext) =>
+        executor.submitCloudRun(action, {
+          event: String(ctx.event),
+          payload: ctx.payload,
+          matcherId: ctx.matcherId,
+          automationName: ctx.automationName,
+          workspaceId: ctx.workspaceId,
+          workspaceRootPath: ctx.workspaceRootPath,
+          env: ctx.env,
+        }),
+    }
+  }
+
 
   /**
    * Reload sources for all sessions in a workspace, skipping those currently processing.

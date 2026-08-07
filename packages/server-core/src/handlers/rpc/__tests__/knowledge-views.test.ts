@@ -1,6 +1,6 @@
 /**
  * P5 knowledge views + envelopes RPC handler tests:
- * - HANDLED_CHANNELS includes 6 P5 channels (total 30)
+ * - HANDLED_CHANNELS includes 6 P5 channels (total 32)
  * - viewsList returns knowledge-domain defaults
  * - viewRun filters via InMemory provider (research-needs-review fixture)
  * - viewSetAttribute creates a pending proposal via bridge (no apply)
@@ -237,14 +237,14 @@ afterEach(() => {
 })
 
 describe('P5 HANDLED_CHANNELS', () => {
-  it('includes the six P5 view/envelope channels (total 30)', () => {
+  it('includes the six P5 view/envelope channels (total 32 with P6 watch)', () => {
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.ENVELOPE_GET)
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.ENVELOPE_UPSERT)
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.ENVELOPE_LIST)
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.VIEWS_LIST)
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.VIEW_RUN)
     expect(HANDLED_CHANNELS).toContain(RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE)
-    expect(HANDLED_CHANNELS).toHaveLength(30) // 9 P1 + 7 P3 + 8 P4 + 6 P5
+    expect(HANDLED_CHANNELS).toHaveLength(32) // 9 P1 + 7 P3 + 8 P4 + 6 P5
   })
 
   it('registers handlers for every P5 channel', () => {

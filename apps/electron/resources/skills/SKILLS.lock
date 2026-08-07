@@ -114,9 +114,10 @@
       "commit": "local",
       "license": "MIT",
       "licenseFile": null,
-      "note": "First-party Craft knowledge skills (P4 publication pipeline). Not cloned from an external origin; shipped under resources/skills/craft-knowledge.",
+      "note": "First-party Craft knowledge skills (P4 publication + P6 research-and-publish). Not cloned from an external origin; shipped under resources/skills/craft-knowledge.",
       "skills": [
-        "knowledge-distill"
+        "knowledge-distill",
+        "research-and-publish"
       ]
     }
   ]

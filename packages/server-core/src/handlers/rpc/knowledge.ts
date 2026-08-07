@@ -100,6 +100,14 @@ import {
   KnowledgeBridgeService,
   type KnowledgeProposalFileRecord,
 } from '../../knowledge/bridge-service'
+import {
+  startKnowledgeWatch,
+  stopKnowledgeWatch,
+} from '../../knowledge/change-watcher'
+import {
+  registerKnowledgeBridge,
+  registerKnowledgeProviderResolver,
+} from '../../knowledge/bridge-registry'
 import type {
   KnowledgeConnectionRecord,
   KnowledgeConnectionStatus,
@@ -124,7 +132,7 @@ export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor
   }
 }
 
-/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes; asserted verbatim by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -158,6 +166,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.VIEWS_LIST,
   RPC_CHANNELS.knowledge.VIEW_RUN,
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+  // P6 change watcher
+  RPC_CHANNELS.knowledge.WATCH,
+  RPC_CHANNELS.knowledge.UNWATCH,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -464,6 +475,8 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         workspaceId,
       })
       bridges.set(rootPath, bridge)
+      registerKnowledgeBridge(rootPath, bridge, resolveProvider)
+      registerKnowledgeProviderResolver(rootPath, resolveProvider)
     }
     return bridge
   }
@@ -1290,6 +1303,77 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         }
         throw toTransportError(error)
       }
+    },
+  )
+
+  // ——— WATCH({connectionId, workspaceId, intervalMs?}) → { ok: true } ———
+  // Starts a per-workspace KnowledgeChangeWatcher that polls provider and emits
+  // AppEvents into the workspace AutomationSystem via sessionManager.emitWorkspaceEvent.
+  server.handle(
+    RPC_CHANNELS.knowledge.WATCH,
+    async (_ctx, args: { connectionId?: string; workspaceId?: string; intervalMs?: number }) => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.watch: connectionId is required')
+      }
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.watch: workspaceId is required')
+      }
+      const record = requireConnection(args.connectionId)
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      // Ensure bridge+provider resolver are registered for automation executor path.
+      bridgeFor(rootPath, args.workspaceId)
+      registerKnowledgeProviderResolver(rootPath, resolveProvider)
+
+      const intervalMs =
+        typeof args.intervalMs === 'number' && args.intervalMs >= 5_000 ? args.intervalMs : 60_000
+
+      const emit = deps.sessionManager.emitWorkspaceEvent?.bind(deps.sessionManager)
+
+      startKnowledgeWatch({
+        connectionId: args.connectionId,
+        workspaceId: args.workspaceId,
+        workspaceRoot: rootPath,
+        intervalMs,
+        getProvider: () => resolveProvider(args.connectionId!),
+        onEvent: async (event, payload) => {
+          // Fan-out to renderer (existing knowledge:changed) for UI freshness
+          if (payload.ref) {
+            pushTyped(
+              server,
+              RPC_CHANNELS.knowledge.CHANGED,
+              { to: 'workspace', workspaceId: args.workspaceId! },
+              {
+                ref: payload.ref,
+                change: event === 'KnowledgeDocumentCreated' ? 'created' : 'updated',
+              },
+            )
+          }
+          // Emit into AutomationSystem
+          if (emit) {
+            await emit(args.workspaceId!, event, {
+              ...payload,
+              connectionId: args.connectionId,
+            })
+          }
+        },
+      })
+      return { ok: true as const, connectionId: record.id, intervalMs }
+    },
+  )
+
+  // ——— UNWATCH({connectionId, workspaceId}) → { ok: true } ———
+  server.handle(
+    RPC_CHANNELS.knowledge.UNWATCH,
+    async (_ctx, args: { connectionId?: string; workspaceId?: string }) => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.unwatch: connectionId is required')
+      }
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.unwatch: workspaceId is required')
+      }
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      const stopped = stopKnowledgeWatch(rootPath, args.connectionId)
+      return { ok: true as const, stopped }
     },
   )
 }

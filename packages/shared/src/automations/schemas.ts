@@ -63,10 +63,75 @@ export const WebhookActionSchema = z.object({
   ]).optional(),
 });
 
-/** Accepts prompt and webhook actions strictly; passes through legacy/unknown action types without erroring */
+/** Knowledge ref object or env-expandable string */
+const KnowledgeRefValueSchema = z.union([
+  z.object({
+    scheme: z.literal('siyuan'),
+    kind: z.string().min(1),
+    id: z.string().min(1),
+    provider: z.string().optional(),
+    connectionId: z.string().optional(),
+  }),
+  z.string().min(1),
+]);
+
+const CraftRefValueSchema = z.union([
+  z.object({
+    scheme: z.literal('craft'),
+    kind: z.string().min(1),
+    id: z.string().min(1),
+  }),
+  z.string().min(1),
+]);
+
+export const KnowledgeAutomationOpSchema = z.enum([
+  'create_document',
+  'append_block',
+  'propose_patch',
+  'set_attribute',
+  'link_session',
+  'publish_run',
+]);
+
+export const KnowledgeAutomationActionSchema = z.object({
+  type: z.literal('knowledge'),
+  op: KnowledgeAutomationOpSchema,
+  notebook: z.string().optional(),
+  path: z.string().optional(),
+  markdown: z.string().optional(),
+  parentRef: KnowledgeRefValueSchema.optional(),
+  targetRef: KnowledgeRefValueSchema.optional(),
+  knowledgeRef: KnowledgeRefValueSchema.optional(),
+  craftRef: CraftRefValueSchema.optional(),
+  relation: z.string().optional(),
+  name: z.string().optional(),
+  value: z.string().optional(),
+  baseHash: z.string().optional(),
+  patchMarkdown: z.string().optional(),
+  runId: z.string().optional(),
+  targetNotebook: z.string().optional(),
+  targetPath: z.string().optional(),
+  review: z.literal('required').optional(),
+  attributes: z.record(z.string(), z.string()).optional(),
+  /** DEFAULT false for ALL knowledge ops in v1 — always propose only except link_session */
+  autoApply: z.boolean().optional(),
+});
+
+export const CloudRunSubmitActionSchema = z.object({
+  type: z.literal('cloud_run.submit'),
+  skillSlug: z.string().optional(),
+  topic: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  callbackTag: z.string().optional(),
+  sessionId: z.string().optional(),
+});
+
+/** Accepts known actions strictly; passes through legacy/unknown action types without erroring */
 export const ActionDefinitionSchema = z.union([
   PromptActionSchema,
   WebhookActionSchema,
+  KnowledgeAutomationActionSchema,
+  CloudRunSubmitActionSchema,
   z.object({ type: z.string() }).passthrough(),
 ]);
 
@@ -150,6 +215,8 @@ export const AutomationMatcherSchema = z.object({
   // Telegram forum-topic name (1–128 chars). Silently ignored at runtime when
   // no supergroup is paired or the Telegram adapter is not connected.
   telegramTopic: z.string().min(1).max(128).optional(),
+  /** Attribute names this matcher documents as trusted for set_attribute */
+  attributeAllowList: z.array(z.string()).optional(),
   actions: z.array(ActionDefinitionSchema).min(1, 'At least one action required'),
 });
 
