@@ -58,6 +58,8 @@ export default function ContextSettingsPage() {
   const [packsBusy, setPacksBusy] = useState(false)
 
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
+  const [templatePreview, setTemplatePreview] = useState<string | null>(null)
+  const [showTemplateDiff, setShowTemplateDiff] = useState(false)
 
   const loadDocs = useCallback(() => {
     window.electronAPI
@@ -125,12 +127,23 @@ export default function ContextSettingsPage() {
     setSelectedFilename(filename)
     setCurrentDoc(null)
     setDraft('')
+    setTemplatePreview(null)
+    setShowTemplateDiff(false)
     setPageError(null)
     window.electronAPI
       .readContextDoc(filename)
-      .then((doc) => {
+      .then(async (doc) => {
         setCurrentDoc(doc)
         setDraft(doc.content)
+        if (doc.templateStale) {
+          try {
+            const tpl = await window.electronAPI.readContextDocTemplate(filename)
+            setTemplatePreview(tpl)
+            setShowTemplateDiff(true)
+          } catch {
+            setTemplatePreview(null)
+          }
+        }
       })
       .catch((error) => {
         console.error('Failed to read context doc:', error)
@@ -185,6 +198,8 @@ export default function ContextSettingsPage() {
       const full = await window.electronAPI.readContextDoc(currentDoc.filename)
       setCurrentDoc(full)
       setDraft(full.content)
+      setTemplatePreview(null)
+      setShowTemplateDiff(false)
       setDocs((prev) => prev.map((d) => (d.filename === updated.filename ? { ...d, ...updated } : d)))
     } catch (error) {
       console.error('Failed to accept template:', error)
@@ -207,6 +222,8 @@ export default function ContextSettingsPage() {
       const full = await window.electronAPI.readContextDoc(currentDoc.filename)
       setCurrentDoc(full)
       setDraft(full.content)
+      setTemplatePreview(null)
+      setShowTemplateDiff(false)
       setDocs((prev) => prev.map((d) => (d.filename === updated.filename ? { ...d, ...updated } : d)))
     } catch (error) {
       console.error('Failed to keep mine template:', error)
@@ -354,14 +371,55 @@ export default function ContextSettingsPage() {
                         </div>
                       </div>
                       {showTemplateActions && (
-                        <p className="text-xs text-muted-foreground">{t('settings.context.templateStaleHint')}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-muted-foreground">{t('settings.context.templateStaleHint')}</p>
+                          {templatePreview != null ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setShowTemplateDiff((v) => !v)}
+                            >
+                              {showTemplateDiff
+                                ? t('settings.context.hideTemplateDiff')
+                                : t('settings.context.showTemplateDiff')}
+                            </Button>
+                          ) : null}
+                        </div>
                       )}
-                      <textarea
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        spellCheck={false}
-                        className="w-full min-h-[400px] rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      />
+                      {showTemplateActions && showTemplateDiff && templatePreview != null ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="text-[11px] font-medium text-muted-foreground">
+                              {t('settings.context.templateColumn')}
+                              {currentDoc.templateVersion != null
+                                ? ` · v${currentDoc.templateVersion}`
+                                : ''}
+                            </div>
+                            <pre className="w-full min-h-[320px] max-h-[480px] overflow-auto rounded-md border border-input bg-muted/30 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                              {templatePreview}
+                            </pre>
+                          </div>
+                          <div className="space-y-1 min-w-0">
+                            <div className="text-[11px] font-medium text-muted-foreground">
+                              {t('settings.context.yoursColumn')}
+                              {currentDoc.version != null ? ` · v${currentDoc.version}` : ''}
+                            </div>
+                            <textarea
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                              spellCheck={false}
+                              className="w-full min-h-[320px] max-h-[480px] rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <textarea
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          spellCheck={false}
+                          className="w-full min-h-[400px] rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        />
+                      )}
                     </>
                   )}
                 </div>
