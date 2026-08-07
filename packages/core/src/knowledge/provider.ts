@@ -50,6 +50,10 @@ export interface SearchHit {
   notebookPath: string;
   updatedAt: number;              // epoch ms
   score?: number;
+  /** Optional domain attributes (viewRun enrichment for groupBy topic/status). */
+  attributes?: Record<string, string>;
+  /** Convenience mirror of attributes.topic when enriched. */
+  topic?: string;
 }
 
 export interface SearchPage {

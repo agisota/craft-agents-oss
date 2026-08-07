@@ -281,6 +281,13 @@ export const CHANNEL_MAP = {
   'knowledge.publishFinalize': invoke(RPC_CHANNELS.knowledge.PUBLISH_FINALIZE),
   'knowledge.publishList': invoke(RPC_CHANNELS.knowledge.PUBLISH_LIST),
   'knowledge.listLinks': invoke(RPC_CHANNELS.knowledge.LIST_LINKS),
+  // P5 saved knowledge views + work envelopes (K-09 / S-08).
+  'knowledge.viewsList': invoke(RPC_CHANNELS.knowledge.VIEWS_LIST),
+  'knowledge.viewRun': invoke(RPC_CHANNELS.knowledge.VIEW_RUN),
+  'knowledge.viewSetAttribute': invoke(RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE),
+  'knowledge.envelopeGet': invoke(RPC_CHANNELS.knowledge.ENVELOPE_GET),
+  'knowledge.envelopeUpsert': invoke(RPC_CHANNELS.knowledge.ENVELOPE_UPSERT),
+  'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop

@@ -250,7 +250,7 @@ export class SiyuanKnowledgeProvider implements KnowledgeProvider {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(
         ([name, value], index) =>
-          `JOIN attributes AS a${index} ON a${index}.block_id = b.id AND a${index}.name = ${sqlString(name)} AND a${index}.value = ${sqlString(value)}`,
+          `JOIN attributes AS a${index} ON a${index}.block_id = b.id AND a${index}.name = ${sqlString(kernelAttrSearchName(name))} AND a${index}.value = ${sqlString(value)}`,
       );
     const where: string[] = [];
     const query = input.query.trim();
@@ -604,6 +604,11 @@ function searchBlockToHit(block: SiyuanSearchBlock): SearchPage['items'][number]
     notebookPath: block.hPath,
     updatedAt: parseSiyuanTimestamp(block.updated),
   };
+}
+
+/** Domain attribute name → kernel attributes.name (`domain` → `custom-domain`). */
+function kernelAttrSearchName(domainName: string): string {
+  return domainName.startsWith('custom-') ? domainName : `custom-${domainName}`;
 }
 
 function sqlRowToHit(row: SiyuanSqlRow): SearchPage['items'][number] {

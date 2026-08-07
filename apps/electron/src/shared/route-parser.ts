@@ -304,8 +304,20 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
 
   // Knowledge surface — knowledge/{kind}/{id}; kind 'database' doubles as the
   // database SurfaceTab (descriptor-lowering happens in the registry, S-02 §3.2).
+  // P5 saved views: knowledge/view/{viewId} — stays on knowledge navigator with
+  // details.type 'knowledge-view' so KnowledgeHome can deep-link.
   if (first === 'knowledge') {
     if (segments.length === 1) {
+      return { navigator: 'knowledge', details: null }
+    }
+    if (segments[1] === 'view') {
+      const viewId = segments[2] ? decodeURIComponent(segments.slice(2).join('/')) : ''
+      if (viewId) {
+        return {
+          navigator: 'knowledge',
+          details: { type: 'knowledge-view', id: viewId },
+        }
+      }
       return { navigator: 'knowledge', details: null }
     }
     const kind = segments[1]
@@ -470,7 +482,11 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
 
   // Unified-shell surfaces (W1)
   if (parsed.navigator === 'knowledge') {
-    if (!parsed.details || parsed.details.type !== 'knowledge' || !parsed.details.kind) return 'knowledge'
+    if (!parsed.details) return 'knowledge'
+    if (parsed.details.type === 'knowledge-view') {
+      return `knowledge/view/${encodeURIComponent(parsed.details.id)}`
+    }
+    if (parsed.details.type !== 'knowledge' || !parsed.details.kind) return 'knowledge'
     return `knowledge/${parsed.details.kind}/${encodeURIComponent(parsed.details.id)}`
   }
 
@@ -820,7 +836,16 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
 
   // Unified-shell surfaces (W1)
   if (compound.navigator === 'knowledge') {
-    if (!compound.details || compound.details.type !== 'knowledge' || !compound.details.kind) {
+    if (!compound.details) {
+      return { navigator: 'knowledge', details: null }
+    }
+    if (compound.details.type === 'knowledge-view') {
+      return {
+        navigator: 'knowledge',
+        details: { type: 'knowledge-view', viewId: compound.details.id },
+      }
+    }
+    if (compound.details.type !== 'knowledge' || !compound.details.kind) {
       return { navigator: 'knowledge', details: null }
     }
     return {
@@ -1112,6 +1137,12 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
 
   // Unified-shell surfaces (W1)
   if (state.navigator === 'knowledge') {
+    if (state.details?.type === 'knowledge-view') {
+      return {
+        navigator: 'knowledge',
+        details: { type: 'knowledge-view', id: state.details.viewId },
+      }
+    }
     return {
       navigator: 'knowledge',
       details: state.details?.type === 'knowledge'

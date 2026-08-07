@@ -405,6 +405,15 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.PUBLISH_LIST,
   RPC_CHANNELS.knowledge.LIST_LINKS,
 
+  // knowledge — P5 saved views + work envelopes (K-09 / S-08): views.json and
+  // work-envelopes.jsonl are workspace data on the workspace-owning server.
+  RPC_CHANNELS.knowledge.ENVELOPE_GET,
+  RPC_CHANNELS.knowledge.ENVELOPE_UPSERT,
+  RPC_CHANNELS.knowledge.ENVELOPE_LIST,
+  RPC_CHANNELS.knowledge.VIEWS_LIST,
+  RPC_CHANNELS.knowledge.VIEW_RUN,
+  RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
   RPC_CHANNELS.memory.ADD_LESSON,

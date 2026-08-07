@@ -10,4 +10,6 @@ export * from './mutations.ts';
 export * from './publications.ts';
 export * from './provider.ts';
 export * from './errors.ts';
+export * from './work-envelope.ts';
+
 export * from './providers/inmemory.ts';

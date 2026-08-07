@@ -238,7 +238,7 @@ describe('search', () => {
     for (const call of sqlCalls) {
       expect(call.body['mode']).toBe('readonly');
       expect(String(call.body['stmt'])).toContain(
-        "JOIN attributes AS a0 ON a0.block_id = b.id AND a0.name = 'domain' AND a0.value = 'O''Reilly'",
+        "JOIN attributes AS a0 ON a0.block_id = b.id AND a0.name = 'custom-domain' AND a0.value = 'O''Reilly'",
       );
     }
     const selectStmt = String(sqlCalls[1]!.body['stmt']);

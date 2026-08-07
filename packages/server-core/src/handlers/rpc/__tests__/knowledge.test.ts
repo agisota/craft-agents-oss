@@ -200,7 +200,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read + 7 P3 write-back + 8 P4 publication channels — no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 view/envelope channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -226,12 +226,18 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.PUBLISH_FINALIZE,
       RPC_CHANNELS.knowledge.PUBLISH_LIST,
       RPC_CHANNELS.knowledge.LIST_LINKS,
+      RPC_CHANNELS.knowledge.ENVELOPE_GET,
+      RPC_CHANNELS.knowledge.ENVELOPE_UPSERT,
+      RPC_CHANNELS.knowledge.ENVELOPE_LIST,
+      RPC_CHANNELS.knowledge.VIEWS_LIST,
+      RPC_CHANNELS.knowledge.VIEW_RUN,
+      RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
     ])
     // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
     expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
-    expect(HANDLED_CHANNELS).toHaveLength(24) // 9 P1 + 7 P3 + 8 P4
+    expect(HANDLED_CHANNELS).toHaveLength(30) // 9 P1 + 7 P3 + 8 P4 + 6 P5
   })
 
   it('registers a handler for every declared channel and nothing else', () => {

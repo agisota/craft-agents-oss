@@ -2,16 +2,18 @@
  * Knowledge provider RPC handlers — 9 read channels (P1, spec
  * 2026-08-07-siyuan-integration/03 §§3.2–3.6, storage per spec 04 §3.3) plus
  * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md)
- * plus 8 Session→Knowledge publication channels (P4, spec 06).
+ * plus 8 Session→Knowledge publication channels (P4, spec 06) plus 6 P5
+ * saved-views / work-envelope channels (K-09 §3.5 / S-08).
  *
  * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
  * channels + the 7 spec-05 proposal channels + the 8 spec-06 publication
- * channels. Every mutation channel routes through KnowledgeBridgeService
- * (the spec-05 pipeline: validate → base-hash → draft → diff → review → apply,
- * with inverse-ops rollback) — no direct provider write path is registered
- * from this file, and engine-lifecycle channels remain P7 and absent by
- * design. Publication APPLY only creates a proposal; FINALIZE commits
- * publications/links after the proposal reaches 'applied' via P3 UI.
+ * channels + the 6 P5 view/envelope channels. Every mutation channel routes
+ * through KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
+ * draft → diff → review → apply, with inverse-ops rollback) — no direct
+ * provider write path is registered from this file, and engine-lifecycle
+ * channels remain P7 and absent by design. Publication APPLY only creates a
+ * proposal; FINALIZE commits publications/links after the proposal reaches
+ * 'applied' via P3 UI. VIEW_SET_ATTRIBUTE also only proposes (never applies).
  *
  * Proposal wiring: one memoized KnowledgeBridgeService per workspace root —
  * proposals/audit are workspace data at {root}/knowledge/{proposals,
@@ -60,6 +62,7 @@ import {
   KnowledgeError,
   MutationValidationError,
   ProposalTransitionError,
+  isAllowedAttributeName,
 } from '@craft-agent/core/knowledge'
 import type {
   ContextMode,
@@ -68,8 +71,17 @@ import type {
   KnowledgeConnection,
   KnowledgeProvider,
   KnowledgeRef,
+  KnowledgeWorkEnvelope,
+  SearchHit,
   SearchInput,
 } from '@craft-agent/core/knowledge'
+import {
+  buildKnowledgeViewContext,
+  compileView,
+  evaluateView,
+  type ViewConfig,
+} from '@craft-agent/shared/views'
+import { listViews as listViewsFromStorage } from '@craft-agent/shared/views/storage'
 import {
   SiyuanKernelClient,
   SiyuanKnowledgeProvider,
@@ -81,6 +93,7 @@ import {
   KnowledgeMutationProposalsStore,
   KnowledgePublicationService,
   KnowledgePublishDraftsStore,
+  KnowledgeWorkEnvelopesStore,
   credentialIdFromRef,
 } from '../../knowledge'
 import {
@@ -111,7 +124,7 @@ export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor
   }
 }
 
-/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication; asserted verbatim by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes; asserted verbatim by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -138,6 +151,13 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.PUBLISH_FINALIZE,
   RPC_CHANNELS.knowledge.PUBLISH_LIST,
   RPC_CHANNELS.knowledge.LIST_LINKS,
+  // P5 saved views + work envelopes (K-09 / S-08)
+  RPC_CHANNELS.knowledge.ENVELOPE_GET,
+  RPC_CHANNELS.knowledge.ENVELOPE_UPSERT,
+  RPC_CHANNELS.knowledge.ENVELOPE_LIST,
+  RPC_CHANNELS.knowledge.VIEWS_LIST,
+  RPC_CHANNELS.knowledge.VIEW_RUN,
+  RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -253,6 +273,51 @@ export interface KnowledgeListLinksArgs {
   connectionId?: string
   craftId?: string
   knowledgeId?: string
+}
+
+// ---------------------------------------------------------------------------
+// P5 views + work envelopes wire shapes (K-09 / S-08)
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeEnvelopeGetArgs {
+  connectionId?: string
+  ref: KnowledgeRef
+}
+
+export interface KnowledgeEnvelopeUpsertArgs {
+  connectionId?: string
+  envelope: KnowledgeWorkEnvelope
+}
+
+export interface KnowledgeEnvelopeListArgs {
+  connectionId?: string
+}
+
+export interface KnowledgeViewsListArgs {
+  connectionId?: string
+}
+
+export interface KnowledgeViewRunArgs {
+  connectionId: string
+  viewId: string
+  workspaceId?: string
+}
+
+export interface KnowledgeViewSetAttributeArgs {
+  connectionId: string
+  ref: KnowledgeRef
+  name: string
+  value: string
+}
+
+export interface KnowledgeViewHit extends SearchHit {
+  attributes?: Record<string, string>
+  topic?: string
+}
+
+export interface KnowledgeViewRunResult {
+  items: KnowledgeViewHit[]
+  view: ViewConfig
 }
 
 // ---------------------------------------------------------------------------
@@ -935,4 +1000,296 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       knowledgeId: args.knowledgeId,
     })
   })
+
+  // -------------------------------------------------------------------------
+  // P5 saved knowledge views + work envelopes (K-09 §3.5 / S-08)
+  // -------------------------------------------------------------------------
+
+  function envelopesStoreFor(connectionId?: string): KnowledgeWorkEnvelopesStore {
+    const { rootPath } = resolvePublishWorkspace(connectionId)
+    return new KnowledgeWorkEnvelopesStore(rootPath)
+  }
+
+  function resolveViewsWorkspace(args: {
+    connectionId?: string
+    workspaceId?: string
+  }): { rootPath: string; workspaceId: string } {
+    if (args.workspaceId) {
+      return { rootPath: requireWorkspaceRoot(args.workspaceId), workspaceId: args.workspaceId }
+    }
+    if (args.connectionId) {
+      const record = requireConnection(args.connectionId)
+      return requireConnectionWorkspaceRoot(record)
+    }
+    return resolvePublishWorkspace(undefined)
+  }
+
+  /**
+   * Compile knowledgeFilter → SearchInput.
+   * notebook name hint becomes pathPrefix '/{notebook}' unless it looks like a raw id.
+   */
+  function searchInputFromKnowledgeFilter(
+    filter: NonNullable<ViewConfig['knowledgeFilter']> | undefined,
+  ): SearchInput {
+    const input: SearchInput = { query: filter?.query ?? '' }
+    if (filter?.kinds?.length) input.kinds = filter.kinds
+    if (filter?.attributes && Object.keys(filter.attributes).length > 0) {
+      input.attributes = { ...filter.attributes }
+    }
+    if (filter?.pathPrefix) {
+      input.pathPrefix = filter.pathPrefix
+    } else if (filter?.notebookId) {
+      input.notebookId = filter.notebookId
+    } else if (filter?.notebook) {
+      // Heuristic: bare alnum/hyphen ids without slash → notebookId; else pathPrefix.
+      if (/^[a-zA-Z0-9_-]+$/.test(filter.notebook) && !filter.notebook.includes('/')) {
+        // Prefer pathPrefix by notebook name for human defaults ("Research");
+        // only treat as notebookId when it looks like a long id (SiYuan-style).
+        if (filter.notebook.length >= 16 || /^\d{14}-/.test(filter.notebook)) {
+          input.notebookId = filter.notebook
+        } else {
+          input.pathPrefix = `/${filter.notebook.replace(/^\/+/, '')}`
+        }
+      } else {
+        const cleaned = filter.notebook.startsWith('/') ? filter.notebook : `/${filter.notebook}`
+        input.pathPrefix = cleaned
+      }
+    }
+    // Views often return many docs — raise default limit vs plain search (20).
+    input.limit = 100
+    return input
+  }
+
+  function sortSearchHits(
+    items: SearchHit[],
+    sort: ViewConfig['sort'] | undefined,
+  ): SearchHit[] {
+    if (!sort?.length) {
+      // Default: updatedAt desc
+      return [...items].sort((a, b) => b.updatedAt - a.updatedAt || a.ref.id.localeCompare(b.ref.id))
+    }
+    const specs = sort
+    return [...items].sort((a, b) => {
+      for (const spec of specs) {
+        const field = spec.field
+        const dir = spec.direction === 'asc' ? 1 : -1
+        let av: string | number = 0
+        let bv: string | number = 0
+        if (field === 'updated_at' || field === 'updatedAt') {
+          av = a.updatedAt
+          bv = b.updatedAt
+        } else if (field === 'title') {
+          av = a.title
+          bv = b.title
+        } else if (field === 'path' || field === 'notebookPath') {
+          av = a.notebookPath
+          bv = b.notebookPath
+        } else if (field === 'score') {
+          av = a.score ?? 0
+          bv = b.score ?? 0
+        }
+        if (av < bv) return -1 * dir
+        if (av > bv) return 1 * dir
+      }
+      return a.ref.id.localeCompare(b.ref.id)
+    })
+  }
+
+  // ——— ENVELOPE_GET({connectionId?, ref}) → envelope | null ———
+  server.handle(
+    RPC_CHANNELS.knowledge.ENVELOPE_GET,
+    (_ctx, args: KnowledgeEnvelopeGetArgs): KnowledgeWorkEnvelope | null => {
+      assertKnowledgeRef(args?.ref)
+      return envelopesStoreFor(args.connectionId).get(args.ref)
+    },
+  )
+
+  // ——— ENVELOPE_UPSERT({connectionId?, envelope}) → envelope ———
+  server.handle(
+    RPC_CHANNELS.knowledge.ENVELOPE_UPSERT,
+    (_ctx, args: KnowledgeEnvelopeUpsertArgs): KnowledgeWorkEnvelope => {
+      const envelope = args?.envelope
+      if (!envelope || typeof envelope !== 'object') {
+        throw new CodedError('INVALID_REF', 'knowledge.envelopeUpsert: envelope is required')
+      }
+      assertKnowledgeRef(envelope.knowledgeRef)
+      const now = Date.now()
+      const store = envelopesStoreFor(args.connectionId)
+      return store.upsert({
+        knowledgeRef: envelope.knowledgeRef,
+        status: envelope.status,
+        labels: envelope.labels,
+        flagged: envelope.flagged,
+        archived: envelope.archived,
+        assignedTo: envelope.assignedTo,
+        createdAt: typeof envelope.createdAt === 'number' ? envelope.createdAt : now,
+        updatedAt: typeof envelope.updatedAt === 'number' ? envelope.updatedAt : now,
+      })
+    },
+  )
+
+  // ——— ENVELOPE_LIST({connectionId?}) → envelope[] ———
+  server.handle(
+    RPC_CHANNELS.knowledge.ENVELOPE_LIST,
+    (_ctx, args: KnowledgeEnvelopeListArgs = {}): KnowledgeWorkEnvelope[] => {
+      return envelopesStoreFor(args.connectionId).list()
+    },
+  )
+
+  // ——— VIEWS_LIST({connectionId?}) → ViewConfig[] (domain knowledge only) ———
+  server.handle(
+    RPC_CHANNELS.knowledge.VIEWS_LIST,
+    (_ctx, args: KnowledgeViewsListArgs = {}): ViewConfig[] => {
+      const { rootPath } = resolveViewsWorkspace({ connectionId: args.connectionId })
+      return listViewsFromStorage(rootPath, 'knowledge')
+    },
+  )
+
+  // ——— VIEW_RUN({connectionId, viewId, workspaceId?}) → { items, view } ———
+  server.handle(
+    RPC_CHANNELS.knowledge.VIEW_RUN,
+    async (_ctx, args: KnowledgeViewRunArgs): Promise<KnowledgeViewRunResult> => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.viewRun: connectionId is required')
+      }
+      if (typeof args.viewId !== 'string' || args.viewId.length === 0) {
+        throw new CodedError('INVALID_REF', 'knowledge.viewRun: viewId is required')
+      }
+      const { rootPath } = resolveViewsWorkspace({
+        connectionId: args.connectionId,
+        workspaceId: args.workspaceId,
+      })
+      const views = listViewsFromStorage(rootPath, 'knowledge')
+      const view = views.find((v) => v.id === args.viewId)
+      if (!view) {
+        throw new CodedError('NOT_FOUND', `Knowledge view not found: ${args.viewId}`)
+      }
+
+      const searchInput = searchInputFromKnowledgeFilter(view.knowledgeFilter)
+      const page = await callProvider(args.connectionId, (provider) => provider.search(searchInput))
+      let items = page.items ?? []
+
+      // Optional expression post-filter when expression is not the trivial `true`.
+      const expression = (view.expression ?? 'true').trim()
+      if (expression !== 'true' && expression !== '1') {
+        const compiled = compileView(view)
+        if (compiled) {
+          const envelopes = new KnowledgeWorkEnvelopesStore(rootPath)
+          const provider = await resolveProvider(args.connectionId)
+          const filtered: SearchHit[] = []
+          for (const hit of items) {
+            let node = null
+            try {
+              node = await provider.get(hit.ref)
+            } catch {
+              /* use hit-only context */
+            }
+            const envelope = envelopes.get(hit.ref)
+            const ctx = buildKnowledgeViewContext(
+              {
+                title: hit.title,
+                snippet: hit.snippet,
+                notebookPath: hit.notebookPath,
+                updatedAt: hit.updatedAt,
+                ref: hit.ref,
+                path: node?.path,
+                attributes: node?.attributes,
+              },
+              node,
+              envelope,
+            )
+            if (evaluateView(ctx, compiled)) filtered.push(hit)
+          }
+          items = filtered
+        }
+      }
+
+      items = sortSearchHits(items, view.sort)
+
+      // Enrich attributes for non-notebook groupBy (topic/status/…) so UI can bucket.
+      const groupBy = (view.groupBy ?? '').trim()
+      if (groupBy && groupBy !== 'notebook' && items.length > 0) {
+        const provider = await resolveProvider(args.connectionId)
+        const enrichLimit = Math.min(items.length, 100)
+        const enriched: KnowledgeViewHit[] = []
+        for (let i = 0; i < items.length; i++) {
+          const hit = items[i]!
+          if (i >= enrichLimit) {
+            enriched.push(hit)
+            continue
+          }
+          try {
+            const node = await provider.get(hit.ref)
+            const attributes: Record<string, string> = {}
+            for (const attr of node.attributes ?? []) {
+              attributes[attr.key] = attr.value
+            }
+            const topic = attributes.topic || attributes['knowledge-topic']
+            enriched.push({
+              ...hit,
+              attributes,
+              ...(topic ? { topic } : {}),
+            })
+          } catch {
+            enriched.push(hit)
+          }
+        }
+        items = enriched
+      }
+
+      return { items, view }
+    },
+  )
+
+  // ——— VIEW_SET_ATTRIBUTE({connectionId, ref, name, value}) → { proposalId } ———
+  // ALWAYS proposeMutation via bridge — never apply automatically.
+  server.handle(
+    RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+    async (_ctx, args: KnowledgeViewSetAttributeArgs): Promise<{ proposalId: string }> => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.viewSetAttribute: connectionId is required')
+      }
+      assertKnowledgeRef(args?.ref)
+      if (typeof args.name !== 'string' || args.name.length === 0) {
+        throw new CodedError('INVALID_REF', 'knowledge.viewSetAttribute: name is required')
+      }
+      if (typeof args.value !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.viewSetAttribute: value must be a string')
+      }
+      const record = requireConnection(args.connectionId)
+      const { rootPath, workspaceId } = requireConnectionWorkspaceRoot(record)
+      // Mutation allowlist requires ^(craft-|knowledge-). View presets may use bare
+      // domain names (workflow_status) — prefix knowledge- when needed.
+      const attrName = isAllowedAttributeName(args.name) ? args.name : `knowledge-${args.name}`
+      const nowIso = new Date().toISOString()
+      try {
+        const proposal = await bridgeFor(rootPath, workspaceId).propose({
+          connectionId: args.connectionId,
+          input: {
+            targetRef: args.ref,
+            ops: [{ op: 'setAttribute', blockId: args.ref.id, name: attrName, value: args.value }],
+            selectionProofs: [
+              {
+                kind: 'surface-selection',
+                selectionId: `view-action-${Date.now()}`,
+                ref: args.ref,
+                selectedAt: nowIso,
+              },
+            ],
+            actor: 'user',
+            summary: `Set ${attrName}=${args.value}`,
+          },
+        })
+        return { proposalId: proposal.id }
+      } catch (error) {
+        if (error instanceof MutationValidationError) {
+          throw new CodedError(
+            'INVALID_REF',
+            `knowledge.viewSetAttribute: ${error.reason}: ${error.message}`,
+          )
+        }
+        throw toTransportError(error)
+      }
+    },
+  )
 }
