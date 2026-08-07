@@ -118,8 +118,29 @@ function workspaceOptions(self: InstanceType<typeof ContainerBase>): WorkspaceOp
 
 export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   override async fetch(request: Request): Promise<Response> {
+    // F14-WS: live event stream for the UI. Hibernation-safe: the DO wakes
+    // on alarm ticks and broadcasts to every accepted socket.
+    const pathname = new URL(request.url).pathname;
+    if (request.headers.get("upgrade") === "websocket" && pathname.startsWith("/runs/") && pathname.endsWith("/ws")) {
+      // Our live-events channel. NOTE: do NOT match the backend's own
+      // `…/ws` handshake-upgrade paths — intercepting them kills the run.
+      const run = await this.ctx.storage.get<PersistedRun>("run");
+      if (!run) return new Response("not found", { status: 404 });
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+      this.ctx.acceptWebSocket(server);
+      if (run.eventLog && run.eventLog.length > 0) {
+        for (const event of run.eventLog.slice(-20)) {
+          server.send(JSON.stringify(event));
+        }
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
     return this.backend.handleFetch(request);
   }
+
+  // eslint-disable-next-line no-empty-function
+  webSocketMessage(): void {} // server-side sockets are outbound-only here
 
   /**
    * In-DO local view of the Workspace (fs + shell). getWorkspace(this)
@@ -500,7 +521,14 @@ export class RunAgent extends withWorkspace(ContainerBase, workspaceOptions) {
   }
 
   private logEvent(run: PersistedRun, message: string): void {
-    run.eventLog = [...(run.eventLog ?? []).slice(-49), { t: Date.now(), message }];
+    const event = { t: Date.now(), message };
+    run.eventLog = [...(run.eventLog ?? []).slice(-49), event];
+    // F14-WS: fan out to live subscribers; dead sockets are pruned silently.
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.send(JSON.stringify(event));
+      } catch { /* detached socket — hibernation handles lifecycle */ }
+    }
   }
 
   /** F15: mint (or return) the public share token. Only done runs. */

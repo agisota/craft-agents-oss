@@ -83,6 +83,9 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
   const [forkTarget, setForkTarget] = React.useState<string | null>(null)
   const [forkQuestion, setForkQuestion] = React.useState('')
   const [eventsByRun, setEventsByRun] = React.useState<Record<string, { t: number; message: string }[]>>({})
+  const [schedules, setSchedules] = React.useState<{ id: string; topic: string; everyHours: number; sessionId: string; enabled: boolean; lastFireAt?: number }[]>([])
+  const [schedOpen, setSchedOpen] = React.useState(false)
+  const [newSched, setNewSched] = React.useState({ topic: '', everyHours: '24' })
   const [busy, setBusy] = React.useState<string | null>(null)
   useRegisterModal(open, () => setOpen(false))
 
@@ -104,6 +107,7 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
   React.useEffect(() => {
     if (!open) return
     void refresh()
+    window.electronAPI.listCloudRunSchedules?.().then(setSchedules).catch(() => null)
     const timer = setInterval(() => void refresh(), POLL_MS)
     return () => clearInterval(timer)
   }, [open, refresh])
@@ -392,6 +396,87 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                 </div>
               )
             })}
+          </div>
+
+          <div className="border-t border-border/50 pt-2">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setSchedOpen(!schedOpen)}
+            >
+              <span>{t('cloudRuns.schedules', { count: schedules.length })}</span>
+              <span>{schedOpen ? '−' : '+'}</span>
+            </button>
+            {schedOpen && (
+              <div className="mt-2 space-y-2">
+                {schedules.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={s.enabled}
+                      onChange={async (e) => {
+                        const schedule = { ...s, enabled: e.target.checked }
+                        await window.electronAPI.saveCloudRunSchedule({ schedule })
+                        setSchedules((prev) => prev.map((x) => (x.id === s.id ? schedule : x)))
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate" title={s.topic}>{s.topic}</span>
+                    <span className="text-muted-foreground">{t('cloudRuns.everyHours', { hours: s.everyHours })}</span>
+                    {s.lastFireAt && (
+                      <span className="text-muted-foreground/60">{new Date(s.lastFireAt).toLocaleDateString()}</span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 px-1"
+                      title={t('cloudRuns.deleteSchedule')}
+                      onClick={async () => {
+                        await window.electronAPI.deleteCloudRunSchedule({ id: s.id })
+                        setSchedules((prev) => prev.filter((x) => x.id !== s.id))
+                      }}
+                    >
+                      ×
+                    </Button>
+                  </div>
+                ))}
+                <div className="flex gap-1">
+                  <Input
+                    className="h-7 flex-1 text-xs"
+                    value={newSched.topic}
+                    onChange={(e) => setNewSched((p) => ({ ...p, topic: e.target.value }))}
+                    placeholder={t('cloudRuns.scheduleTopicPlaceholder')}
+                  />
+                  <Input
+                    className="h-7 w-16 text-xs"
+                    type="number"
+                    min={1}
+                    value={newSched.everyHours}
+                    onChange={(e) => setNewSched((p) => ({ ...p, everyHours: e.target.value }))}
+                    title={t('cloudRuns.everyHours', { hours: '' }).replace(' ', '').replace(/\{\{hours\}\} ?/, '').trim() || 'hours'}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-7"
+                    disabled={!newSched.topic.trim() || !(Number(newSched.everyHours) > 0)}
+                    onClick={async () => {
+                      const schedule = {
+                        id: `sched-${Date.now().toString(36)}`,
+                        topic: newSched.topic.trim(),
+                        everyHours: Number(newSched.everyHours),
+                        sessionId,
+                        enabled: true,
+                      }
+                      await window.electronAPI.saveCloudRunSchedule({ schedule })
+                      setSchedules((prev) => [...prev, schedule])
+                      setNewSched({ topic: '', everyHours: '24' })
+                      toast.success(t('cloudRuns.scheduleSaved'))
+                    }}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {forkTarget && (

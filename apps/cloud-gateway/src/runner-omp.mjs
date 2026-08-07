@@ -19,17 +19,18 @@ if (!workspaceRoot) {
   process.exit(2);
 }
 
-// omp is not baked into the image (F21 opt-in sole user; keeps image slim).
-// First use installs it into the ephemeral container FS (~500MB, ~1-2 min).
+// omp is baked into the CI-built image (Dockerfile.omp). If absent — e.g.
+// the slim default image — fail LOUDLY in seconds, never npm-install in
+// the container (spike: ~500MB + native postinstalls never finish inside
+// the subtask budget on ephemeral fs; watchdog reaps the whole pack).
 {
   const probe = spawnSync('omp', ['--version'], { encoding: 'utf8' });
   if (probe.status !== 0) {
-    console.log('omp missing — installing @oh-my-pi/pi-coding-agent + bun...');
-    const install = spawnSync('npm', ['install', '-g', '@oh-my-pi/pi-coding-agent@17.2.9', 'bun'], { stdio: 'inherit', timeout: 480_000 });
-    if (install.status !== 0) {
-      console.error('omp install failed');
-      process.exit(1);
-    }
+    console.error(
+      'omp CLI missing in image: deploy the CI-built image (Dockerfile.omp) ' +
+      'or run with agenticMode "loop" (default). Status: ' + probe.status,
+    );
+    process.exit(1);
   }
 }
 

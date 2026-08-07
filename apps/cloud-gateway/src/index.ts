@@ -69,6 +69,11 @@ export default {
     const denied2 = await authorize(request, env);
     if (denied2) return denied2;
 
+    if (url.pathname.match(/^\/runs\/[^/]+\/ws$/) && request.headers.get("upgrade") === "websocket") {
+      const id = url.pathname.split("/")[2]!;
+      return stubOf(env, id).fetch(request);
+    }
+
     const runMatch = url.pathname.match(/^\/runs\/([^/]+)(\/status|\/events|\/share|\/revoke|\/artifacts(?:\/(.*))?)?$/);
     if (url.pathname === "/runs" && request.method === "POST") {
       const spec = (await request.json().catch(() => null)) as { id?: string; subtasks?: unknown[]; fromRunId?: string } | null;

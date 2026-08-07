@@ -469,6 +469,34 @@ def gateway_api():
             raise fastapi.HTTPException(status_code=404, detail="run not found")
         return cur
 
+    @api.websocket("/runs/{run_id}/ws")
+    async def ws_events(websocket: fastapi.WebSocket, run_id: str):
+        authorization = websocket.headers.get("authorization", "")
+        if not _authorized({"authorization": authorization}):
+            await websocket.close(code=4401)
+            return
+        await websocket.accept()
+        try:
+            cursor = 0
+            while True:
+                cur = state.get(_state_key(run_id))
+                if cur is None:
+                    await websocket.send_json({"t": 0, "message": "run not found"})
+                    break
+                log = cur.get("eventLog", [])
+                while cursor < len(log):
+                    await websocket.send_json(log[cursor])
+                    cursor += 1
+                if cur.get("state") in ("done", "failed", "cancelled") and cursor >= len(log):
+                    break
+                import asyncio
+                await asyncio.sleep(2)
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+
     @api.get("/runs/{run_id}/events")
     async def events_of(run_id: str, _=Depends(auth)):
         cur = state.get(_state_key(run_id))

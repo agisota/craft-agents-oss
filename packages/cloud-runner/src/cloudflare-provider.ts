@@ -102,6 +102,33 @@ export class CloudflareComputerProvider implements CloudRunProvider {
     }
   }
 
+  /** F14-WS: live event stream over websocket; converts to our RunEvent. */
+  async *subscribeEventsWs(id: string): AsyncIterable<{ t: number; message: string }> {
+    const wsUrl = this.baseUrl.replace(/^http/, 'ws') + `/runs/${encodeURIComponent(id)}/ws`;
+    const ws = new WebSocket(wsUrl, { headers: { authorization: `Bearer ${this.token}` } } as never);
+    const queue: ({ t: number; message: string } | null)[] = [];
+    let done = false;
+    ws.onmessage = (event) => {
+      try { queue.push(JSON.parse(String(event.data))); } catch { /* keep-alive */ }
+    };
+    ws.onclose = () => { done = true; queue.push(null); };
+    ws.onerror = () => { done = true; queue.push(null); };
+    for (;;) {
+      while (queue.length === 0 && !done) {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 200);
+        await promise;
+      }
+      const item = queue.shift();
+      if (item === null || item === undefined) {
+        if (done && queue.length === 0) return;
+        continue;
+      }
+      yield item;
+      if (done && queue.length === 0) return;
+    }
+  }
+
   /** F14: capped server-side event log (transitions, pack starts, retries). */
   async getEvents(id: string): Promise<{ t: number; message: string }[]> {
     const res = await this.request('GET', `/runs/${encodeURIComponent(id)}/events`);
