@@ -9,13 +9,19 @@
  * Если платформы нет в artifacts — инструмент на ней недоступен (пропускается менеджером).
  */
 
-import type { ToolArtifact, ToolName, ToolchainPlatform } from './types';
+import type { ToolArtifact, ToolKind, ToolName, ToolTier, ToolchainPlatform } from './types';
 
 export interface ManifestToolData {
   version: string;
   displayName: string;
+  kind?: ToolKind;
+  tier?: ToolTier;
   critical?: boolean;
   dependsOn?: ToolName[];
+  /** detect/brew kinds и безартефактный fallback (git на mac/linux): имя системного бинарника. */
+  systemBinary?: string;
+  /** brew kind: имя формулы для `brew install`. */
+  brewFormula?: string;
   artifacts: Partial<Record<ToolchainPlatform, ToolArtifact>>;
 }
 
@@ -32,6 +38,40 @@ export const TOOL_PLATFORM_MATRIX: Record<ToolName, ToolchainPlatform[]> = {
   git: ['win32-x64'],
   bun: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   uv: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+
+  // binary default-on (github releases, sha256 из релизных checksums)
+  just: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  fzf: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  mise: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  worktrunk: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  // binary opt-in
+  infisical: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+
+  // npm default-on (тарболл платформонезависимый; opencode-ai postinstall кладёт нативный бинарь)
+  'opencode-ai': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  // oh-my-openagent НЕ входит: у npm-пакета транзитивный dep git-bash-mcp не опубликован
+  // (npm EUNSUPPORTEDPROTOCOL/404) — npm-kind невозможен до фикса апстрима.
+  'oh-my-codex': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  'oh-my-claude-sisyphus': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  skills: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  // npm opt-in (vercel marketplace kind:tool путь)
+  eve: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  'agent-browser': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  portless: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  'just-bash': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  opensrc: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  deepsec: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  dev3000: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+
+  // git-npm default-on: bun install -g github:garrytan/gbrain@commit (платформонезависимый JS)
+  gbrain: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+
+  // brew opt-in: формула mole публикуется только под macOS
+  mole: ['darwin-arm64', 'darwin-x64'],
+
+  // detect opt-in: системные исполняемые (brew под win не существует)
+  docker: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  brew: ['darwin-arm64', 'darwin-x64', 'linux-x64'],
 };
 
 function uvPython(binPaths: string[]): ToolArtifact {
@@ -50,6 +90,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // binPaths — именованные лончеры, которые installer генерирует из package.json "bin" (bin/omp + bin/omp.cmd).
   omp: {
     version: '17.2.10',
+    kind: 'npm',
+    tier: 'core',
     displayName: 'omp (Oh My Pi)',
     critical: true,
     // npm-тарболл + bun-рантайм wrapper + npm ci --locked deps (pi-natives) —
@@ -90,6 +132,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // python 3.12 — ставится через `uv python install`; url/sha256/size не применимы.
   python: {
     version: '3.12',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'Python 3.12',
     // ставится только через toolchain uv — строго после него (волны dependsOn).
     dependsOn: ['uv'],
@@ -105,6 +149,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // binPaths включают корневую директорию архива (у archives нет stripComponents).
   node: {
     version: '22.23.2',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'Node.js 22 LTS',
     critical: true,
     artifacts: {
@@ -143,6 +189,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // sha256 сверены с опубликованным jqlang/jq sha256sum.txt.
   jq: {
     version: '1.8.1',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'jq',
     artifacts: {
       'darwin-arm64': {
@@ -179,6 +227,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // yq 4.53.3 — голые бинарники. sha256 сверены с опубликованным mikefarah/yq checksums.
   yq: {
     version: '4.53.3',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'yq',
     artifacts: {
       'darwin-arm64': {
@@ -216,6 +266,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // macOS zip содержит top-level dir (gh_2.97.0_macOS_arm64/bin/gh); windows zip — БЕЗ top-level dir (bin/gh.exe).
   gh: {
     version: '2.97.0',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'GitHub CLI',
     artifacts: {
       'darwin-arm64': {
@@ -253,6 +305,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // pandoc 3.10.1 — vendor checksums не публикует; sha256/size вычислены локально.
   pandoc: {
     version: '3.10.1',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'Pandoc',
     artifacts: {
       'darwin-arm64': {
@@ -290,6 +344,10 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // git 2.55.0.3 — ТОЛЬКО win32-x64: MinGit busybox zip (на mac/linux git считаем системным).
   git: {
     version: '2.55.0.3',
+    kind: 'binary',
+    tier: 'core',
+    // mac/linux: артефакта нет — системный git (детект через findExecutable).
+    systemBinary: 'git',
     displayName: 'Git for Windows (MinGit)',
     artifacts: {
       'win32-x64': {
@@ -306,6 +364,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // linux/win: BtbN FFmpeg-Builds autobuild-2026-08-06-13-39, sha256 сверены с checksums.sha256.
   ffmpeg: {
     version: '9.0',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'FFmpeg',
     critical: true,
     artifacts: {
@@ -346,6 +406,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // Non-baseline сборки (для M1+/современных CPU). binPaths включают top-level dir zip'а.
   bun: {
     version: '1.3.14',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'Bun',
     artifacts: {
       'darwin-arm64': {
@@ -383,6 +445,8 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   // <asset>.sha256 файлами релиза; darwin-aarch64 дополнительно скачан и перепроверен локально.
   uv: {
     version: '0.12.2',
+    kind: 'binary',
+    tier: 'core',
     displayName: 'uv (Astral)',
     artifacts: {
       'darwin-arm64': {
@@ -412,6 +476,660 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
         size: 18977266,
         archive: 'zip',
         binPaths: ['uv-x86_64-pc-windows-msvc/uv.exe'],
+      },
+    },
+  },
+
+  // mole 1.49.2 — Homebrew формула (mac only), CLI mole + alias mo.
+  // sha не нужен: ставит сам brew; префлайт `command -v brew` → иначе skipped-no-brew.
+  mole: {
+    version: '1.49.2',
+    kind: 'brew',
+    tier: 'opt-in',
+    displayName: 'mole',
+    systemBinary: 'mole',
+    brewFormula: 'mole',
+    artifacts: {},
+  },
+
+  // docker — detect opt-in: только детект системного CLI (ready/system | missing),
+  // toolchain ничего не ставит.
+  docker: {
+    version: 'system',
+    kind: 'detect',
+    tier: 'opt-in',
+    displayName: 'Docker CLI',
+    systemBinary: 'docker',
+    artifacts: {},
+  },
+
+  // brew — detect opt-in: сам Homebrew (prereq для brew-kind инструментов).
+  brew: {
+    version: 'system',
+    kind: 'detect',
+    tier: 'opt-in',
+    displayName: 'Homebrew',
+    systemBinary: 'brew',
+    artifacts: {},
+  },
+
+
+
+  // just 1.58.0 — github.com/casey/just; sha256: релизные checksums + локальная верификация, darwin-arm64 проверен запуском.
+  just: {
+    version: '1.58.0',
+    kind: 'binary',
+    tier: 'default-on',
+    displayName: 'just',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-aarch64-apple-darwin.tar.gz',
+        sha256: '50ae3e996c974a0bf32ea7d10f495070df33f1b43e0616b2769e3d4821ed8f48',
+        size: 2146038,
+        archive: 'tar.gz',
+        binPaths: ["just"],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-apple-darwin.tar.gz',
+        sha256: '9a09cfef66aaa79da58203970103a0684307716caaabd3e9844cacc4dc0f4023',
+        size: 2330963,
+        archive: 'tar.gz',
+        binPaths: ["just"],
+      },
+      'linux-x64': {
+        url: 'https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz',
+        sha256: '4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d',
+        size: 2529009,
+        archive: 'tar.gz',
+        binPaths: ["just"],
+      },
+      'win32-x64': {
+        url: 'https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-pc-windows-msvc.zip',
+        sha256: '759f16fb7aa17c5c8b9594b6d4a8c1a6630dfd042cf2b3ff84841454d3d188dc',
+        size: 2252404,
+        archive: 'zip',
+        binPaths: ["just.exe"],
+      },
+    },
+  },
+
+  // fzf 0.74.2 — github.com/junegunn/fzf; sha256: релизные checksums + локальная верификация, darwin-arm64 проверен запуском.
+  fzf: {
+    version: '0.74.2',
+    kind: 'binary',
+    tier: 'default-on',
+    displayName: 'fzf',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/junegunn/fzf/releases/download/v0.74.2/fzf-0.74.2-darwin_arm64.tar.gz',
+        sha256: 'd60ddb36356566ac69bae7c3504e888916cf747c9ad2132141c09229b1e28dee',
+        size: 1905304,
+        archive: 'tar.gz',
+        binPaths: ["fzf"],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/junegunn/fzf/releases/download/v0.74.2/fzf-0.74.2-darwin_amd64.tar.gz',
+        sha256: 'b019ae8bcca33945a2ffbbbf8369705405cd1406fc4d74267e712797010e3676',
+        size: 2069781,
+        archive: 'tar.gz',
+        binPaths: ["fzf"],
+      },
+      'linux-x64': {
+        url: 'https://github.com/junegunn/fzf/releases/download/v0.74.2/fzf-0.74.2-linux_amd64.tar.gz',
+        sha256: 'b3648f48675612b69ee35371cf6dc99ca96d767e89b912d079080916ac8ba8bd',
+        size: 2013806,
+        archive: 'tar.gz',
+        binPaths: ["fzf"],
+      },
+      'win32-x64': {
+        url: 'https://github.com/junegunn/fzf/releases/download/v0.74.2/fzf-0.74.2-windows_amd64.zip',
+        sha256: 'a5a3b27dd203469139d10669721952335b9b46f19346e3d1abc102a67ea60804',
+        size: 2195038,
+        archive: 'zip',
+        binPaths: ["fzf.exe"],
+      },
+    },
+  },
+
+  // mise 2026.8.2 — github.com/jdx/mise; sha256: релизные checksums + локальная верификация, darwin-arm64 проверен запуском.
+  mise: {
+    version: '2026.8.2',
+    kind: 'binary',
+    tier: 'default-on',
+    displayName: 'mise',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/jdx/mise/releases/download/v2026.8.2/mise-v2026.8.2-macos-arm64.tar.gz',
+        sha256: '6d7ff3ad671260413d7e9e13c8b4c2d610d7c303751e1d2acd9cda234fbe06cf',
+        size: 28000396,
+        archive: 'tar.gz',
+        binPaths: ["mise/bin/mise"],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/jdx/mise/releases/download/v2026.8.2/mise-v2026.8.2-macos-x64.tar.gz',
+        sha256: '8d2b823965025473057120fe964f16575989df4103c051a8a007fe5bd1e884c4',
+        size: 36056522,
+        archive: 'tar.gz',
+        binPaths: ["mise/bin/mise"],
+      },
+      'linux-x64': {
+        url: 'https://github.com/jdx/mise/releases/download/v2026.8.2/mise-v2026.8.2-linux-x64.tar.gz',
+        sha256: 'febda574ac4e036bf91e1ef9d33ec5e24dbfad6839eb0defa6abc12125186b74',
+        size: 35957810,
+        archive: 'tar.gz',
+        binPaths: ["mise/bin/mise"],
+      },
+      'win32-x64': {
+        url: 'https://github.com/jdx/mise/releases/download/v2026.8.2/mise-v2026.8.2-windows-x64.zip',
+        sha256: 'f6c383ecb54876baec7d353c663959ec5866044d19920f68bef6014e7a1c41fd',
+        size: 42203424,
+        archive: 'zip',
+        binPaths: ["mise/bin/mise.exe"],
+      },
+    },
+  },
+
+  // worktrunk 0.72.0 — github.com/max-sixty/worktrunk; sha256: релизные checksums + локальная верификация, darwin-arm64 проверен запуском.
+  worktrunk: {
+    version: '0.72.0',
+    kind: 'binary',
+    tier: 'default-on',
+    displayName: 'worktrunk (wt)',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/max-sixty/worktrunk/releases/download/v0.72.0/worktrunk-aarch64-apple-darwin.tar.xz',
+        sha256: '7e6cf79a3ef67559240431aae93c137d9a2b28a8ccdb55b64edead904b21ff73',
+        size: 6580132,
+        archive: 'tar.xz',
+        binPaths: ["worktrunk-aarch64-apple-darwin/wt"],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/max-sixty/worktrunk/releases/download/v0.72.0/worktrunk-x86_64-apple-darwin.tar.xz',
+        sha256: '2356bee43a6688a03d24b27dd18ce0db1f4666f111ee06f3c829d1f248472401',
+        size: 7227732,
+        archive: 'tar.xz',
+        binPaths: ["worktrunk-x86_64-apple-darwin/wt"],
+      },
+      'linux-x64': {
+        url: 'https://github.com/max-sixty/worktrunk/releases/download/v0.72.0/worktrunk-x86_64-unknown-linux-musl.tar.xz',
+        sha256: 'e91bc7ceb0623942a797317f56541a825d6a36e24d055985a8299d30345be346',
+        size: 8204876,
+        archive: 'tar.xz',
+        binPaths: ["worktrunk-x86_64-unknown-linux-musl/wt"],
+      },
+      'win32-x64': {
+        url: 'https://github.com/max-sixty/worktrunk/releases/download/v0.72.0/worktrunk-x86_64-pc-windows-msvc.zip',
+        sha256: 'cd1933e9c40836df460b6feb732999d20387bfda41da6e0972b392fadd087c03',
+        size: 17375171,
+        archive: 'zip',
+        binPaths: ["worktrunk-x86_64-pc-windows-msvc/wt.exe"],
+      },
+    },
+  },
+
+  // infisical 0.43.120 — github.com/Infisical/cli; sha256: релизные checksums + локальная верификация, darwin-arm64 проверен запуском.
+  infisical: {
+    version: '0.43.120',
+    kind: 'binary',
+    tier: 'opt-in',
+    displayName: 'Infisical CLI',
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://github.com/Infisical/cli/releases/download/v0.43.120/cli_0.43.120_darwin_arm64.tar.gz',
+        sha256: '6baaefd374f3c45c1b34795fde88a9cb94809429b91b4f4fda3aaf5e27dd0432',
+        size: 57365209,
+        archive: 'tar.gz',
+        binPaths: ["infisical"],
+      },
+      'darwin-x64': {
+        url: 'https://github.com/Infisical/cli/releases/download/v0.43.120/cli_0.43.120_darwin_amd64.tar.gz',
+        sha256: '98290694f640b33a6f535a4882ceaa97523f66e32b00b0428a0ad6760ad2bdcf',
+        size: 61744962,
+        archive: 'tar.gz',
+        binPaths: ["infisical"],
+      },
+      'linux-x64': {
+        url: 'https://github.com/Infisical/cli/releases/download/v0.43.120/cli_0.43.120_linux_amd64.tar.gz',
+        sha256: 'ac8400a1fd612d79bdbe434c4d0f505858a6592b013c607448686b21fd9edf1e',
+        size: 56134826,
+        archive: 'tar.gz',
+        binPaths: ["infisical"],
+      },
+      'win32-x64': {
+        url: 'https://github.com/Infisical/cli/releases/download/v0.43.120/cli_0.43.120_windows_amd64.zip',
+        sha256: '99a97a82e2ac5d502d3afc2debc977e1a5bc03da9762a09bcd915eeda3f353a2',
+        size: 54799521,
+        archive: 'zip',
+        binPaths: ["infisical.exe"],
+      },
+    },
+  },
+
+  // opencode-ai 1.18.15 — npm opencode-ai (тарболл + embedded package-lock, fail-closed).
+  'opencode-ai': {
+    version: '1.18.15',
+    kind: 'npm',
+    tier: 'default-on',
+    displayName: 'OpenCode',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.15.tgz',
+        sha256: 'aae2e10aa53da715d097ac109ca03c0feb451bd453dce9d21d335c6fc7a37c0a',
+        size: 3051,
+        archive: 'tar.gz',
+        binPaths: ["bin/opencode"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.15.tgz',
+        sha256: 'aae2e10aa53da715d097ac109ca03c0feb451bd453dce9d21d335c6fc7a37c0a',
+        size: 3051,
+        archive: 'tar.gz',
+        binPaths: ["bin/opencode"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.15.tgz',
+        sha256: 'aae2e10aa53da715d097ac109ca03c0feb451bd453dce9d21d335c6fc7a37c0a',
+        size: 3051,
+        archive: 'tar.gz',
+        binPaths: ["bin/opencode"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.15.tgz',
+        sha256: 'aae2e10aa53da715d097ac109ca03c0feb451bd453dce9d21d335c6fc7a37c0a',
+        size: 3051,
+        archive: 'tar.gz',
+        binPaths: ["bin/opencode.cmd"],
+      },
+    },
+  },
+
+  // oh-my-codex 0.20.3 — npm oh-my-codex (тарболл + embedded package-lock, fail-closed).
+  'oh-my-codex': {
+    version: '0.20.3',
+    kind: 'npm',
+    tier: 'default-on',
+    displayName: 'oh-my-codex',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/oh-my-codex/-/oh-my-codex-0.20.3.tgz',
+        sha256: 'b6cacff29bb350df7ef90d589db02e5f96fd7d14fe274e07939d0efb0f41baed',
+        size: 5648994,
+        archive: 'tar.gz',
+        binPaths: ["bin/omx"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/oh-my-codex/-/oh-my-codex-0.20.3.tgz',
+        sha256: 'b6cacff29bb350df7ef90d589db02e5f96fd7d14fe274e07939d0efb0f41baed',
+        size: 5648994,
+        archive: 'tar.gz',
+        binPaths: ["bin/omx"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/oh-my-codex/-/oh-my-codex-0.20.3.tgz',
+        sha256: 'b6cacff29bb350df7ef90d589db02e5f96fd7d14fe274e07939d0efb0f41baed',
+        size: 5648994,
+        archive: 'tar.gz',
+        binPaths: ["bin/omx"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/oh-my-codex/-/oh-my-codex-0.20.3.tgz',
+        sha256: 'b6cacff29bb350df7ef90d589db02e5f96fd7d14fe274e07939d0efb0f41baed',
+        size: 5648994,
+        archive: 'tar.gz',
+        binPaths: ["bin/omx.cmd"],
+      },
+    },
+  },
+
+  // oh-my-claude-sisyphus 4.15.8 — npm oh-my-claude-sisyphus (тарболл + embedded package-lock, fail-closed).
+  'oh-my-claude-sisyphus': {
+    version: '4.15.8',
+    kind: 'npm',
+    tier: 'default-on',
+    displayName: 'oh-my-claudecode (sisyphus)',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/oh-my-claude-sisyphus/-/oh-my-claude-sisyphus-4.15.8.tgz',
+        sha256: '35e9b8d977697dd6bb98729fe7efbad44801737d60015fe2cda4b46063ee7b11',
+        size: 7162155,
+        archive: 'tar.gz',
+        binPaths: ["bin/omc"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/oh-my-claude-sisyphus/-/oh-my-claude-sisyphus-4.15.8.tgz',
+        sha256: '35e9b8d977697dd6bb98729fe7efbad44801737d60015fe2cda4b46063ee7b11',
+        size: 7162155,
+        archive: 'tar.gz',
+        binPaths: ["bin/omc"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/oh-my-claude-sisyphus/-/oh-my-claude-sisyphus-4.15.8.tgz',
+        sha256: '35e9b8d977697dd6bb98729fe7efbad44801737d60015fe2cda4b46063ee7b11',
+        size: 7162155,
+        archive: 'tar.gz',
+        binPaths: ["bin/omc"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/oh-my-claude-sisyphus/-/oh-my-claude-sisyphus-4.15.8.tgz',
+        sha256: '35e9b8d977697dd6bb98729fe7efbad44801737d60015fe2cda4b46063ee7b11',
+        size: 7162155,
+        archive: 'tar.gz',
+        binPaths: ["bin/omc.cmd"],
+      },
+    },
+  },
+
+  // skills 1.5.22 — npm skills (тарболл + embedded package-lock, fail-closed).
+  skills: {
+    version: '1.5.22',
+    kind: 'npm',
+    tier: 'default-on',
+    displayName: 'vercel skills CLI',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/skills/-/skills-1.5.22.tgz',
+        sha256: '10cee39139debe6c0188f4727194ade59234b277ccca2320e3ed6b620ee7f14b',
+        size: 127320,
+        archive: 'tar.gz',
+        binPaths: ["bin/skills"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/skills/-/skills-1.5.22.tgz',
+        sha256: '10cee39139debe6c0188f4727194ade59234b277ccca2320e3ed6b620ee7f14b',
+        size: 127320,
+        archive: 'tar.gz',
+        binPaths: ["bin/skills"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/skills/-/skills-1.5.22.tgz',
+        sha256: '10cee39139debe6c0188f4727194ade59234b277ccca2320e3ed6b620ee7f14b',
+        size: 127320,
+        archive: 'tar.gz',
+        binPaths: ["bin/skills"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/skills/-/skills-1.5.22.tgz',
+        sha256: '10cee39139debe6c0188f4727194ade59234b277ccca2320e3ed6b620ee7f14b',
+        size: 127320,
+        archive: 'tar.gz',
+        binPaths: ["bin/skills.cmd"],
+      },
+    },
+  },
+
+  // eve 0.31.0 — npm eve (тарболл + embedded package-lock, fail-closed).
+  eve: {
+    version: '0.31.0',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'eve',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/eve/-/eve-0.31.0.tgz',
+        sha256: '13e61aa7e3cccc94881d3cb3b77a0940696a588d42ccb9658ce818a2a863fe74',
+        size: 7684730,
+        archive: 'tar.gz',
+        binPaths: ["bin/eve"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/eve/-/eve-0.31.0.tgz',
+        sha256: '13e61aa7e3cccc94881d3cb3b77a0940696a588d42ccb9658ce818a2a863fe74',
+        size: 7684730,
+        archive: 'tar.gz',
+        binPaths: ["bin/eve"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/eve/-/eve-0.31.0.tgz',
+        sha256: '13e61aa7e3cccc94881d3cb3b77a0940696a588d42ccb9658ce818a2a863fe74',
+        size: 7684730,
+        archive: 'tar.gz',
+        binPaths: ["bin/eve"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/eve/-/eve-0.31.0.tgz',
+        sha256: '13e61aa7e3cccc94881d3cb3b77a0940696a588d42ccb9658ce818a2a863fe74',
+        size: 7684730,
+        archive: 'tar.gz',
+        binPaths: ["bin/eve.cmd"],
+      },
+    },
+  },
+
+  // agent-browser 0.33.2 — npm agent-browser (тарболл + embedded package-lock, fail-closed).
+  'agent-browser': {
+    version: '0.33.2',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'agent-browser',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.33.2.tgz',
+        sha256: '6ce3effabf413d16eb7d6090510fabc760ad5463005406a0dd4b15e85b795046',
+        size: 40454547,
+        archive: 'tar.gz',
+        binPaths: ["bin/agent-browser"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.33.2.tgz',
+        sha256: '6ce3effabf413d16eb7d6090510fabc760ad5463005406a0dd4b15e85b795046',
+        size: 40454547,
+        archive: 'tar.gz',
+        binPaths: ["bin/agent-browser"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.33.2.tgz',
+        sha256: '6ce3effabf413d16eb7d6090510fabc760ad5463005406a0dd4b15e85b795046',
+        size: 40454547,
+        archive: 'tar.gz',
+        binPaths: ["bin/agent-browser"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/agent-browser/-/agent-browser-0.33.2.tgz',
+        sha256: '6ce3effabf413d16eb7d6090510fabc760ad5463005406a0dd4b15e85b795046',
+        size: 40454547,
+        archive: 'tar.gz',
+        binPaths: ["bin/agent-browser.cmd"],
+      },
+    },
+  },
+
+  // portless 0.15.5 — npm portless (тарболл + embedded package-lock, fail-closed).
+  portless: {
+    version: '0.15.5',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'portless',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/portless/-/portless-0.15.5.tgz',
+        sha256: 'f76fb7f8d390d6e0836a25e0f954a10665428eacd4c72f3708caa2c7b5043d2e',
+        size: 194331,
+        archive: 'tar.gz',
+        binPaths: ["bin/portless"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/portless/-/portless-0.15.5.tgz',
+        sha256: 'f76fb7f8d390d6e0836a25e0f954a10665428eacd4c72f3708caa2c7b5043d2e',
+        size: 194331,
+        archive: 'tar.gz',
+        binPaths: ["bin/portless"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/portless/-/portless-0.15.5.tgz',
+        sha256: 'f76fb7f8d390d6e0836a25e0f954a10665428eacd4c72f3708caa2c7b5043d2e',
+        size: 194331,
+        archive: 'tar.gz',
+        binPaths: ["bin/portless"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/portless/-/portless-0.15.5.tgz',
+        sha256: 'f76fb7f8d390d6e0836a25e0f954a10665428eacd4c72f3708caa2c7b5043d2e',
+        size: 194331,
+        archive: 'tar.gz',
+        binPaths: ["bin/portless.cmd"],
+      },
+    },
+  },
+
+  // just-bash 3.2.0 — npm just-bash (тарболл + embedded package-lock, fail-closed).
+  'just-bash': {
+    version: '3.2.0',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'just-bash',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/just-bash/-/just-bash-3.2.0.tgz',
+        sha256: 'd82204cb63c51b4bba655325d0b670edb5be9b8ac94577e96171c2d29debca6f',
+        size: 9779537,
+        archive: 'tar.gz',
+        binPaths: ["bin/just-bash"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/just-bash/-/just-bash-3.2.0.tgz',
+        sha256: 'd82204cb63c51b4bba655325d0b670edb5be9b8ac94577e96171c2d29debca6f',
+        size: 9779537,
+        archive: 'tar.gz',
+        binPaths: ["bin/just-bash"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/just-bash/-/just-bash-3.2.0.tgz',
+        sha256: 'd82204cb63c51b4bba655325d0b670edb5be9b8ac94577e96171c2d29debca6f',
+        size: 9779537,
+        archive: 'tar.gz',
+        binPaths: ["bin/just-bash"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/just-bash/-/just-bash-3.2.0.tgz',
+        sha256: 'd82204cb63c51b4bba655325d0b670edb5be9b8ac94577e96171c2d29debca6f',
+        size: 9779537,
+        archive: 'tar.gz',
+        binPaths: ["bin/just-bash.cmd"],
+      },
+    },
+  },
+
+  // opensrc 0.7.3 — npm opensrc (тарболл + embedded package-lock, fail-closed).
+  opensrc: {
+    version: '0.7.3',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'opensrc',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/opensrc/-/opensrc-0.7.3.tgz',
+        sha256: 'f134fd04d8ac37359d0fa6e9f8b61de044f2c567e007379973a5fdda43968b66',
+        size: 15709970,
+        archive: 'tar.gz',
+        binPaths: ["bin/opensrc"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/opensrc/-/opensrc-0.7.3.tgz',
+        sha256: 'f134fd04d8ac37359d0fa6e9f8b61de044f2c567e007379973a5fdda43968b66',
+        size: 15709970,
+        archive: 'tar.gz',
+        binPaths: ["bin/opensrc"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/opensrc/-/opensrc-0.7.3.tgz',
+        sha256: 'f134fd04d8ac37359d0fa6e9f8b61de044f2c567e007379973a5fdda43968b66',
+        size: 15709970,
+        archive: 'tar.gz',
+        binPaths: ["bin/opensrc"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/opensrc/-/opensrc-0.7.3.tgz',
+        sha256: 'f134fd04d8ac37359d0fa6e9f8b61de044f2c567e007379973a5fdda43968b66',
+        size: 15709970,
+        archive: 'tar.gz',
+        binPaths: ["bin/opensrc.cmd"],
+      },
+    },
+  },
+
+  // deepsec 2.3.4 — npm deepsec (тарболл + embedded package-lock, fail-closed).
+  deepsec: {
+    version: '2.3.4',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'deepsec',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/deepsec/-/deepsec-2.3.4.tgz',
+        sha256: '051ada4fd8985957a3d019d4052ac3260d61d91a51da882e406c203707816dc1',
+        size: 942615,
+        archive: 'tar.gz',
+        binPaths: ["bin/deepsec"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/deepsec/-/deepsec-2.3.4.tgz',
+        sha256: '051ada4fd8985957a3d019d4052ac3260d61d91a51da882e406c203707816dc1',
+        size: 942615,
+        archive: 'tar.gz',
+        binPaths: ["bin/deepsec"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/deepsec/-/deepsec-2.3.4.tgz',
+        sha256: '051ada4fd8985957a3d019d4052ac3260d61d91a51da882e406c203707816dc1',
+        size: 942615,
+        archive: 'tar.gz',
+        binPaths: ["bin/deepsec"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/deepsec/-/deepsec-2.3.4.tgz',
+        sha256: '051ada4fd8985957a3d019d4052ac3260d61d91a51da882e406c203707816dc1',
+        size: 942615,
+        archive: 'tar.gz',
+        binPaths: ["bin/deepsec.cmd"],
+      },
+    },
+  },
+
+  // dev3000 0.0.178 — npm dev3000 (тарболл + embedded package-lock, fail-closed).
+  dev3000: {
+    version: '0.0.178',
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'dev3000',
+    dependsOn: ['bun', 'node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: 'https://registry.npmjs.org/dev3000/-/dev3000-0.0.178.tgz',
+        sha256: 'fe6f626276b33df8d78eb49450ca17955a653746846212a76186ed7b384d9ffe',
+        size: 234201,
+        archive: 'tar.gz',
+        binPaths: ["bin/dev3000"],
+      },
+      'darwin-x64': {
+        url: 'https://registry.npmjs.org/dev3000/-/dev3000-0.0.178.tgz',
+        sha256: 'fe6f626276b33df8d78eb49450ca17955a653746846212a76186ed7b384d9ffe',
+        size: 234201,
+        archive: 'tar.gz',
+        binPaths: ["bin/dev3000"],
+      },
+      'linux-x64': {
+        url: 'https://registry.npmjs.org/dev3000/-/dev3000-0.0.178.tgz',
+        sha256: 'fe6f626276b33df8d78eb49450ca17955a653746846212a76186ed7b384d9ffe',
+        size: 234201,
+        archive: 'tar.gz',
+        binPaths: ["bin/dev3000"],
+      },
+      'win32-x64': {
+        url: 'https://registry.npmjs.org/dev3000/-/dev3000-0.0.178.tgz',
+        sha256: 'fe6f626276b33df8d78eb49450ca17955a653746846212a76186ed7b384d9ffe',
+        size: 234201,
+        archive: 'tar.gz',
+        binPaths: ["bin/dev3000.cmd"],
       },
     },
   },

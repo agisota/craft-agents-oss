@@ -4,6 +4,7 @@ import { debug } from '../utils/debug.ts';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, relative, basename } from 'path';
 import { DOC_REFS, APP_ROOT } from '../docs/index.ts';
+import { getContextDocsPromptBlock } from '../context-docs/index.ts';
 import { PERMISSION_MODE_CONFIG } from '../agent/mode-types.ts';
 import { FEATURE_FLAGS } from '../feature-flags.ts';
 import { APP_VERSION } from '../version/index.ts';
@@ -41,8 +42,10 @@ const EXCLUDED_DIRECTORIES = [
 /**
  * Context file patterns to look for in working directory (in priority order).
  * Matching is case-insensitive to support AGENTS.md, Agents.md, agents.md, etc.
+ * soul.md/rules.md let a project override the same-named global runtime
+ * context documents (<CONFIG_DIR>/context/*.md) — see getContextDocsPromptBlock().
  */
-const CONTEXT_FILE_PATTERNS = ['agents.md', 'claude.md'];
+const CONTEXT_FILE_PATTERNS = ['agents.md', 'claude.md', 'soul.md', 'rules.md'];
 
 /**
  * Find a file in directory matching the pattern case-insensitively.
@@ -187,7 +190,7 @@ export function readProjectContextFile(directory: string): { filename: string; c
  * Includes the working directory path and context about what it represents.
  * Returns empty string if no working directory is set.
  *
- * Note: Project context files (CLAUDE.md, AGENTS.md) are now listed in the system prompt
+ * Note: Project context files (CLAUDE.md, AGENTS.md, SOUL.md, RULES.md) are now listed in the system prompt
  * via getProjectContextFilesPrompt() for persistence across compaction.
  *
  * @param workingDirectory - The effective working directory path (where user wants to work)
@@ -373,6 +376,12 @@ export function getSystemPrompt(
   // Optional workspace-project context (injected after preferences, before debug+context-files)
   const projectBlock = projectContext ? formatProjectContextForPrompt(projectContext) : '';
 
+  // Runtime context documents — soul.md / rules.md / user *.md from
+  // <CONFIG_DIR>/context/ (injected after projectBlock, before memory;
+  // mirrors buildCraftContextPrompt() ordering in omp-agent.ts).
+  // A project-level soul.md/rules.md overrides the same-named global doc.
+  const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory });
+
   // Optional self-learning memory (injected directly after the project memory block):
   // pre-formatted lesson corrections and workspace memory from the memory store.
   const memoryInjection = `${memoryBlocks?.lessonsBlock ?? ''}${memoryBlocks?.memoryBlock ?? ''}`;
@@ -385,7 +394,7 @@ export function getSystemPrompt(
   // to enable prompt caching. The system prompt stays static and cacheable.
   // Safe Mode context is also in user messages for the same reason.
   const basePrompt = getCraftAssistantPrompt(workspaceRootPath, backendName, resolvedIncludeCoAuthoredBy);
-  const fullPrompt = `${basePrompt}${preferences}${projectBlock}${memoryInjection}${debugContext}${projectContextFiles}`;
+  const fullPrompt = `${basePrompt}${preferences}${projectBlock}${contextDocsBlock}${memoryInjection}${debugContext}${projectContextFiles}`;
 
   debug('[getSystemPrompt] full prompt length:', fullPrompt.length);
 
@@ -725,7 +734,7 @@ Skills are stored at three levels (checked in order):
 
 ## Project Context
 
-When \`<project_context_files>\` appears in the system prompt, it lists all discovered context files (CLAUDE.md, AGENTS.md) in the working directory and its subdirectories. This supports monorepos where each package may have its own context file.
+When \`<project_context_files>\` appears in the system prompt, it lists all discovered context files (CLAUDE.md, AGENTS.md, SOUL.md, RULES.md) in the working directory and its subdirectories. This supports monorepos where each package may have its own context file.
 
 Read relevant context files using the Read tool - they contain architecture info, conventions, and project-specific guidance. For monorepos, read the root context file first, then package-specific files as needed based on what you're working on.
 

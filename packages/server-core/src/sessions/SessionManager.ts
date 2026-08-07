@@ -20,7 +20,7 @@ import {
   type BackendHostRuntimeContext,
   type PostInitResult,
 } from '@craft-agent/shared/agent/backend'
-import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaultThinkingLevel, resetManagedAnthropicAuthEnvVars, resolveMidStreamBehavior, getPersistedUiLanguage, resolveTitleLanguageName } from '@craft-agent/shared/config'
+import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaultThinkingLevel, getRuntimeEnvOverrides, resetManagedAnthropicAuthEnvVars, resolveMidStreamBehavior, getPersistedUiLanguage, resolveTitleLanguageName } from '@craft-agent/shared/config'
 import type { MidStreamBehavior, LlmProviderType } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
 import { isValidWorkingDirectory } from '../utils/path-validation'
@@ -1722,6 +1722,10 @@ export class SessionManager implements ISessionManager {
         sessionLog.info('Default permissions changed')
         this.broadcastDefaultPermissionsChanged()
       },
+      onContextDocsChange: () => {
+        sessionLog.info('Context docs changed')
+        this.broadcastContextDocsChanged()
+      },
       onSkillsListChange: async (skills) => {
         sessionLog.info(`Skills list changed in ${workspaceRootPath} (${skills.length} skills)`)
         this.broadcastSkillsChanged(workspaceId, skills)
@@ -2027,6 +2031,12 @@ export class SessionManager implements ISessionManager {
     if (!this.eventSink) return
     sessionLog.info('Broadcasting default permissions changed')
     this.eventSink(RPC_CHANNELS.permissions.DEFAULTS_CHANGED, { to: 'all' }, null)
+  }
+
+  private broadcastContextDocsChanged(): void {
+    if (!this.eventSink) return
+    sessionLog.info('Broadcasting context docs changed')
+    this.eventSink(RPC_CHANNELS.contextDocs.CHANGED, { to: 'all' })
   }
 
   /**
@@ -3705,6 +3715,9 @@ export class SessionManager implements ISessionManager {
       // Per-session env overrides
       const miniModel = connection ? (getMiniModel(connection) ?? connection.defaultModel) : undefined
       const envOverrides: Record<string, string> = {
+        // User-configured session env (config runtime.envOverrides); the
+        // structural keys below (workspace path, mini model) always win.
+        ...getRuntimeEnvOverrides(),
         CRAFT_WORKSPACE_PATH: managed.workspace.rootPath,
         // Pass mini model to SDK subprocess so built-in tools like WebFetch
         // use the correct model for summarization (instead of hardcoded Haiku)

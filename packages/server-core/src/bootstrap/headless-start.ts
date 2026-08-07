@@ -6,6 +6,7 @@ import { lockHolderMatchesLock, parseTasklistImageName, type LockIdentity } from
 import { OAuthFlowStore } from '@craft-agent/shared/auth'
 import { ensureConfigDir, loadStoredConfig, saveConfig } from '@craft-agent/shared/config'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
+import { ensureContextDocs } from '@craft-agent/shared/context-docs'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
 import { WsRpcServer, type WsRpcTlsOptions } from '../transport/server'
 import type { EventSink, RpcServer } from '../transport/types'
@@ -311,6 +312,17 @@ export function releaseServerLock(): void {
 function bootstrapConfigArtifacts(platform: PlatformServices): void {
   ensureConfigDir()
   platform.logger.info('[bootstrap] Config artifacts initialized')
+
+  // Runtime context documents: seed bundled soul.md/rules.md templates into
+  // <CONFIG_DIR>/context/ once per boot; existing user files are never
+  // overwritten. Runs after setBundledAssetsRoot (bootstrapServer orders it
+  // first) and never blocks startup on failure — the RPC handler retry covers
+  // servers whose registration runs anyway.
+  try {
+    ensureContextDocs()
+  } catch (error) {
+    platform.logger.warn(`[bootstrap] Context documents seeding failed: ${error instanceof Error ? error.message : error}`)
+  }
 
   // Toolchain: fire-and-forget background install/update of missing/outdated
   // tools (omp et al.). ensureAll returns a status snapshot immediately and

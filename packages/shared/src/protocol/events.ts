@@ -19,6 +19,14 @@ import type {
   NoteChangedPayload,
 } from './dto'
 
+/** Payload of marketplace:CHANGED — pushed after an install/update/remove completes. */
+export interface MarketplaceChangedPayload {
+  id: string
+  action: 'installed' | 'updated' | 'removed'
+  /** Pinned source ref when known (absent for remove-what-we-never-installed). */
+  ref?: string
+}
+
 export interface BroadcastEventMap {
   // Session events (workspace-scoped via broadcastToWorkspace)
   [RPC_CHANNELS.sessions.EVENT]: [event: SessionEvent]
@@ -70,6 +78,12 @@ export interface BroadcastEventMap {
 
   // Copilot device code event
   [RPC_CHANNELS.copilot.DEVICE_CODE]: [data: { userCode: string; verificationUri: string }]
+
+  // Context documents broadcasts (global)
+  [RPC_CHANNELS.contextDocs.CHANGED]: []
+
+  // Marketplace broadcasts (global) — pushed after an install/update/remove completes
+  [RPC_CHANNELS.marketplace.CHANGED]: [payload: MarketplaceChangedPayload]
 
   // Menu events (per-window, no payload)
   [RPC_CHANNELS.menu.NEW_CHAT]: []

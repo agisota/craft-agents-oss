@@ -135,6 +135,12 @@ export const CHANNEL_MAP = {
   getToolchainStatus: invoke(RPC_CHANNELS.toolchain.STATUS),
   onToolchainStatusChanged: listener(RPC_CHANNELS.toolchain.STATUS_CHANGED),
   updateToolchainTool: invoke(RPC_CHANNELS.toolchain.UPDATE),
+  getToolchainDisabled: invoke(RPC_CHANNELS.toolchain.GET_DISABLED),
+  setToolchainDisabled: invoke(RPC_CHANNELS.toolchain.SET_DISABLED),
+
+  // Session env overrides (config runtime.envOverrides)
+  getEnvOverrides: invoke(RPC_CHANNELS.settings.GET_ENV_OVERRIDES),
+  setEnvOverrides: invoke(RPC_CHANNELS.settings.SET_ENV_OVERRIDES),
 
   // Release notes
   getReleaseNotes: invoke(RPC_CHANNELS.releaseNotes.GET),
@@ -538,4 +544,18 @@ export const CHANNEL_MAP = {
   allowMessagingPendingSender: invoke(RPC_CHANNELS.messaging.ALLOW_PENDING_SENDER),
   setMessagingBindingAccess: invoke(RPC_CHANNELS.messaging.SET_BINDING_ACCESS),
   onMessagingPendingChanged: listener(RPC_CHANNELS.messaging.PENDING_CHANGED),
+  // Context documents (runtime context/*.md)
+  listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
+  readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
+  writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
+  onContextDocsChanged: listener(RPC_CHANNELS.contextDocs.CHANGED),
+
+  // Marketplace (curated skills/tools/context-docs)
+  getMarketplaceCatalog: invoke(RPC_CHANNELS.marketplace.CATALOG),
+  getMarketplaceStats: invoke(RPC_CHANNELS.marketplace.STATS),
+  installMarketplaceEntry: invoke(RPC_CHANNELS.marketplace.INSTALL),
+  removeMarketplaceEntry: invoke(RPC_CHANNELS.marketplace.REMOVE),
+  updateMarketplaceEntry: invoke(RPC_CHANNELS.marketplace.UPDATE),
+  refreshMarketplaceCatalog: invoke(RPC_CHANNELS.marketplace.REFRESH),
+  onMarketplaceChanged: listener(RPC_CHANNELS.marketplace.CHANGED),
 } satisfies ChannelMap

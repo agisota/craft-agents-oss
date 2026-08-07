@@ -31,6 +31,20 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
+import type { ContextDocContent, ContextDocInfo } from '@craft-agent/shared/context-docs';
+export type { ContextDocContent, ContextDocInfo };
+import type {
+  MarketplaceCatalogResult,
+  MarketplaceEntryStats,
+  MarketplaceInstallResult,
+  MarketplaceRemoveResult,
+} from '@craft-agent/shared/marketplace';
+export type {
+  MarketplaceCatalogResult,
+  MarketplaceEntryStats,
+  MarketplaceInstallResult,
+  MarketplaceRemoveResult,
+};
 import type { AddLessonResult, Lesson, LessonCategory, LessonScope, MemoryInsights, PendingSkill, PendingSkillDiff, ProjectMemoryDto, PromoteLessonResult, PromotionCandidate, SessionProvenance, SkillExportResult, SkillPruneResult, SkillUsageMap } from '@craft-agent/shared/memory/types';
 export type { ThinkingLevel };
 export { THINKING_LEVELS, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels';
@@ -255,6 +269,7 @@ import type {
   DirectoryListingResult,
   NoteChangedPayload,
   NoteAsset,
+  MarketplaceChangedPayload,
   NoteAssetImportResult,
   NoteAssetRenameResult,
   NoteBacklink,
@@ -555,6 +570,14 @@ export interface ElectronAPI {
   onToolchainStatusChanged(callback: (status: ToolchainToolStatus) => void): () => void
   /** Force update/retry of a single tool (outdated/error/missing). */
   updateToolchainTool(name: ToolchainToolName): Promise<ToolchainToolStatus>
+  /** Disabled default-on tools (config toolchain.disabled); ensureAll skips them. */
+  getToolchainDisabled(): Promise<ToolchainToolName[]>
+  /** Replace the disabled default-on list; persists config and restarts background ensureAll. */
+  setToolchainDisabled(names: ToolchainToolName[]): Promise<ToolchainToolName[]>
+
+  // Session env overrides (config runtime.envOverrides — applied to new agent subprocesses)
+  getEnvOverrides(): Promise<Record<string, string>>
+  setEnvOverrides(env: Record<string, string>): Promise<{ success: boolean; error?: string }>
 
   // Release notes
   getReleaseNotes(): Promise<string>
@@ -974,6 +997,21 @@ export interface ElectronAPI {
   ): Promise<{ owners: MessagingPlatformOwnerInfo[]; bindingId?: string }>
   setMessagingBindingAccess(bindingId: string, access: { mode: MessagingBindingAccessMode; allowedSenderIds?: string[] }): Promise<{ success: boolean }>
   onMessagingPendingChanged(callback: (workspaceId: string) => void): () => void
+
+  // Context documents (runtime context/*.md — soul, rules, user docs)
+  listContextDocs(): Promise<ContextDocInfo[]>
+  readContextDoc(filename: string): Promise<ContextDocContent>
+  writeContextDoc(filename: string, content: string): Promise<ContextDocInfo>
+  onContextDocsChanged(callback: () => void): () => void
+
+  // Marketplace (curated catalog → local config-dir installs)
+  getMarketplaceCatalog(): Promise<MarketplaceCatalogResult>
+  getMarketplaceStats(): Promise<Record<string, MarketplaceEntryStats>>
+  installMarketplaceEntry(id: string): Promise<MarketplaceInstallResult>
+  removeMarketplaceEntry(id: string): Promise<MarketplaceRemoveResult>
+  updateMarketplaceEntry(id: string): Promise<MarketplaceInstallResult>
+  refreshMarketplaceCatalog(): Promise<MarketplaceCatalogResult>
+  onMarketplaceChanged(callback: (payload: MarketplaceChangedPayload) => void): () => void
 }
 
 export interface MessagingPlatformRuntimeInfo {

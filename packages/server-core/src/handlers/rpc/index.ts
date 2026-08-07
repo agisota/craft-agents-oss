@@ -4,6 +4,8 @@ import type { HandlerDeps } from '../handler-deps'
 import { registerAuthHandlers } from './auth'
 import { registerCloudRunsHandlers } from './cloud-runs'
 import { registerAutomationsHandlers } from './automations'
+import { registerContextDocsHandlers } from './context-docs'
+import { registerMarketplaceHandlers } from './marketplace'
 import { registerFilesHandlers } from './files'
 import { registerLabelsHandlers } from './labels'
 import { registerLlmConnectionsHandlers } from './llm-connections'
@@ -58,6 +60,8 @@ export function registerCoreRpcHandlers(
   registerAuthHandlers(server, deps)
   registerCloudRunsHandlers(server, deps)
   registerAutomationsHandlers(server, deps)
+  registerContextDocsHandlers(server, deps)
+  registerMarketplaceHandlers(server, deps)
   registerFilesHandlers(server, deps)
   registerLabelsHandlers(server, deps)
   registerLlmConnectionsHandlers(server, deps)

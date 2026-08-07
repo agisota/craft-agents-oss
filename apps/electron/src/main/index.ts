@@ -102,6 +102,7 @@ import { getWorkspaces, getWorkspaceByNameOrId, loadStoredConfig, addWorkspace, 
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { initializeDocs } from '@craft-agent/shared/docs'
+import { ensureBundledSkills } from '@craft-agent/shared/skills'
 import { initializeReleaseNotes } from '@craft-agent/shared/release-notes'
 import { ensureDefaultPermissions } from '@craft-agent/shared/agent/permissions-config'
 import { ensureToolIcons, ensurePresetThemes } from '@craft-agent/shared/config'
@@ -403,6 +404,10 @@ app.whenReady().then(async () => {
 
   // Initialize bundled docs
   initializeDocs()
+
+  // Sync bundled skill packs into ~/.agents/skills/ (fire-and-forget: the call
+  // never throws; user edits inside installed skills survive via hash-merge)
+  ensureBundledSkills()
 
   // Initialize bundled release notes
   initializeReleaseNotes()

@@ -9,12 +9,12 @@
  * Visibility:
  * - hidden when the toolchain manager is unavailable (headless/remote server)
  * - hidden for `missing` (manager not started yet), `ready` and `outdated`
- *   (the runtime is usable; Settings → Toolchain carries the update action)
+ *   (the runtime is usable; Settings → Runtime shows the toolchain state)
  * - shown for `downloading` (with percent + progress bar), `installing`,
- *   `error` and `offline` (failure phases add an "Open Toolchain" shortcut)
+ *   `error` and `offline` (failure phases add an "Open Runtime settings" shortcut)
  *
  * Visual language matches TransportConnectionBanner (tone-tinted top bar,
- * same paddings/button sizing); the progress bar matches ToolchainSettingsPage.
+ * same paddings/button sizing); the shortcut opens Settings → Runtime (tools).
  *
  * Dismissal is scoped to the current phase in memory: closing the banner
  * hides it for that phase only — any later phase transition re-raises it.
@@ -144,7 +144,7 @@ export function ToolchainStatusBanner() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => navigate(routes.view.settings('toolchain'))}
+            onClick={() => navigate(routes.view.settings('runtime'))}
             className="shrink-0 h-7"
           >
             {t('settings.toolchain.banner.openToolchain')}

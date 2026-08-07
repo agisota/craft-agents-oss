@@ -14,6 +14,9 @@
 import type { ComponentType } from 'react'
 import type { SettingsSubpage } from '../../../shared/settings-registry'
 
+import RuntimeSettingsPage from './RuntimeSettingsPage'
+import ContextSettingsPage from './ContextSettingsPage'
+import MarketplaceSettingsPage from './MarketplaceSettingsPage'
 import AppSettingsPage from './AppSettingsPage'
 import AiSettingsPage from './AiSettingsPage'
 import AppearanceSettingsPage from './AppearanceSettingsPage'
@@ -23,7 +26,6 @@ import PermissionsSettingsPage from './PermissionsSettingsPage'
 import LabelsSettingsPage from './LabelsSettingsPage'
 import MessagingSettingsPage from './MessagingSettingsPage'
 import ServerSettingsPage from './ServerSettingsPage'
-import ToolchainSettingsPage from './ToolchainSettingsPage'
 import CloudRunsSettingsPage from './CloudRunsSettingsPage'
 import ShortcutsPage from './ShortcutsPage'
 import PreferencesPage from './PreferencesPage'
@@ -33,6 +35,9 @@ import PreferencesPage from './PreferencesPage'
  * TypeScript will error if a page from SETTINGS_PAGES is missing here.
  */
 export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = {
+  runtime: RuntimeSettingsPage,
+  context: ContextSettingsPage,
+  marketplace: MarketplaceSettingsPage,
   app: AppSettingsPage,
   ai: AiSettingsPage,
   appearance: AppearanceSettingsPage,
@@ -42,7 +47,6 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   labels: LabelsSettingsPage,
   messaging: MessagingSettingsPage,
   server: ServerSettingsPage,
-  toolchain: ToolchainSettingsPage,
   cloudRuns: CloudRunsSettingsPage,
   shortcuts: ShortcutsPage,
   preferences: PreferencesPage,

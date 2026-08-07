@@ -5,6 +5,9 @@
  */
 
 export { default as SettingsNavigator } from './SettingsNavigator'
+export { default as RuntimeSettingsPage, meta as RuntimeMeta } from './RuntimeSettingsPage'
+export { default as ContextSettingsPage, meta as ContextMeta } from './ContextSettingsPage'
+export { default as MarketplaceSettingsPage, meta as MarketplaceMeta } from './MarketplaceSettingsPage'
 export { default as AppSettingsPage, meta as AppSettingsMeta } from './AppSettingsPage'
 export { default as AiSettingsPage, meta as AiSettingsMeta } from './AiSettingsPage'
 export { default as AppearanceSettingsPage, meta as AppearanceMeta } from './AppearanceSettingsPage'

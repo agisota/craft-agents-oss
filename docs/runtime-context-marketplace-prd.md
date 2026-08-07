@@ -61,8 +61,7 @@
 | opencode | github:anomalyco/opencode, npm `opencode-ai` | npm |
 | oh-my-claudecode | github:Yeachan-Heo/oh-my-claudecode, npm `oh-my-claude-sisyphus` ⚠ имя npm ≠ имя репо | npm |
 | oh-my-codex | github:Yeachan-Heo/oh-my-codex, npm `oh-my-codex` | npm |
-| oh-my-openagent | github:code-yeongyu/oh-my-openagent, npm `oh-my-openagent` | npm |
-| oh-my-hermes | github:Salomondiei08/oh-my-hermes — ПОДТВЕРЖДЕНО пользователем (upstream, не форк) | npm/git-npm — финальный kind фиксируется при M1 |
+| oh-my-openagent | github:code-yeongyu/oh-my-openagent, npm `oh-my-openagent` | npm || oh-my-hermes | github:Salomondiei08/oh-my-hermes — ПОДТВЕРЖДЕНО пользователем (upstream, не форк) | npm/git-npm — финальный kind фиксируется при M1 |
 | eve | github:vercel/eve, npm `eve` | npm (beta) |
 | gbrain | github:garrytan/gbrain — **только git-install**, в npm не опубликован | git-npm (`bun install -g github:garrytan/gbrain`) |
 | gstack | github:garrytan/gstack, бинарь ~58MB на Bun | binary (GitHub releases) |
@@ -128,6 +127,8 @@ Mapping инструментов из §4.1:
 | just, fzf, mise, wt, gstack, infisical | binary | default-on | releases с sha256 |
 | opencode, oh-my-openagent, oh-my-codex, oh-my-claudecode, eve, vercel skills | npm | default-on (eve → opt-in, beta) | embedded locks gen-скриптом |
 | oh-my-hermes | npm или git-npm | opt-in | источник уточняется (org-форк agisota/oh-my-hermes релевантнее для брендинга) |
+
+> **Errata реализации (2026-08-07)**: `oh-my-openagent` исключён из toolchain — у его npm-дерева транзитивный пакет `git-bash-mcp` не опубликован в registry (npm падает с EUNSUPPORTEDPROTOCOL). До фикса апстрима устанавливается только вручную (`npx oh-my-openagent install`). `gstack` и `oh-my-hermes` — не toolchain, а маркетплейс-записи (у первого нет релизных бинарей, второй не публикуется в npm).
 | gbrain | git-npm | default-on | commit-pin обязателен |
 | CLI-Anything | pip | opt-in | через uv (python уже в toolchain) |
 | mole | brew | opt-in, macOS only | требует brew (detect) |

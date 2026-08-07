@@ -96,6 +96,10 @@ const EXPECTED_CHANNELS: string[] = [
   'cloudRuns:setConfig',
   'cloudRuns:share',
   'cloudRuns:submit',
+  'contextDocs:CHANGED',
+  'contextDocs:list',
+  'contextDocs:read',
+  'contextDocs:write',
   'copilot:cancelOAuth',
   'copilot:deviceCode',
   'copilot:getAuthStatus',
@@ -135,6 +139,13 @@ const EXPECTED_CHANNELS: string[] = [
   'labels:delete',
   'labels:list',
   'logo:getUrl',
+  'marketplace:CHANGED',
+  'marketplace:catalog',
+  'marketplace:install',
+  'marketplace:refresh',
+  'marketplace:remove',
+  'marketplace:stats',
+  'marketplace:update',
   'memory:addLesson',
   'memory:changed',
   'memory:deleteLesson',
@@ -320,10 +331,12 @@ const EXPECTED_CHANNELS: string[] = [
   'sessions:unwatchFiles',
   'sessions:watchFiles',
   'settings:getDefaultThinkingLevel',
+  'settings:getEnvOverrides',
   'settings:getNetworkProxy',
   'settings:getServerConfig',
   'settings:getServerStatus',
   'settings:setDefaultThinkingLevel',
+  'settings:setEnvOverrides',
   'settings:setNetworkProxy',
   'settings:setServerConfig',
   'settings:setupLlmConnection',
@@ -388,6 +401,8 @@ const EXPECTED_CHANNELS: string[] = [
   'theme:systemChanged',
   'theme:workspaceThemeChanged',
   'toolIcons:getMappings',
+  'toolchain:getDisabled',
+  'toolchain:setDisabled',
   'toolchain:status',
   'toolchain:statusChanged',
   'toolchain:update',
@@ -466,6 +481,12 @@ describe('BroadcastEventMap payload shapes', () => {
   it('skills:changed carries (workspaceId, skills)', () => {
     type Payload = BroadcastEventMap[typeof RPC_CHANNELS.skills.CHANGED]
     const _check: AssertTuple<Payload, 2> = true
+    expect(_check).toBe(true)
+  })
+
+  it('contextDocs:CHANGED carries no payload', () => {
+    type Payload = BroadcastEventMap[typeof RPC_CHANNELS.contextDocs.CHANGED]
+    const _check: AssertTuple<Payload, 0> = true
     expect(_check).toBe(true)
   })
 })

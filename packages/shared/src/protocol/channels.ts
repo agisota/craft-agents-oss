@@ -270,6 +270,8 @@ export const RPC_CHANNELS = {
     GET_SERVER_CONFIG: 'settings:getServerConfig',
     SET_SERVER_CONFIG: 'settings:setServerConfig',
     GET_SERVER_STATUS: 'settings:getServerStatus',
+    GET_ENV_OVERRIDES: 'settings:getEnvOverrides',
+    SET_ENV_OVERRIDES: 'settings:setEnvOverrides',
   },
   pi: {
     GET_API_KEY_PROVIDERS: 'pi:getApiKeyProviders',
@@ -365,6 +367,8 @@ export const RPC_CHANNELS = {
     STATUS: 'toolchain:status',
     STATUS_CHANGED: 'toolchain:statusChanged',
     UPDATE: 'toolchain:update',
+    GET_DISABLED: 'toolchain:getDisabled',
+    SET_DISABLED: 'toolchain:setDisabled',
   },
   labels: {
     LIST: 'labels:list',
@@ -555,6 +559,21 @@ export const RPC_CHANNELS = {
     WC_CANCEL_CONNECT: 'messaging:wc:cancelConnect',
     /** Broadcast to UI clients: QR image url, scaned, confirmed, expired, error. */
     WC_UI_EVENT: 'messaging:wc:uiEvent',
+  },
+  contextDocs: {
+    LIST: 'contextDocs:list',
+    READ: 'contextDocs:read',
+    WRITE: 'contextDocs:write',
+    CHANGED: 'contextDocs:CHANGED',
+  },
+  marketplace: {
+    CATALOG: 'marketplace:catalog',
+    STATS: 'marketplace:stats',
+    INSTALL: 'marketplace:install',
+    REMOVE: 'marketplace:remove',
+    UPDATE: 'marketplace:update',
+    REFRESH: 'marketplace:refresh',
+    CHANGED: 'marketplace:CHANGED',
   },
 } as const
 

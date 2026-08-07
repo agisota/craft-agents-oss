@@ -94,12 +94,49 @@ async function assertNoEscapes(root: string): Promise<void> {
   await walk(realRoot);
 }
 
+/** Mach-O/fat магии (big-endian первые 4 байта). ELF/PE проверяются посимвольно. */
+const MACHO_MAGICS: Record<number, true> = {
+  0xfeedface: true, // Mach-O 32 LE
+  0xfeedfacf: true, // Mach-O 64 LE
+  0xcefaedfe: true, // Mach-O 32 BE
+  0xcffaedfe: true, // Mach-O 64 BE
+  0xcafebabe: true, // fat binary
+  0xcafed00d: true, // fat binary 64
+};
+
+/**
+ * Файл — нативный исполняемый (ELF/PE/Mach-O/fat)? postinstall некоторых
+ * npm-пакетов (opencode-ai) копирует НАТИВНЫЙ бинарь поверх js-цели bin —
+ * его надо exec'ать напрямую, а не прогонять через bun.
+ */
+async function isNativeBinary(file: string): Promise<boolean> {
+  const head = Buffer.alloc(4);
+  let fh: fs.promises.FileHandle;
+  try {
+    fh = await fs.promises.open(file, 'r');
+  } catch {
+    return false;
+  }
+  try {
+    const { bytesRead } = await fh.read(head, 0, 4, 0);
+    if (bytesRead < 2) return false;
+    // ELF: \x7fELF
+    if (head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46) return true;
+    // PE/COFF: 'MZ'
+    if (head[0] === 0x4d && head[1] === 0x5a) return true;
+    return bytesRead >= 4 && MACHO_MAGICS[head.readUInt32BE(0)] === true;
+  } finally {
+    await fh.close();
+  }
+}
+
 /**
  * npm-тарболлы кладут исполняемый файл как js (например package/dist/cli.js),
  * а имя CLI задаётся в package.json bin. Генерируем лончеры в <versionDir>/bin/
  * с правильным именем (bin/omp, bin/omp.cmd), чтобы резолвер находил их как
  * обычный исполняемый файл. Bun для запуска: CRAFT_BUN_PATH env → toolchain
  * bun → bun из PATH.
+ * Нативная цель bin (postinstall opencode-ai) — лончер exec'ает её напрямую.
  */
 async function generateNpmWrappers(toolDir: string): Promise<string[]> {
   const pkgFile = path.join(toolDir, 'package', 'package.json');
@@ -117,6 +154,31 @@ async function generateNpmWrappers(toolDir: string): Promise<string[]> {
   const created: string[] = [];
   for (const [name, rel] of Object.entries(pkgBin)) {
     if (typeof rel !== 'string' || !rel) continue;
+    // postinstall (opencode-ai) кладёт нативный бинарь поверх js-цели — exec без bun.
+    const native = (await isNativeBinary(path.join(toolDir, 'package', rel)))
+      ? rel
+      : (await isNativeBinary(path.join(toolDir, 'package', `${rel}.exe`)))
+        ? `${rel}.exe`
+        : null;
+    if (native) {
+      const target = path.join(toolDir, 'package', native);
+      try {
+        const st = await fs.promises.stat(target);
+        await fs.promises.chmod(target, st.mode | 0o755);
+      } catch {
+        // права не выставились — exec сам упадёт в рантайме, не фатально
+      }
+      const shNative =
+        '#!/bin/sh\n' +
+        'DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+        `exec "$DIR/../package/${native}" "$@"\n`;
+      await fs.promises.writeFile(path.join(binDir, name), shNative, { mode: 0o755 });
+      created.push(path.join('bin', name));
+      const cmdNative = '@echo off\r\n' + `"%~dp0..\\package\\${native.replace(/\//g, '\\')}" %*\r\n`;
+      await fs.promises.writeFile(path.join(binDir, `${name}.cmd`), cmdNative);
+      created.push(path.join('bin', `${name}.cmd`));
+      continue;
+    }
     // unix wrapper: ../package/<rel> относительно bin/
     const sh =
       '#!/bin/sh\n' +
@@ -296,6 +358,9 @@ export async function installTool(
     if (wrappers.length > 0) {
       // …и npm-зависимости (pi-natives и др. — тарболл один неработоспособен).
       await npmInstallDeps(paths, versionDir, tool, version);
+      // postinstall мог заменить js-цель bin нативным бинарём (opencode-ai):
+      // перегенерируем лончеры — вторая волна перепишет их прямым exec.
+      await generateNpmWrappers(versionDir);
     }
   }
   await chmodBins(versionDir, artifact.binPaths);

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, getDefaultThinkingLevel, setDefaultThinkingLevel } from '@craft-agent/shared/config'
+import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, getDefaultThinkingLevel, setDefaultThinkingLevel, getRuntimeEnvOverrides, setRuntimeEnvOverrides } from '@craft-agent/shared/config'
 import { isValidThinkingLevel, normalizeThinkingLevel, THINKING_LEVEL_IDS } from '@craft-agent/shared/agent/thinking-levels'
 
 const VALID_THINKING_LEVELS_LIST = THINKING_LEVEL_IDS.map(id => `'${id}'`).join(', ')
@@ -38,6 +38,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sessions.SET_MODEL,
   RPC_CHANNELS.settings.GET_DEFAULT_THINKING_LEVEL,
   RPC_CHANNELS.settings.SET_DEFAULT_THINKING_LEVEL,
+  RPC_CHANNELS.settings.GET_ENV_OVERRIDES,
+  RPC_CHANNELS.settings.SET_ENV_OVERRIDES,
   RPC_CHANNELS.tools.GET_BROWSER_TOOL_ENABLED,
   RPC_CHANNELS.tools.SET_BROWSER_TOOL_ENABLED,
   RPC_CHANNELS.settings.GET_NETWORK_PROXY,
@@ -65,6 +67,29 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
     if (!success) {
       throw new Error('Failed to persist default thinking level')
     }
+    return { success: true }
+  })
+
+  // ============================================================
+  // Settings - Session Environment Overrides (App-Level)
+  // ============================================================
+
+  // Get user-configured env vars merged into every spawned agent session
+  server.handle(RPC_CHANNELS.settings.GET_ENV_OVERRIDES, async () => {
+    return getRuntimeEnvOverrides()
+  })
+
+  // Replace session env overrides (persisted to config runtime.envOverrides)
+  server.handle(RPC_CHANNELS.settings.SET_ENV_OVERRIDES, async (_ctx, env: Record<string, string>) => {
+    if (env === null || typeof env !== 'object' || Array.isArray(env)) {
+      throw new Error('env overrides must be a Record<string, string>')
+    }
+    for (const value of Object.values(env)) {
+      if (typeof value !== 'string') {
+        throw new Error('env override values must be strings')
+      }
+    }
+    setRuntimeEnvOverrides(env)
     return { success: true }
   })
 

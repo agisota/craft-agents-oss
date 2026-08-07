@@ -5,7 +5,7 @@
 
 import * as path from 'node:path';
 
-import { MANIFEST_DATA } from './manifest-data';
+import { MANIFEST_DATA, TOOL_PLATFORM_MATRIX } from './manifest-data';
 import type {
   ToolEntry,
   ToolName,
@@ -40,10 +40,15 @@ function buildManifest(): ToolEntry[] {
     entries.push({
       name: name as ToolName,
       version: data.version,
+      kind: data.kind,
+      tier: data.tier,
       critical: data.critical,
       displayName: data.displayName,
       artifacts: data.artifacts,
       dependsOn: data.dependsOn,
+      systemBinary: data.systemBinary,
+      brewFormula: data.brewFormula,
+      platforms: TOOL_PLATFORM_MATRIX[name as ToolName],
     });
   }
   return entries;

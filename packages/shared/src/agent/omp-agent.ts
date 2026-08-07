@@ -50,6 +50,7 @@ import { getSessionPath } from '../sessions/storage.ts';
 import { loadProjectById, getProjectAssetsPath, listProjectAssets, getProjectMemoryPath, loadProjectMemory } from '../projects/storage.ts';
 import type { ProjectPromptContext } from '../projects/types.ts';
 import { formatProjectContextForPrompt } from '../prompts/system.ts';
+import { getContextDocsPromptBlock } from '../context-docs/index.ts';
 import { formatPreferencesForPrompt } from '../config/preferences.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
@@ -69,7 +70,7 @@ import type { PermissionMode } from './mode-manager.ts';
 import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
 
 import { BaseAgent } from './base-agent.ts';
-import type { Workspace } from '../config/storage.ts';
+import { getRuntimeEnvOverrides, type Workspace } from '../config/storage.ts';
 import { parseError } from './errors.ts';
 
 // Host-tool bridge: same defs/executor semantics as PiAgent (register_tools +
@@ -305,6 +306,12 @@ export class OmpAgent extends BaseAgent {
     if (preferences) parts.push(preferences);
     const projectContext = this.resolveProjectContext();
     if (projectContext) parts.push(formatProjectContextForPrompt(projectContext));
+    // Runtime context documents (rules.md, soul.md, user *.md from
+    // <CONFIG_DIR>/context/) — mirrors getSystemPrompt() placement
+    // (after the project block, before memory). Project-level
+    // soul.md/rules.md in the session cwd override same-named global docs.
+    const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory: this.resolvedCwd() });
+    if (contextDocsBlock) parts.push(contextDocsBlock);
     const blocks = this.config.memoryBlocks;
     if (blocks?.lessonsBlock) parts.push(blocks.lessonsBlock);
     if (blocks?.memoryBlock) parts.push(blocks.memoryBlock);
@@ -603,6 +610,9 @@ export class OmpAgent extends BaseAgent {
     const env: NodeJS.ProcessEnv = await withToolchainPathPrefix({
       ...process.env,
       ...getProxyEnvVars(),
+      // User-configured runtime env overrides (config runtime.envOverrides);
+      // per-session envOverrides below always win.
+      ...getRuntimeEnvOverrides(),
       ...(this.config.envOverrides ?? {}),
     });
 

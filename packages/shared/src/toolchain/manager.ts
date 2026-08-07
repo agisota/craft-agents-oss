@@ -10,6 +10,7 @@ import * as path from 'node:path';
 
 import { downloadArtifact, HttpError, NetworkError, ShaMismatchError } from './downloader';
 import { runCommand } from './exec';
+import { getGitLock } from './git-locks';
 import { cleanupOldVersions, flipCurrent, installTool } from './installer';
 import { currentPlatform, TOOLCHAIN_MANIFEST } from './manifest';
 import { createResolver } from './resolver';
@@ -24,9 +25,6 @@ import type {
   ToolchainPlatform,
   ToolchainStateFile,
 } from './types';
-
-/** Бинарник для synthetic-статуса по инструментам без артефакта (git на mac/linux). */
-const SYSTEM_BIN_BY_TOOL: Partial<Record<ToolName, string>> = { git: 'git' };
 
 async function readStateFile(stateFile: string): Promise<ToolchainStateFile> {
   try {
@@ -56,6 +54,58 @@ export interface ManagerOptions {
   /** Сколько загрузок/установок одновременно. */
   concurrency?: number;
   pathEnv?: string;
+  /**
+   * Инструменты tier default-on, которые ensureAll пропускает
+   * (config `toolchain.disabled`; связывание storage → manager — в toolchain-runtime.ts).
+   */
+  disabledTools?: ToolName[];
+  /** DI для тестов: установка git-npm инструмента (заменяет `bun install -g github:repo@commit`). */
+  gitNpmInstallImpl?: (ctx: GitNpmInstallContext) => Promise<void>;
+  /** DI для тестов: установка brew-формулы (заменяет `brew install <formula>`). */
+  brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
+}
+
+export interface GitNpmInstallContext {
+  entry: ToolEntry;
+  paths: ToolchainPaths;
+  /** toolchain/<name>/<version> — BUN_INSTALL: bun кладёт install/global + bin/ внутрь. */
+  versionDir: string;
+  /** toolchain-первый bun executable. */
+  bun: string;
+}
+
+export interface BrewInstallContext {
+  brewBin: string;
+  formula: string;
+  entry: ToolEntry;
+}
+
+/**
+ * Реальная установка git-npm: `bun install -g github:<repo>#<commit>` toolchain-bun'ом.
+ * Пин — git commit (content-addressed: bun выкачивает ровно этот снапшот дерева);
+ * url/sha256/size codeload-тарболла того же коммита лежат в git-locks.ts для аудита.
+ * Lock отсутствует → установка запрещена (fail-closed, зеркалит npm-locks.ts).
+ */
+async function defaultGitNpmInstall(ctx: GitNpmInstallContext): Promise<void> {
+  const lock = getGitLock(ctx.entry.name, ctx.entry.version);
+  if (!lock) {
+    throw new Error(
+      `no pinned git lock for ${ctx.entry.name}@${ctx.entry.version}: бамп версии требует ` +
+        'записи в toolchain/git-locks.ts (см. header файла; scripts/toolchain-locks.ts)',
+    );
+  }
+  await fs.promises.mkdir(ctx.versionDir, { recursive: true });
+  const spec = `github:${lock.repo}#${lock.commit}`;
+  await runCommand([ctx.bun, 'install', '--global', spec], {
+    env: {
+      ...process.env,
+      // BUN_INSTALL направляет глобальную установку внутрь toolchain-layout:
+      // versionDir/install/global/node_modules/<pkg> + лончер versionDir/bin/<bin>.
+      BUN_INSTALL: ctx.versionDir,
+      // Лончеры сгенерированных npm-wrapper'ов должны находить именно этот bun.
+      CRAFT_BUN_PATH: ctx.bun,
+    },
+  });
 }
 
 interface WorkItem {
@@ -73,6 +123,24 @@ export function createManager(
   const concurrency = opts.concurrency ?? 2;
   const emitter = new StatusEmitter();
   const resolver = createResolver(paths, { manifest, pathEnv: opts.pathEnv });
+
+  // default-on инструменты из этого списка ensureAll пропускает (opt-in никогда не ставит).
+  let disabledTools = new Set<ToolName>(opts.disabledTools ?? []);
+  function setDisabledTools(tools: ToolName[]): ToolName[] {
+    disabledTools = new Set(tools);
+    return [...disabledTools];
+  }
+  function getDisabledTools(): ToolName[] {
+    return [...disabledTools];
+  }
+
+  /** entry участвует в ensureAll? core — всегда; default-on — если не disabled; opt-in — никогда. */
+  function includeInEnsureAll(entry: ToolEntry): boolean {
+    const tier = entry.tier ?? 'core';
+    if (tier === 'opt-in') return false;
+    if (tier === 'default-on' && disabledTools.has(entry.name)) return false;
+    return true;
+  }
 
   // Очередь активного ensureAll (для ensureIdle в тестах / перед выходом)
   let activeRun: Promise<void> | null = null;
@@ -138,6 +206,25 @@ export function createManager(
         setStatus({ name: entry.name, phase: 'installing' });
         const { installedPath } = await installUvPython(entry);
         const result = { installedPath, installedVersion: entry.version };
+        await persistTool(entry.name, result);
+        setStatus({ name: entry.name, phase: 'ready', ...result });
+        return;
+      }
+
+      if ((entry.kind ?? 'binary') === 'git-npm') {
+        // git-npm: нет скачивания артефакта — bun выкачивает pinned коммит сам.
+        setStatus({ name: entry.name, phase: 'installing' });
+        const bun = await resolver.findExecutable('bun');
+        if (!bun) {
+          throw new Error('bun not found: git-npm tools require toolchain bun (dependsOn bun)');
+        }
+        const toolRoot = path.join(paths.toolchainDir, entry.name);
+        const versionDir = path.join(toolRoot, entry.version);
+        await fs.promises.rm(versionDir, { recursive: true, force: true });
+        await (opts.gitNpmInstallImpl ?? defaultGitNpmInstall)({ entry, paths, versionDir, bun });
+        await flipCurrent(toolRoot, entry.version, versionDir);
+        await cleanupOldVersions(toolRoot, entry.version);
+        const result = { installedPath: versionDir, installedVersion: entry.version };
         await persistTool(entry.name, result);
         setStatus({ name: entry.name, phase: 'ready', ...result });
         return;
@@ -237,13 +324,46 @@ export function createManager(
     const state = await readStateFile(paths.stateFile);
     const statuses: ToolStatus[] = [];
     for (const entry of manifest) {
+      // Инструмента нет на этой платформе (матрица) → в статусе не показываем.
+      if (entry.platforms && !entry.platforms.includes(platform)) continue;
+      const kind = entry.kind ?? 'binary';
       const artifact = entry.artifacts[platform];
       const installed = state.tools[entry.name];
       const runtimeStatus = emitter.get(entry.name);
 
+      // detect kind: только детект системного исполняемого, state не ведём.
+      if (kind === 'detect') {
+        const bin = entry.systemBinary ?? entry.name;
+        if (await resolver.findExecutable(bin)) {
+          statuses.push({ name: entry.name, phase: 'ready', installedVersion: 'system' });
+        } else {
+          statuses.push({ name: entry.name, phase: 'missing' });
+        }
+        continue;
+      }
+
+      // brew kind: brew ведёт своё состояние сам; префлайт brew-бинарника обязателен.
+      if (kind === 'brew') {
+        if (runtimeStatus && ['downloading', 'installing'].includes(runtimeStatus.phase)) {
+          statuses.push(runtimeStatus);
+          continue;
+        }
+        const bin = entry.systemBinary ?? entry.name;
+        if (await resolver.findExecutable(bin)) {
+          statuses.push({ name: entry.name, phase: 'ready', installedVersion: 'system' });
+        } else if (!(await resolver.findExecutable('brew'))) {
+          statuses.push({ name: entry.name, phase: 'skipped-no-brew' });
+        } else if (runtimeStatus?.phase === 'error') {
+          statuses.push(runtimeStatus);
+        } else {
+          statuses.push({ name: entry.name, phase: 'missing' });
+        }
+        continue;
+      }
+
       // Нет артефакта под текущую платформу -> системный fallback (git на mac/linux)
       if (!artifact) {
-        const sysBin = SYSTEM_BIN_BY_TOOL[entry.name];
+        const sysBin = entry.systemBinary;
         if (sysBin && (await resolver.findExecutable(sysBin))) {
           statuses.push({ name: entry.name, phase: 'ready', installedVersion: 'system' });
         } else if (sysBin) {
@@ -289,6 +409,12 @@ export function createManager(
   async function ensureAll(optsEnsure?: { background?: boolean }): Promise<ToolStatus[]> {
     const plan: WorkItem[] = [];
     for (const entry of manifest) {
+      if (entry.platforms && !entry.platforms.includes(platform)) continue;
+      // tier-фильтр: core всегда; default-on если не disabled; opt-in — только update(name).
+      if (!includeInEnsureAll(entry)) continue;
+      // brew/detect kinds не имеют toolchain-установки в ensureAll (brew — через update()).
+      const kind = entry.kind ?? 'binary';
+      if (kind === 'brew' || kind === 'detect') continue;
       const artifact = entry.artifacts[platform];
       if (!artifact) continue;
       const item = await planItem(entry, artifact);
@@ -336,9 +462,38 @@ export function createManager(
     return buildStatusSnapshot();
   }
 
+  /** brew kind: префлайт brew, затем `brew install <formula>` (brew ведёт версии сам). */
+  async function updateBrewTool(entry: ToolEntry): Promise<ToolStatus> {
+    const brewBin = await resolver.findExecutable('brew');
+    if (!brewBin) {
+      // префлайт не прошёл — установку даже не пытаемся
+      return setStatus({ name: entry.name, phase: 'skipped-no-brew' });
+    }
+    const formula = entry.brewFormula ?? entry.name;
+    setStatus({ name: entry.name, phase: 'installing' });
+    try {
+      const install =
+        opts.brewInstallImpl ?? ((ctx: BrewInstallContext) => runCommand([ctx.brewBin, 'install', ctx.formula]));
+      await install({ brewBin, formula, entry });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return setStatus({ name: entry.name, phase: 'error', error: message });
+    }
+    // installedPath осмыслен только для toolchain-layout; у brew — системный cellar.
+    return setStatus({ name: entry.name, phase: 'ready', installedVersion: 'system' });
+  }
+
   async function update(name: ToolName): Promise<ToolStatus> {
     const entry = manifest.find((e) => e.name === name);
     if (!entry) throw new Error(`unknown tool: ${name}`);
+    const kind = entry.kind ?? 'binary';
+    if (kind === 'brew') return updateBrewTool(entry);
+    if (kind === 'detect') {
+      // detect не имеет установки: update — это просто свежий детект системного бинарника.
+      const status = (await buildStatusSnapshot()).find((s) => s.name === name)!;
+      setStatus(status);
+      return status;
+    }
     const artifact = entry.artifacts[platform];
     if (!artifact) {
       const status = { name, phase: 'missing' as const };
@@ -355,6 +510,8 @@ export function createManager(
     status: buildStatusSnapshot,
     update,
     onStatusChange: (listener) => emitter.subscribe(listener),
+    setDisabledTools,
+    getDisabledTools,
     /** Дождаться завершения фоновой волны (тесты/грациозный выход). */
     ensureIdle: () => activeRun ?? Promise.resolve(),
   };

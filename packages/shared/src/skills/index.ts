@@ -27,3 +27,10 @@ export {
   invalidateOmpSkillsCache,
   type OmpSkillInfo,
 } from './omp-discovery.ts';
+export {
+  ensureBundledSkills,
+  resetBundledSkillsInitialized,
+  type BundledSkillPackStatus,
+  type EnsureBundledSkillsOptions,
+  type EnsureBundledSkillsResult,
+} from './bundled.ts';

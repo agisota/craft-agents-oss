@@ -111,6 +111,22 @@ export interface StoredConfig {
   skills?: {
     autoCreateFromSessions?: boolean;  // gate skill candidates produced by distillation (default: false — candidates are dropped)
   };
+  // Bundled skill packs (runtime-context-marketplace §0.1). Slugs of packs from
+  // apps/electron/resources/skills/ that should be skipped by ensureBundledSkills().
+  bundledSkills?: {
+    disabled?: string[];
+  };
+  // Toolchain manager: имена default-on инструментов (ToolName), которые ensureAll
+  // пропускает (UI-переключатель, канал toolchain:setDisabled). core/opt-in не затрагиваются.
+  toolchain?: {
+    disabled?: string[];
+  };
+  // Agent session runtime settings. envOverrides merge into every spawned agent
+  // subprocess env AFTER process.env and proxy vars but BEFORE per-session
+  // overrides (CRAFT_WORKSPACE_PATH, mini-model) — session-specific values win.
+  runtime?: {
+    envOverrides?: Record<string, string>;
+  };
   // Network proxy
   networkProxy?: import('./types.ts').NetworkProxySettings;
   // Windows: path to Git Bash (bash.exe) for the SDK subprocess
@@ -682,6 +698,56 @@ export function setRtkEnabled(enabled: boolean): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.rtkEnabled = enabled;
+  saveConfig(config);
+}
+
+/**
+ * Toolchain: имена default-on инструментов (ToolName), отключённых пользователем.
+ * ensureAll их пропускает; core ставится всегда, opt-in — только явным update().
+ * Живой менеджер синхронизируется через ToolchainManager.setDisabledTools
+ * (хендлер toolchain:setDisabled); стартовое значение читает toolchain-runtime.ts.
+ */
+export function getToolchainDisabled(): string[] {
+  const config = loadStoredConfig();
+  return config?.toolchain?.disabled ?? [];
+}
+
+/**
+ * Persist toolchain.disabled (см. getToolchainDisabled). Порядок сохраняется,
+ * дубликаты схлопываются.
+ */
+export function setToolchainDisabled(tools: string[]): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.toolchain = { ...config.toolchain, disabled: [...new Set(tools)] };
+  saveConfig(config);
+}
+
+/**
+ * Runtime: пользовательские переменные окружения для всех агент-сессий
+ * (config runtime.envOverrides). Сливаются в env подпроцесса ПОСЛЕ process.env
+ * и proxy, но ДО per-session envOverrides (CRAFT_WORKSPACE_PATH и пр. побеждают).
+ */
+export function getRuntimeEnvOverrides(): Record<string, string> {
+  const config = loadStoredConfig();
+  return { ...(config?.runtime?.envOverrides ?? {}) };
+}
+
+/**
+ * Persist runtime.envOverrides (см. getRuntimeEnvOverrides). Пустые ключи
+ * отбрасываются; значения приводятся к строкам. Применяется к новым
+ * подпроцессам — живые сессии респавнятся при следующем запуске агента.
+ */
+export function setRuntimeEnvOverrides(env: Record<string, string>): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  const cleaned: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const trimmedKey = key.trim();
+    if (!trimmedKey) continue;
+    cleaned[trimmedKey] = String(value);
+  }
+  config.runtime = { ...config.runtime, envOverrides: cleaned };
   saveConfig(config);
 }
 

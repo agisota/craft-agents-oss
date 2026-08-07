@@ -11,8 +11,9 @@
 import { delimiter } from 'node:path';
 
 import { CONFIG_DIR } from './config/paths.ts';
+import { getToolchainDisabled, setToolchainDisabled } from './config/storage.ts';
 import { createManager, createResolver, toolchainPaths } from './toolchain/index.ts';
-import type { ToolchainManager, ToolchainResolver } from './toolchain/index.ts';
+import type { ToolName, ToolchainManager, ToolchainResolver } from './toolchain/index.ts';
 
 export interface ToolchainRuntime {
   resolver: ToolchainResolver;
@@ -27,7 +28,8 @@ export function getToolchain(): ToolchainRuntime {
     const paths = toolchainPaths(CONFIG_DIR);
     cached = {
       resolver: createResolver(paths),
-      manager: createManager(paths),
+      // Стартовый disabled-список — из config.toolchain.disabled (storage).
+      manager: createManager(paths, { disabledTools: getToolchainDisabled() as ToolName[] }),
     };
   }
   return cached;
@@ -35,6 +37,15 @@ export function getToolchain(): ToolchainRuntime {
 
 export function getToolchainManager(): ToolchainManager {
   return getToolchain().manager;
+}
+
+/**
+ * Применить disabled-список (config + живой менеджер) и вернуть применённый.
+ * Перезапуск ensureAll — забота вызывающего (хендлер toolchain:setDisabled).
+ */
+export function setToolchainDisabledTools(tools: ToolName[]): ToolName[] {
+  setToolchainDisabled(tools);
+  return getToolchainManager().setDisabledTools(tools);
 }
 
 /** Фазы, в которых отсутствующий omp объясняется «ещё ставится», а не ENOENT. */

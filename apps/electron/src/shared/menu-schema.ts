@@ -379,6 +379,9 @@ export interface SettingsMenuItem {
  * Only icons need to be defined here - page data comes from settings-registry
  */
 const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
+  runtime: 'Settings',
+  context: 'FileText',
+  marketplace: 'ShoppingBag',
   app: 'ToggleRight',
   ai: 'Sparkles',
   appearance: 'Palette',
@@ -388,7 +391,6 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   labels: 'Tag',
   messaging: 'MessageSquare',
   server: 'Server',
-  toolchain: 'Wrench',
   cloudRuns: 'Cloud',
   shortcuts: 'Keyboard',
   preferences: 'UserCircle',

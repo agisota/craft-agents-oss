@@ -9,16 +9,18 @@
 import {
   Building2,
   Cloud,
+  FileText,
   Keyboard,
   MessageSquare,
   Palette,
   Server,
+  Settings,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Tag,
   ToggleRight,
   UserCircle,
-  Wrench,
 } from 'lucide-react'
 import type { SettingsSubpage } from '../../../shared/types'
 
@@ -36,13 +38,18 @@ export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquar
 export const ServerSettingsIcon = ({ className }: IconProps) => <Server className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
-export const ToolchainIcon = ({ className }: IconProps) => <Wrench className={className} />
+export const RuntimeIcon = ({ className }: IconProps) => <Settings className={className} />
+export const ContextIcon = ({ className }: IconProps) => <FileText className={className} />
+export const MarketplaceIcon = ({ className }: IconProps) => <ShoppingBag className={className} />
 
 /**
  * Map of settings subpage IDs to their icon components.
  * Used by both AppMenu and SettingsNavigator for consistent icons.
  */
 export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconProps>> = {
+  runtime: RuntimeIcon,
+  context: ContextIcon,
+  marketplace: MarketplaceIcon,
   app: AppSettingsIcon,
   ai: AiSettingsIcon,
   appearance: AppearanceIcon,
@@ -52,7 +59,6 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   labels: LabelsIcon,
   messaging: MessagingSettingsIcon,
   server: ServerSettingsIcon,
-  toolchain: ToolchainIcon,
   cloudRuns: CloudRunsIcon,
   shortcuts: ShortcutsIcon,
   preferences: PreferencesIcon,

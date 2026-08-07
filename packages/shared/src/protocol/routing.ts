@@ -73,6 +73,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.toolchain.STATUS,
   RPC_CHANNELS.toolchain.STATUS_CHANGED,
   RPC_CHANNELS.toolchain.UPDATE,
+  RPC_CHANNELS.toolchain.GET_DISABLED,
+  RPC_CHANNELS.toolchain.SET_DISABLED,
 
   // theme — app/OS-level preferences, not workspace content
   RPC_CHANNELS.theme.GET_SYSTEM_PREFERENCE,
@@ -218,10 +220,29 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.settings.GET_NETWORK_PROXY,
   RPC_CHANNELS.settings.SET_NETWORK_PROXY,
 
+  // env overrides — local config.json runtime.envOverrides applied to spawned agents
+  RPC_CHANNELS.settings.GET_ENV_OVERRIDES,
+  RPC_CHANNELS.settings.SET_ENV_OVERRIDES,
+
   // server config — local embedded server settings
   RPC_CHANNELS.settings.GET_SERVER_CONFIG,
   RPC_CHANNELS.settings.SET_SERVER_CONFIG,
   RPC_CHANNELS.settings.GET_SERVER_STATUS,
+
+  // contextDocs — local config-dir documents (runtime context/*.md, not workspace content)
+  RPC_CHANNELS.contextDocs.LIST,
+  RPC_CHANNELS.contextDocs.READ,
+  RPC_CHANNELS.contextDocs.WRITE,
+  RPC_CHANNELS.contextDocs.CHANGED,
+
+  // marketplace — curated installs into the local config dir (skills/context/toolchain deferral)
+  RPC_CHANNELS.marketplace.CATALOG,
+  RPC_CHANNELS.marketplace.STATS,
+  RPC_CHANNELS.marketplace.INSTALL,
+  RPC_CHANNELS.marketplace.REMOVE,
+  RPC_CHANNELS.marketplace.UPDATE,
+  RPC_CHANNELS.marketplace.REFRESH,
+  RPC_CHANNELS.marketplace.CHANGED,
 ])
 
 // ---------------------------------------------------------------------------
