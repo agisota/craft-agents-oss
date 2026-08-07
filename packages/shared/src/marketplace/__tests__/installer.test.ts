@@ -147,6 +147,56 @@ describe('installEntry (skillpack, directory mode)', () => {
   })
 })
 
+describe('cross-pack name collisions (skills mode)', () => {
+  const makeEntry = (id: string): MarketplaceEntry => ({
+    id,
+    kind: 'skillpack',
+    title: id,
+    descriptionRu: id,
+    source: { type: 'github', repo: 'owner/' + id, ref: REF },
+  })
+
+  const packGit: ExecFileFn = async (_file, args, options) => {
+    if (args.includes('checkout')) {
+      mkdirSync(join(options.cwd!, 'review'), { recursive: true })
+      writeFileSync(join(options.cwd!, 'review', 'SKILL.md'), '# pack review')
+    }
+    return { stdout: args[0] === 'rev-parse' ? `${REF}\n` : '', stderr: '' }
+  }
+
+  it('namespaces the colliding skill from the second pack without touching the first', async () => {
+    const a = await installEntry(makeEntry('pack-a'), { configDir, skillsDir, execFileFn: packGit })
+    expect(a.status).toBe('installed')
+    expect(existsSync(join(skillsDir, 'review', 'SKILL.md'))).toBe(true)
+
+    const b = await installEntry(makeEntry('pack-b'), { configDir, skillsDir, execFileFn: packGit })
+    const bAsSkill = b as { collisions?: string[]; skills: string[]; targets: string[] }
+    // Первый пакет цел, второй получил namespaced-имя:
+    expect(existsSync(join(skillsDir, 'review', 'SKILL.md'))).toBe(true)
+    expect(bAsSkill.skills).toEqual(['pack-b--review'])
+    expect(bAsSkill.targets).toEqual([join(skillsDir, 'pack-b--review')])
+    expect(bAsSkill.collisions?.some((c) => c.includes('renamed to pack-b--review'))).toBe(true)
+    // И в registry обе цели видных у pack-b:
+    const recB = readLock(marketplacePaths(configDir).lockFile).entries['pack-b']
+    expect(recB?.targets).toEqual([join(skillsDir, 'pack-b--review')])
+    // marker в новой директории — pack-b:
+    expect(readInstallMarker(join(skillsDir, 'pack-b--review'))?.id).toBe('pack-b')
+  })
+
+  it('module mutex serializes direct installs of the same entry id', async () => {
+    const [r1, r2] = await Promise.all([
+      installEntry(makeEntry('mutex-pack'), { configDir, skillsDir, execFileFn: packGit }),
+      installEntry(makeEntry('mutex-pack'), { configDir, skillsDir, execFileFn: packGit }),
+    ])
+    expect(r1.status).toBe('installed')
+    expect(r2.status).toBe('installed')
+    // конечный registry-вид консистентен: одна запись, одна цель:
+    const entries = readLock(marketplacePaths(configDir).lockFile).entries
+    expect(Object.keys(entries)).toEqual(['mutex-pack'])
+    expect(entries['mutex-pack']?.targets).toEqual([join(skillsDir, 'review')])
+  })
+})
+
 describe('installEntry (unowned target guard)', () => {
   const GUARD_ENTRY: MarketplaceEntry = {
     id: 'guard-pack',

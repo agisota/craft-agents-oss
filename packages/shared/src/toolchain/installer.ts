@@ -394,3 +394,103 @@ export async function installTool(
 
   return { installedPath: versionDir, installedVersion: version };
 }
+
+// ---------------------------------------------------------------------------
+// git-npm supply-chain (kind 'git-npm', см. manager.defaultGitNpmInstall)
+// ---------------------------------------------------------------------------
+
+/**
+ * Параметры pinned-установки git-npm инструмента.
+ */
+export interface GitNpmPinnedInstall {
+  /** toolchain-первый bun executable. */
+  bun: string;
+  /** toolchain/<name>/<version> — BUN_INSTALL root (install/global + bin). */
+  versionDir: string;
+  /** 'owner/repo' на GitHub. */
+  repo: string;
+  /** Полный commit sha — фактический пин снапшота (git-locks.ts). */
+  commit: string;
+  /** Временный каталог чекаута (создаём и чистим сами). */
+  workDir: string;
+  /** DI для тестов (заменяет runCommand). */
+  runCmd?: typeof runCommand;
+  /** WARNING/прогресс-лог (по умолчанию console.warn). */
+  onLog?: (message: string) => void;
+}
+
+/**
+ * Установка git-npm инструмента из pinned checkout'а с pinned транзитивами.
+ *
+ * Проблема: `bun install -g github:<repo>#<commit>` пинит только снапшот самого
+ * пакета — его dependencies bun разрешает по latest (ни github:-спека, ни
+ * global-install из локального пути чужой bun.lock НЕ читают — проверено
+ * эмпирически на bun 1.3.14: global из пути с bun.lock@picocolors-1.0.0 поставил
+ * 1.1.1). Поэтому при наличии в апстриме bun.lock/bun.lockb:
+ *   1. clone pinned коммита (git fetch <sha> --depth 1, как marketplace.installer);
+ *   2. `bun install --frozen-lockfile` В ЧЕКАУТЕ — транзитивы строго по локу,
+ *      рассинхрон lock↔package.json → fail-closed (bun падает);
+ *   3. `bun install --global <workDir>` — bun копирует каталог целиком, включая
+ *      node_modules (проверено на 1.3.14: реальная копия, не symlink), поэтому
+ *      runtime-резолв кода пакета идёт по вложенным pinned-зависимостям.
+ * Локфайла нет (или git недоступен, напр. win32) — старое поведение
+ * (`bun install -g github:<repo>#<commit>`) + WARNING в onLog.
+ */
+export async function installGitNpmPinned(req: GitNpmPinnedInstall): Promise<void> {
+  const runCmd = req.runCmd ?? runCommand;
+  const log = req.onLog ?? ((message: string) => console.warn(message));
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // BUN_INSTALL направляет глобальную установку внутрь toolchain-layout:
+    // versionDir/install/global/node_modules/<pkg> + лончер versionDir/bin/<bin>.
+    BUN_INSTALL: req.versionDir,
+    // Лончеры сгенерированных npm-wrapper'ов должны находить именно этот bun.
+    CRAFT_BUN_PATH: req.bun,
+  };
+  await fs.promises.mkdir(req.versionDir, { recursive: true });
+
+  const legacyGlobalSpec = async (): Promise<void> => {
+    await runCmd([req.bun, 'install', '--global', `github:${req.repo}#${req.commit}`], { env });
+  };
+
+  let hasLockfile = false;
+  await fs.promises.rm(req.workDir, { recursive: true, force: true });
+  try {
+    await fs.promises.mkdir(req.workDir, { recursive: true });
+    await runCmd(['git', 'init', '-q', req.workDir]);
+    await runCmd(['git', 'remote', 'add', 'origin', `https://github.com/${req.repo}.git`], { cwd: req.workDir });
+    // fetch по полному sha — content-addressed: FETCH_HEAD === req.commit.
+    await runCmd(['git', 'fetch', '-q', '--depth', '1', 'origin', req.commit], { cwd: req.workDir });
+    await runCmd(['git', '-c', 'advice.detachedHead=false', 'checkout', '-q', 'FETCH_HEAD'], { cwd: req.workDir });
+    hasLockfile =
+      fs.existsSync(path.join(req.workDir, 'bun.lock')) || fs.existsSync(path.join(req.workDir, 'bun.lockb'));
+  } catch (error) {
+    await fs.promises.rm(req.workDir, { recursive: true, force: true });
+    // git не установлен (win32 без git в PATH) — не ломаем установку, которую
+    // раньше обслуживал bun сам (он ходит на codeload напрямую, без git).
+    if (error instanceof Error && error.message.includes('ENOENT')) {
+      log(`WARNING: git unavailable — falling back to 'github:${req.repo}#${req.commit}' (transitives unpinned)`);
+      await legacyGlobalSpec();
+      return;
+    }
+    throw error;
+  }
+
+  if (!hasLockfile) {
+    await fs.promises.rm(req.workDir, { recursive: true, force: true });
+    log(`WARNING: transitives unpinned: no bun.lock in upstream ${req.repo}@${req.commit}`);
+    await legacyGlobalSpec();
+    return;
+  }
+
+  try {
+    // Транзитивы — строго по локфайлу апстрима; расхождение lock↔package.json
+    // здесь фатально (fail-closed, зеркалит npm ci --frozen-lockfile).
+    await runCmd([req.bun, 'install', '--frozen-lockfile'], { cwd: req.workDir, env });
+    // Global-install из чекаута: bun копирует каталог (включая node_modules) —
+    // pinned-транзитивы едут вместе с пакетом в versionDir/install/global.
+    await runCmd([req.bun, 'install', '--global', req.workDir], { env });
+  } finally {
+    await fs.promises.rm(req.workDir, { recursive: true, force: true });
+  }
+}
