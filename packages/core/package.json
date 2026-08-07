@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./types": "./src/types/index.ts",
     "./utils": "./src/utils/index.ts",
+    "./platform": "./src/platform/index.ts",
     "./knowledge": "./src/knowledge/index.ts",
     "./knowledge/providers/siyuan": "./src/knowledge/providers/siyuan/index.ts",
     "./knowledge/*": "./src/knowledge/*"

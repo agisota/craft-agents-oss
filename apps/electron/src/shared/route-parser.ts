@@ -7,6 +7,24 @@
  * Supports route formats:
  * - Action: action/{name}[/{id}] - Trigger side effects
  * - Compound: {filter}[/session/{sessionId}] - View routes for full navigation state
+ *
+ * Unified-shell surface routes (W1 scaffolding, spec S-02 §3.6) — well-formed
+ * surface routes round-trip exactly (parse ↔ build); anything malformed or any
+ * consumer path without a surface handler degrades to the nearest existing
+ * view until dedicated hosts land (W2/W5):
+ *
+ * | Route form                        | Parsed NavigationState          | Degradation target (W1)                    |
+ * |-----------------------------------|---------------------------------|--------------------------------------------|
+ * | knowledge/{kind}/{id}             | navigator 'knowledge'           | sessions/allSessions (until W2 host)       |
+ * | knowledge/database/{id}           | 'knowledge', kind 'database'    | same route (database tab rides knowledge)  |
+ * | cloud-run/{runId}                 | navigator 'cloud-run'           | sessions/allSessions (runs UI in sessions) |
+ * | extension/{extId}[/{viewId}]      | navigator 'extension'           | settings (Extension Center is W5)          |
+ * | diff/{proposalId}                 | navigator 'diff'                | sessions/allSessions (until K-05 host)     |
+ * | knowledge/{unknownKind}/{id}      | n/a (malformed)                 | sessions/allSessions (lossy, by design)    |
+ * | surface routes via parseRoute()   | convertCompoundToViewRoute      | '{allSessions}' view route fallthrough     |
+ *
+ * Renderers resolve a surface state through `degradeSurfaceNavigationState`
+ * until their host component exists; see spec S-02 §3.5 for host mapping.
  */
 
 import type {
@@ -15,6 +33,7 @@ import type {
   SourceFilter,
   AutomationFilter,
   RightSidebarPanel,
+  KnowledgeRefKind,
 } from './types'
 import { isValidSettingsSubpage, type SettingsSubpage } from './settings-registry'
 
@@ -36,6 +55,8 @@ export interface ParsedRoute {
 // =============================================================================
 
 export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'notes' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory'
+  // Unified-shell surface navigators (W1 scaffolding; hosts land in W2/W5)
+  | 'knowledge' | 'cloud-run' | 'extension' | 'diff'
 
 export interface ParsedCompoundRoute {
   /** The navigator type */
@@ -48,10 +69,17 @@ export interface ParsedCompoundRoute {
   automationFilter?: AutomationFilter
   /** Sessions presentation mode (only for sessions navigator). 'board' = Kanban view. */
   viewMode?: 'list' | 'board'
-  /** Details page info (null for empty state) */
+  /**
+   * Details page info (null for empty state).
+   * W1 surface navigators reuse this shape: `id` is the entity id (runId /
+   * proposalId / extensionId), `kind` carries the SiYuan ref kind for
+   * 'knowledge' details, `viewId` the sandbox view for 'extension' details.
+   */
   details: {
     type: string
     id: string
+    kind?: KnowledgeRefKind
+    viewId?: string
   } | null
 }
 
@@ -63,7 +91,9 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'notes', 'automations', 'projects', 'settings', 'browser', 'memory'
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'notes', 'automations', 'projects', 'settings', 'browser', 'memory',
+  // Unified-shell surfaces (W1)
+  'knowledge', 'cloud-run', 'extension', 'diff',
 ]
 
 /**
@@ -266,6 +296,67 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return null
   }
 
+  // ------------------------------------------------------------------
+  // Unified-shell surface navigators (W1 scaffolding, spec S-02 §3.6).
+  // Well-formed routes round-trip exactly; malformed shapes degrade to the
+  // nearest existing view (sessions/allSessions) instead of null.
+  // ------------------------------------------------------------------
+
+  // Knowledge surface — knowledge/{kind}/{id}; kind 'database' doubles as the
+  // database SurfaceTab (descriptor-lowering happens in the registry, S-02 §3.2).
+  if (first === 'knowledge') {
+    if (segments.length === 1) {
+      return { navigator: 'knowledge', details: null }
+    }
+    const kind = segments[1]
+    const id = segments[2] ? decodeURIComponent(segments.slice(2).join('/')) : ''
+    if (id && (['notebook', 'document', 'block', 'database', 'asset'] as const).includes(kind as KnowledgeRefKind)) {
+      return {
+        navigator: 'knowledge',
+        details: { type: 'knowledge', id, kind: kind as KnowledgeRefKind },
+      }
+    }
+    // Unknown ref kind / missing id — degrade to nearest existing view
+    return { navigator: 'sessions', sessionFilter: { kind: 'allSessions' }, details: null }
+  }
+
+  // Cloud run surface — cloud-run/{runId}
+  if (first === 'cloud-run') {
+    if (segments.length === 1) {
+      return { navigator: 'cloud-run', details: null }
+    }
+    const runId = decodeURIComponent(segments.slice(1).join('/'))
+    if (!runId) {
+      return { navigator: 'sessions', sessionFilter: { kind: 'allSessions' }, details: null }
+    }
+    return { navigator: 'cloud-run', details: { type: 'cloud-run', id: runId } }
+  }
+
+  // Extension sandbox view — extension/{extensionId}[/{viewId}]
+  if (first === 'extension') {
+    if (segments.length === 1) {
+      return { navigator: 'extension', details: null }
+    }
+    const extensionId = decodeURIComponent(segments[1])
+    const viewId = segments[2] ? decodeURIComponent(segments.slice(2).join('/')) : undefined
+    return {
+      navigator: 'extension',
+      details: { type: 'extension', id: extensionId, ...(viewId ? { viewId } : {}) },
+    }
+  }
+
+  // Write-proposal diff surface — diff/{proposalId}
+  if (first === 'diff') {
+    if (segments.length === 1) {
+      return { navigator: 'diff', details: null }
+    }
+    const proposalId = decodeURIComponent(segments.slice(1).join('/'))
+    if (!proposalId) {
+      return { navigator: 'sessions', sessionFilter: { kind: 'allSessions' }, details: null }
+    }
+    return { navigator: 'diff', details: { type: 'diff', id: proposalId } }
+  }
+
   // Sessions navigator (allSessions, flagged, state)
   let sessionFilter: SessionFilter
   let detailsStartIndex: number
@@ -375,6 +466,28 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
   if (parsed.navigator === 'projects') {
     if (!parsed.details) return 'projects'
     return `projects/project/${parsed.details.id}`
+  }
+
+  // Unified-shell surfaces (W1)
+  if (parsed.navigator === 'knowledge') {
+    if (!parsed.details || parsed.details.type !== 'knowledge' || !parsed.details.kind) return 'knowledge'
+    return `knowledge/${parsed.details.kind}/${encodeURIComponent(parsed.details.id)}`
+  }
+
+  if (parsed.navigator === 'cloud-run') {
+    if (!parsed.details) return 'cloud-run'
+    return `cloud-run/${encodeURIComponent(parsed.details.id)}`
+  }
+
+  if (parsed.navigator === 'extension') {
+    if (!parsed.details) return 'extension'
+    const base = `extension/${encodeURIComponent(parsed.details.id)}`
+    return parsed.details.viewId ? `${base}/${encodeURIComponent(parsed.details.viewId)}` : base
+  }
+
+  if (parsed.navigator === 'diff') {
+    if (!parsed.details) return 'diff'
+    return `diff/${encodeURIComponent(parsed.details.id)}`
   }
 
   // Sessions navigator
@@ -705,6 +818,51 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
     }
   }
 
+  // Unified-shell surfaces (W1)
+  if (compound.navigator === 'knowledge') {
+    if (!compound.details || compound.details.type !== 'knowledge' || !compound.details.kind) {
+      return { navigator: 'knowledge', details: null }
+    }
+    return {
+      navigator: 'knowledge',
+      details: { type: 'knowledge', kind: compound.details.kind, id: compound.details.id },
+    }
+  }
+
+  if (compound.navigator === 'cloud-run') {
+    if (!compound.details) {
+      return { navigator: 'cloud-run', details: null }
+    }
+    return {
+      navigator: 'cloud-run',
+      details: { type: 'cloud-run', runId: compound.details.id },
+    }
+  }
+
+  if (compound.navigator === 'extension') {
+    if (!compound.details) {
+      return { navigator: 'extension', details: null }
+    }
+    return {
+      navigator: 'extension',
+      details: {
+        type: 'extension',
+        extensionId: compound.details.id,
+        ...(compound.details.viewId ? { viewId: compound.details.viewId } : {}),
+      },
+    }
+  }
+
+  if (compound.navigator === 'diff') {
+    if (!compound.details) {
+      return { navigator: 'diff', details: null }
+    }
+    return {
+      navigator: 'diff',
+      details: { type: 'diff', proposalId: compound.details.id },
+    }
+  }
+
   // Sessions
   const filter = compound.sessionFilter || { kind: 'allSessions' as const }
   if (compound.details) {
@@ -952,6 +1110,43 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
     }
   }
 
+  // Unified-shell surfaces (W1)
+  if (state.navigator === 'knowledge') {
+    return {
+      navigator: 'knowledge',
+      details: state.details?.type === 'knowledge'
+        ? { type: 'knowledge', id: state.details.id, kind: state.details.kind }
+        : null,
+    }
+  }
+
+  if (state.navigator === 'cloud-run') {
+    return {
+      navigator: 'cloud-run',
+      details: state.details?.type === 'cloud-run'
+        ? { type: 'cloud-run', id: state.details.runId }
+        : null,
+    }
+  }
+
+  if (state.navigator === 'extension') {
+    return {
+      navigator: 'extension',
+      details: state.details?.type === 'extension'
+        ? { type: 'extension', id: state.details.extensionId, ...(state.details.viewId ? { viewId: state.details.viewId } : {}) }
+        : null,
+    }
+  }
+
+  if (state.navigator === 'diff') {
+    return {
+      navigator: 'diff',
+      details: state.details?.type === 'diff'
+        ? { type: 'diff', id: state.details.proposalId }
+        : null,
+    }
+  }
+
   // Sessions
   return {
     navigator: 'sessions',
@@ -966,6 +1161,27 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
  */
 export function buildRouteFromNavigationState(state: NavigationState): string {
   return buildCompoundRoute(navigationStateToCompoundRoute(state))
+}
+
+/**
+ * Degrade a unified-shell surface state to the nearest pre-W1 navigation view.
+ *
+ * Until the dedicated hosts land (knowledge/run/diff in W2+K-05, extension in
+ * W5), consumers that cannot render a surface navigator should map it through
+ * this helper instead of branching on the new navigators themselves. Identity
+ * for every pre-W1 state. See the degradation table at the top of this file.
+ */
+export function degradeSurfaceNavigationState(state: NavigationState): NavigationState {
+  switch (state.navigator) {
+    case 'knowledge':
+    case 'cloud-run':
+    case 'diff':
+      return { navigator: 'sessions', filter: { kind: 'allSessions' }, details: null }
+    case 'extension':
+      return { navigator: 'settings', subpage: null }
+    default:
+      return state
+  }
 }
 
 // =============================================================================

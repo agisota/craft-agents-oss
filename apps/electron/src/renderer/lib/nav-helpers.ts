@@ -36,5 +36,10 @@ export function isDetailNavState(navState: NavigationState | null): boolean {
       return navState.details !== null
     case 'memory':
       return false
+    case 'knowledge':
+    case 'cloud-run':
+    case 'extension':
+    case 'diff':
+      return navState.details !== null
   }
 }

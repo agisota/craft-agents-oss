@@ -17,6 +17,7 @@
 
 import type { SettingsSubpage } from './settings-registry'
 import type { PermissionMode } from '@craft-agent/shared/agent/mode-types'
+import type { KnowledgeRefKind } from './types'
 
 // Helper to build query strings from params
 function toQueryString(params?: Record<string, string | undefined>): string {
@@ -204,6 +205,31 @@ export const routes = {
 
     /** Kanban board view (sessions navigator, board view mode, all sessions) */
     board: () => 'board' as const,
+
+    // ----------------------------------------------------------------
+    // Unified shell surface routes (W1 scaffolding, spec S-02 §3.5/§3.6).
+    // These parse back through route-parser; rendering degrades to the
+    // nearest existing view until their hosts land (W2/W5).
+    // ----------------------------------------------------------------
+
+    /**
+     * Knowledge surface (SiYuan ref) — `knowledge/{kind}/{id}`.
+     * Serves both SurfaceTab kinds `knowledge` and `database` (kind:'database').
+     */
+    siyuan: (ref: { kind: KnowledgeRefKind; id: string }) =>
+      `knowledge/${ref.kind}/${encodeURIComponent(ref.id)}` as const,
+
+    /** Cloud run surface — `cloud-run/{runId}` */
+    cloudRun: (runId: string) =>
+      `cloud-run/${encodeURIComponent(runId)}` as const,
+
+    /** Extension sandbox view — `extension/{extensionId}/{viewId}` */
+    extension: (extensionId: string, viewId: string) =>
+      `extension/${encodeURIComponent(extensionId)}/${encodeURIComponent(viewId)}` as const,
+
+    /** Write-proposal diff surface — `diff/{proposalId}` (spec K-05 contour) */
+    proposal: (proposalId: string) =>
+      `diff/${encodeURIComponent(proposalId)}` as const,
   },
 } as const
 

@@ -1266,6 +1266,51 @@ export interface MemoryNavigationState {
 }
 
 /**
+ * Knowledge ref kinds, mirrored from the Knowledge Provider contract
+ * (spec K-03 §3.1: `KnowledgeRef { scheme:'siyuan'; kind; id }`). Declared
+ * locally because apps/electron does not import @craft-agent/core.
+ */
+export type KnowledgeRefKind = 'notebook' | 'document' | 'block' | 'database' | 'asset'
+
+/**
+ * Knowledge surface navigation state (W1 scaffolding; host UI lands in W2).
+ * `details.kind === 'database'` is the database SurfaceTab kind — same navigator.
+ */
+export interface KnowledgeNavigationState {
+  navigator: 'knowledge'
+  details: { type: 'knowledge'; kind: KnowledgeRefKind; id: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
+ * Cloud run surface navigation state (W1 scaffolding; run surface lands in W2).
+ */
+export interface CloudRunNavigationState {
+  navigator: 'cloud-run'
+  details: { type: 'cloud-run'; runId: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
+ * Extension surface navigation state (W1 scaffolding; sandbox views land in W5).
+ */
+export interface ExtensionNavigationState {
+  navigator: 'extension'
+  details: { type: 'extension'; extensionId: string; viewId?: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
+ * Write-proposal diff surface navigation state (W1 scaffolding; host arrives
+ * with the mutation-safety contour, spec K-05).
+ */
+export interface DiffNavigationState {
+  navigator: 'diff'
+  details: { type: 'diff'; proposalId: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
  * Unified navigation state
  */
 export type NavigationState =
@@ -1278,6 +1323,10 @@ export type NavigationState =
   | ProjectsNavigationState
   | BrowserNavigationState
   | MemoryNavigationState
+  | KnowledgeNavigationState
+  | CloudRunNavigationState
+  | ExtensionNavigationState
+  | DiffNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -1313,6 +1362,22 @@ export const isBrowserNavigation = (
 export const isMemoryNavigation = (
   state: NavigationState
 ): state is MemoryNavigationState => state.navigator === 'memory'
+
+export const isKnowledgeNavigation = (
+  state: NavigationState
+): state is KnowledgeNavigationState => state.navigator === 'knowledge'
+
+export const isCloudRunNavigation = (
+  state: NavigationState
+): state is CloudRunNavigationState => state.navigator === 'cloud-run'
+
+export const isExtensionNavigation = (
+  state: NavigationState
+): state is ExtensionNavigationState => state.navigator === 'extension'
+
+export const isDiffNavigation = (
+  state: NavigationState
+): state is DiffNavigationState => state.navigator === 'diff'
 
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
   navigator: 'sessions',
@@ -1363,6 +1428,32 @@ export const getNavigationStateKey = (state: NavigationState): string => {
   }
   if (state.navigator === 'memory') {
     return 'memory'
+  }
+  // Unified-shell surfaces (W1) — key format mirrors the route format
+  if (state.navigator === 'knowledge') {
+    if (state.details?.type === 'knowledge') {
+      return `knowledge/${state.details.kind}/${encodeURIComponent(state.details.id)}`
+    }
+    return 'knowledge'
+  }
+  if (state.navigator === 'cloud-run') {
+    if (state.details?.type === 'cloud-run') {
+      return `cloud-run/${encodeURIComponent(state.details.runId)}`
+    }
+    return 'cloud-run'
+  }
+  if (state.navigator === 'extension') {
+    if (state.details?.type === 'extension') {
+      const base = `extension/${encodeURIComponent(state.details.extensionId)}`
+      return state.details.viewId ? `${base}/${encodeURIComponent(state.details.viewId)}` : base
+    }
+    return 'extension'
+  }
+  if (state.navigator === 'diff') {
+    if (state.details?.type === 'diff') {
+      return `diff/${encodeURIComponent(state.details.proposalId)}`
+    }
+    return 'diff'
   }
   // Chats
   const f = state.filter
@@ -1447,6 +1538,58 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     if (isValidSettingsSubpage(subpage)) {
       return { navigator: 'settings', subpage }
     }
+  }
+
+  // Handle unified-shell surfaces (W1) — key format mirrors the route format
+  if (key === 'knowledge') return { navigator: 'knowledge', details: null }
+  if (key.startsWith('knowledge/')) {
+    const rest = key.slice(10)
+    const kind = rest.split('/')[0]
+    const id = rest.slice(kind.length + 1)
+    if ((['notebook', 'document', 'block', 'database', 'asset'] as const).includes(kind as KnowledgeRefKind) && id) {
+      return {
+        navigator: 'knowledge',
+        details: { type: 'knowledge', kind: kind as KnowledgeRefKind, id: decodeURIComponent(id) },
+      }
+    }
+    return { navigator: 'knowledge', details: null }
+  }
+
+  if (key === 'cloud-run') return { navigator: 'cloud-run', details: null }
+  if (key.startsWith('cloud-run/')) {
+    const runId = key.slice(10)
+    if (runId) {
+      return { navigator: 'cloud-run', details: { type: 'cloud-run', runId: decodeURIComponent(runId) } }
+    }
+    return { navigator: 'cloud-run', details: null }
+  }
+
+  if (key === 'extension') return { navigator: 'extension', details: null }
+  if (key.startsWith('extension/')) {
+    const rest = key.slice(10)
+    const slash = rest.indexOf('/')
+    const extensionId = slash === -1 ? rest : rest.slice(0, slash)
+    const viewId = slash === -1 ? '' : rest.slice(slash + 1)
+    if (extensionId) {
+      return {
+        navigator: 'extension',
+        details: {
+          type: 'extension',
+          extensionId: decodeURIComponent(extensionId),
+          ...(viewId ? { viewId: decodeURIComponent(viewId) } : {}),
+        },
+      }
+    }
+    return { navigator: 'extension', details: null }
+  }
+
+  if (key === 'diff') return { navigator: 'diff', details: null }
+  if (key.startsWith('diff/')) {
+    const proposalId = key.slice(5)
+    if (proposalId) {
+      return { navigator: 'diff', details: { type: 'diff', proposalId: decodeURIComponent(proposalId) } }
+    }
+    return { navigator: 'diff', details: null }
   }
 
   // Handle sessions
