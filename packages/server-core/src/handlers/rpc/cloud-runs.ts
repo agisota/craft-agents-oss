@@ -159,6 +159,13 @@ interface RunRegistryEntry {
   createdAt: number;
   sessionId?: string;
   topic?: string;
+  /** Workspace that should receive CloudRunCompleted AppEvents (automation chains). */
+  workspaceId?: string;
+  /** Automation labels carried through to CloudRunCompleted. */
+  labels?: string[];
+  /** Callback tag for knowledge→run→knowledge chains. */
+  callbackTag?: string;
+  skillSlug?: string;
   /** Persisted at submit (F1): enables resume without re-prompting the user. */
   spec?: {
     kind?: string;
@@ -242,7 +249,7 @@ function providerForRun(settings: CloudRunsSettings, runId: string): CloudRunPro
 const WATCHER_POLL_MS = 60_000;
 let watcherStarted = false;
 
-function startCompletionWatcher(): void {
+function startCompletionWatcher(deps?: HandlerDeps): void {
   if (watcherStarted) return;
   watcherStarted = true;
   const lastState = new Map<string, string>();
@@ -301,6 +308,29 @@ function startCompletionWatcher(): void {
       if (prev !== status.state) lastState.set(entry.id, status.state);
       const terminal = status.state === 'done' || status.state === 'failed' || status.state === 'cancelled';
       if (terminal && prev && prev !== status.state && prev !== 'unknown') {
+        // Emit AppEvent for knowledge automation chains (all providers, all terminal states).
+        const workspaceId = entry.workspaceId;
+        const emit = deps?.sessionManager?.emitWorkspaceEvent?.bind(deps.sessionManager);
+        if (emit && workspaceId) {
+          try {
+            await emit(workspaceId, 'CloudRunCompleted', {
+              runId: entry.id,
+              state: status.state,
+              labels: entry.labels,
+              callbackTag: entry.callbackTag,
+              skillSlug: entry.skillSlug,
+              topic: entry.topic,
+              sessionId: entry.sessionId,
+              failureReason: status.failureReason,
+              finishedAt: status.finishedAt,
+            });
+          } catch (error) {
+            console.error(
+              '[cloud-runs] CloudRunCompleted emit failed:',
+              error instanceof Error ? error.message : error,
+            );
+          }
+        }
         if (webhook) {
           try {
             await fetch(webhook, {
@@ -317,6 +347,8 @@ function startCompletionWatcher(): void {
                   failureReason: status.failureReason,
                   usage: status.usage,
                   finishedAt: status.finishedAt,
+                  labels: entry.labels,
+                  callbackTag: entry.callbackTag,
                 },
               }),
             });
@@ -329,6 +361,134 @@ function startCompletionWatcher(): void {
   }, WATCHER_POLL_MS).unref();
 }
 
+/** Args for process-internal cloud run submit (automation cloud_run.submit). */
+export interface SubmitCloudRunInternalArgs {
+  topic: string;
+  sessionId?: string;
+  workspaceId?: string;
+  language?: 'en' | 'ru';
+  kind?: ResearchPackKind;
+  labels?: string[];
+  callbackTag?: string;
+  skillSlug?: string;
+  model?: { connectionSlug?: string; modelId?: string };
+}
+
+export interface SubmitCloudRunInternalResult {
+  ok: boolean;
+  runId?: string;
+  error?: string;
+  intentOnly?: boolean;
+}
+
+/**
+ * Submit a cloud run from automation (or other in-process callers).
+ * Uses the same provider path as RPC cloudRuns.SUBMIT. When cloud runs are
+ * disabled or createRun fails, returns ok:false (caller may fall back to synthetic).
+ */
+export async function submitCloudRunInternal(
+  args: SubmitCloudRunInternalArgs,
+): Promise<SubmitCloudRunInternalResult> {
+  const settings = readSettings();
+  if (!settings.enabled) {
+    return { ok: false, error: 'cloud runs are disabled (settings.cloudRuns.enabled=false)', intentOnly: true };
+  }
+  const topic = args.topic?.trim();
+  if (!topic) {
+    return { ok: false, error: 'topic is required' };
+  }
+  try {
+    const stored = loadStoredConfig()?.cloudRuns;
+    const labels = args.labels ?? [];
+    const namePrefix = args.skillSlug ? `${args.skillSlug}: ` : '';
+    const spec = buildResearchSpec(topic, {
+      language: args.language ?? 'ru',
+      kind: args.kind,
+      cheapModelId: stored?.cheapModelId,
+      model: args.model,
+      limits: { ...settings.defaults },
+      metadata: {
+        sessionId: args.sessionId ?? '',
+        workspaceId: args.workspaceId ?? '',
+        callbackTag: args.callbackTag ?? '',
+        skillSlug: args.skillSlug ?? '',
+        labels: labels.join(','),
+        source: 'automation',
+      },
+    });
+    // Keep topic-derived name but surface skill when present
+    if (args.skillSlug && !spec.name.startsWith(namePrefix)) {
+      spec.name = `${namePrefix}${spec.name}`.slice(0, 80);
+    }
+    const provider = makeProvider(settings);
+    let handle: RunHandle;
+    let usedProvider = settings.provider;
+    try {
+      handle = await provider.createRun(spec);
+    } catch (error) {
+      const fallback = makeFallbackProvider(settings);
+      if (!fallback) throw error;
+      handle = await fallback.createRun(spec);
+      usedProvider = fallback.providerId as typeof usedProvider;
+    }
+    const registry = readRegistry();
+    registry.push({
+      id: handle.id,
+      name: spec.name,
+      provider: usedProvider,
+      createdAt: handle.createdAt,
+      sessionId: args.sessionId,
+      topic,
+      workspaceId: args.workspaceId,
+      labels: args.labels,
+      callbackTag: args.callbackTag,
+      skillSlug: args.skillSlug,
+      spec: {
+        kind: args.kind ?? 'research',
+        limits: { ...settings.defaults },
+        language: args.language ?? 'ru',
+        model: args.model,
+      },
+    });
+    await writeFile(REGISTRY_PATH, JSON.stringify(registry.slice(-200), null, 2));
+    return { ok: true, runId: handle.id };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[cloud-runs] submitCloudRunInternal failed:', message);
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Test / unit seam: fire CloudRunCompleted for a registry entry as if the
+ * completion watcher observed a terminal transition. Does not touch providers.
+ */
+export async function emitCloudRunCompletedForTest(
+  deps: HandlerDeps,
+  entry: {
+    runId: string;
+    workspaceId: string;
+    state?: string;
+    labels?: string[];
+    callbackTag?: string;
+    skillSlug?: string;
+    topic?: string;
+    sessionId?: string;
+  },
+): Promise<void> {
+  const emit = deps.sessionManager?.emitWorkspaceEvent?.bind(deps.sessionManager);
+  if (!emit) throw new Error('emitWorkspaceEvent not available on sessionManager');
+  await emit(entry.workspaceId, 'CloudRunCompleted', {
+    runId: entry.runId,
+    state: entry.state ?? 'done',
+    labels: entry.labels,
+    callbackTag: entry.callbackTag,
+    skillSlug: entry.skillSlug,
+    topic: entry.topic,
+    sessionId: entry.sessionId,
+  });
+}
+
 export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps): void {
   const requireEnabled = (): CloudRunsSettings => {
     const settings = readSettings();
@@ -338,7 +498,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     return settings;
   };
 
-  startCompletionWatcher();
+  startCompletionWatcher(deps);
 
   server.handle(RPC_CHANNELS.cloudRuns.GET_CONFIG, async () => {
     const settings = readSettings();
@@ -416,6 +576,14 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         usedProvider = fallback.providerId as typeof usedProvider;
       }
       const registry = readRegistry();
+      let workspaceId: string | undefined;
+      if (args.sessionId) {
+        try {
+          workspaceId = await resolveWorkspaceId(deps, args.sessionId);
+        } catch {
+          workspaceId = undefined;
+        }
+      }
       registry.push({
         id: handle.id,
         name: spec.name,
@@ -423,6 +591,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         createdAt: handle.createdAt,
         sessionId: args.sessionId,
         topic: args.topic,
+        workspaceId,
         spec: {
           kind: args.kind ?? 'research',
           limits: { ...settings.defaults },

@@ -24,6 +24,11 @@ export type {
   WebhookHttpMethod,
   WebhookBodyFormat,
   WebhookAuth,
+  KnowledgeAutomationOp,
+  KnowledgeActionRef,
+  CraftActionRef,
+  KnowledgeAutomationAction,
+  CloudRunSubmitAction,
   AutomationAction,
   AutomationMatcher,
   AutomationsConfig,
@@ -76,7 +81,20 @@ export { parsePromptReferences } from './utils.ts';
 export { AutomationEventLogger, type LoggedAutomationEvent, type LoggedAutomationEventInput } from './event-logger.ts';
 
 // Schemas
-export { AutomationsConfigSchema, AutomationConditionSchema, TimeConditionSchema, StateConditionSchema, zodErrorToIssues, VALID_EVENTS } from './schemas.ts';
+export {
+  AutomationsConfigSchema,
+  AutomationConditionSchema,
+  TimeConditionSchema,
+  StateConditionSchema,
+  KnowledgeAutomationActionSchema,
+  CloudRunSubmitActionSchema,
+  KnowledgeAutomationOpSchema,
+  ActionDefinitionSchema,
+  PromptActionSchema,
+  WebhookActionSchema,
+  zodErrorToIssues,
+  VALID_EVENTS,
+} from './schemas.ts';
 
 // Condition evaluator
 export { evaluateConditions, type ConditionContext } from './conditions.ts';
@@ -115,6 +133,10 @@ export {
   type SchedulerTickPayload,
   type LabelConfigChangePayload,
   type GenericEventPayload,
+  type KnowledgeDocumentEventPayload,
+  type KnowledgeAttributeChangedPayload,
+  type KnowledgeDatabaseRowChangedPayload,
+  type CloudRunCompletedPayload,
   type EventHandler,
   type AnyEventHandler,
 } from './event-bus.ts';
@@ -131,9 +153,17 @@ export {
   PromptHandler,
   EventLogHandler,
   WebhookHandler,
+  KnowledgeHandler,
   type AutomationHandler,
   type PromptHandlerOptions,
   type EventLogHandlerOptions,
   type WebhookHandlerOptions,
+  type KnowledgeHandlerOptions,
+  type KnowledgeActionExecutor,
+  type KnowledgeActionExecutorContext,
+  type KnowledgeActionExecutorResult,
+  type CloudRunSubmitExecutor,
+  type CloudRunSubmitExecutorContext,
+  type CloudRunSubmitExecutorResult,
   type AutomationsConfigProvider,
 } from './handlers/index.ts';

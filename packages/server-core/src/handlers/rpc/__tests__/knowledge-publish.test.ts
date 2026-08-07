@@ -29,7 +29,7 @@ import { InMemoryKnowledgeProvider } from '@craft-agent/core/knowledge'
 import { KnowledgeConnectionsStore, KnowledgeMutationProposalsStore } from '../../../knowledge'
 import type { KnowledgeProposalFileRecord } from '../../../knowledge/bridge-service'
 import type { SaveConnectionInput } from '../../../knowledge'
-import { HANDLED_CHANNELS, registerKnowledgeHandlers, __setKnowledgeTestConstructors } from '../knowledge'
+import { HANDLED_CHANNELS, registerKnowledgeHandlers, __setKnowledgeTestConstructors, __setSkipKnowledgeWatchAutoStart } from '../knowledge'
 
 const credentials = new Map<string, { value: string }>()
 let workspaceRoot: string
@@ -193,6 +193,7 @@ const SAMPLE_MESSAGES = [
 ]
 
 beforeEach(() => {
+  __setSkipKnowledgeWatchAutoStart(true)
   workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-publish-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
@@ -211,7 +212,7 @@ describe('P4 publication channels registration', () => {
       RPC_CHANNELS.knowledge.LIST_LINKS,
     ]
     for (const ch of publish) expect(HANDLED_CHANNELS).toContain(ch)
-    expect(HANDLED_CHANNELS).toHaveLength(30) // 9 P1 + 7 P3 + 8 P4 + 6 P5
+    expect(HANDLED_CHANNELS).toHaveLength(32) // 9 P1 + 7 P3 + 8 P4 + 6 P5
   })
 
   it('registers handlers for every publish channel', () => {

@@ -100,6 +100,16 @@ import {
   KnowledgeBridgeService,
   type KnowledgeProposalFileRecord,
 } from '../../knowledge/bridge-service'
+import {
+  startKnowledgeWatch,
+  stopKnowledgeWatch,
+  cleanupKnowledgeWatchForClient,
+} from '../../knowledge/change-watcher'
+import {
+  getKnowledgeBridge,
+  registerKnowledgeBridge,
+  registerKnowledgeProviderResolver,
+} from '../../knowledge/bridge-registry'
 import type {
   KnowledgeConnectionRecord,
   KnowledgeConnectionStatus,
@@ -124,7 +134,13 @@ export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor
   }
 }
 
-/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes; asserted verbatim by knowledge.test.ts. */
+/** When true, registerKnowledgeHandlers skips process-level auto-start watches (tests). */
+let skipKnowledgeWatchAutoStart = false
+export function __setSkipKnowledgeWatchAutoStart(skip: boolean): void {
+  skipKnowledgeWatchAutoStart = skip
+}
+
+/** The complete knowledge channel set — 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -158,6 +174,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.VIEWS_LIST,
   RPC_CHANNELS.knowledge.VIEW_RUN,
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+  // P6 change watcher
+  RPC_CHANNELS.knowledge.WATCH,
+  RPC_CHANNELS.knowledge.UNWATCH,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -451,6 +470,12 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   const bridges = new Map<string, KnowledgeBridgeService>()
 
   function bridgeFor(rootPath: string, workspaceId: string): KnowledgeBridgeService {
+    // Prefer process-wide registry so AutomationSystem and RPC share proposals.
+    const existing = getKnowledgeBridge(rootPath)
+    if (existing) {
+      bridges.set(rootPath, existing)
+      return existing
+    }
     let bridge = bridges.get(rootPath)
     if (!bridge) {
       bridge = new KnowledgeBridgeService({
@@ -464,6 +489,8 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         workspaceId,
       })
       bridges.set(rootPath, bridge)
+      registerKnowledgeBridge(rootPath, bridge, resolveProvider)
+      registerKnowledgeProviderResolver(rootPath, resolveProvider)
     }
     return bridge
   }
@@ -1292,4 +1319,143 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       }
     },
   )
+
+  // ——— WATCH({connectionId, workspaceId, intervalMs?}) → { ok: true } ———
+  // Starts a per-workspace KnowledgeChangeWatcher that polls provider and emits
+  // AppEvents into the workspace AutomationSystem via sessionManager.emitWorkspaceEvent.
+  server.handle(
+    RPC_CHANNELS.knowledge.WATCH,
+    async (ctx, args: { connectionId?: string; workspaceId?: string; intervalMs?: number }) => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.watch: connectionId is required')
+      }
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.watch: workspaceId is required')
+      }
+      const record = requireConnection(args.connectionId)
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      // Ensure bridge+provider resolver are registered for automation executor path.
+      bridgeFor(rootPath, args.workspaceId)
+      registerKnowledgeProviderResolver(rootPath, resolveProvider)
+
+      const intervalMs =
+        typeof args.intervalMs === 'number' && args.intervalMs >= 5_000 ? args.intervalMs : 60_000
+
+      const emit = deps.sessionManager.emitWorkspaceEvent?.bind(deps.sessionManager)
+
+      startKnowledgeWatch({
+        connectionId: args.connectionId,
+        workspaceId: args.workspaceId,
+        workspaceRoot: rootPath,
+        intervalMs,
+        clientId: ctx.clientId,
+        getProvider: () => resolveProvider(args.connectionId!),
+        onEvent: async (event, payload) => {
+          // Fan-out to renderer (existing knowledge:changed) for UI freshness
+          if (payload.ref) {
+            pushTyped(
+              server,
+              RPC_CHANNELS.knowledge.CHANGED,
+              { to: 'workspace', workspaceId: args.workspaceId! },
+              {
+                ref: payload.ref,
+                change: event === 'KnowledgeDocumentCreated' ? 'created' : 'updated',
+              },
+            )
+          }
+          // Emit into AutomationSystem
+          if (emit) {
+            await emit(args.workspaceId!, event, {
+              ...payload,
+              connectionId: args.connectionId,
+            })
+          }
+        },
+      })
+      return { ok: true as const, connectionId: record.id, intervalMs }
+    },
+  )
+
+  // ——— UNWATCH({connectionId, workspaceId}) → { ok: true } ———
+  server.handle(
+    RPC_CHANNELS.knowledge.UNWATCH,
+    async (_ctx, args: { connectionId?: string; workspaceId?: string }) => {
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.unwatch: connectionId is required')
+      }
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new CodedError('INVALID_REF', 'knowledge.unwatch: workspaceId is required')
+      }
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      const stopped = stopKnowledgeWatch(rootPath, args.connectionId)
+      return { ok: true as const, stopped }
+    },
+  )
+
+  // Auto-start process-level watches for existing connections (daemon / headless).
+  // Fail-soft: missing credentials or provider errors are logged and skipped.
+  // Tests set __setSkipKnowledgeWatchAutoStart(true) to avoid polluting fetch seams.
+  if (!skipKnowledgeWatchAutoStart) {
+    void (async () => {
+      try {
+        const connections = new KnowledgeConnectionsStore().list()
+        const emit = deps.sessionManager.emitWorkspaceEvent?.bind(deps.sessionManager)
+        for (const record of connections) {
+          const cred = credentialIdFromRef(record.credentialRef)
+          const workspaceId = cred?.workspaceId
+          if (!workspaceId) continue
+          let rootPath: string
+          try {
+            rootPath = requireWorkspaceRoot(workspaceId)
+          } catch {
+            continue
+          }
+          try {
+            bridgeFor(rootPath, workspaceId)
+            registerKnowledgeProviderResolver(rootPath, resolveProvider)
+            startKnowledgeWatch({
+              connectionId: record.id,
+              workspaceId,
+              workspaceRoot: rootPath,
+              intervalMs: 60_000,
+              getProvider: () => resolveProvider(record.id),
+              onEvent: async (event, payload) => {
+                if (payload.ref) {
+                  pushTyped(
+                    server,
+                    RPC_CHANNELS.knowledge.CHANGED,
+                    { to: 'workspace', workspaceId },
+                    {
+                      ref: payload.ref,
+                      change: event === 'KnowledgeDocumentCreated' ? 'created' : 'updated',
+                    },
+                  )
+                }
+                if (emit) {
+                  await emit(workspaceId, event, {
+                    ...payload,
+                    connectionId: record.id,
+                  })
+                }
+              },
+            })
+            log.info?.(`[knowledge] auto-started watch for connection ${record.id} (ws=${workspaceId})`)
+          } catch (error) {
+            log.warn?.(
+              `[knowledge] auto-start watch skipped for ${record.id}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          }
+        }
+      } catch (error) {
+        log.warn?.(
+          `[knowledge] auto-start watches failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    })()
+  }
 }
+
+/** Client-disconnect cleanup (mirrors notes WATCH). */
+export { cleanupKnowledgeWatchForClient }

@@ -264,6 +264,11 @@ export interface ISessionManager {
   getActiveSessionCount(workspaceId?: string): number
   /** Automation summary for a workspace (count of configured automations + scheduler state). */
   getWorkspaceAutomationSummary(workspaceId: string): { automationCount: number; schedulerRunning: boolean }
+  /**
+   * Emit an AppEvent into the workspace AutomationSystem event bus (P6 knowledge watcher).
+   * No-op when the workspace has no AutomationSystem yet.
+   */
+  emitWorkspaceEvent?(workspaceId: string, event: string, payload: Record<string, unknown>): Promise<void>
   /** Active sessions across all workspaces (sessions with running backend processes). */
   getActiveSessionsInfo(): ActiveSessionInfo[]
 

@@ -19,7 +19,13 @@ export type AppEvent =
   | 'PermissionModeChange'
   | 'FlagChange'
   | 'SessionStatusChange'
-  | 'SchedulerTick';
+  | 'SchedulerTick'
+  | 'KnowledgeDocumentCreated'
+  | 'KnowledgeDocumentUpdated'
+  | 'KnowledgeAttributeChanged'
+  | 'KnowledgeDatabaseRowChanged'
+  | 'KnowledgeDocumentStale'
+  | 'CloudRunCompleted';
 
 /** Agent events - passed to Claude SDK */
 export type AgentEvent =
@@ -41,7 +47,10 @@ export type AutomationEvent = AppEvent | AgentEvent;
 
 export const APP_EVENTS: AppEvent[] = [
   'LabelAdd', 'LabelRemove', 'LabelConfigChange',
-  'PermissionModeChange', 'FlagChange', 'SessionStatusChange', 'SchedulerTick'
+  'PermissionModeChange', 'FlagChange', 'SessionStatusChange', 'SchedulerTick',
+  'KnowledgeDocumentCreated', 'KnowledgeDocumentUpdated',
+  'KnowledgeAttributeChanged', 'KnowledgeDatabaseRowChanged',
+  'KnowledgeDocumentStale', 'CloudRunCompleted',
 ];
 
 export const AGENT_EVENTS: AgentEvent[] = [
@@ -99,7 +108,74 @@ export interface WebhookAction {
   auth?: WebhookAuth;
 }
 
-export type AutomationAction = PromptAction | WebhookAction;
+/** Knowledge automation ops (SiYuan-touching ops propose-only in v1; link_session is Craft-side) */
+export type KnowledgeAutomationOp =
+  | 'create_document'
+  | 'append_block'
+  | 'propose_patch'
+  | 'set_attribute'
+  | 'link_session'
+  | 'publish_run';
+
+/** Ref-like value used by knowledge actions — object form or JSON/id string (env-expandable) */
+export type KnowledgeActionRef =
+  | { scheme: 'siyuan'; kind: string; id: string; provider?: string; connectionId?: string }
+  | string;
+
+export type CraftActionRef =
+  | { scheme: 'craft'; kind: string; id: string }
+  | string;
+
+/**
+ * Knowledge automation action.
+ * Flat optional fields used by ops (string fields are env-expandable).
+ * v1 safety floor: SiYuan-touching ops only create proposals (never auto-apply)
+ * unless explicitly documented otherwise; link_session is Craft-side only.
+ */
+export interface KnowledgeAutomationAction {
+  type: 'knowledge';
+  op: KnowledgeAutomationOp;
+  notebook?: string;
+  path?: string;
+  markdown?: string;
+  parentRef?: KnowledgeActionRef;
+  targetRef?: KnowledgeActionRef;
+  knowledgeRef?: KnowledgeActionRef;
+  craftRef?: CraftActionRef;
+  relation?: string;
+  /** Attribute name (set_attribute) */
+  name?: string;
+  value?: string;
+  baseHash?: string;
+  patchMarkdown?: string;
+  runId?: string;
+  targetNotebook?: string;
+  targetPath?: string;
+  review?: 'required';
+  attributes?: Record<string, string>;
+  /**
+   * When true, executor MAY auto-apply if the op allows it.
+   * DEFAULT false for ALL knowledge ops in v1 — always propose only except
+   * link_session (Craft-side, no SiYuan write).
+   */
+  autoApply?: boolean;
+}
+
+/** Submit a cloud run from an automation (e.g. needs-research → deep-research). */
+export interface CloudRunSubmitAction {
+  type: 'cloud_run.submit';
+  skillSlug?: string;
+  topic?: string;
+  labels?: string[];
+  callbackTag?: string;
+  sessionId?: string;
+}
+
+export type AutomationAction =
+  | PromptAction
+  | WebhookAction
+  | KnowledgeAutomationAction
+  | CloudRunSubmitAction;
 
 // ============================================================================
 // Condition Types
@@ -165,6 +241,12 @@ export interface AutomationMatcher {
   labels?: string[];
   /** Whether this automation matcher is enabled. Defaults to true. Set to false to disable without removing. */
   enabled?: boolean;
+  /**
+   * Attribute names this matcher is allowed to set_attribute with elevated trust.
+   * Documentation + enforcement hint: names outside the list still propose but
+   * are flagged in the executor result. Optional.
+   */
+  attributeAllowList?: string[];
   /** Optional conditions that must all pass (AND) after matcher matches, before actions fire */
   conditions?: AutomationCondition[];
   /**

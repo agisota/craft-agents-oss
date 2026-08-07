@@ -141,7 +141,7 @@ mock.module('@craft-agent/shared/config', () => ({
     workspaceRoot ? [{ id: 'ws1', name: 'ws1', rootPath: workspaceRoot }] : [],
 }))
 
-import { registerKnowledgeHandlers, HANDLED_CHANNELS } from '../knowledge'
+import { registerKnowledgeHandlers, HANDLED_CHANNELS, __setSkipKnowledgeWatchAutoStart } from '../knowledge'
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -188,6 +188,7 @@ function seedConnection(id: string, overrides: Partial<SaveConnectionInput> = {}
 }
 
 beforeEach(() => {
+  __setSkipKnowledgeWatchAutoStart(true)
   workspaceRoot = mkdtempSync(join(tmpdir(), 'knowledge-test-ws-'))
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
@@ -200,7 +201,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 view/envelope channels — no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + 7 P3 write-back + 8 P4 publication + 6 P5 view/envelope + 2 P6 watch channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -232,12 +233,14 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.VIEWS_LIST,
       RPC_CHANNELS.knowledge.VIEW_RUN,
       RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+      RPC_CHANNELS.knowledge.WATCH,
+      RPC_CHANNELS.knowledge.UNWATCH,
     ])
     // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
     expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
-    expect(HANDLED_CHANNELS).toHaveLength(30) // 9 P1 + 7 P3 + 8 P4 + 6 P5
+    expect(HANDLED_CHANNELS).toHaveLength(32) // 9 P1 + 7 P3 + 8 P4 + 6 P5 + 2 P6 watch
   })
 
   it('registers a handler for every declared channel and nothing else', () => {

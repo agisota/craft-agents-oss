@@ -413,6 +413,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEWS_LIST,
   RPC_CHANNELS.knowledge.VIEW_RUN,
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
+  RPC_CHANNELS.knowledge.WATCH,
+  RPC_CHANNELS.knowledge.UNWATCH,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
