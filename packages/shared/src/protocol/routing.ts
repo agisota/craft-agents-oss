@@ -342,12 +342,16 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.memory.EXPORT,
   RPC_CHANNELS.memory.IMPORT,
   RPC_CHANNELS.memory.CHANGED,
+  RPC_CHANNELS.memory.GET_PROJECT_MEMORY,
+  RPC_CHANNELS.memory.INSIGHTS,
+  RPC_CHANNELS.memory.MARK_ONBOARDED,
 
   // skillsPending — pending skill approvals per workspace
   RPC_CHANNELS.skillsPending.LIST,
   RPC_CHANNELS.skillsPending.APPROVE,
   RPC_CHANNELS.skillsPending.DISMISS,
   RPC_CHANNELS.skillsPending.CHANGED,
+  RPC_CHANNELS.skillsPending.DIFF,
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
@@ -440,6 +444,9 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.skills.GET_FILES,
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.IMPORT_OMP,
+  RPC_CHANNELS.skills.GET_USAGE,
+  RPC_CHANNELS.skills.PRUNE_UNUSED,
+  RPC_CHANNELS.skills.EXPORT_TO_PROJECT,
   RPC_CHANNELS.skills.CHANGED,
 
   // statuses — workspace metadata
@@ -505,6 +512,12 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.cloudRuns.LIST_ARTIFACTS,
   RPC_CHANNELS.cloudRuns.IMPORT,
   RPC_CHANNELS.cloudRuns.AGGREGATE,
+  RPC_CHANNELS.cloudRuns.LIST_SCHEDULES,
+  RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE,
+  RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE,
+  RPC_CHANNELS.cloudRuns.GET_EVENTS,
+  RPC_CHANNELS.cloudRuns.SHARE,
+  RPC_CHANNELS.cloudRuns.REVOKE_SHARE,
 
   // messaging — gateway channels run on workspace server
   RPC_CHANNELS.messaging.WA_REGISTER,
