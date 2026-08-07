@@ -323,7 +323,6 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       let target = join(skillsDir, finalName)
       // Защита чужого контента: существующая директория без нашего install-маркера
       // и без записи в registry пропускается (не overwrite). Ошибку не бросаем —
-      // помечаем collision'ом.
       if (existsSync(target)) {
         const owner = ownerOf(target)
         if (owner === null) {
@@ -331,7 +330,14 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
           collisions.push(`${target} (unowned — existing user content kept)`)
           return
         }
-        if (allowRename && owner !== entry.id) {
+        if (owner !== entry.id) {
+          if (!allowRename) {
+            // directory-mode: basename = entry.id, rename запрещён — fail-closed,
+            // иначе swap перетрёт чужой пакет/артефакт с тем же именем.
+            progress('collision', `${finalName} — owned by ${owner}, refuse overwrite`)
+            collisions.push(`${target} (owned by ${owner} — refuse overwrite)`)
+            return
+          }
           // Cross-pack коллизия имён (skills-режим): basename занят ДРУГИМ
           // пакетом (маркер и registry принадлежат ему), поэтому guard выше
           // считает директорию «нашей» и swap уничтожил бы чужой контент.

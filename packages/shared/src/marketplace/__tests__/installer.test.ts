@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { marketplacePaths, type MarketplaceEntry, type MarketplaceFetch } from '../catalog.ts'
-import { INSTALL_MARKER_NAME, readLock, readInstallMarker } from '../lock.ts'
+import { INSTALL_MARKER_NAME, readLock, readInstallMarker, writeInstallMarker } from '../lock.ts'
 import { installEntry, removeEntry, type ExecFileFn } from '../installer.ts'
 
 const REF = 'd'.repeat(40)
@@ -144,6 +144,31 @@ describe('installEntry (skillpack, directory mode)', () => {
     await expect(installEntry(PACK_ENTRY, { configDir, skillsDir, execFileFn: wrongHead })).rejects.toThrow('ref mismatch')
     expect(existsSync(join(skillsDir, 'mega-pack'))).toBe(false)
     expect(readLock(marketplacePaths(configDir).lockFile).entries).toEqual({})
+  })
+
+  it('refuses to overwrite a target owned by a different marketplace entry', async () => {
+    // Пред-существующий пакет «foreign-pack» уже владеет директорией mega-pack.
+    const target = join(skillsDir, 'mega-pack')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'SKILL.md'), '# FOREIGN content')
+    writeInstallMarker(target, {
+      id: 'foreign-pack',
+      kind: 'skillpack',
+      repo: 'owner/foreign',
+      ref: REF,
+      installedAt: Date.now(),
+      status: 'installed',
+      targets: [target],
+      skills: ['mega-pack'],
+      contentSha256: {},
+    })
+
+    await expect(installEntry(PACK_ENTRY, { configDir, skillsDir, execFileFn: fakeGit })).rejects.toThrow(
+      /not ours|refuse overwrite|owned by foreign-pack/,
+    )
+    // Чужой контент нетронут, lock на mega-pack не создан:
+    expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toBe('# FOREIGN content')
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['mega-pack']).toBeUndefined()
   })
 })
 
