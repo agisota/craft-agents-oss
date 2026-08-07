@@ -11,6 +11,7 @@ on:
       - 'packages/shared/src/toolchain-runtime.ts'
       - 'scripts/toolchain-smoke.ts'
       - 'scripts/toolchain-new-smoke.ts'
+      - 'scripts/runtime-context-smoke.ts'
       - '.github/workflows/toolchain-smoke.yml'
   workflow_dispatch:
 
@@ -53,6 +54,13 @@ jobs:
         env:
           CI: "1"
 
+      - name: Fresh-profile runtime-context smoke (no network)
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
+        env:
+          CI: "1"
+
   toolchain-smoke-selfhosted-macos:
     # macOS-arm64 leg на self-hosted Mac (craft-agents-mac-01) — GHA-hosted
     # macos заблокирован биллингом, CCI-план без macos-экзекуторов. Это единство
@@ -88,6 +96,13 @@ jobs:
         run: |
           SMOKE_DIR="$(mktemp -d /tmp/tc-new-ci.XXXXXX)"
           CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-new-smoke.ts
+        env:
+          CI: "1"
+
+      - name: Fresh-profile runtime-context smoke (no network)
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
         env:
           CI: "1"
 
@@ -131,6 +146,14 @@ jobs:
         run: |
           SMOKE_DIR="$(mktemp -d /tmp/tc-new-ci.XXXXXX)"
           CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-new-smoke.ts
+        env:
+          CI: "1"
+
+      - name: Fresh-profile runtime-context smoke (mac/linux, no network)
+        if: runner.os != 'Windows'
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
         env:
           CI: "1"
 

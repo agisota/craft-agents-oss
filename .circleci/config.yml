@@ -24,6 +24,11 @@ commands:
           command: |
             SMOKE_DIR="$(mktemp -d /tmp/tc-ci.XXXXXX)"
             CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-smoke.ts
+      - run:
+          name: Fresh-profile runtime-context smoke (no network)
+          command: |
+            SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
+            CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
 
 jobs:
   toolchain-smoke-linux:

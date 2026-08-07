@@ -27,6 +27,7 @@ import type {
   ToolchainPlatform,
   ToolchainStateFile,
 } from './types';
+import { isToolName } from './types';
 
 async function readStateFile(stateFile: string): Promise<ToolchainStateFile> {
   try {
@@ -74,6 +75,11 @@ export interface ManagerOptions {
     formula: string;
     entry: ToolEntry;
   }) => Promise<string>;
+  /**
+   * DI for tests: run `uv pip install --require-hashes …` (replaces real uv call).
+   * Default writes requirements + invokes toolchain uv against --target py_packages.
+   */
+  pipInstallImpl?: (ctx: PipInstallContext) => Promise<void>;
 }
 
 export interface GitNpmInstallContext {
@@ -92,6 +98,24 @@ export interface BrewInstallContext {
   /** Реальный pin (не system/latest/*) — прокидывается в install DI и verify. */
   pinVersion?: string;
 }
+
+export interface PipInstallContext {
+  entry: ToolEntry;
+  paths: ToolchainPaths;
+  /** toolchain/<name>/<version>. */
+  versionDir: string;
+  /** requirements.txt content (hashed lock from pip-locks.ts). */
+  requirements: string;
+  /** Path to written requirements.txt inside versionDir. */
+  requirementsFile: string;
+  /** Target site-packages dir: versionDir/py_packages. */
+  targetDir: string;
+  /** toolchain-first uv executable. */
+  uv: string;
+  /** toolchain-first python / python3 executable. */
+  python: string;
+}
+
 
 /** version — реальный pin, а не float-метки system/latest/*. */
 function isPinVersion(v: string | undefined): v is string {
@@ -198,8 +222,15 @@ export function createManager(
   // default-on инструменты из этого списка ensureAll пропускает (opt-in никогда не ставит).
   let disabledTools = new Set<ToolName>(opts.disabledTools ?? []);
   function setDisabledTools(tools: ToolName[]): ToolName[] {
-    disabledTools = new Set(tools);
-    return [...disabledTools];
+    const next: ToolName[] = [];
+    const seen = new Set<string>();
+    for (const name of tools) {
+      if (typeof name !== 'string' || seen.has(name) || !isToolName(name)) continue;
+      seen.add(name);
+      next.push(name);
+    }
+    disabledTools = new Set(next);
+    return next;
   }
   function getDisabledTools(): ToolName[] {
     return [...disabledTools];
@@ -594,8 +625,9 @@ export function createManager(
   }
 
   /**
-   * pip kind: fail-closed. Без embedded requirements lock установка запрещена.
-   * Полный pip install — отдельно; здесь только gate.
+   * pip kind: fail-closed lock gate + real `uv pip install --require-hashes`
+   * into toolchain/<name>/<version>/py_packages. Optional launcher when
+   * entry.pipModule is set (python -m <module> with PYTHONPATH=py_packages).
    */
   async function updatePipTool(entry: ToolEntry): Promise<ToolStatus> {
     const lock = getPipRequirements(entry.name, entry.version);
@@ -606,12 +638,95 @@ export function createManager(
         error: 'pip tool requires embedded requirements lock (fail-closed)',
       });
     }
-    // lock есть, но install path ещё не реализован
-    return setStatus({
-      name: entry.name,
-      phase: 'error',
-      error: 'pip install not implemented',
-    });
+
+    const uv = await resolver.findExecutable('uv');
+    if (!uv) {
+      return setStatus({
+        name: entry.name,
+        phase: 'error',
+        error: 'uv not found: pip tools require toolchain uv (dependsOn uv)',
+      });
+    }
+    const python =
+      (await resolver.findExecutable('python3')) ?? (await resolver.findExecutable('python'));
+    if (!python) {
+      return setStatus({
+        name: entry.name,
+        phase: 'error',
+        error: 'python not found: pip tools require toolchain python (dependsOn python)',
+      });
+    }
+
+    setStatus({ name: entry.name, phase: 'installing' });
+
+    const toolRoot = path.join(paths.toolchainDir, entry.name);
+    const versionDir = path.join(toolRoot, entry.version);
+    const targetDir = path.join(versionDir, 'py_packages');
+    const requirementsFile = path.join(versionDir, 'requirements.txt');
+
+    try {
+      await fs.promises.rm(versionDir, { recursive: true, force: true });
+      await fs.promises.mkdir(targetDir, { recursive: true });
+      await fs.promises.writeFile(requirementsFile, lock, 'utf8');
+
+      const install =
+        opts.pipInstallImpl ??
+        (async (ctx: PipInstallContext) => {
+          await runCommand([
+            ctx.uv,
+            'pip',
+            'install',
+            '--require-hashes',
+            '-r',
+            ctx.requirementsFile,
+            '--python',
+            ctx.python,
+            '--target',
+            ctx.targetDir,
+          ]);
+        });
+
+      await install({
+        entry,
+        paths,
+        versionDir,
+        requirements: lock,
+        requirementsFile,
+        targetDir,
+        uv,
+        python,
+      });
+
+      // Optional console-script launcher: PYTHONPATH=py_packages → python -m <module>
+      if (entry.pipModule) {
+        const binName = entry.systemBinary ?? entry.name;
+        const binDir = path.join(versionDir, 'bin');
+        await fs.promises.mkdir(binDir, { recursive: true });
+        const sh =
+          '#!/bin/sh\n' +
+          'DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+          'export PYTHONPATH="$DIR/../py_packages${PYTHONPATH:+:$PYTHONPATH}"\n' +
+          `exec ${JSON.stringify(python)} -m ${JSON.stringify(entry.pipModule)} "$@"\n`;
+        await fs.promises.writeFile(path.join(binDir, binName), sh, { mode: 0o755 });
+        if (process.platform === 'win32') {
+          const cmd =
+            '@echo off\r\n' +
+            'set "PYTHONPATH=%~dp0..\\py_packages;%PYTHONPATH%"\r\n' +
+            `"${python}" -m ${entry.pipModule} %*\r\n`;
+          await fs.promises.writeFile(path.join(binDir, `${binName}.cmd`), cmd);
+        }
+      }
+
+      await flipCurrent(toolRoot, entry.version, versionDir);
+      await cleanupOldVersions(toolRoot, entry.version);
+
+      const result = { installedPath: versionDir, installedVersion: entry.version };
+      await persistTool(entry.name, result);
+      return setStatus({ name: entry.name, phase: 'ready', ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return setStatus({ name: entry.name, phase: 'error', error: message });
+    }
   }
 
   async function update(name: ToolName): Promise<ToolStatus> {

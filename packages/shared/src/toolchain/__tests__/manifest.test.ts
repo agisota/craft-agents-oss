@@ -4,6 +4,7 @@ import { getGitLock } from '../git-locks';
 import { MANIFEST_DATA, TOOL_PLATFORM_MATRIX } from '../manifest-data';
 import { currentPlatform, loadManifest, TOOLCHAIN_MANIFEST, toolchainPaths } from '../manifest';
 import { getNpmLock } from '../npm-locks';
+import { getPipRequirements } from '../pip-locks';
 import type { ToolName } from '../types';
 
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -41,7 +42,7 @@ describe('manifest validation', () => {
     expect(TOOL_PLATFORM_MATRIX.git).toEqual(['win32-x64']);
   });
 
-  it('каждый ToolName из TOOL_PLATFORM_MATRIX имеет запись в MANIFEST_DATA; npm/git-npm — pinned lock', () => {
+  it('каждый ToolName из TOOL_PLATFORM_MATRIX имеет запись в MANIFEST_DATA; npm/git-npm/pip — pinned lock', () => {
     // Регрессия (MAJOR): gbrain был в ToolName union, TOOL_PLATFORM_MATRIX и
     // git-locks.ts, но ЗАПИСИ В MANIFEST_DATA не было — buildManifest молча его
     // не собирал, и инструмент был недостижим ни в ensureAll, ни в status/update.
@@ -68,6 +69,13 @@ describe('manifest validation', () => {
       return data && data.kind === 'git-npm' && getGitLock(name, data.version) === undefined;
     });
     expect(gitNpmWithoutLock).toEqual([]);
+
+    // kind pip: установка fail-closed по pip-locks.ts — requirements lock обязан существовать.
+    const pipWithoutLock = matrixNames.filter((name) => {
+      const data = MANIFEST_DATA[name];
+      return data && data.kind === 'pip' && getPipRequirements(name, data.version) === null;
+    });
+    expect(pipWithoutLock).toEqual([]);
   });
 
   it('gbrain виден ensureAll как default-on git-npm инструмент (регрессия MAJOR)', () => {

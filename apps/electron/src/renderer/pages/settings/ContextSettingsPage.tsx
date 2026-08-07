@@ -303,6 +303,9 @@ export default function ContextSettingsPage() {
                               {doc.templateStale && (
                                 <Badge variant="secondary">{t('settings.context.templateStale')}</Badge>
                               )}
+                              {doc.locallyEdited && (
+                                <Badge variant="outline">{t('settings.context.locallyEdited')}</Badge>
+                              )}
                               <FileText className="w-4 h-4 text-muted-foreground" />
                             </span>
                           }

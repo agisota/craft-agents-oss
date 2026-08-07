@@ -48,6 +48,8 @@ function buildManifest(): ToolEntry[] {
       dependsOn: data.dependsOn,
       systemBinary: data.systemBinary,
       brewFormula: data.brewFormula,
+      pipPackage: data.pipPackage,
+      pipModule: data.pipModule,
       platforms: TOOL_PLATFORM_MATRIX[name as ToolName],
     });
   }

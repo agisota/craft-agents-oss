@@ -40,8 +40,11 @@ function atomicWriteFileSync(path: string, content: string): void {
 // Constants
 // ============================================================
 
-/** Resolve "<first line> <!-- context-doc-version: N -->" from a document. */
+/** Resolve "<!-- context-doc-version: N -->" from a document (first lines). */
 const VERSION_HEADER_PATTERN = /^\s*<!--\s*context-doc-version:\s*(\d+)\s*-->/;
+
+/** Match any full-line version header anywhere (body comparison strips these). */
+const VERSION_HEADER_LINE_PATTERN = /^\s*<!--\s*context-doc-version:\s*\d+\s*-->\s*$/gm;
 
 /** Per-document cap when injected into the system prompt (20KB). */
 export const MAX_CONTEXT_DOC_PROMPT_SIZE = 20 * 1024;
@@ -75,6 +78,11 @@ export interface ContextDocInfo {
   templateVersion: number | null;
   /** True when the bundled template is newer than the installed header — UI offers a merge. */
   templateStale: boolean;
+  /**
+   * True when a bundled template exists and the installed body (version header
+   * lines stripped) differs from the template body. Independent of templateStale.
+   */
+  locallyEdited: boolean;
 }
 
 export interface ContextDocContent extends ContextDocInfo {
@@ -128,6 +136,14 @@ export function parseContextDocVersion(content: string): number | null {
   const match = content.slice(0, 256).match(VERSION_HEADER_PATTERN);
   const version = match?.[1];
   return version === undefined ? null : Number.parseInt(version, 10);
+}
+
+/**
+ * Strip `<!-- context-doc-version: N -->` header lines and trim for body equality.
+ * Used to detect local edits without treating a keep-mine version bump as an edit.
+ */
+export function stripContextDocVersionHeaders(content: string): string {
+  return content.replace(VERSION_HEADER_LINE_PATTERN, '').trim();
 }
 
 // ============================================================
@@ -204,14 +220,19 @@ function statMtimeMs(path: string): number {
 function buildDocInfo(filename: string, content: string, modifiedAt: number): ContextDocInfo {
   const version = parseContextDocVersion(content);
   let templateVersion: number | null = null;
+  let templateBody: string | null = null;
   try {
     const templatePath = join(getTemplatesDir(), filename);
     if (existsSync(templatePath)) {
-      templateVersion = parseContextDocVersion(readFileSync(templatePath, 'utf-8'));
+      templateBody = readFileSync(templatePath, 'utf-8');
+      templateVersion = parseContextDocVersion(templateBody);
     }
   } catch (error) {
     debug('[context-docs] Failed to read template', filename, error);
   }
+  const locallyEdited =
+    templateBody !== null &&
+    stripContextDocVersionHeaders(content) !== stripContextDocVersionHeaders(templateBody);
   return {
     name: filename.replace(/\.md$/, ''),
     filename,
@@ -222,6 +243,7 @@ function buildDocInfo(filename: string, content: string, modifiedAt: number): Co
     // Newer template → offer a merge, never auto-rewrite. Docs without a
     // version header are treated as user-owned and never flagged.
     templateStale: templateVersion !== null && version !== null && templateVersion > version,
+    locallyEdited,
   };
 }
 

@@ -46,7 +46,53 @@ export type ToolName =
   | 'mole'
   // detect opt-in: только детект системного исполняемого, установки нет
   | 'docker'
-  | 'brew';
+  | 'brew'
+  // pip opt-in: uv pip install --require-hashes into toolchain layout (CLI-Anything deferred)
+  | 'pip-packaging';
+
+
+/** Every known ToolName — used to filter persisted toolchain.disabled and UI toggles. */
+export const ALL_TOOL_NAMES = [
+  'omp',
+  'python',
+  'node',
+  'ffmpeg',
+  'pandoc',
+  'gh',
+  'jq',
+  'yq',
+  'git',
+  'bun',
+  'uv',
+  'just',
+  'fzf',
+  'mise',
+  'worktrunk',
+  'infisical',
+  'opencode-ai',
+  'oh-my-codex',
+  'oh-my-claude-sisyphus',
+  'skills',
+  'eve',
+  'agent-browser',
+  'portless',
+  'just-bash',
+  'opensrc',
+  'deepsec',
+  'dev3000',
+  'gbrain',
+  'mole',
+  'docker',
+  'brew',
+  'pip-packaging',
+] as const satisfies readonly ToolName[];
+
+const TOOL_NAME_SET: ReadonlySet<string> = new Set(ALL_TOOL_NAMES);
+
+/** True when `name` is a known ToolName (fail-closed for config / RPC input). */
+export function isToolName(name: string): name is ToolName {
+  return TOOL_NAME_SET.has(name);
+}
 
 /** Стратегия установки инструмента. */
 export type ToolKind =
@@ -56,7 +102,7 @@ export type ToolKind =
   | 'npm'
   /** git-репозиторий, pinned коммитом: bun install -g github:repo@commit (git-locks.ts). */
   | 'git-npm'
-  /** pip-пакет (зарезервировано, в этом срезе не реализуется — CLI-Anything отложен). */
+  /** pip-пакет: uv pip install --require-hashes -r embedded lock (pip-locks.ts). */
   | 'pip'
   /** Homebrew формула: префлайт `command -v brew`, иначе статус skipped-no-brew. */
   | 'brew'
@@ -115,6 +161,16 @@ export interface ToolEntry {
   systemBinary?: string;
   /** brew kind: имя формулы для `brew install` (default — имя инструмента). */
   brewFormula?: string;
+  /**
+   * pip kind: PyPI distribution name (docs/UI; lock in pip-locks.ts is source of truth).
+   * Not consumed directly by the installer.
+   */
+  pipPackage?: string;
+  /**
+   * pip kind: console-script / `python -m <module>` name. When set,
+   * updatePipTool writes a launcher under versionDir/bin/<systemBinary|name>.
+   */
+  pipModule?: string;
 }
 
 export type ToolPhase =

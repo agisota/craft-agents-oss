@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { createManager } from '../manager';
-import type { BrewInstallContext, GitNpmInstallContext } from '../manager';
+import type { BrewInstallContext, GitNpmInstallContext, PipInstallContext } from '../manager';
 import { currentPlatform, toolchainPaths } from '../manifest';
 import type { ToolArtifact, ToolEntry, ToolName } from '../types';
 
@@ -65,6 +65,7 @@ function makeManager(
       entry: ToolEntry;
     }) => Promise<string>;
     gitNpmInstallImpl?: (ctx: GitNpmInstallContext) => Promise<void>;
+    pipInstallImpl?: (ctx: PipInstallContext) => Promise<void>;
   } = {},
 ) {
   const configDir = path.join(tmpDir, `cfg-${counter++}`);
@@ -84,6 +85,7 @@ function makeManager(
     brewInstallImpl: opts.brewInstallImpl,
     brewVersionImpl: opts.brewVersionImpl,
     gitNpmInstallImpl: opts.gitNpmInstallImpl,
+    pipInstallImpl: opts.pipInstallImpl,
   });
   return { manager, paths, fetchCalls };
 }
@@ -318,9 +320,9 @@ describe('kinds: brew pin verify', () => {
 
 describe('kinds: pip fail-closed', () => {
   it('update without lock → error about requirements lock', async () => {
-    // pip kind reserved; no MANIFEST_DATA entry — synthetic fixture only.
+    // synthetic fixture — reuse ToolName; kind pip overrides install path
     const pipEntry: ToolEntry = {
-      name: 'jq', // reuse ToolName; kind pip overrides install path
+      name: 'jq',
       version: '0.0.0-no-lock',
       kind: 'pip',
       tier: 'opt-in',
@@ -337,5 +339,120 @@ describe('kinds: pip fail-closed', () => {
     expect(st.phase).toBe('error');
     expect(st.error).toContain('requirements lock');
     expect(st.error).toContain('fail-closed');
+  });
+
+  it('update with lock + pipInstallImpl → ready, layout under py_packages', async () => {
+    // Stub uv+python on PATH so resolver finds them; real uv never runs (DI).
+    const binDir = path.join(tmpDir, `pip-bins-${counter++}`);
+    fs.mkdirSync(binDir, { recursive: true });
+    for (const name of ['uv', 'python3']) {
+      const p = path.join(binDir, name);
+      fs.writeFileSync(p, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
+
+    const pipEntry: ToolEntry = {
+      name: 'pip-packaging',
+      version: '24.2',
+      kind: 'pip',
+      tier: 'opt-in',
+      displayName: 'packaging (pip)',
+      dependsOn: ['uv', 'python'],
+      pipPackage: 'packaging',
+      artifacts: {},
+    };
+
+    let installCalls = 0;
+    const captured: PipInstallContext[] = [];
+    const { manager, paths } = makeManager([pipEntry], {
+      pathEnv: binDir,
+      pipInstallImpl: async (ctx) => {
+        installCalls++;
+        captured.push(ctx);
+        // emulate site-packages drop
+        fs.mkdirSync(path.join(ctx.targetDir, 'packaging'), { recursive: true });
+        fs.writeFileSync(path.join(ctx.targetDir, 'packaging', '__init__.py'), '');
+      },
+    });
+
+    // ensureAll still skips opt-in pip
+    await manager.ensureAll({ background: false });
+    expect((await manager.status()).find((s) => s.name === 'pip-packaging')?.phase).toBe('missing');
+    expect(installCalls).toBe(0);
+
+    const st = await manager.update('pip-packaging');
+    expect(st.phase).toBe('ready');
+    expect(st.installedVersion).toBe('24.2');
+    expect(installCalls).toBe(1);
+
+    const ctx = captured[0]!;
+    expect(ctx.uv).toContain('uv');
+    expect(ctx.python).toContain('python');
+    expect(ctx.requirements).toContain('packaging==24.2');
+    expect(ctx.requirements).toContain('--hash=sha256:');
+    expect(ctx.targetDir).toBe(path.join(ctx.versionDir, 'py_packages'));
+    expect(fs.existsSync(ctx.requirementsFile)).toBe(true);
+    expect(fs.readFileSync(ctx.requirementsFile, 'utf8')).toBe(ctx.requirements);
+    expect(fs.existsSync(path.join(ctx.targetDir, 'packaging', '__init__.py'))).toBe(true);
+    expect(st.installedPath).toBe(path.join(paths.toolchainDir, 'pip-packaging', '24.2'));
+    // current symlink/junction flipped
+    expect(fs.existsSync(path.join(paths.toolchainDir, 'pip-packaging', 'current'))).toBe(true);
+  });
+
+  it('update with lock + pipModule writes launcher bin', async () => {
+    const binDir = path.join(tmpDir, `pip-bins-${counter++}`);
+    fs.mkdirSync(binDir, { recursive: true });
+    for (const name of ['uv', 'python3']) {
+      fs.writeFileSync(path.join(binDir, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
+
+    const realEntry: ToolEntry = {
+      name: 'pip-packaging',
+      version: '24.2',
+      kind: 'pip',
+      tier: 'opt-in',
+      displayName: 'packaging',
+      pipModule: 'packaging',
+      systemBinary: 'packaging-cli',
+      artifacts: {},
+    };
+
+    const { manager, paths } = makeManager([realEntry], {
+      pathEnv: binDir,
+      pipInstallImpl: async (ctx) => {
+        fs.mkdirSync(ctx.targetDir, { recursive: true });
+      },
+    });
+
+    const st = await manager.update('pip-packaging');
+    expect(st.phase).toBe('ready');
+    const launcher = path.join(paths.toolchainDir, 'pip-packaging', '24.2', 'bin', 'packaging-cli');
+    expect(fs.existsSync(launcher)).toBe(true);
+    const body = fs.readFileSync(launcher, 'utf8');
+    expect(body).toContain('PYTHONPATH=');
+    expect(body).toContain('py_packages');
+    expect(body).toContain('-m');
+    expect(body).toContain('packaging');
+  });
+
+  it('missing uv → error without calling pipInstallImpl', async () => {
+    let calls = 0;
+    const pipEntry: ToolEntry = {
+      name: 'pip-packaging',
+      version: '24.2',
+      kind: 'pip',
+      tier: 'opt-in',
+      displayName: 'packaging',
+      artifacts: {},
+    };
+    const { manager } = makeManager([pipEntry], {
+      pathEnv: '', // no uv/python
+      pipInstallImpl: async () => {
+        calls++;
+      },
+    });
+    const st = await manager.update('pip-packaging');
+    expect(st.phase).toBe('error');
+    expect(st.error).toMatch(/uv not found/i);
+    expect(calls).toBe(0);
   });
 });

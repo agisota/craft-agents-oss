@@ -328,3 +328,13 @@ tradeoff и предложи скучно-безопасный вариант.
 - Не выполнять curl|bash из неподтверждённых источников.
 - Все новые зависимости — pinned, с lockfile.
 ```
+
+## Errata (implementation)
+
+- **Channels / catalog:** marketplace uses the catalog + CHANGED channels shipped in-tree (not a separate feed surface).
+- **Locales:** 10 locale files under `packages/shared/src/i18n/locales` (en, ru, de, es, fr, hu, ja, pl, zh-Hans, zh-Hant); parity tests enforce key sets.
+- **Context docs UI strings:** `settings.context.*` including `settings.context.locallyEdited` (“Edited locally” / «Отредактировано локально») when installed body differs from bundled template (version headers stripped).
+- **Marketplace empty keys:** live empty state uses `marketplace.emptyTitle` / `marketplace.emptyDescription`; unused `settings.marketplace.emptyTitle` / `emptyDescription` removed.
+- **Catalog packs:** gstack / hermes marketplace entries present; openagent excluded (unpublished transitive deps).
+- **Runtime LLM compact:** Runtime settings shows default connection summary (name, provider, model, base URL, auth) with switcher + link to full AI settings (`settings.runtime.llm*`).
+- **Toolchain disabled filter:** `setToolchainDisabled` / known `ToolName` set (`ALL_TOOL_NAMES`) fail-closed — unknown names dropped on persist.

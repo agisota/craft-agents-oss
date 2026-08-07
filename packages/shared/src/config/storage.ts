@@ -24,6 +24,8 @@ import { isValidThinkingLevel, normalizeThinkingLevel } from '../agent/thinking-
 import { parsePermissionMode, PERMISSION_MODE_ORDER } from '../agent/mode-types.ts';
 import { type ConfigDefaults } from './config-defaults-schema.ts';
 import { isValidThemeFile } from './validators.ts';
+import { isToolName } from '../toolchain/types.ts';
+import type { ToolName } from '../toolchain/types.ts';
 
 // Re-export CONFIG_DIR for convenience (centralized in paths.ts)
 export { CONFIG_DIR } from './paths.ts';
@@ -720,12 +722,21 @@ export function getToolchainDisabled(): string[] {
 
 /**
  * Persist toolchain.disabled (см. getToolchainDisabled). Порядок сохраняется,
- * дубликаты схлопываются.
+ * дубликаты схлопываются; неизвестные имена отбрасываются (fail-closed).
  */
 export function setToolchainDisabled(tools: string[]): void {
   const config = loadStoredConfig();
   if (!config) return;
-  config.toolchain = { ...config.toolchain, disabled: [...new Set(tools)] };
+  const known: ToolName[] = [];
+  const seen = new Set<string>();
+  for (const raw of tools) {
+    if (typeof raw !== 'string') continue;
+    const name = raw.trim();
+    if (!name || seen.has(name) || !isToolName(name)) continue;
+    seen.add(name);
+    known.push(name);
+  }
+  config.toolchain = { ...config.toolchain, disabled: known };
   saveConfig(config);
 }
 

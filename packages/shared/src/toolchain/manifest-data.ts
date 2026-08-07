@@ -22,6 +22,10 @@ export interface ManifestToolData {
   systemBinary?: string;
   /** brew kind: имя формулы для `brew install`. */
   brewFormula?: string;
+  /** pip kind: PyPI distribution name (docs; lock is source of truth). */
+  pipPackage?: string;
+  /** pip kind: console-script / python -m module for launcher generation. */
+  pipModule?: string;
   artifacts: Partial<Record<ToolchainPlatform, ToolArtifact>>;
 }
 
@@ -72,6 +76,9 @@ export const TOOL_PLATFORM_MATRIX: Record<ToolName, ToolchainPlatform[]> = {
   // detect opt-in: системные исполняемые (brew под win не существует)
   docker: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   brew: ['darwin-arm64', 'darwin-x64', 'linux-x64'],
+
+  // pip opt-in: uv pip install --require-hashes (embedded lock in pip-locks.ts)
+  'pip-packaging': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
 };
 
 function uvPython(binPaths: string[]): ToolArtifact {
@@ -523,6 +530,20 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
     tier: 'opt-in',
     displayName: 'Homebrew',
     systemBinary: 'brew',
+    artifacts: {},
+  },
+
+  // pip-packaging 24.2 — proof opt-in pip tool (PyPI packaging library).
+  // CLI-Anything deferred; this ships the real uv pip install path.
+  // Lock: pip-locks.ts 'pip-packaging@24.2' (wheel+sdist hashes). ensureAll skips pip.
+  'pip-packaging': {
+    version: '24.2',
+    kind: 'pip',
+    tier: 'opt-in',
+    displayName: 'packaging (pip)',
+    dependsOn: ['uv', 'python'],
+    pipPackage: 'packaging',
+    // library only — no console script; installer skips launcher when pipModule unset
     artifacts: {},
   },
 

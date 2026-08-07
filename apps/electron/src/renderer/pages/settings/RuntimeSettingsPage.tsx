@@ -1,6 +1,6 @@
 /**
  * RuntimeSettingsPage — AI runtime management:
- * - pointer to LLM connection settings (single source: AI settings page)
+ * - compact default LLM connection card (full editor lives in AI settings)
  * - default thinking level
  * - workspace approval (permission) mode
  * - toolchain status rows (phase/progress, manual update/retry) + enable/disable
@@ -76,6 +76,7 @@ const TOOL_ORDER: readonly ToolchainToolName[] = [
   'mole',
   'docker',
   'brew',
+  'pip-packaging',
 ]
 
 const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
@@ -110,6 +111,7 @@ const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
   mole: 'Mole',
   docker: 'Docker',
   brew: 'Homebrew',
+  'pip-packaging': 'packaging (pip)',
 }
 
 /** Detect/system tools: install-guide copy when missing / no brew. */
@@ -317,14 +319,28 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
 export default function RuntimeSettingsPage() {
   const { t } = useTranslation()
   const { available, isLoading, tools, updateTool, updating } = useToolchainStatus()
-  const activeWorkspaceId = useAppShellContext().activeWorkspaceId
+  const { activeWorkspaceId, llmConnections, refreshLlmConnections } = useAppShellContext()
   const [disabledTools, setDisabledTools] = useState<ToolchainToolName[]>([])
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL)
   const [permissionMode, setPermissionMode] = useState<PermissionMode | null>(null)
   const [envEntries, setEnvEntries] = useState<Array<{ key: string; value: string }> | null>(null)
   const [envSaving, setEnvSaving] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  const [llmSwitching, setLlmSwitching] = useState(false)
 
+  const defaultLlmConnection = useMemo(() => {
+    return llmConnections.find((c) => c.isDefault) ?? llmConnections[0] ?? null
+  }, [llmConnections])
+
+  const llmConnectionOptions = useMemo(
+    () =>
+      llmConnections.map((c) => ({
+        value: c.slug,
+        label: c.name,
+        description: [c.providerType, c.defaultModel].filter(Boolean).join(' · '),
+      })),
+    [llmConnections],
+  )
   const orderedTools = useMemo(() => {
     const byName: Partial<Record<ToolchainToolName, ToolchainToolStatus>> = {}
     for (const tool of tools) byName[tool.name] = tool
@@ -407,6 +423,26 @@ export default function RuntimeSettingsPage() {
     }
   }, [thinkingLevel])
 
+  const handleDefaultLlmChange = useCallback(async (slug: string) => {
+    if (!window.electronAPI || slug === defaultLlmConnection?.slug) return
+    setLlmSwitching(true)
+    setPageError(null)
+    try {
+      const result = await window.electronAPI.setDefaultLlmConnection(slug)
+      if (!result.success) {
+        console.error('Failed to set default LLM connection:', result.error)
+        setPageError(result.error ?? t('common.failed'))
+      } else {
+        await refreshLlmConnections()
+      }
+    } catch (error) {
+      console.error('Failed to set default LLM connection:', error)
+      setPageError(errorMessage(error))
+    } finally {
+      setLlmSwitching(false)
+    }
+  }, [defaultLlmConnection?.slug, refreshLlmConnections, t])
+
   const handlePermissionModeChange = useCallback(async (mode: PermissionMode) => {
     if (!activeWorkspaceId) return
     const previous = permissionMode
@@ -471,14 +507,70 @@ export default function RuntimeSettingsPage() {
               title={t('settings.runtime.llmConnections')}
               description={t('settings.runtime.llmConnectionsDesc')}
             >
-              <SettingsCard>
-                <SettingsRow
-                  label={t('settings.runtime.openAiSettings')}
-                  description={t('settings.runtime.openAiSettingsDesc')}
-                  onClick={() => navigate(routes.view.settings('ai'))}
-                  action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
-                />
-              </SettingsCard>
+              {llmConnections.length === 0 ? (
+                <SettingsCard>
+                  <div className="px-4 py-6 text-center space-y-3">
+                    <p className="text-sm text-muted-foreground">{t('settings.runtime.llmEmpty')}</p>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => navigate(routes.view.settings('ai'))}
+                    >
+                      {t('settings.runtime.llmOpenAiSettings')}
+                    </Button>
+                  </div>
+                </SettingsCard>
+              ) : (
+                <SettingsCard>
+                  {defaultLlmConnection && (
+                    <div className="px-4 py-3.5 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="text-sm font-medium truncate">{defaultLlmConnection.name}</div>
+                          <div className="text-xs text-muted-foreground space-y-0.5">
+                            <div>
+                              <span className="text-foreground/70">{t('settings.runtime.llmProvider')}: </span>
+                              <span className="font-mono">{defaultLlmConnection.providerType}</span>
+                            </div>
+                            {defaultLlmConnection.defaultModel && (
+                              <div className="truncate">
+                                <span className="text-foreground/70">{t('settings.runtime.llmModel')}: </span>
+                                <span className="font-mono">{defaultLlmConnection.defaultModel}</span>
+                              </div>
+                            )}
+                            {defaultLlmConnection.baseUrl && (
+                              <div className="truncate" title={defaultLlmConnection.baseUrl}>
+                                <span className="text-foreground/70">{t('settings.runtime.llmBaseUrl')}: </span>
+                                <span className="font-mono">{defaultLlmConnection.baseUrl}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <StatusBadge tone={defaultLlmConnection.isAuthenticated ? 'ok' : 'warn'}>
+                          {defaultLlmConnection.isAuthenticated
+                            ? t('settings.runtime.llmAuthenticated')
+                            : t('settings.runtime.llmUnauthenticated')}
+                        </StatusBadge>
+                      </div>
+                    </div>
+                  )}
+                  <div className="h-px bg-border/50 mx-4" />
+                  <SettingsMenuSelectRow
+                    label={t('settings.runtime.llmDefault')}
+                    value={defaultLlmConnection?.slug ?? ''}
+                    onValueChange={handleDefaultLlmChange}
+                    options={llmConnectionOptions}
+                    disabled={llmSwitching || llmConnections.length < 2}
+                  />
+                  <div className="h-px bg-border/50 mx-4" />
+                  <SettingsRow
+                    label={t('settings.runtime.llmOpenAiSettings')}
+                    description={t('settings.runtime.openAiSettingsDesc')}
+                    onClick={() => navigate(routes.view.settings('ai'))}
+                    action={<ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                  />
+                </SettingsCard>
+              )}
             </SettingsSection>
 
             <SettingsSection

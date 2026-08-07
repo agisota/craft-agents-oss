@@ -9,7 +9,7 @@ export type { ManifestToolData } from './manifest-data';
 export { createResolver } from './resolver';
 export type { ResolverOptions } from './resolver';
 export { createManager } from './manager';
-export type { ManagerOptions } from './manager';
+export type { ManagerOptions, PipInstallContext } from './manager';
 export { downloadArtifact, ShaMismatchError, HttpError, NetworkError } from './downloader';
 export type { DownloadOptions } from './downloader';
 export { extractArtifact, installTool } from './installer';

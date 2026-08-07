@@ -317,3 +317,61 @@ describe('template accept / keep mine', () => {
     }
   });
 });
+
+describe('locallyEdited body comparison', () => {
+  it('is false for freshly seeded templates and true after body edits', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      const seeded = listContextDocs().find((d) => d.filename === 'rules.md');
+      expect(seeded?.locallyEdited).toBe(false);
+      expect(seeded?.templateStale).toBe(false);
+
+      writeContextDoc('rules.md', '<!-- context-doc-version: 1 -->\nUSER_EDIT_BODY\n');
+      const edited = listContextDocs().find((d) => d.filename === 'rules.md');
+      expect(edited?.locallyEdited).toBe(true);
+      // same version as template → not stale
+      expect(edited?.templateStale).toBe(false);
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+
+  it('ignores version-header-only keep-mine bumps when body matches template', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      // Template and installed share body; only version header differs after keep-mine-style rewrite
+      writeFileSync(join(dirs.templatesDir, 'rules.md'), '<!-- context-doc-version: 2 -->\nSAME_BODY\n');
+      writeContextDoc('rules.md', '<!-- context-doc-version: 2 -->\nSAME_BODY\n');
+      expect(listContextDocs().find((d) => d.filename === 'rules.md')?.locallyEdited).toBe(false);
+
+      // Body still matches after a different header version number
+      writeContextDoc('rules.md', '<!-- context-doc-version: 9 -->\nSAME_BODY\n');
+      const bumped = listContextDocs().find((d) => d.filename === 'rules.md');
+      expect(bumped?.locallyEdited).toBe(false);
+      // installed version 9 > template 2 → not templateStale
+      expect(bumped?.templateStale).toBe(false);
+
+      // User-only docs (no template) are never locallyEdited
+      writeContextDoc('user-only.md', 'custom notes');
+      expect(listContextDocs().find((d) => d.filename === 'user-only.md')?.locallyEdited).toBe(false);
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+
+  it('flags local edits even when template is also stale', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      writeContextDoc('rules.md', '<!-- context-doc-version: 1 -->\nUSER_EDIT\n');
+      writeFileSync(join(dirs.templatesDir, 'rules.md'), '<!-- context-doc-version: 2 -->\nTEMPLATE_V2\n');
+      const rules = listContextDocs().find((d) => d.filename === 'rules.md');
+      expect(rules?.locallyEdited).toBe(true);
+      expect(rules?.templateStale).toBe(true);
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+});
