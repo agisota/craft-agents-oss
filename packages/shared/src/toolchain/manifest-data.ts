@@ -480,6 +480,19 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
     },
   },
 
+  // gbrain 15b9863d1363 — git-npm: `bun install -g github:garrytan/gbrain#<commit>`
+  // (пин в git-locks.ts, ключ 'gbrain@15b9863d1363'). Бинарники не качаются —
+  // bun вытаскивает pinned коммит сам, поэтому artifacts пустые; dependsOn bun,
+  // т.к. установка идёт toolchain-bun'ом (см. manager installOne, ветка git-npm).
+  gbrain: {
+    version: '15b9863d1363',
+    kind: 'git-npm',
+    tier: 'default-on',
+    displayName: 'gbrain',
+    dependsOn: ['bun'],
+    artifacts: {},
+  },
+
   // mole 1.49.2 — Homebrew формула (mac only), CLI mole + alias mo.
   // sha не нужен: ставит сам brew; префлайт `command -v brew` → иначе skipped-no-brew.
   mole: {

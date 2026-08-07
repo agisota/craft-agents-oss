@@ -27,7 +27,8 @@ export type ToolName =
   | 'infisical'
   // npm default-on (тарболл + fail-closed npm ci по embedded lock)
   | 'opencode-ai'
-  | 'oh-my-openagent'
+  // oh-my-openagent сознательно НЕ в union: npm-дерево содержит неопубликованный
+  // транзитив git-bash-mcp (EUNSUPPORTEDPROTOCOL/404) — npm-kind невозможен до фикса апстрима
   | 'oh-my-codex'
   | 'oh-my-claude-sisyphus'
   | 'skills'

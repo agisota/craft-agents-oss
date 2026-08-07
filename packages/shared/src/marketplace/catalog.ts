@@ -231,7 +231,7 @@ export interface MarketplaceResponse {
   text(): Promise<string>
 }
 
-export type MarketplaceFetch = (url: string, init?: { headers?: Record<string, string> }) => Promise<MarketplaceResponse>
+export type MarketplaceFetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<MarketplaceResponse>
 
 // ---------------------------------------------------------------------------
 // Catalog loading: ETag / 24h TTL / atomic swap / fallback bundle
@@ -367,9 +367,13 @@ async function refreshCatalogInternal(options: GetCatalogOptions & { allowFreshC
   let remoteError: string | undefined
   if (fetchFn) {
     try {
+      // Supply-scope: каталог — доверенный вход в каждый install; только https
+      // (в т.ч. CRAFT_MARKETPLACE_CATALOG_URL override), жёсткий таймаут и cap.
+      const parsedUrl = new URL(remoteUrl)
+      if (parsedUrl.protocol !== 'https:') throw new Error(`catalog URL must be https: ${remoteUrl}`)
       const headers: Record<string, string> = { 'user-agent': 'craft-agents-marketplace' }
       if (meta.catalogEtag) headers['if-none-match'] = meta.catalogEtag
-      const res = await fetchFn(remoteUrl, { headers })
+      const res = await fetchFn(remoteUrl, { headers, signal: AbortSignal.timeout(30_000) })
       if (res.status === 304 && cached) {
         const fetchedAt = now()
         metaStore.set({ ...meta, lastCatalogFetchAt: fetchedAt })
@@ -377,6 +381,10 @@ async function refreshCatalogInternal(options: GetCatalogOptions & { allowFreshC
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = await res.text()
+      const MAX_CATALOG_BYTES = 4 * 1024 * 1024
+      if (Buffer.byteLength(body) > MAX_CATALOG_BYTES) {
+        throw new Error(`catalog exceeds 4MB cap (${Buffer.byteLength(body)} bytes)`)
+      }
       const catalog = parseCatalog(JSON.parse(body)) // throws CatalogValidationError
       // Version monotonicity: never replace a newer cache with an older catalog.
       if (cached && catalog.catalogVersion < cached.catalog.catalogVersion) {

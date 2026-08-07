@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { createManager } from '../manager';
-import type { BrewInstallContext } from '../manager';
+import type { BrewInstallContext, GitNpmInstallContext } from '../manager';
 import { currentPlatform, toolchainPaths } from '../manifest';
 import type { ToolArtifact, ToolEntry, ToolName } from '../types';
 
@@ -55,7 +55,12 @@ function tierManifest(): ToolEntry[] {
 
 function makeManager(
   manifest: ToolEntry[],
-  opts: { disabledTools?: ToolName[]; pathEnv?: string; brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void> } = {},
+  opts: {
+    disabledTools?: ToolName[];
+    pathEnv?: string;
+    brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
+    gitNpmInstallImpl?: (ctx: GitNpmInstallContext) => Promise<void>;
+  } = {},
 ) {
   const configDir = path.join(tmpDir, `cfg-${counter++}`);
   const paths = toolchainPaths(configDir);
@@ -72,6 +77,7 @@ function makeManager(
     disabledTools: opts.disabledTools,
     pathEnv: opts.pathEnv,
     brewInstallImpl: opts.brewInstallImpl,
+    gitNpmInstallImpl: opts.gitNpmInstallImpl,
   });
   return { manager, paths, fetchCalls };
 }
@@ -139,5 +145,69 @@ describe('kinds: tier-фильтр ensureAll', () => {
     const st = await manager.update('mole');
     expect(st.phase).toBe('skipped-no-brew');
     expect(brewCalls).toBe(0);
+  });
+});
+
+describe('kinds: git-npm (gbrain)', () => {
+  // Запись-зеркало MANIFEST_DATA.gbrain (консистентность самой записи с матрицей
+  // и git-locks.ts проверяет guard-тест в manifest.test.ts). Инструмент by design
+  // без artifacts: скачивания нет, bun вытаскивает pinned коммит (установка мокнута).
+  const gbrainEntry: ToolEntry = {
+    name: 'gbrain',
+    version: '15b9863d1363',
+    kind: 'git-npm',
+    tier: 'default-on',
+    displayName: 'gbrain',
+    dependsOn: ['bun'],
+    artifacts: {},
+  };
+
+  /** Префлайт `resolver.findExecutable('bun')`: фейковый bun в изолированном PATH. */
+  function stubBunPathEnv(): string {
+    const dir = path.join(tmpDir, `bunbin-${counter}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'bun'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    return dir;
+  }
+
+  it('ensureAll видит git-npm default-on без artifacts: планирует, ставит через gitNpmInstallImpl, статус ready', async () => {
+    const installs: string[] = [];
+    const { manager, fetchCalls } = makeManager([gbrainEntry], {
+      pathEnv: stubBunPathEnv(),
+      gitNpmInstallImpl: async (ctx) => {
+        installs.push(`${ctx.entry.name}@${ctx.entry.version}`);
+        // реальный defaultGitNpmInstall кладёт дерево в versionDir (BUN_INSTALL) — эмулируем факт.
+        fs.mkdirSync(ctx.versionDir, { recursive: true });
+      },
+    });
+
+    // до установки инструмент присутствует в статусе как missing
+    // (git-npm без artifacts не должен выпадать из снапшота и не ловить system-fallback)
+    expect((await manager.status()).find((s) => s.name === 'gbrain')?.phase).toBe('missing');
+
+    const after = await manager.ensureAll({ background: false });
+    expect(after.find((s) => s.name === 'gbrain')?.phase).toBe('ready');
+    expect(installs).toEqual(['gbrain@15b9863d1363']);
+    // артефакта нет → сетевых скачиваний не было вовсе
+    expect(fetchCalls).toHaveLength(0);
+
+    // повторный ensureAll идемпотентен: установленная версия совпадает, переустановки нет
+    await manager.ensureAll({ background: false });
+    expect(installs).toHaveLength(1);
+  });
+
+  it('update(gbrain) ставится через sentinel-артефакт: gitNpmInstallImpl без prerecorded download', async () => {
+    let installs = 0;
+    const { manager } = makeManager([gbrainEntry], {
+      pathEnv: stubBunPathEnv(),
+      gitNpmInstallImpl: async (ctx) => {
+        installs++;
+        fs.mkdirSync(ctx.versionDir, { recursive: true });
+      },
+    });
+    const st = await manager.update('gbrain');
+    expect(st.phase).toBe('ready');
+    expect(st.installedVersion).toBe('15b9863d1363');
+    expect(installs).toBe(1);
   });
 });

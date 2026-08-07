@@ -1757,6 +1757,7 @@ export class OmpAgent extends BaseAgent {
     const env = await withToolchainPathPrefix({
       ...process.env,
       ...getProxyEnvVars(),
+      ...getRuntimeEnvOverrides(),
       ...(this.config.envOverrides ?? {}),
     });
 

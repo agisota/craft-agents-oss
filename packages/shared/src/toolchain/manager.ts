@@ -108,6 +108,14 @@ async function defaultGitNpmInstall(ctx: GitNpmInstallContext): Promise<void> {
   });
 }
 
+/**
+ * Маркер-артефакт для kind 'git-npm': скачивания нет (bun выкачивает pinned
+ * коммит сам, см. defaultGitNpmInstall), поэтому MANIFEST_DATA не несёт записей
+ * artifacts. Ветка git-npm в installOne не читает поля артефакта — sentinel
+ * нужен только планированию/волнам (planItem/WorkItem требуют ToolArtifact).
+ */
+const GIT_NPM_ARTIFACT: ToolArtifact = { url: '', sha256: 'git-npm', size: 0, archive: 'raw', binPaths: [] };
+
 interface WorkItem {
   entry: ToolEntry;
   artifact: ToolArtifact;
@@ -361,8 +369,9 @@ export function createManager(
         continue;
       }
 
-      // Нет артефакта под текущую платформу -> системный fallback (git на mac/linux)
-      if (!artifact) {
+      // Нет артефакта под текущую платформу -> системный fallback (git на mac/linux).
+      // git-npm: артефакта нет по дизайну — статус строится из state/emitter ниже (без fallback'а).
+      if (!artifact && kind !== 'git-npm') {
         const sysBin = entry.systemBinary;
         if (sysBin && (await resolver.findExecutable(sysBin))) {
           statuses.push({ name: entry.name, phase: 'ready', installedVersion: 'system' });
@@ -415,7 +424,8 @@ export function createManager(
       // brew/detect kinds не имеют toolchain-установки в ensureAll (brew — через update()).
       const kind = entry.kind ?? 'binary';
       if (kind === 'brew' || kind === 'detect') continue;
-      const artifact = entry.artifacts[platform];
+      // git-npm не качает артефакт (bun install -g github:repo#commit) — планируем с sentinel'ом.
+      const artifact = entry.artifacts[platform] ?? (kind === 'git-npm' ? GIT_NPM_ARTIFACT : undefined);
       if (!artifact) continue;
       const item = await planItem(entry, artifact);
       if (item) plan.push(item);
@@ -441,7 +451,9 @@ export function createManager(
           const wave = remaining.filter((i) =>
             (i.entry.dependsOn ?? []).every((d) => installedNames.has(d)),
           );
-          const batch = wave.length > 0 ? wave : remaining; // цикл: ставим как есть
+          // На пустой волне (deps не в installedNames) batch===remaining: splice ниже
+          // опустошал бы batch ДО runPool — инструменты молча не ставились. Копия обязательна.
+          const batch = wave.length > 0 ? wave : [...remaining]; // цикл: ставим как есть
           for (const w of batch) remaining.splice(remaining.indexOf(w), 1);
           await runPool(batch);
           for (const w of batch) installedNames.add(w.entry.name);
@@ -494,7 +506,8 @@ export function createManager(
       setStatus(status);
       return status;
     }
-    const artifact = entry.artifacts[platform];
+    // git-npm не качает артефакт — ставится через sentinel (см. installOne, ветка git-npm).
+    const artifact = entry.artifacts[platform] ?? (kind === 'git-npm' ? GIT_NPM_ARTIFACT : undefined);
     if (!artifact) {
       const status = { name, phase: 'missing' as const };
       setStatus(status);

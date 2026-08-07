@@ -41,7 +41,7 @@ type MarketplaceConfigShape = { marketplace?: MarketplaceMeta } & Record<string,
 
 /** Minimal adapter: WHATWG fetch → the trivially-mockable marketplace fetch shape. */
 const catalogFetch: MarketplaceFetch = async (url, init) => {
-  const res = await fetch(url, { headers: init?.headers })
+  const res = await fetch(url, { headers: init?.headers, signal: init?.signal })
   return {
     ok: res.ok,
     status: res.status,

@@ -44,6 +44,11 @@ function formatCompact(n: number): string {
   return Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }
 
+/** Human-readable package size hint (KB below 1 MB, MB above), locale-agnostic units. */
+function formatSizeHint(kb: number): string {
+  return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`
+}
+
 function daysElapsed(iso: string): number {
   // Прошедшие полные сутки с pushedAt/refetch-даты; отрицательное не бывает.
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000))
@@ -56,6 +61,7 @@ export default function MarketplaceSettingsPage() {
   const [busy, setBusy] = useState<BusyState>({})
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<MarketplaceEntryKind | ''>('')
+  const [tagFilter, setTagFilter] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('stars')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -104,6 +110,15 @@ export default function MarketplaceSettingsPage() {
     [load],
   )
 
+  const allTags = useMemo(() => {
+    if (!view) return []
+    const tags = new Set<string>()
+    for (const entry of view.catalog.entries) {
+      for (const tag of entry.tags ?? []) tags.add(tag)
+    }
+    return [...tags].sort((a, b) => a.localeCompare(b))
+  }, [view])
+
   const entries = useMemo(() => {
     if (!view) return []
     const q = query.trim().toLowerCase()
@@ -111,6 +126,7 @@ export default function MarketplaceSettingsPage() {
       if (q && !e.title.toLowerCase().includes(q) && !e.descriptionRu.toLowerCase().includes(q))
         return false
       if (kindFilter && e.kind !== kindFilter) return false
+      if (tagFilter && !(e.tags ?? []).includes(tagFilter)) return false
       return true
     })
     const statsVal = (id: string, sel: (s: MarketplaceEntryStats) => number): number => {
@@ -135,7 +151,7 @@ export default function MarketplaceSettingsPage() {
           return statsVal(b.id, (s) => s.stars ?? 0) - statsVal(a.id, (s) => s.stars ?? 0)
       }
     })
-  }, [view, query, kindFilter, sortKey, statsMap])
+  }, [view, query, kindFilter, tagFilter, sortKey, statsMap])
 
   const installs: Record<string, MarketplaceLockRecord> = view?.installs ?? {}
 
@@ -153,8 +169,25 @@ export default function MarketplaceSettingsPage() {
           title={t('settings.marketplace.title')}
           actions={<HeaderMenu route={routes.view.settings('marketplace')} />}
         />
-        <div className="flex-1 flex items-center justify-center">
-          <Spinner className="w-6 h-6" />
+        <div className="px-5 pt-6 max-w-3xl mx-auto w-full">
+          {/* Catalog status bar skeleton */}
+          <div className="border rounded-lg px-4 py-3 bg-muted/30 mb-4 animate-pulse">
+            <div className="h-4 w-1/3 rounded bg-foreground/10" />
+          </div>
+        </div>
+        <div className="flex-1 min-h-0 mask-fade-y overflow-hidden">
+          <div className="px-5 space-y-3 max-w-3xl mx-auto w-full animate-pulse">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="border rounded-lg p-4 flex items-start gap-4">
+                <div className="p-2 rounded-lg bg-foreground/10 mt-1 h-9 w-9" />
+                <div className="flex-1 space-y-2 py-1">
+                  <div className="h-4 w-1/3 rounded bg-foreground/10" />
+                  <div className="h-3 w-2/3 rounded bg-foreground/10" />
+                  <div className="h-3 w-1/2 rounded bg-foreground/10" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -226,6 +259,20 @@ export default function MarketplaceSettingsPage() {
             <option value="tool">{t('marketplace.kind.tool')}</option>
             <option value="context-doc">{t('marketplace.kind.context-doc')}</option>
           </select>
+          {allTags.length > 0 && (
+            <select
+              className="border rounded-md px-2 py-1.5 bg-background"
+              value={tagFilter}
+              onChange={(ev) => setTagFilter(ev.target.value)}
+            >
+              <option value="">{t('marketplace.filterAllTags')}</option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  #{tag}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             className="border rounded-md px-2 py-1.5 bg-background"
             value={sortKey}
@@ -267,6 +314,11 @@ export default function MarketplaceSettingsPage() {
                             <span className="text-xs px-2 py-0.5 border rounded-full opacity-70">
                               {t(`marketplace.kind.${e.kind}`)}
                             </span>
+                            {typeof e.sizeHintKb === 'number' && e.sizeHintKb > 0 ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground whitespace-nowrap">
+                                {formatSizeHint(e.sizeHintKb)}
+                              </span>
+                            ) : null}
                             {e.license ? (
                               <span className="text-[10px] opacity-60">{e.license}</span>
                             ) : null}

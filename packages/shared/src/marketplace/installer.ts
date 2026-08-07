@@ -23,7 +23,7 @@ import { promisify } from 'node:util'
 import { CONFIG_DIR } from '../config/paths.ts'
 import { CodedError } from '../protocol/types.ts'
 import { loadManifest } from '../toolchain/manifest.ts'
-import { atomicWriteFileSync, marketplacePaths, type MarketplaceEntry, type MarketplaceFetch } from './catalog.ts'
+import { atomicWriteFileSync, marketplacePaths, type MarketplaceDocument, type MarketplaceEntry, type MarketplaceFetch } from './catalog.ts'
 import {
   readLock,
   removeInstallMarker,
@@ -288,17 +288,25 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       writeInstallMarker(target, record)
     }
 
-    if (entry.installMode === 'directory') {
-      // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
-      installOne(entry.id, staging)
-    } else {
-      const skills = scanSkillDirs(staging, entry)
-      if (skills.length === 0) {
-        throw new MarketplaceIntegrityError(`no SKILL.md found in ${entry.source.repo}@${entry.source.ref.slice(0, 8)} (subdir '${entry.skillsSubdir ?? '.'}')`)
+    try {
+      if (entry.installMode === 'directory') {
+        // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
+        installOne(entry.id, staging)
+      } else {
+        const skills = scanSkillDirs(staging, entry)
+        if (skills.length === 0) {
+          throw new MarketplaceIntegrityError(`no SKILL.md found in ${entry.source.repo}@${entry.source.ref.slice(0, 8)} (subdir '${entry.skillsSubdir ?? '.'}')`)
+        }
+        for (const skill of skills) installOne(skill.name, skill.dir)
       }
-      for (const skill of skills) installOne(skill.name, skill.dir)
+    } catch (err) {
+      // Rollback: иначе частично установленные скиллы останутся сиротами
+      // без lock-записи (removeEntry вернёт not-installed).
+      for (const target of record.targets) {
+        rmSync(target, { recursive: true, force: true })
+      }
+      throw err
     }
-
     upsertLockRecord(paths.lockFile, record)
     return { id: entry.id, kind: 'skillpack', status: 'installed', ref: entry.source.ref, skills: record.skills!, targets: record.targets }
   } finally {
@@ -328,15 +336,21 @@ async function installContextDoc(entry: MarketplaceEntry, options: InstallOption
   }
 
   mkdirSync(contextDir, { recursive: true })
+  // Fetch-all-then-write-all: иначе обрыв на N-м документе оставляет N-1 сирот
+  // без lock-записи (removeEntry → not-installed, файлы потеряны навсегда).
+  const staged: { doc: MarketplaceDocument; body: string }[] = []
   for (const doc of entry.documents ?? []) {
     progress('fetch', doc.repoPath)
     const url = `https://raw.githubusercontent.com/${entry.source.repo}/${entry.source.ref}/${doc.repoPath}`
-    const res = await fetchFn(url, { headers: { 'user-agent': 'craft-agents-marketplace' } })
+    const res = await fetchFn(url, { headers: { 'user-agent': 'craft-agents-marketplace' }, signal: AbortSignal.timeout(30_000) })
     if (!res.ok) throw new MarketplaceIntegrityError(`HTTP ${res.status} downloading ${url}`)
     const body = await res.text()
     if (Buffer.byteLength(body) > MAX_DOC_BYTES) {
       throw new MarketplaceIntegrityError(`document ${doc.repoPath} exceeds 1MB cap`)
     }
+    staged.push({ doc, body })
+  }
+  for (const { doc, body } of staged) {
     const target = join(contextDir, doc.targetName)
     atomicWriteFileSync(target, body)
     record.targets.push(target)
