@@ -70,7 +70,7 @@ export function extractSkillMentions(contents: Iterable<string | undefined | nul
       if (SLUG_RE.test(slug)) slugs.add(slug)
     }
   }
-  return [...slugs].sort()
+  return [...slugs].sort((a, b) => a.localeCompare(b))
 }
 
 /**
@@ -79,7 +79,7 @@ export function extractSkillMentions(contents: Iterable<string | undefined | nul
  * try/catch that guards writeProvenance.
  */
 export function appendSkillUsage(workspaceRoot: string, sessionId: string, skills: string[]): void {
-  const unique = [...new Set(skills.map(s => s.toLowerCase()).filter(s => SLUG_RE.test(s)))].sort()
+  const unique = [...new Set(skills.map(s => s.toLowerCase()).filter(s => SLUG_RE.test(s)))].sort((a, b) => a.localeCompare(b))
   if (unique.length === 0) return
   const filePath = getUsagePath(workspaceRoot)
   mkdirSync(dirname(filePath), { recursive: true })
@@ -195,7 +195,7 @@ function dirsIdentical(a: string, b: string): boolean {
       }
     }
     walk(root)
-    return out.sort()
+    return out.sort((a, b) => a.localeCompare(b))
   }
   const filesA = listFiles(a)
   const filesB = listFiles(b)

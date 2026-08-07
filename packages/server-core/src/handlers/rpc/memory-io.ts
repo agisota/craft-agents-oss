@@ -116,7 +116,7 @@ export function registerMemoryIoHandlers(server: RpcServer, deps: HandlerDeps): 
     const lessons = new LessonStore(wsFiles.lessonsPath, 'workspace').list()
     const history: MemoryHistoryEntry[] = wsFiles
       .listHistoryDates()
-      .sort() // chronological: oldest first
+      .sort((a, b) => a.localeCompare(b)) // chronological: oldest first (YYYY-MM-DD compares correctly)
       .map(day => ({ day, text: wsFiles.readHistory(day) }))
     return { version: 1, lessons, context: wsFiles.readContext(), preferences, history }
   })
