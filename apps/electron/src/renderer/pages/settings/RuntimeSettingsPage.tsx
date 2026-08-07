@@ -575,14 +575,22 @@ export default function RuntimeSettingsPage() {
                     </div>
                   ) : (
                     <SettingsCard>
-                      {tools.map((tool) => (
-                        <SettingsToggle
-                          key={tool.name}
-                          label={tool.name}
-                          checked={!disabledTools.includes(tool.name)}
-                          onCheckedChange={(enabled) => toggleTool(tool.name, enabled)}
-                        />
-                      ))}
+                      {/*
+                        Only default-on tools are toggleable (ensureAll respects
+                        toolchain.disabled). Core is always installed; opt-in is
+                        update-only. Missing tier on legacy payloads → core
+                        (no toggle) fail-safe.
+                      */}
+                      {tools
+                        .filter((t) => t.tier === 'default-on')
+                        .map((tool) => (
+                          <SettingsToggle
+                            key={tool.name}
+                            label={tool.name}
+                            checked={!disabledTools.includes(tool.name)}
+                            onCheckedChange={(enabled) => toggleTool(tool.name, enabled)}
+                          />
+                        ))}
                     </SettingsCard>
                   )}
                 </SettingsSection>

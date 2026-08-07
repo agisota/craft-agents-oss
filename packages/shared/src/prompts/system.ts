@@ -42,8 +42,10 @@ const EXCLUDED_DIRECTORIES = [
 /**
  * Context file patterns to look for in working directory (in priority order).
  * Matching is case-insensitive to support AGENTS.md, Agents.md, agents.md, etc.
- * soul.md/rules.md let a project override the same-named global runtime
- * context documents (<CONFIG_DIR>/context/*.md) — see getContextDocsPromptBlock().
+ * Includes soul.md/rules.md so monorepo package roots can ship the same project
+ * overrides that findProjectContextFile / getContextDocsPromptBlock honour
+ * (project soul.md/rules.md override same-named global runtime context docs
+ * under <CONFIG_DIR>/context/*.md).
  */
 const CONTEXT_FILE_PATTERNS = ['agents.md', 'claude.md', 'soul.md', 'rules.md'];
 
@@ -98,9 +100,11 @@ export function invalidateContextFileCache(directory?: string): void {
 }
 
 /**
- * Find all project context files (AGENTS.md or CLAUDE.md) recursively in a directory.
+ * Find all project context files recursively in a directory.
  * Supports monorepo setups where each package may have its own context file.
- * Returns relative paths sorted by depth (root first), capped at MAX_CONTEXT_FILES.
+ * Matches AGENTS.md, CLAUDE.md, SOUL.md, and RULES.md (case-insensitive via
+ * glob nocase), returns relative paths sorted by depth (root first), capped
+ * at MAX_CONTEXT_FILES.
  *
  * Results are cached per directory. Call invalidateContextFileCache() on working
  * directory changes. A 5-minute TTL acts as a safety net for cache staleness.
@@ -118,8 +122,9 @@ export function findAllProjectContextFiles(directory: string): string[] {
     // Build glob ignore patterns from excluded directories
     const ignorePatterns = EXCLUDED_DIRECTORIES.map((dir) => `**/${dir}/**`);
 
-    // Search for all context files (case-insensitive via nocase option)
-    const pattern = '**/{agents,claude}.md';
+    // Search for all context files (case-insensitive via nocase option).
+    // Brace set must stay in sync with CONTEXT_FILE_PATTERNS (agents/claude/soul/rules).
+    const pattern = '**/{agents,claude,soul,rules}.md';
     const matches = globSync(pattern, {
       cwd: directory,
       nocase: true,

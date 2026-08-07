@@ -217,8 +217,12 @@ export function createManager(
   let activeRun: Promise<void> | null = null;
 
   function setStatus(status: ToolStatus): ToolStatus {
-    emitter.emit({ ...status });
-    return status;
+    const next: ToolStatus = {
+      ...status,
+      tier: status.tier ?? manifest.find((e) => e.name === status.name)?.tier ?? 'core',
+    };
+    emitter.emit(next);
+    return next;
   }
 
   // Сериализация read-modify-write записей state.json: параллельные установки
@@ -475,7 +479,10 @@ export function createManager(
         statuses.push({ name: entry.name, phase: 'missing' });
       }
     }
-    return statuses;
+    return statuses.map((s) => ({
+      ...s,
+      tier: s.tier ?? manifest.find((e) => e.name === s.name)?.tier ?? 'core',
+    }));
   }
 
   async function ensureAll(optsEnsure?: { background?: boolean }): Promise<ToolStatus[]> {

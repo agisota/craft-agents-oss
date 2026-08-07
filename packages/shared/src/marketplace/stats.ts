@@ -20,6 +20,11 @@ export interface MarketplaceEntryStats {
   pushedAt?: string
   /** npm downloads over the last 7 days (only for entries with npm.package). */
   npmWeeklyDownloads?: number
+  /**
+   * Sum of GitHub release asset download_count across recent releases
+   * (GET /repos/{owner}/{repo}/releases?per_page=100, at most 2 pages).
+   */
+  githubReleaseDownloads?: number
   /** When this datapoint was fetched from the network (0 = never). */
   fetchedAt: number
   /** true when the value comes from cache older than TTL or fetch failed. */
@@ -31,6 +36,7 @@ interface StatsCacheEntry {
   stars?: number
   pushedAt?: string
   npmWeeklyDownloads?: number
+  githubReleaseDownloads?: number
   fetchedAt: number
 }
 
@@ -95,10 +101,11 @@ async function fetchEntryStats(
   headers: Record<string, string>,
 ): Promise<Omit<StatsCacheEntry, 'fetchedAt'>> {
   const ghUrl = `https://api.github.com/repos/${entry.source.repo}`
+  const releasesUrl = `https://api.github.com/repos/${entry.source.repo}/releases?per_page=100`
   const npmPackage = entry.kind === 'tool' ? entry.npm?.package : undefined
   const npmUrl = npmPackage ? `https://registry.npmjs.org/downloads/point/last-week/${encodeURIComponent(npmPackage)}` : null
 
-  const [gh, npm] = await Promise.all([
+  const [gh, npm, releases] = await Promise.all([
     fetchFn(ghUrl, { headers }).then(async (res) => {
       if (!res.ok) throw new Error(`GitHub HTTP ${res.status}`)
       const data = (await res.json()) as Record<string, unknown>
@@ -114,8 +121,29 @@ async function fetchEntryStats(
           return { npmWeeklyDownloads: typeof data.downloads === 'number' ? data.downloads : undefined }
         })
       : Promise.resolve({}),
+    // Release download totals are best-effort: failure leaves the field undefined
+    // without failing the whole entry (stars/npm still useful).
+    fetchFn(releasesUrl, { headers })
+      .then(async (res) => {
+        if (!res.ok) return {}
+        const data: unknown = await res.json()
+        if (!Array.isArray(data)) return {}
+        let total = 0
+        for (const release of data) {
+          if (!release || typeof release !== 'object' || !('assets' in release)) continue
+          const assets = release.assets
+          if (!Array.isArray(assets)) continue
+          for (const asset of assets) {
+            if (!asset || typeof asset !== 'object' || !('download_count' in asset)) continue
+            const count = asset.download_count
+            if (typeof count === 'number' && Number.isFinite(count)) total += count
+          }
+        }
+        return { githubReleaseDownloads: total }
+      })
+      .catch(() => ({})),
   ])
-  return { ...gh, ...npm }
+  return { ...gh, ...npm, ...releases }
 }
 
 /**

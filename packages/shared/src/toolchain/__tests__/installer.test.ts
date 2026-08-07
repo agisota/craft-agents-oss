@@ -3,8 +3,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { extractArtifact, installTool } from '../installer';
+import { extractArtifact, installTool, npmInstallDeps } from '../installer';
 import { toolchainPaths } from '../manifest';
+import type { ToolchainPaths } from '../types';
 
 const FIXTURES = path.join(import.meta.dir, 'fixtures');
 const isWindows = process.platform === 'win32';
@@ -127,5 +128,73 @@ describe('installer', () => {
     expect(content).toContain('CRAFT_BUN_PATH');
     if (!isWindows) assertExecBits(launcher);
     expect(fs.existsSync(path.join(versionDir, 'bin', 'demo-cli.cmd'))).toBe(true);
+  });
+
+  describe('npmInstallDeps lifecycle scripts', () => {
+    function prepPkg(name: string): { paths: ToolchainPaths; toolDir: string } {
+      const configDir = path.join(tmpDir, `cfg-npmdeps-${name}-${process.pid}`);
+      const paths = toolchainPaths(configDir);
+      const toolDir = path.join(paths.toolchainDir, 'demo', '1.0.0');
+      const pkgDir = path.join(toolDir, 'package');
+      fs.mkdirSync(pkgDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(pkgDir, 'package.json'),
+        JSON.stringify({ name: 'demo', version: '1.0.0', dependencies: {} }),
+      );
+      return { paths, toolDir };
+    }
+    it('first call always uses --ignore-scripts', async () => {
+      const { paths, toolDir } = prepPkg('safe');
+      const calls: string[][] = [];
+      await npmInstallDeps(paths, toolDir, 'jq', '1.0.0', {
+        npmBin: '/fake/npm',
+        getLock: () => '{ "lockfileVersion": 3 }',
+        runCmd: async (args) => {
+          calls.push(args);
+        },
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual([
+        '/fake/npm',
+        'ci',
+        '--omit=dev',
+        '--no-audit',
+        '--no-fund',
+        '--ignore-scripts',
+      ]);
+    });
+
+    it('allowlisted tool retries without --ignore-scripts after failure', async () => {
+      const { paths, toolDir } = prepPkg('allow');
+      const calls: string[][] = [];
+      await npmInstallDeps(paths, toolDir, 'opencode-ai', '1.0.0', {
+        npmBin: '/fake/npm',
+        getLock: () => '{ "lockfileVersion": 3 }',
+        runCmd: async (args) => {
+          calls.push(args);
+          if (args.includes('--ignore-scripts')) throw new Error('scripts needed');
+        },
+      });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.includes('--ignore-scripts')).toBe(true);
+      expect(calls[1]).toEqual(['/fake/npm', 'ci', '--omit=dev', '--no-audit', '--no-fund']);
+    });
+
+    it('non-allowlisted tool does not retry without --ignore-scripts', async () => {
+      const { paths, toolDir } = prepPkg('deny');
+      const calls: string[][] = [];
+      await expect(
+        npmInstallDeps(paths, toolDir, 'jq', '1.0.0', {
+          npmBin: '/fake/npm',
+          getLock: () => '{ "lockfileVersion": 3 }',
+          runCmd: async (args) => {
+            calls.push(args);
+            throw new Error('boom');
+          },
+        }),
+      ).rejects.toThrow('boom');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.includes('--ignore-scripts')).toBe(true);
+    });
   });
 });

@@ -153,14 +153,17 @@ export default function MarketplaceSettingsPage() {
       const s = statsMap[id]
       return s ? sel(s) : 0
     }
+    /** Combined download signal: npm weekly + GitHub release asset totals. */
+    const totalDownloads = (s: MarketplaceEntryStats): number =>
+      (s.npmWeeklyDownloads ?? 0) + (s.githubReleaseDownloads ?? 0)
     return [...filtered].sort((a, b) => {
       switch (sortKey) {
         case 'name':
           return a.title.localeCompare(b.title, 'ru')
         case 'downloads':
           return (
-            statsVal(b.id, (s) => s.npmWeeklyDownloads ?? 0) -
-            statsVal(a.id, (s) => s.npmWeeklyDownloads ?? 0)
+            statsVal(b.id, totalDownloads) -
+            statsVal(a.id, totalDownloads)
           )
         case 'updated': {
           const pa = statsMap[a.id]?.pushedAt ? new Date(statsMap[a.id]!.pushedAt!).getTime() : 0
@@ -362,11 +365,14 @@ export default function MarketplaceSettingsPage() {
                                   {formatCompact(st.stars)}
                                 </div>
                               ) : null}
-                              {typeof st.npmWeeklyDownloads === 'number' ? (
+                              {typeof st.npmWeeklyDownloads === 'number' ||
+                              typeof st.githubReleaseDownloads === 'number' ? (
                                 <div className="mt-1 opacity-80 flex items-center justify-end gap-1.5">
                                   <DownloadCloud className="w-3 h-3" />
                                   {t('marketplace.weeklyDownloads', {
-                                    count: formatCompact(st.npmWeeklyDownloads),
+                                    count: formatCompact(
+                                      (st.npmWeeklyDownloads ?? 0) + (st.githubReleaseDownloads ?? 0),
+                                    ),
                                   })}
                                 </div>
                               ) : null}

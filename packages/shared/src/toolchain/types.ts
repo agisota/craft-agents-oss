@@ -131,6 +131,12 @@ export type ToolPhase =
 export interface ToolStatus {
   name: ToolName;
   phase: ToolPhase;
+  /**
+   * Install tier from the manifest entry (core / default-on / opt-in).
+   * Always set by the manager when emitting status. Missing on legacy
+   * payloads → treat as core (no enable/disable toggle) fail-safe.
+   */
+  tier?: ToolTier;
   /** Скачанные байты текущей загрузки. */
   downloadedBytes?: number;
   totalBytes?: number;

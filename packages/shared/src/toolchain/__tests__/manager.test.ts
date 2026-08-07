@@ -171,4 +171,38 @@ describe('manager status transitions', () => {
     expect(status.phase).toBe('ready');
     expect(status.installedVersion).toBe('1.0.0');
   });
+
+  it('status snapshot and emissions always include tier from the entry', async () => {
+    const coreManifest = makeManifest(); // jq defaults tier → core
+    const defaultOn: ToolEntry[] = makeManifest().map((e) => ({
+      ...e,
+      name: 'just' as const,
+      tier: 'default-on' as const,
+    }));
+    const optIn: ToolEntry[] = makeManifest().map((e) => ({
+      ...e,
+      name: 'infisical' as const,
+      tier: 'opt-in' as const,
+    }));
+    const { manager } = makeManager([...coreManifest, ...defaultOn, ...optIn], okFetch());
+    const missing = await manager.status();
+    expect(missing.find((s) => s.name === 'jq')?.tier).toBe('core');
+    expect(missing.find((s) => s.name === 'just')?.tier).toBe('default-on');
+    expect(missing.find((s) => s.name === 'infisical')?.tier).toBe('opt-in');
+
+    const seen: ToolStatus[] = [];
+    manager.onStatusChange((s) => seen.push({ ...s }));
+    await manager.ensureAll({ background: false });
+    // ensureAll installs core + default-on; every emission must carry tier
+    expect(seen.length).toBeGreaterThan(0);
+    for (const s of seen) {
+      expect(s.tier === 'core' || s.tier === 'default-on' || s.tier === 'opt-in').toBe(true);
+    }
+    const ready = await manager.status();
+    expect(ready.find((s) => s.name === 'jq')?.tier).toBe('core');
+    expect(ready.find((s) => s.name === 'just')?.tier).toBe('default-on');
+    // opt-in is not ensureAll'd but still appears in snapshot with tier
+    expect(ready.find((s) => s.name === 'infisical')?.tier).toBe('opt-in');
+    expect(ready.find((s) => s.name === 'infisical')?.phase).toBe('missing');
+  });
 });

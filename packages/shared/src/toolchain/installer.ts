@@ -216,14 +216,41 @@ async function generateNpmWrappers(toolDir: string): Promise<string[]> {
  * без верификации; supply-chain фикс обзора 2026-08-06).
  * Lock отсутствует → установка запрещена (fail-closed).
  * node+npm: toolchain node (omp dependsOn node) → fallback 'npm' из PATH.
+ *
+ * Lifecycle scripts are OFF by default (`--ignore-scripts`). Tools that need
+ * postinstall/prepare (native binaries, launcher rewrite) are allowlisted and
+ * retried WITHOUT `--ignore-scripts` only after the safe install fails.
  */
-async function npmInstallDeps(
+/** Tools whose npm lifecycle scripts are required for a working install. */
+const NPM_SCRIPTS_ALLOWLIST = new Set<ToolName>([
+  'opencode-ai',
+  'oh-my-codex',
+  'oh-my-claude-sisyphus',
+  'agent-browser',
+  'eve',
+  'skills',
+  'dev3000',
+  'deepsec',
+  'opensrc',
+  'portless',
+  'just-bash',
+]);
+
+export async function npmInstallDeps(
   paths: ToolchainPaths,
   toolDir: string,
   tool: ToolName,
   version: string,
+  opts?: {
+    /** Test seam: override command runner (defaults to runCommand). */
+    runCmd?: typeof runCommand
+    /** Test seam: force npm binary path (skips toolchain/PATH lookup). */
+    npmBin?: string
+    /** Test seam: override lock lookup (defaults to getNpmLock). */
+    getLock?: (tool: ToolName, version: string) => string | null
+  },
 ): Promise<void> {
-  const lock = getNpmLock(tool, version);
+  const lock = (opts?.getLock ?? getNpmLock)(tool, version);
   if (!lock) {
     throw new Error(
       `no pinned npm lock for ${tool}@${version}: бамп версии требует нового ` +
@@ -250,24 +277,26 @@ async function npmInstallDeps(
   }
 
   // toolchain node: npm живёт рядом с node (unix: <dir>/bin/npm; win: npm.cmd в корне).
-  let npm: string | undefined;
-  const nodeRoot = path.join(paths.toolchainDir, 'node', 'current');
-  try {
-    for (const entry of await fs.promises.readdir(nodeRoot)) {
-      for (const candidate of isWindows
-        ? [path.join(nodeRoot, entry, 'npm.cmd'), path.join(nodeRoot, entry, 'bin', 'npm.cmd')]
-        : [path.join(nodeRoot, entry, 'bin', 'npm')]) {
-        if (fs.existsSync(candidate)) {
-          npm = candidate;
-          break;
+  let npm: string | undefined = opts?.npmBin;
+  if (!npm) {
+    const nodeRoot = path.join(paths.toolchainDir, 'node', 'current');
+    try {
+      for (const entry of await fs.promises.readdir(nodeRoot)) {
+        for (const candidate of isWindows
+          ? [path.join(nodeRoot, entry, 'npm.cmd'), path.join(nodeRoot, entry, 'bin', 'npm.cmd')]
+          : [path.join(nodeRoot, entry, 'bin', 'npm')]) {
+          if (fs.existsSync(candidate)) {
+            npm = candidate;
+            break;
+          }
         }
+        if (npm) break;
       }
-      if (npm) break;
+    } catch {
+      // toolchain node ещё не установлен
     }
-  } catch {
-    // toolchain node ещё не установлен
+    npm ??= (await whichTool(isWindows ? 'npm.cmd' : 'npm')) ?? undefined;
   }
-  npm ??= (await whichTool(isWindows ? 'npm.cmd' : 'npm')) ?? undefined;
   if (!npm) {
     throw new Error('npm not found: toolchain node required (omp dependsOn node), fallback PATH npm');
   }
@@ -275,14 +304,19 @@ async function npmInstallDeps(
     ...process.env,
     PATH: `${path.dirname(npm)}${path.delimiter}${process.env.PATH ?? ''}`,
   };
-  await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: pkgDir, env }).catch(async (err) => {
-    // Пакеты с prepare/postinstall, зависящим от scrubbed devDeps (напр. skills →
-    // `husky`): повторяем с --ignore-scripts. opencode-ai и ему подобные СКРИПТО-
-    // зависимые инструменты проходят первой попыткой, так что механизм их не ломает.
-    await runCommand([npm, 'ci', '--omit=dev', '--no-audit', '--no-fund', '--ignore-scripts'], { cwd: pkgDir, env }).catch((err2) => {
-      throw err2 instanceof Error && err2.message ? err2 : err
-    })
-  });
+  const runCmd = opts?.runCmd ?? runCommand;
+  const baseArgs = [npm, 'ci', '--omit=dev', '--no-audit', '--no-fund'];
+  // Default: never run lifecycle scripts (supply-chain fail-closed).
+  try {
+    await runCmd([...baseArgs, '--ignore-scripts'], { cwd: pkgDir, env });
+  } catch (err) {
+    // Allowlisted tools may need postinstall (native bins, launcher rewrite).
+    // Retry once without --ignore-scripts only for those packages.
+    if (!NPM_SCRIPTS_ALLOWLIST.has(tool)) throw err;
+    await runCmd(baseArgs, { cwd: pkgDir, env }).catch((err2) => {
+      throw err2 instanceof Error && err2.message ? err2 : err;
+    });
+  }
 }
 
 /** chmod +x всем binPaths (unix). Windows не требует. */
