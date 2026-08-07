@@ -62,14 +62,14 @@
 | oh-my-claudecode | github:Yeachan-Heo/oh-my-claudecode, npm `oh-my-claude-sisyphus` ⚠ имя npm ≠ имя репо | npm |
 | oh-my-codex | github:Yeachan-Heo/oh-my-codex, npm `oh-my-codex` | npm |
 | oh-my-openagent | github:code-yeongyu/oh-my-openagent, npm `oh-my-openagent` | npm |
-| oh-my-hermes | github:Salomondiei08/oh-my-hermes (есть форк github:agisota/oh-my-hermes) | npm/git — уточнить при M1 |
+| oh-my-hermes | github:Salomondiei08/oh-my-hermes — ПОДТВЕРЖДЕНО пользователем (upstream, не форк) | npm/git-npm — финальный kind фиксируется при M1 |
 | eve | github:vercel/eve, npm `eve` | npm (beta) |
 | gbrain | github:garrytan/gbrain — **только git-install**, в npm не опубликован | git-npm (`bun install -g github:garrytan/gbrain`) |
 | gstack | github:garrytan/gstack, бинарь ~58MB на Bun | binary (GitHub releases) |
 | CLI-Anything | github:HKUDS/CLI-Anything, pip `cli-anything-hub` | pip (через toolchain `uv`) |
 | infisical-cli | github:Infisical/infisical (`cli/`) | binary (GitHub releases) |
 | vercel-skills (CLI `skills`) | github:vercel-labs/skills | npm (`npx skills`) |
-| mole | github:tw93/Mole (macOS-чистильщик) — ⚠️ возможно имелся в виду davrodpin/mole (SSH-туннели) | brew/detect — уточнение в §16 |
+| mole | github:tw93/Mole (macOS-чистильщик) — ПОДТВЕРЖДЕНО пользователем | brew |
 | docker | — | detect-only + install-guide |
 | brew | — | detect-only (macOS), install-guide |
 
@@ -130,7 +130,7 @@ Mapping инструментов из §4.1:
 | oh-my-hermes | npm или git-npm | opt-in | источник уточняется (org-форк agisota/oh-my-hermes релевантнее для брендинга) |
 | gbrain | git-npm | default-on | commit-pin обязателен |
 | CLI-Anything | pip | opt-in | через uv (python уже в toolchain) |
-| mole | detect + brew | opt-in, macOS only | ожидает уточнения (§16) |
+| mole | brew | opt-in, macOS only | требует brew (detect) |
 | docker, brew | detect | opt-in | никогда не ставим сами |
 
 Паттерны переиспользуются как есть: `downloader` (sha256 поток), `installer` (атомарный `current` symlink, лончеры `bin/*` на bun-wrapper), `manager.ensureAll` (волны по `dependsOn`). Новый код — только генераторы локов для npm/git-npm/pip (скрипт `scripts/toolchain-locks.ts` — по образцу `npm-locks.ts` fail-closed; нет лока — не ставим).
@@ -180,13 +180,14 @@ Mapping инструментов из §4.1:
 
 ### 8.1 Архитектура
 
-- **Каталог**: встроенный `resources/marketplace/catalog.json` (versioned, подписанный sha256 манифестом) + оффлайн. Записи:
+- **Каталог**: встроенный `resources/marketplace/catalog.json` + **обязательное remote-обновление** (решено пользователем): при старте и раз в 24ч fetch последнего `catalog.json` с `raw.githubusercontent.com/agisota/craft-agents-oss/main/resources/marketplace/catalog.json` (ETag/If-None-Match, кэш в `~/.craft-agent/marketplace/catalog.cache.json`, сравнение поля `catalogVersion`; при недоступности сети — тихий fallback на встроенную/cached копию). Источник доверия — наш зафиксированный raw-URL; целостность записей обеспечивается pinned commit SHA + SHA-256 контента внутри каждой записи (catalog-is-index, не исполняемый код). Записи каталога:
 
 ```jsonc
 {
   "id": "vercel-agent-skills",
   "kind": "skillpack",            // skillpack | tool | context-doc
   "title": "Vercel Agent Skills",
+  "descriptionRu": "Официальные скиллы Vercel: руководства по React, оптимизации и веб-дизайну для агентов.",
   "source": { "type": "github", "repo": "vercel-labs/agent-skills", "ref": "<commit-sha>" },
   "skills": ["vercel-optimize", "react-best-practices", "..."],
   "license": "MIT",
@@ -201,13 +202,17 @@ Mapping инструментов из §4.1:
 
 ### 8.2 UI вкладки `settings/marketplace`
 
-- Карточки: название, описание, теги, размер, лицензия, статус (Installed vX / Available / Update available).
+**Обязательное наполнение карточки** (решено пользователем — «наполнить хорошенько»):
+
+- Название, **русское краткое и понятное описание** (все описания в каталоге — на русском; source-описания с GitHub переводятся/переписываются кураторами каталога, machine-перевод недопустим).
+- **Живые метрики**: ★ stars, ⬇ downloads (GitHub release-downloads + npm weekly для npm-источников), «обновлён N дней назад» (`pushed_at`). Подтягиваются лениво через GitHub REST API (+ npm registry API) с кэшем 6ч в `~/.craft-agent/marketplace/stats-cache.json` и деградацией «метрики недоступны» оффлайн — fetch не блокирует рендер списка (skeleton).
+- Теги, размер, лицензия, статус (Installed vX / Available / Update available — через сравнение lock.json с pinned ref каталога).
 - Один клик: Install (прогресс по push-каналу), Update, Remove (soft: удаляем то, что сами поставили, не трогая локальные правки).
-- Поиск/фильтр по тегам.
+- Поиск/фильтр по тегам; сортировка: по звёздам / по обновлению / по загрузкам.
 
 ### 8.3 Каналы RPC (новые)
 
-`marketplace:catalog` (LOCAL_ONLY — каталог локален), `marketplace:install/remove/update`, `marketplace:statusChanged` (push), `marketplace:list`. Каждый — в `channels.ts`, `channel-map.ts`, `ElectronAPI`, **routing.ts** (LOCAL_ONLY), `ipc-channels.test.ts`. Плюс `contextDocs:list/read/write`, `contextDocs:templateUpdated`. Классификация в routing обязательна (CI exhaustiveness-тест).
+`marketplace:catalog` (LOCAL_ONLY), `marketplace:install/remove/update`, `marketplace:statusChanged` (push), `marketplace:list`, `marketplace:refreshCatalog` (форс-запрос remote-каталога), `marketplace:stats` (ленивый fetch ★/downloads/updated с кэшем). Каждый — в `channels.ts`, `channel-map.ts`, `ElectronAPI`, **routing.ts** (LOCAL_ONLY), `ipc-channels.test.ts`. Плюс `contextDocs:list/read/write`, `contextDocs:templateUpdated`. Классификация в routing обязательна (CI exhaustiveness-тест).
 
 ## 9. Изменения данных и конфига
 
@@ -245,7 +250,7 @@ i18n: все новые строки — в 9 локалей (`settings.runtime.
 | **M1** | Toolchain kinds (git-npm, pip, brew, detect) + 5 новых binary/npm инструментов (just, fzf, mise, wt, gstack) + тоглы в config | `bun run toolchain-smoke` зелёный на чистом §CRAF_CONFIG_DIR; тоглы реально выключают установку |
 | **M2** | Context документы: `soul.md`+`rules.md` шаблоны, ensureContextDocs, инжект в 3 бэкенда, вкладка Context | Новая сессия OMP стартует с --append-system-prompt содержащим rules.md; правка soul.md из UI видна в следующей сессии; CONTEXT_FILE_PATTERNS включает оба; parity i18n |
 | **M3** | Preset skills: бандл superpowers+vercel+mattpocock, ensureBundledSkills, disable-флаг | Чистый запуск ставит паки в `~/.agents/skills`; агент видит их через discovery; disable не трогает файлы |
-| **M4** | Marketplace: catalog.json, адаптированный installer, вкладка Marketplace, каналы RPC | Install vercel-agent-skills из UI → появляется в skills discovery; update/remove round-trip; все каналы в routing.ts + ipc-channels.test.ts |
+| **M4** | Marketplace: catalog.json (RU-описания), remote-catalog refresh (ETag/24ч), stats-fetch (★/downloads/updated, кэш 6ч), адаптированный installer, вкладка Marketplace, каналы RPC | Install vercel-agent-skills из UI → появляется в skills discovery; карточки показывают ★/загрузки/«обновлён N дней назад» на русском; remote-update каталога применяется без релиза приложения; update/remove round-trip; все каналы в routing.ts + ipc-channels.test.ts |
 | **M5** | Вкладка Runtime: поглощение Toolchain + секции модель/thinking/approval/env | Роут `settings/toolchain` редиректит; все ручки меняют config.json и применяются без рестарта где возможно; tab visible в навигаторе и меню |
 
 Зависимости: M1 независим; M2–M4 независимы между собой; M5 опирается на M1 (тоглы) — реализуем параллельно с M1.
@@ -266,13 +271,13 @@ i18n: все новые строки — в 9 локалей (`settings.runtime.
 - **i18n дрейф**: 9 локалей — parity-тест в CI наловит.
 - **Чужой WIP в routing.ts**: при добавлении каналов делать ребейз осторожно, координироваться с соседней сессией.
 
-## 15. Открытые вопросы (нужно решение до старта M1)
+## 15. Открытые вопросы — РЕШЕНЫ пользователем (2026-08-07)
 
-1. `mole` — tw93/Mole (macOS-чистильщик) или davrodpin/mole (SSH-туннели)?
-2. `oh-my-hermes` — upstream Salomondiei08 или agisota-форк (брендинг/контроль)?
-3. Маркетплейс — третья вкладка (текущий выбор) или встроен в Runtime (tools) + Context (skills) как секции? Текущий PRD идёт по «третья вкладка».
-4. Перечень «all vercel tools» — зафиксирован как `vercel-labs/skills` (CLI) + `vercel-labs/agent-skills` (скиллы); если имелось в виду ещё что-то — добавить.
-5. Хотим ли remote-update каталога маркетплейса (проверка новой версии catalog.json с GitHub)? Сейчас — нет, каталог залочен в релиз приложения.
+1. `mole` = **tw93/Mole** (macOS-чистильщик), kind `brew`, tier `opt-in`, macOS-only. davrodpin/mole (SSH) не нужен.
+2. `oh-my-hermes` = **upstream Salomondiei08** (без форк-оговорок).
+3. Маркетплейс = **отдельная третья вкладка** `settings/marketplace`, обогащённая метриками (★/downloads/updated) и русскими описаниями (§8.2).
+4. Vercel-набор зафиксирован: toolchain — `vercel-labs/skills` + `vercel-labs/agent-browser` (opt-in); пресет-скиллы — `vercel-labs/agent-skills` + `vercel-labs/next-skills`; каталог — `portless`, `just-bash`, `opensrc`, `deepsec`, `dev3000`.
+5. Remote-update каталога — **ДА, обязательно** (§8.1: ETag-кэш, раз в 24ч, fallback на бандл).
 
 ---
 
