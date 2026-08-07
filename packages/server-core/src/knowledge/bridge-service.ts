@@ -1,0 +1,695 @@
+/**
+ * KnowledgeBridgeService — the spec-05 (K-05) mutation pipeline as an
+ * effect-driver over the pure engine (`@craft-agent/core/knowledge`
+ * mutations.ts): bridge executes the engine's TransitionEffect plan objects
+ * against provider/store/audit/push, never re-implementing status logic.
+ *
+ * §3.2 invariants enforced here (all Craft-initiated SiYuan writes pass
+ * through this service — ADR-004; RPC handlers construct it per call and own
+ * no state of their own):
+ * - Apply is possible ONLY from `approved` (engine T5 guard; any other status
+ *   is a typed ProposalTransitionError, mirrored to the caller unchanged).
+ * - No kernel write begins before a successful HASH CHECK of RE-READ vs
+ *   baseHash (T6); partial provider failure lands as conflict with
+ *   reason='partial-apply-rolled-back' (§3.2 invariant, compensation is
+ *   provider-internal best-effort).
+ * - No silent rebase: RE-READs happen only inside apply (T5) and rollback
+ *   (T10); baseHash is never overwritten (T9 is a fresh propose call).
+ * - Approve is human-only in v1: `approvedBy` is always 'user' (engine-typed);
+ *   an `actor='automation'` subject MAY create a proposal but every transition
+ *   past T1 requires the explicit user clicks that issued the RPC.
+ * - Permission gate `assertKnowledgeActionAllowed` runs before T1 (propose),
+ *   T3 (approve) and T5/T10 write passes (apply, rollback) — mode is resolved
+ *   per proposal session (fail-closed via the gate's default).
+ *
+ * Persistence: the store owns the SHARED wire-record shape
+ * (`MutationProposalRecord` from '@craft-agent/shared/protocol'); the engine
+ * owns the richer core record (structured diff, updatedAt, appliedHash,
+ * preStateAttributes). Mapping happens at this boundary only:
+ * engine→wire on save (`toWireRecord`), wire→engine on load (`toCoreRecord`).
+ * Lifecycle-critical fields absent from the wire DTO (updatedAt,
+ * preStateAttributes, appliedHash, rolledBackAt) ride as file-level extras —
+ * the store's fail-soft parse preserves them verbatim. The wire `diff` is a
+ * unified-diff STRING (KnowledgeDiff.tsx renders it); the core structured
+ * ProposalDiff is deterministically rebuilable from (preState, ops), so a
+ * cold record loses nothing.
+ */
+import { CodedError } from '@craft-agent/shared/protocol'
+import type {
+  ConflictInfo as WireConflictInfo,
+  KnowledgeChangedPayload,
+  MutationInput as WireMutationInput,
+  MutationProposalRecord as WireProposalRecord,
+  MutationProposalStatus,
+} from '@craft-agent/shared/protocol'
+import assertKnowledgeActionAllowed from '@craft-agent/shared/agent/knowledge-permissions'
+import type {
+  KnowledgeAction,
+  KnowledgeActionContext,
+} from '@craft-agent/shared/agent/knowledge-permissions'
+import { getPermissionMode } from '@craft-agent/shared/agent/mode-manager'
+import type { PermissionMode } from '@craft-agent/shared/agent/mode-types'
+import {
+  MutationValidationError,
+  PartialApplyError,
+  ProposalTransitionError,
+  buildProposalDiff,
+  createProposalDraft,
+  hashKnowledgeContent,
+  siyuanDeepLink,
+  transition,
+  validateOpsWhitelist,
+  validateProposalOps,
+} from '@craft-agent/core/knowledge'
+import type {
+  ApplyResult as CoreApplyResult,
+  KnowledgeProvider,
+  KnowledgeRef,
+  MutationActor,
+  MutationOp,
+  MutationProposal as CoreProposal,
+  ProposalDiff,
+  TransitionEffect,
+} from '@craft-agent/core/knowledge'
+
+import { KnowledgeAuditLog } from './knowledge-audit'
+import { KnowledgeMutationProposalsStore, type ProposalListFilter } from './proposals-store'
+
+/** Engine-driven status transitions whose audit actor is 'automation' (§3.2 table, initiator column). */
+const SYSTEM_ACTOR_AUDIT_ACTIONS: Record<string, true> = {
+  'knowledge.proposal.applied': true,
+  'knowledge.proposal.conflict': true,
+  'knowledge.proposal.approval_expired': true,
+}
+
+const DEFAULT_NO_SESSION = 'knowledge-ui' // mode-manager default ('ask') for session-less UI proposals
+
+/**
+ * Wire record + lifecycle extras persisted side-by-side in the proposal file.
+ * Extras are absent from the wire DTO but required for cold-store approve
+ * (preStateAttributes), the T10 rollback hash guard (appliedHash) and precise
+ * TTL bookkeeping (updatedAt).
+ */
+export interface KnowledgeProposalFileRecord extends WireProposalRecord {
+  updatedAt?: string
+  preStateAttributes?: Record<string, Record<string, string>>
+  appliedHash?: string
+  rolledBackAt?: string
+}
+
+/** Bridge apply/rollback result: core engine outcome + wire-mapped conflict details for the UI card. */
+export interface BridgeApplyResult extends CoreApplyResult {
+  conflictInfo?: WireConflictInfo
+}
+
+export interface KnowledgeBridgeProposeArgs {
+  connectionId: string
+  /** Wire MutationInput; `actor` rides as an optional extension (agent/automation origins). */
+  input: WireMutationInput & { actor?: MutationActor }
+}
+
+export interface KnowledgeBridgeDeps {
+  /** connectionId → connected KnowledgeProvider (existing registry mechanism in handlers/rpc/knowledge.ts). */
+  providerResolver: (connectionId: string) => Promise<KnowledgeProvider>
+  proposalsStore: KnowledgeMutationProposalsStore
+  audit: KnowledgeAuditLog
+  /** Permission gate (§3.6); defaults to the shared enforcement point. */
+  assertAllowed?: (action: KnowledgeAction, ctx: KnowledgeActionContext) => void
+  /** knowledge:changed fan-out (T2/T6/T7/T10). */
+  push?: (payload: KnowledgeChangedPayload) => void
+  /** Injectable clock (ms epoch) for TTL/approval tests. */
+  now?: () => number
+  /** Session → permission mode; defaults to the shared mode-manager (fail-closed absent). */
+  resolvePermissionMode?: (sessionId?: string) => PermissionMode | undefined
+  /** Workspace id for the gate ctx (never grants a bypass; reserved for scoped rules). */
+  workspaceId?: string
+  /** appendBlock cap (§3.4.1 capability; default DEFAULT_MAX_BLOCK_BYTES in core). */
+  maxBlockBytes?: number
+}
+
+export class KnowledgeBridgeService {
+  private readonly assertAllowed: (action: KnowledgeAction, ctx: KnowledgeActionContext) => void
+
+  constructor(private readonly deps: KnowledgeBridgeDeps) {
+    this.assertAllowed = deps.assertAllowed ?? assertKnowledgeActionAllowed
+  }
+
+  // -------------------------------------------------------------------------
+  // Engine boundary mapping (the only place the two record families meet)
+  // -------------------------------------------------------------------------
+
+  /** Engine record → persisted wire+extras record; structured diff rendered to the unified-diff string. */
+  toWireRecord(core: CoreProposal): KnowledgeProposalFileRecord {
+    const record: KnowledgeProposalFileRecord = {
+      id: core.id,
+      connectionId: core.connectionId,
+      targetRef: core.targetRef,
+      ops: core.ops,
+      selectionProofs: core.selectionProofs,
+      baseHash: core.baseHash,
+      baseReadAt: core.baseReadAt,
+      preState: core.preState ?? '',
+      hashAlgorithm: 'sha256-canonical-v1',
+      status: core.status,
+      statusHistory: core.statusHistory,
+      createdAt: core.createdAt,
+      actor: core.actor,
+      // extras
+      updatedAt: core.updatedAt,
+      preStateAttributes: core.preStateAttributes,
+      appliedHash: core.appliedHash,
+      rolledBackAt: core.rolledBackAt,
+    }
+    if (core.sessionId !== undefined) record.sessionId = core.sessionId
+    if (core.inverseOps !== undefined) record.inverseOps = core.inverseOps
+    if (core.diff !== undefined) record.diff = renderUnifiedDiff(core.diff)
+    if (core.approvedBy !== undefined) record.approvedBy = core.approvedBy
+    if (core.approvedAt !== undefined) record.approvedAt = core.approvedAt
+    if (core.appliedAt !== undefined) record.appliedAt = core.appliedAt
+    if (core.conflictInfo !== undefined) {
+      record.conflictInfo = {
+        baseHash: core.conflictInfo.expectedHash,
+        actualHash: core.conflictInfo.actualHash,
+        currentContent: core.conflictInfo.currentContent,
+        baseReadAt: core.baseReadAt,
+      }
+      if (core.conflictInfo.reason !== undefined) record.conflictInfo.reason = core.conflictInfo.reason
+    }
+    return record
+  }
+
+  /** Persisted record → engine record. Deterministic rebuild: diff from (preState, ops); updatedAt from the history tail. */
+  toCoreRecord(wire: KnowledgeProposalFileRecord): CoreProposal {
+    const core: CoreProposal = {
+      id: wire.id,
+      connectionId: wire.connectionId,
+      targetRef: wire.targetRef,
+      ops: wire.ops,
+      selectionProofs: wire.selectionProofs,
+      baseHash: wire.baseHash,
+      baseReadAt: wire.baseReadAt,
+      hashAlgorithm: 'sha256-canonical-v1',
+      status: wire.status,
+      statusHistory: wire.statusHistory,
+      createdAt: wire.createdAt,
+      updatedAt: wire.updatedAt ?? wire.statusHistory[wire.statusHistory.length - 1]?.at ?? wire.createdAt,
+      actor: wire.actor,
+    }
+    if (wire.sessionId !== undefined) core.sessionId = wire.sessionId
+    core.preState = wire.preState
+    if (wire.preStateAttributes !== undefined) core.preStateAttributes = wire.preStateAttributes
+    // Deterministic rebuild (buildProposalDiff is pure in preState+ops): no diff state is
+    // route-tripped through the wire representation.
+    if (wire.diff !== undefined) core.diff = buildProposalDiff(wire.preState, wire.ops)
+    if (wire.inverseOps !== undefined) core.inverseOps = wire.inverseOps
+    if (wire.approvedBy !== undefined) core.approvedBy = wire.approvedBy
+    if (wire.approvedAt !== undefined) core.approvedAt = wire.approvedAt
+    if (wire.appliedAt !== undefined) core.appliedAt = wire.appliedAt
+    if (wire.appliedHash !== undefined) core.appliedHash = wire.appliedHash
+    if (wire.rolledBackAt !== undefined) core.rolledBackAt = wire.rolledBackAt
+    if (wire.conflictInfo !== undefined) {
+      core.conflictInfo = {
+        expectedHash: wire.conflictInfo.baseHash,
+        actualHash: wire.conflictInfo.actualHash,
+        currentContent: wire.conflictInfo.currentContent,
+        reason: wire.conflictInfo.reason,
+      }
+    }
+    return core
+  }
+
+  // -------------------------------------------------------------------------
+  // T1: propose — VALIDATE → READ → BASE HASH → draft → DIFF → pending_review
+  // -------------------------------------------------------------------------
+
+  async propose(args: KnowledgeBridgeProposeArgs): Promise<KnowledgeProposalFileRecord> {
+    const actor = args.input.actor ?? 'user'
+    const sessionId = args.input.sessionId
+    this.gate('knowledge.propose', sessionId)
+
+    // §3.4.1 admission guards run BEFORE the READ: cheap rejection, no wasted provider call.
+    let ops: MutationOp[]
+    try {
+      ops = validateOpsWhitelist(args.input.ops)
+      validateProposalOps(ops, {
+        selectionProofs: args.input.selectionProofs,
+        maxBlockBytes: this.deps.maxBlockBytes,
+        now: this.now(),
+      })
+    } catch (error) {
+      if (error instanceof MutationValidationError) {
+        // §3.4.1: guard rejections are audited as rejected proposals (no file is ever created).
+        await this.deps.audit.append({
+          actor,
+          action: 'knowledge.proposal.rejected',
+          target: args.input.targetRef ? siyuanDeepLink(args.input.targetRef) : 'knowledge:proposal',
+          detail: JSON.stringify({ reason: error.reason, connectionId: args.connectionId, sessionId }),
+        })
+      }
+      throw error
+    }
+
+    const provider = await this.deps.providerResolver(args.connectionId)
+    const node = await provider.get(args.input.targetRef)
+    const preState = node.markdown ?? ''
+    const preStateAttributes = {
+      [node.ref.id]: Object.fromEntries(node.attributes.map((attribute) => [attribute.key, attribute.value])),
+    }
+    const baseHash = await hashKnowledgeContent(preState)
+    const baseReadAt = new Date(this.now()).toISOString()
+    const id = `p_${crypto.randomUUID()}`
+
+    const draft = createProposalDraft(
+      {
+        id,
+        connectionId: args.connectionId,
+        targetRef: args.input.targetRef,
+        ops,
+        baseHash,
+        baseReadAt,
+        preState,
+        preStateAttributes,
+        selectionProofs: args.input.selectionProofs,
+        sessionId,
+        actor,
+      },
+      { enforceSelectionProofs: false, maxBlockBytes: this.deps.maxBlockBytes, now: this.now() },
+    )
+    await this.draftEffects(draft.effects, actor)
+
+    // T2 immediate (spec §3.2: auto при emerge в UI) — diff is built by the engine from preState+ops.
+    const built = transition(draft.proposal, { type: 'buildDiff' }, this.now())
+    await this.draftEffects(built.effects, 'user')
+    await this.deps.audit.append({
+      actor,
+      action: 'knowledge.proposal.reviewed',
+      target: this.auditTarget(built.proposal),
+      detail: this.detail({ proposalId: id, sessionId }),
+    })
+    return this.toWireRecord(built.proposal)
+  }
+
+  // -------------------------------------------------------------------------
+  // T3: approve — pending_review only (engine guard); inverse computed by engine from cold preState
+  // -------------------------------------------------------------------------
+
+  async approve(proposalId: string): Promise<KnowledgeProposalFileRecord> {
+    const wire = this.requireProposal(proposalId)
+    this.gate('knowledge.approve', wire.sessionId)
+    let core = this.toCoreRecord(wire)
+
+    // Cold-store degradation guard: if file-level preStateAttributes were stripped, re-capture
+    // the current attributes so setAttribute inverses keep the true old value (best-effort —
+    // the '' remove-sense fallback stands when the target is unreadable).
+    if (core.preStateAttributes === undefined && core.ops.some((op) => op.op === 'setAttribute')) {
+      try {
+        const node = await (await this.deps.providerResolver(wire.connectionId)).get(wire.targetRef)
+        core = {
+          ...core,
+          preStateAttributes: {
+            [node.ref.id]: Object.fromEntries(node.attributes.map((a) => [a.key, a.value])),
+          },
+        }
+      } catch {
+        /* inverse degrades to the '' remove-sense — intentional, never mask the approve */
+      }
+    }
+
+    const result = transition(core, { type: 'approve' }, this.now())
+    await this.draftEffects(result.effects, 'user')
+    return this.toWireRecord(result.proposal)
+  }
+
+  // -------------------------------------------------------------------------
+  // T4: reject — engine path for draft/pending_review/conflict; explicit for approved
+  // -------------------------------------------------------------------------
+
+  async reject(proposalId: string): Promise<{ ok: true }> {
+    const wire = this.requireProposal(proposalId)
+    if (wire.status === 'approved') {
+      // Engine T4 covers draft/pending_review/conflict; discarding an approved proposal is
+      // the same user decision — delete + audit without a state-machine hop (no inverse exec).
+      this.deps.proposalsStore.remove(proposalId)
+      await this.deps.audit.append({
+        actor: 'user',
+        action: 'knowledge.proposal.rejected',
+        target: siyuanDeepLink(wire.targetRef),
+        detail: this.detail({ proposalId, reason: 'user-discard', from: 'approved' }),
+      })
+      return { ok: true }
+    }
+    const result = transition(this.toCoreRecord(wire), { type: 'reject', reason: 'user-discard' }, this.now())
+    await this.draftEffects(result.effects, 'user')
+    return { ok: true }
+  }
+
+  // -------------------------------------------------------------------------
+  // T5→T6/T7: apply — RE-READ → HASH CHECK → execute → verify RE-READ → applied
+  // -------------------------------------------------------------------------
+
+  async apply(proposalId: string): Promise<BridgeApplyResult> {
+    const wire = this.requireProposal(proposalId)
+    this.gate('knowledge.apply', wire.sessionId)
+    const core = this.toCoreRecord(wire)
+
+    // T5 guard: engine throws ProposalTransitionError from any status != approved;
+    // approval-expired bounces back to pending_review with its own audit + push effects.
+    const begun = transition(core, { type: 'beginApply' }, this.now())
+    if (begun.proposal.status === 'pending_review') {
+      await this.draftEffects(begun.effects, 'automation')
+      return { proposalId, applied: false, conflicted: false, status: 'pending_review', reason: 'approval-expired' }
+    }
+    await this.draftEffects(begun.effects, begun.proposal.actor) // T5 snapshot persisted
+
+    const provider = await this.deps.providerResolver(wire.connectionId)
+    const reRead = await provider.get(wire.targetRef)
+    const currentContent = reRead.markdown ?? ''
+    const actualHash = await hashKnowledgeContent(currentContent)
+
+    const resolved = transition(begun.proposal, { type: 'resolveHashCheck', actualHash, currentContent }, this.now())
+    if (resolved.proposal.status === 'conflict') {
+      // T7: nothing was written; conflictInfo + audit + push ride the engine effects.
+      await this.draftEffects(resolved.effects, 'automation')
+      return {
+        proposalId,
+        applied: false,
+        conflicted: true,
+        status: 'conflict',
+        reason: 'hash-mismatch',
+        currentHash: actualHash,
+        conflictInfo: this.toWireRecord(resolved.proposal).conflictInfo,
+      }
+    }
+
+    // execute-ops plan: the provider's mutation path (InMemory executes in memory; the real
+    // provider executes the kernel via its mutation adapter).
+    let appliedResult: CoreApplyResult
+    try {
+      appliedResult = await this.executeViaProvider(provider, resolved.proposal.ops, resolved.proposal)
+    } catch (error) {
+      if (error instanceof PartialApplyError) {
+        const failed = transition(
+          resolved.proposal,
+          {
+            type: 'applyOpsPartialFailure',
+            failedOpIndex: error.failedOpIndex,
+            message: `partial-apply: op ${error.failedOpIndex} failed, ${error.compensatedOps.length} inverse op(s) applied best-effort`,
+            actualHash,
+          },
+          this.now(),
+        )
+        await this.draftEffects(failed.effects, 'automation')
+        return {
+          proposalId,
+          applied: false,
+          conflicted: true,
+          status: 'conflict',
+          reason: 'partial-apply-rolled-back',
+          currentHash: actualHash,
+          conflictInfo: this.toWireRecord(failed.proposal).conflictInfo,
+        }
+      }
+      throw error
+    }
+    if (appliedResult.conflicted) {
+      // Defensive: provider-side drift between our check and its write — map through the same T7 transition.
+      const drifted = transition(
+        resolved.proposal,
+        { type: 'resolveHashCheck', actualHash: appliedResult.currentHash ?? actualHash, currentContent },
+        this.now(),
+      )
+      await this.draftEffects(drifted.effects, 'automation')
+      return {
+        proposalId,
+        applied: false,
+        conflicted: true,
+        status: 'conflict',
+        reason: appliedResult.reason ?? 'hash-mismatch',
+        currentHash: appliedResult.currentHash,
+        conflictInfo: this.toWireRecord(drifted.proposal).conflictInfo,
+      }
+    }
+
+    // §3.8: kernel-assigned ids exist only at apply time — bind $insertedBlockId placeholders
+    // in the persisted inverse ops to the concrete created ref.
+    const inverseOps =
+      appliedResult.createdRef && resolved.proposal.inverseOps
+        ? bindInsertedBlockId(resolved.proposal.inverseOps, appliedResult.createdRef.id)
+        : resolved.proposal.inverseOps
+
+    // Verify RE-READ (§3.1 same-reader rule): postHash proves the target's post-apply state.
+    const verifyRef = appliedResult.createdRef ?? wire.targetRef
+    const verified = await provider.get(verifyRef)
+    const postHash = await hashKnowledgeContent(verified.markdown ?? '')
+
+    const succeeded = transition(resolved.proposal, { type: 'applyOpsSucceeded', postHash }, this.now())
+    const finalProposal = inverseOps && inverseOps !== succeeded.proposal.inverseOps
+      ? { ...succeeded.proposal, inverseOps }
+      : succeeded.proposal
+    const effects = finalProposal === succeeded.proposal
+      ? succeeded.effects
+      : succeeded.effects.map((effect) =>
+          effect.kind === 'persist-proposal' ? { ...effect, proposal: finalProposal } : effect,
+        )
+    await this.draftEffects(effects, 'automation')
+    const result: BridgeApplyResult = {
+      proposalId,
+      applied: true,
+      conflicted: false,
+      status: 'applied',
+      appliedAt: finalProposal.appliedAt,
+    }
+    if (appliedResult.createdRef) result.createdRef = appliedResult.createdRef
+    return result
+  }
+
+  // -------------------------------------------------------------------------
+  // T10: rollback — RE-READ hash-check vs post-apply hash, then the inverse
+  // ops flow as a second apply pass (same HASH CHECK semantics).
+  // -------------------------------------------------------------------------
+
+  async rollback(proposalId: string): Promise<BridgeApplyResult> {
+    const wire = this.requireProposal(proposalId)
+    this.gate('knowledge.apply', wire.sessionId)
+    const core = this.toCoreRecord(wire)
+    if (core.status !== 'applied') {
+      // Typed guard mirroring the engine's closed table (§3.2): rollback from non-applied is T11-illegal.
+      throw new ProposalTransitionError(
+        core.status,
+        'rollback',
+        `Transition "rollback" is not allowed from status "${core.status}" (§3.2 table is closed)`,
+      )
+    }
+
+    const provider = await this.deps.providerResolver(wire.connectionId)
+    const reRead = await provider.get(wire.targetRef)
+    const currentContent = reRead.markdown ?? ''
+    const currentHash = await hashKnowledgeContent(currentContent)
+
+    let planned
+    try {
+      planned = transition(core, { type: 'rollback', currentHash }, this.now())
+    } catch (error) {
+      // The rollback itself conflicts (target drifted since apply): T7 semantics — persist
+      // conflictInfo + audit + push, no write (§3.2 T10 guard: "rollback сам конфликтует → T7").
+      if (error instanceof ProposalTransitionError && error.reason === 'rollback-hash-mismatch') {
+        const at = new Date(this.now()).toISOString()
+        const conflicted: CoreProposal = {
+          ...core,
+          status: 'conflict',
+          updatedAt: at,
+          statusHistory: [
+            ...core.statusHistory,
+            { from: core.status, to: 'conflict', at, actor: 'automation', reason: 'rollback-hash-mismatch' },
+          ],
+          conflictInfo: {
+            expectedHash: core.appliedHash ?? core.baseHash,
+            actualHash: currentHash,
+            currentContent,
+            reason: 'rollback-hash-mismatch',
+          },
+        }
+        this.deps.proposalsStore.save(this.toWireRecord(conflicted))
+        await this.deps.audit.append({
+          actor: 'automation',
+          action: 'knowledge.proposal.conflict',
+          target: this.auditTarget(conflicted),
+          detail: this.detail({ proposalId, reason: 'rollback-hash-mismatch', actualHash: currentHash }),
+        })
+        this.deps.push?.({ ref: conflicted.targetRef, change: 'updated' })
+        return {
+          proposalId,
+          applied: false,
+          conflicted: true,
+          status: 'conflict',
+          reason: 'rollback-hash-mismatch',
+          currentHash,
+          conflictInfo: this.toWireRecord(conflicted).conflictInfo,
+        }
+      }
+      throw error
+    }
+
+    // execute-inverse plan: same provider mutation-pass semantics as apply (RE-READ + hash-check
+    // inside the provider path); the engine effect carries the inverse ops.
+    const inverseEffect = planned.effects.find(
+      (effect): effect is Extract<TransitionEffect, { kind: 'execute-inverse' }> => effect.kind === 'execute-inverse',
+    )
+    await this.executeViaProvider(provider, inverseEffect?.ops ?? planned.proposal.inverseOps ?? [], planned.proposal)
+    await this.draftEffects(planned.effects, 'user')
+    return {
+      proposalId,
+      applied: true,
+      conflicted: false,
+      status: 'rolled_back',
+      appliedAt: planned.proposal.rolledBackAt,
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Reads + lazy TTL hygiene (§3.7)
+  // -------------------------------------------------------------------------
+
+  get(proposalId: string): KnowledgeProposalFileRecord | null {
+    return this.deps.proposalsStore.get(proposalId) as KnowledgeProposalFileRecord | null
+  }
+
+  list(filter?: ProposalListFilter): KnowledgeProposalFileRecord[] {
+    return this.deps.proposalsStore.list(filter) as KnowledgeProposalFileRecord[]
+  }
+
+  /**
+   * Lazy sweep (§3.7, no scheduler — invoked on bridge load): draft/pending_review past
+   * DRAFT_TTL_MS are file-deleted (auto-T4, audit rejected reason='ttl-expired'); approved past
+   * APPROVAL_TTL_MS are returned to pending_review by the store (audit approval_expired).
+   */
+  async sweepExpired(): Promise<{ discarded: string[]; approvalExpired: string[] }> {
+    const result = this.deps.proposalsStore.sweepExpired(this.now())
+    for (const id of result.discarded) {
+      await this.deps.audit.append({
+        actor: 'automation',
+        action: 'knowledge.proposal.rejected',
+        target: `knowledge:proposal/${id}`,
+        detail: this.detail({ proposalId: id, reason: 'ttl-expired' }),
+      })
+    }
+    for (const id of result.approvalExpired) {
+      const record = this.deps.proposalsStore.get(id)
+      await this.deps.audit.append({
+        actor: 'automation',
+        action: 'knowledge.proposal.approval_expired',
+        target: record ? siyuanDeepLink(record.targetRef) : `knowledge:proposal/${id}`,
+        detail: this.detail({ proposalId: id, reason: 'approval-expired' }),
+      })
+    }
+    return result
+  }
+
+  // -------------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------------
+
+  private requireProposal(proposalId: string): KnowledgeProposalFileRecord {
+    const record = this.deps.proposalsStore.get(proposalId) as KnowledgeProposalFileRecord | null
+    if (!record) throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
+    return record
+  }
+
+  /** Permission-gate call (§3.6) with the session-resolved mode; fail-closed when unresolved. */
+  private gate(action: KnowledgeAction, sessionId?: string): void {
+    const mode = this.deps.resolvePermissionMode?.(sessionId) ?? getPermissionMode(sessionId ?? DEFAULT_NO_SESSION)
+    this.assertAllowed(action, { workspaceId: this.deps.workspaceId, mode })
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
+  }
+
+  private auditTarget(proposal: { targetRef: KnowledgeRef }): string {
+    return siyuanDeepLink(proposal.targetRef)
+  }
+
+  private detail(fields: Record<string, unknown>): string {
+    const clean: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(fields)) if (value !== undefined) clean[key] = value
+    return JSON.stringify(clean)
+  }
+
+  /**
+   * Execute the engine's effect plan: persistence to the proposals store, audit lines, and
+   * knowledge:changed push. `read-target`/`execute-ops`/`execute-inverse` are consumed by the
+   * apply/rollback drivers directly — they never appear here by construction.
+   */
+  private async draftEffects(effects: TransitionEffect[], fallbackAuditActor: MutationActor): Promise<void> {
+    let auditTarget: string | null = null
+    for (const effect of effects) {
+      switch (effect.kind) {
+        case 'persist-proposal': {
+          this.deps.proposalsStore.save(this.toWireRecord(effect.proposal))
+          auditTarget = this.auditTarget(effect.proposal)
+          break
+        }
+        case 'delete-proposal-file':
+          this.deps.proposalsStore.remove(effect.proposalId)
+          break
+        case 'audit':
+          await this.deps.audit.append({
+            actor: SYSTEM_ACTOR_AUDIT_ACTIONS[effect.action] === true ? 'automation' : fallbackAuditActor,
+            action: effect.action,
+            target: auditTarget ?? 'knowledge:proposal',
+            detail: effect.detail ? JSON.stringify(effect.detail) : undefined,
+          })
+          break
+        case 'push-changed':
+          this.deps.push?.({ ref: effect.ref, change: effect.change })
+          break
+        // read-target / execute-ops / execute-inverse: consumed inline by apply()/rollback().
+      }
+    }
+  }
+
+  /**
+   * One mutation pass through the provider's adapter path: a fresh provider-side proposal carries
+   * the op batch (proof/permission gates are bridge-side, already executed) and provider
+   * applyMutation executes with its own RE-READ + hash-check (defense in depth).
+   */
+  private async executeViaProvider(
+    provider: KnowledgeProvider,
+    ops: MutationOp[],
+    proposal: CoreProposal,
+  ): Promise<CoreApplyResult> {
+    const registered = await provider.proposeMutation({
+      targetRef: proposal.targetRef,
+      ops,
+      selectionProofs: proposal.selectionProofs,
+      sessionId: proposal.sessionId,
+      actor: proposal.actor,
+    })
+    return provider.applyMutation(registered.id)
+  }
+}
+
+/** Render the engine's structured line diff as the unified-diff string the wire/UI expect. */
+function renderUnifiedDiff(diff: ProposalDiff): string {
+  const body = diff.lines
+    .map((line) => (line.kind === 'added' ? `+${line.text}` : line.kind === 'removed' ? `-${line.text}` : ` ${line.text}`))
+    .join('\n')
+  return `--- base\n+++ patched\n${body}`
+}
+
+/** Bind `$insertedBlockId[N]` placeholders in persisted inverse ops to the kernel-created id (§3.8). */
+function bindInsertedBlockId(ops: readonly MutationOp[], createdId: string): MutationOp[] {
+  const resolve = (value: string): string => value.replace(/\$insertedBlockId\[\d+\]/g, createdId)
+  return ops.map((op) => {
+    switch (op.op) {
+      case 'updateBlock':
+        return { ...op, blockId: resolve(op.blockId) }
+      case 'setAttribute':
+        return { ...op, blockId: resolve(op.blockId) }
+      case 'appendBlock':
+        return { ...op, documentId: resolve(op.documentId) }
+      default:
+        return op
+    }
+  })
+}

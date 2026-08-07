@@ -221,27 +221,24 @@ describe('InMemoryKnowledgeProvider.getContext', () => {
 });
 
 describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory P3 semantics)', () => {
-  test('update-block: propose builds diff/inverse, apply mutates the node', async () => {
+  test('updateBlock: propose → pending_review with diff, apply mutates the node', async () => {
     const provider = await seededProvider();
     const targetRef: KnowledgeRef = { scheme: 'siyuan', kind: 'document', id: 'doc-1' };
     const proposal = await provider.proposeMutation({
       targetRef,
-      op: { type: 'update-block', blockId: 'doc-1', markdown: '# Rewritten' },
+      ops: [{ op: 'updateBlock', blockId: 'doc-1', markdown: '# Rewritten' }],
       summary: 'rewrite doc-1',
     });
-    expect(proposal.status).toBe('pending');
+    expect(proposal.status).toBe('pending_review');
     expect(proposal.connectionId).toBe('test-connection');
-    expect(proposal.diffPreview.before).toContain('Integrating Craft with SiYuan engine.');
-    expect(proposal.diffPreview.after).toBe('# Rewritten');
-    expect(proposal.inversePatch).toEqual({
-      type: 'update-block',
-      blockId: 'doc-1',
-      markdown: '# Craft × SiYuan\n\nIntegrating Craft with SiYuan engine.',
-    });
-    expect(proposal.expiresAt).toBeGreaterThan(proposal.createdAt);
+    expect(proposal.diff?.base).toContain('Integrating Craft with SiYuan engine.');
+    expect(proposal.diff?.patched).toBe('# Rewritten');
+    expect(proposal.hashAlgorithm).toBe('sha256-canonical-v1');
+    expect(proposal.baseHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(proposal.statusHistory.map((entry) => `${entry.from}->${entry.to}`)).toEqual(['draft->pending_review']);
 
     const result = await provider.applyMutation(proposal.id);
-    expect(result).toMatchObject({ proposalId: proposal.id, applied: true, conflicted: false });
+    expect(result).toMatchObject({ proposalId: proposal.id, applied: true, conflicted: false, status: 'applied' });
     expect((await provider.get(targetRef)).markdown).toBe('# Rewritten');
   });
 
@@ -250,29 +247,31 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     const targetRef: KnowledgeRef = { scheme: 'siyuan', kind: 'document', id: 'doc-2' };
     const first = await provider.proposeMutation({
       targetRef,
-      op: { type: 'update-block', blockId: 'doc-2', markdown: 'v2' },
+      ops: [{ op: 'updateBlock', blockId: 'doc-2', markdown: 'v2' }],
       summary: 'first',
     });
     const second = await provider.proposeMutation({
       targetRef,
-      op: { type: 'update-block', blockId: 'doc-2', markdown: 'v3' },
+      ops: [{ op: 'updateBlock', blockId: 'doc-2', markdown: 'v3' }],
       summary: 'second',
     });
     expect((await provider.applyMutation(first.id)).applied).toBe(true);
     const conflicted = await provider.applyMutation(second.id);
     expect(conflicted.applied).toBe(false);
     expect(conflicted.conflicted).toBe(true);
+    expect(conflicted.status).toBe('conflict');
+    expect(conflicted.reason).toBe('hash-mismatch');
     expect(conflicted.currentHash).toBe(await hashKnowledgeContent('v2'));
   });
 
-  test('append-block creates a child under the target document', async () => {
+  test('appendBlock creates a child under the target document', async () => {
     const provider = await seededProvider();
     const proposal = await provider.proposeMutation({
       targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
-      op: { type: 'append-block', parentId: 'doc-1', markdown: 'Appended paragraph.' },
+      ops: [{ op: 'appendBlock', documentId: 'doc-1', markdown: 'Appended paragraph.' }],
       summary: 'append to doc-1',
     });
-    expect(proposal.diffPreview.after).toContain('Appended paragraph.');
+    expect(proposal.diff?.patched).toContain('Appended paragraph.');
     const result = await provider.applyMutation(proposal.id);
     expect(result.applied).toBe(true);
     expect(result.createdRef?.kind).toBe('block');
@@ -282,10 +281,10 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     expect(context.children.map((child) => child.blockId)).toContain(result.createdRef!.id);
   });
 
-  test('create-document does not need targetRef; apply returns createdRef and the doc is searchable', async () => {
+  test('createDocument does not need targetRef; apply returns createdRef and the doc is searchable', async () => {
     const provider = await seededProvider();
     const proposal = await provider.proposeMutation({
-      op: { type: 'create-document', notebookId: 'nb-1', path: '/Research/New Doc', markdown: 'hello kernel' },
+      ops: [{ op: 'createDocument', notebook: 'nb-1', path: '/Research/New Doc', title: 'New Doc', markdown: 'hello kernel' }],
       summary: 'new doc',
     });
     expect(proposal.targetRef.kind).toBe('document');
@@ -296,25 +295,24 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     expect((await provider.search({ query: 'hello kernel' })).items.map((hit) => hit.ref.id)).toContain(createdRef!.id);
   });
 
-  test('create-document against a missing notebook → typed NOT_FOUND', async () => {
+  test('createDocument against a missing notebook → typed NOT_FOUND', async () => {
     const provider = await seededProvider();
     const error = await catchKnowledgeError(() =>
       provider.proposeMutation({
-        op: { type: 'create-document', notebookId: 'ghost', path: '/x', markdown: '' },
+        ops: [{ op: 'createDocument', notebook: 'ghost', path: '/x', title: 'x', markdown: '' }],
         summary: 'x',
       }),
     );
     expect(error.code).toBe('NOT_FOUND');
   });
 
-  test('set-attribute: inversePatch captures the old value and apply updates the node', async () => {
+  test('setAttribute updates the node attribute', async () => {
     const provider = await seededProvider();
     const proposal = await provider.proposeMutation({
       targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-2' },
-      op: { type: 'set-attribute', targetId: 'doc-2', key: 'status', value: 'final' },
+      ops: [{ op: 'setAttribute', blockId: 'doc-2', name: 'status', value: 'final' }],
       summary: 'finalize doc-2',
     });
-    expect(proposal.inversePatch).toEqual({ type: 'set-attribute', targetId: 'doc-2', key: 'status', value: 'draft' });
     await provider.applyMutation(proposal.id);
     const node = await provider.get({ scheme: 'siyuan', kind: 'document', id: 'doc-2' });
     expect(node.attributes).toContainEqual({ key: 'status', value: 'final' });
@@ -323,14 +321,14 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
   test('missing targetRef → INVALID_REF; op/target mismatch → INVALID_REF', async () => {
     const provider = await seededProvider();
     const noTarget = await catchKnowledgeError(() =>
-      provider.proposeMutation({ op: { type: 'update-block', blockId: 'doc-1', markdown: 'x' }, summary: 'x' }),
+      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'doc-1', markdown: 'x' }], summary: 'x' }),
     );
     expect(noTarget.code).toBe('INVALID_REF');
 
     const mismatch = await catchKnowledgeError(() =>
       provider.proposeMutation({
         targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
-        op: { type: 'update-block', blockId: 'doc-2', markdown: 'x' },
+        ops: [{ op: 'updateBlock', blockId: 'doc-2', markdown: 'x' }],
         summary: 'x',
       }),
     );
@@ -344,12 +342,27 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
 
     const proposal = await provider.proposeMutation({
       targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
-      op: { type: 'update-block', blockId: 'doc-1', markdown: 'once' },
+      ops: [{ op: 'updateBlock', blockId: 'doc-1', markdown: 'once' }],
       summary: 'once',
     });
     expect((await provider.applyMutation(proposal.id)).applied).toBe(true);
     const twice = await catchKnowledgeError(() => provider.applyMutation(proposal.id));
     expect(twice.code).toBe('PROVIDER_ERROR');
+  });
+
+  test('multi-op proposal rejected when transactions capability is off', async () => {
+    const provider = await seededProvider();
+    const error = await catchKnowledgeError(() =>
+      provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'document', id: 'doc-1' },
+        ops: [
+          { op: 'updateBlock', blockId: 'doc-1', markdown: 'a' },
+          { op: 'appendBlock', documentId: 'doc-1', markdown: 'b' },
+        ],
+        summary: 'two ops',
+      }),
+    );
+    expect(error.code).toBe('UNSUPPORTED_OPERATION');
   });
 });
 

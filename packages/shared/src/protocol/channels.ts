@@ -151,9 +151,9 @@ export const RPC_CHANNELS = {
     UNWATCH: 'notes:unwatch',
     CHANGED: 'notes:changed',
   },
-  // knowledge — P1 read-only knowledge provider (spec 03). READ-ONLY set only:
-  // mutation channels (proposeMutation/applyMutation/discardMutation) and engine
-  // lifecycle (engineStart/engineStop) are P3/P7 and MUST NOT be added here.
+  // knowledge — P1 read-only knowledge provider (spec 03) plus P3 write-back
+  // mutation-proposal channels (spec 05). Engine lifecycle (engineStart/
+  // engineStop) remains P7 and MUST NOT be added here.
   knowledge: {
     LIST_CONNECTIONS: 'knowledge:listConnections',
     CAPABILITIES: 'knowledge:capabilities',
@@ -165,6 +165,16 @@ export const RPC_CHANNELS = {
     SNAPSHOT_GET: 'knowledge:snapshotGet',
     ENGINE_STATUS: 'knowledge:engineStatus',
     CHANGED: 'knowledge:changed',
+    // P3 write-back, spec 05 — safe mutation-proposal lifecycle. All seven are
+    // REMOTE_ELIGIBLE (workspace data lives on the workspace-owning server);
+    // proposals broadcast via CHANGED (ref of target + change:'updated').
+    PROPOSE_MUTATION: 'knowledge:proposeMutation',
+    APPROVE_PROPOSAL: 'knowledge:approveProposal',
+    REJECT_PROPOSAL: 'knowledge:rejectProposal',
+    APPLY_PROPOSAL: 'knowledge:applyProposal',
+    ROLLBACK_PROPOSAL: 'knowledge:rollbackProposal',
+    GET_PROPOSAL: 'knowledge:getProposal',
+    LIST_PROPOSALS: 'knowledge:listProposals',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)

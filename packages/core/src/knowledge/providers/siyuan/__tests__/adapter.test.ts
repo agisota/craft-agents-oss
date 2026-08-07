@@ -444,7 +444,7 @@ describe('P1 read-only contract', () => {
 
   test('proposeMutation/applyMutation reject UNSUPPORTED_OPERATION (P3, spec 05)', async () => {
     const propose = await expectKnowledgeError(
-      provider.proposeMutation({ op: { type: 'append-block', parentId: 'blk-9', markdown: 'x' }, summary: 'read-only probe' }),
+      provider.proposeMutation({ ops: [{ op: 'appendBlock', documentId: 'blk-9', markdown: 'x' }], summary: 'read-only probe' }),
       'UNSUPPORTED_OPERATION',
     );
     expect(propose.message).toContain('P3');

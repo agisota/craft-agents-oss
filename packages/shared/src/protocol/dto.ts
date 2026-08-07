@@ -673,6 +673,144 @@ export interface KnowledgeEngineStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Knowledge mutation safety — P3 write-back wire types (spec 05 K-05 §3.1/§3.2,
+// persistence shape in K-04 §3.3.4). Structural copy of the spec entities; core
+// provider-side mutations.ts (owner: P3-CORE) reconciles to these verbatim.
+// ---------------------------------------------------------------------------
+
+/**
+ * Proposal lifecycle (spec 05 §3.2 state machine T1–T11). `superseded` marks a
+ * pre-T9 conflict proposal after a manual rebase (T9: old file kept, entry in
+ * statusHistory). `discarded` is not a status — discard (T4) deletes the file.
+ */
+export type MutationProposalStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'approved'
+  | 'applying'
+  | 'conflict'
+  | 'applied'
+  | 'superseded'
+  | 'rolled_back'
+
+/** Who initiated the proposal / transition (spec 05 §3.1; audit actor union §3.8). */
+export type MutationActor = 'user' | 'agent' | 'automation'
+
+/** One entry of `MutationProposalRecord.statusHistory` (spec 05 §3.1). */
+export interface StatusHistoryEntry {
+  from: MutationProposalStatus
+  to: MutationProposalStatus
+  /** ISO-8601 timestamp of the transition. */
+  at: string
+  actor: MutationActor
+  reason?: string
+}
+
+/**
+ * Whitelisted ops for v1 (spec 05 §3.4.1 — absence of an op from this union IS
+ * the ban: no delete, no bulk, no SQL write). Admission guards (notebook/doc
+ * existence, markdown ≤ maxBlockBytes, selectionProof freshness, attribute
+ * name ∈ craft-*|knowledge-*) are enforced server-side at T1, not on the wire.
+ */
+export type MutationOp =
+  | { op: 'createDocument'; notebook: string; path: string; title: string; markdown: string }
+  | { op: 'appendBlock'; documentId: string; markdown: string }
+  | { op: 'updateBlock'; blockId: string; markdown: string } // only explicitly selected
+  | { op: 'setAttribute'; blockId: string; name: string; value: string } // only explicitly selected
+
+/**
+ * Machine-checkable proof of «explicitly selected» (spec 05 §3.1) — required
+ * per updateBlock/setAttribute op; ref must match the op target and
+ * `selectedAt` must be ≤ 24 h old at T1 (§3.4.1).
+ */
+export interface SelectionProof {
+  kind: 'surface-selection' | 'context-snapshot' | 'inspector-target'
+  /** knowledge-surface selection id | snapshotId (K-04) | inspector ref+ts. */
+  selectionId: string
+  ref: KnowledgeRef
+  /** ISO-8601; freshness verified at T1. */
+  selectedAt: string
+}
+
+/** `input` of knowledge:proposeMutation (server computes baseHash/baseReadAt at T1 READ). */
+export interface MutationInput {
+  /** One target per proposal in v1 (spec 05 §3.1; for createDocument this is the notebook). */
+  targetRef: KnowledgeRef
+  ops: MutationOp[]
+  /** One per updateBlock/setAttribute op; validated at T1. */
+  selectionProofs?: SelectionProof[]
+  sessionId?: string
+  summary?: string
+}
+
+/** RE-READ hash mismatch details (spec 05 §3.2 T7; also partial-apply rollback per §3.2 invariants). */
+export interface ConflictInfo {
+  baseHash: string
+  actualHash: string
+  /** RE-READ content at conflict time — rendered in the conflict card (§3.5). */
+  currentContent: string
+  /** ISO-8601 of the original READ the base hash was taken from. */
+  baseReadAt: string
+  /** e.g. 'hash-mismatch' (T7) | 'partial-apply-rolled-back' (§3.2 invariants). */
+  reason?: string
+}
+
+/**
+ * Result of knowledge:applyProposal / knowledge:rollbackProposal
+ * (spec 05 §3.3 flow + §3.8; applies to the rollback pass equally — rollback is
+ * itself a mutation pass with RE-READ + hash check).
+ */
+export interface ApplyResult {
+  proposalId: string
+  /** 'applied' | 'conflict' after apply; 'rolled_back' after rollback (T10). */
+  status: MutationProposalStatus
+  appliedAt?: string
+  conflictInfo?: ConflictInfo
+  /** Ref of the created document — createDocument ops only. */
+  createdRef?: KnowledgeRef
+  /** Correlator of the audit.jsonl entry (spec 05 §3.8). */
+  auditId?: string
+}
+
+/**
+ * Persisted proposal (spec 05 K-05 §3.1 + batch contract; file format K-04
+ * §3.3.4 `MutationProposalFile`, tmp+rewrite on every status change).
+ */
+export interface MutationProposalRecord {
+  id: string
+  connectionId: string
+  /** Initiating session (agent/automation proposals). */
+  sessionId?: string
+  targetRef: KnowledgeRef
+  ops: MutationOp[]
+  /** One per updateBlock/setAttribute op (spec 05 §3.1). */
+  selectionProofs: SelectionProof[]
+  /** sha256 of the canonical target serialization captured at READ (T1). */
+  baseHash: string
+  /** ISO-8601 of the READ (T1). */
+  baseReadAt: string
+  /** Canonical pre-apply serialization — source of inverseOps (may live in a separate file section, K-04 §3.3.4). */
+  preState: string
+  /** Unified diff built at T2 (pending_review), rendered by KnowledgeDiff. */
+  diff?: string
+  /** Computed at approve (T3) from preState; applied by rollback (T10). */
+  inverseOps?: MutationOp[]
+  hashAlgorithm: 'sha256-canonical-v1'
+  status: MutationProposalStatus
+  statusHistory: StatusHistoryEntry[]
+  /** v1: only a human approves (spec 05 §3.2); future delegation widens this. */
+  approvedBy?: 'user'
+  createdAt: string
+  approvedAt?: string
+  appliedAt?: string
+  conflictInfo?: ConflictInfo
+  actor: MutationActor
+}
+
+/** Wire name of the record on knowledge:* proposal channels (batch contract). */
+export type MutationProposal = MutationProposalRecord
+
+// ---------------------------------------------------------------------------
 // LLM connection types
 // ---------------------------------------------------------------------------
 

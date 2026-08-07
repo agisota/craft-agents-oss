@@ -36,6 +36,7 @@ import {
   isProjectsNavigation,
   isBrowserNavigation,
   isKnowledgeNavigation,
+  isDiffNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
@@ -51,6 +52,9 @@ import { KanbanBoardContainer } from './kanban/KanbanBoardContainer'
 import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
+import { KnowledgeDiff } from '../../knowledge/KnowledgeDiff'
+import { KnowledgeHome } from '../../knowledge/KnowledgeHome'
+import { KnowledgeProposals } from '../../knowledge/KnowledgeProposals'
 
 export interface MainContentPanelProps {
   /** Whether both sidebar and navigator are hidden (focus mode / CMD+.) */
@@ -427,9 +431,17 @@ export function MainContentPanel({
     }
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p className="text-sm">{t('knowledge.home.title')}</p>
-        </div>
+        <KnowledgeHome />
+      </Panel>
+    )
+  }
+
+  // Diff navigator - mutation-proposal review/conflict surface (P3, spec K-05 §3.5)
+  if (isDiffNavigation(navState)) {
+    const proposalId = navState.details?.type === 'diff' ? navState.details.proposalId : null
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        {proposalId ? <KnowledgeDiff proposalId={proposalId} /> : <KnowledgeProposals className="h-full" />}
       </Panel>
     )
   }

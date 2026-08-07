@@ -193,7 +193,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read channels — no mutation, no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + 7 P3 write-back channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -204,10 +204,16 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
       RPC_CHANNELS.knowledge.SNAPSHOT_GET,
       RPC_CHANNELS.knowledge.ENGINE_STATUS,
+      RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
+      RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
+      RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
+      RPC_CHANNELS.knowledge.APPLY_PROPOSAL,
+      RPC_CHANNELS.knowledge.ROLLBACK_PROPOSAL,
+      RPC_CHANNELS.knowledge.GET_PROPOSAL,
+      RPC_CHANNELS.knowledge.LIST_PROPOSALS,
     ])
-    // Roadmap P1 exit criterion: 0 write channels. Mutation channels (proposeMutation/
-    // applyMutation/discardMutation) and engine lifecycle (engineStart/engineStop) are P3/P7.
-    expect(HANDLED_CHANNELS.some((ch) => /mutation|engine(Start|Stop)/i.test(ch))).toBe(false)
+    // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
+    expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
   })

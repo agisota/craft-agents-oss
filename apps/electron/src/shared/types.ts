@@ -305,6 +305,10 @@ import type {
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
   KnowledgeEngineStatus,
+  MutationInput,
+  MutationProposal,
+  MutationProposalStatus,
+  ApplyResult,
   SiyuanSurfaceState,
 } from '@craft-agent/shared/protocol'
 
@@ -557,10 +561,10 @@ export interface ElectronAPI {
   unwatchNotes(workspaceId: string): Promise<void>
   onNotesChanged(callback: (payload: NoteChangedPayload | string) => void): () => void
 
-  // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03 §3.5.1).
+  // Knowledge (P1 read-only provider — spec 2026-08-07-siyuan-integration/03 §3.5.1;
+  // P3 write-back mutation proposals — spec 05).
   // Nested namespace via dotted CHANNEL_MAP keys + buildClientApi (browserPane pattern);
-  // the WS-mode preload needs no per-domain wiring. No mutation methods exist at P1 —
-  // propose/apply/discard land with P3 (spec 05).
+  // the WS-mode preload needs no per-domain wiring.
   knowledge: {
     listConnections(): Promise<KnowledgeConnection[]>
     capabilities(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeCapabilities>
@@ -577,6 +581,15 @@ export interface ElectronAPI {
       provenance?: ContextPayload['provenance']
     }): Promise<ContextSnapshot>
     getSnapshot(args: { workspaceId: string; snapshotId: string }): Promise<ContextSnapshot>
+    // P3 write-back (spec 05): mutation-proposal lifecycle. All seven REMOTE_ELIGIBLE;
+    // proposal changes also push via onChanged (ref of target + change:'updated').
+    proposeMutation(args: { connectionId: string; input: MutationInput }): Promise<MutationProposal>
+    approveProposal(args: { proposalId: string }): Promise<MutationProposal>
+    rejectProposal(args: { proposalId: string }): Promise<{ ok: true }>
+    applyProposal(args: { proposalId: string; workspaceId?: string }): Promise<ApplyResult>
+    rollbackProposal(args: { proposalId: string }): Promise<ApplyResult>
+    getProposal(args: { proposalId: string }): Promise<MutationProposal>
+    listProposals(args: { workspaceId?: string; connectionId?: string; status?: MutationProposalStatus }): Promise<MutationProposal[]>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void

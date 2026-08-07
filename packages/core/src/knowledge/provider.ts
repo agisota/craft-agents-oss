@@ -7,7 +7,29 @@
 import type { KnowledgeCapabilities } from './capabilities.ts';
 import type { ContextMode, ContextPayload } from './context.ts';
 import { KnowledgeError } from './errors.ts';
+import type { ApplyResult, MutationInput, MutationProposal } from './mutations.ts';
 import type { KnowledgeKind, KnowledgeRef } from './refs.ts';
+
+// Mutation types moved to ./mutations.ts at P3 (K-05 §3.1/§3.4.1, pure engine); provider.ts re-exports
+// them so existing imports from './provider.ts' (inmemory provider, siyuan adapter) keep working.
+export type {
+  ApplyResult,
+  ConflictInfo,
+  MutationActor,
+  MutationInput,
+  MutationOp,
+  MutationOpKind,
+  MutationProposal,
+  MutationProposalFile,
+  MutationProposalRecord,
+  MutationProposalStatus,
+  MutationRejectionReason,
+  PreStateSnapshot,
+  ProposalDiff,
+  ProposalDiffLine,
+  SelectionProof,
+  StatusHistoryEntry,
+} from './mutations.ts';
 
 // search (provider.ts)
 
@@ -53,50 +75,8 @@ export interface KnowledgeNode {
   blockCount?: number;            // для document
 }
 
-// mutations.ts — TYPE-ONLY declarations for P1: types exist so the contract compiles,
-// but P1 ships no mutation channels/handlers (proposeMutation/applyMutation land at P3).
-
-export type MutationOp =
-  | { type: 'create-document'; notebookId: string; path: string; markdown: string }
-  | { type: 'append-block'; parentId: string; markdown: string }
-  | { type: 'update-block'; blockId: string; markdown: string }
-  | { type: 'set-attribute'; targetId: string; key: string; value: string };
-
-export interface MutationInput {
-  targetRef?: KnowledgeRef;       // обязателен для всех op, кроме create-document
-  op: MutationOp;
-  baseHash?: string;              // хэш цели, прочитанный агентом до генерации patch
-  sessionId?: string;
-  summary: string;                // человекочитаемое описание для Craft diff UI
-}
-
-export interface MutationProposal {
-  id: string;
-  connectionId: string;
-  sessionId?: string;
-  input: MutationInput;
-  targetRef: KnowledgeRef;
-  baseHash: string;               // зафиксирован при создании; перепроверяется на apply
-  diffPreview: {
-    before: string;               // markdown цели ДО
-    after: string;                // после применения op
-    unified?: string;             // unified diff для KnowledgeDiff.tsx (новый компонент §8)
-  };
-  inversePatch: MutationOp;       // обратная операция (rollback, ADR-004)
-  status: 'pending' | 'approved' | 'applied' | 'conflicted' | 'discarded' | 'expired';
-  createdAt: number;
-  expiresAt: number;
-}
-
-export interface ApplyResult {
-  proposalId: string;
-  applied: boolean;
-  conflicted: boolean;            // RE-READ: hash mismatch → applied=false (att1 §11 flow)
-  currentHash?: string;           // фактический хэш при конфликте
-  appliedAt?: number;
-  createdRef?: KnowledgeRef;      // для create-document
-  auditId?: string;               // запись в knowledge_audit_log (K-04)
-}
+// Mutation types (MutationOp/MutationInput/MutationProposal/ApplyResult/SelectionProof/…) live in
+// ./mutations.ts at P3 (full K-05 engine) and are re-exported above — no second declaration here.
 
 // KnowledgeProvider interface (att1 §9, verbatim)
 
