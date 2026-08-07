@@ -18,17 +18,12 @@ import {
   Search,
   Plus,
   Trash2,
-  DatabaseZap,
-  Zap,
   Inbox,
   Globe,
   FolderOpen,
-  BookOpen,
   Cake,
   Calendar,
   Layers,
-  ListTodo,
-  Brain,
   Clock,
   Radio,
   Bot,
@@ -81,6 +76,13 @@ import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
+import { APP_NAV_DESTINATIONS_BY_ID } from "./nav-destinations"
+import {
+  UnifiedShellLayout,
+  ACTIVITY_RAIL_WIDTH,
+  ACTIVITY_RAIL_COLLAPSED_WIDTH,
+} from "../../platform"
+import { featureUnifiedShellAtom, activityRailCollapsedAtom } from "@/atoms/unified-shell"
 import { useSession } from "@/hooks/useSession"
 import { ensureSessionMessagesLoadedAtom } from "@/atoms/sessions"
 import { AppShellProvider, type AppShellContextType } from "@/context/AppShellContext"
@@ -554,6 +556,13 @@ function AppShellContent({
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
     return storage.get(storage.KEYS.sidebarVisible, !defaultCollapsed)
   })
+  // W1 unified shell: when the activity rail is mounted, the absolute sidebar
+  // sashes shift right by the rail width (+ one PANEL_GAP); zero when OFF.
+  const unifiedShellEnabled = useAtomValue(featureUnifiedShellAtom)
+  const activityRailCollapsed = useAtomValue(activityRailCollapsedAtom)
+  const unifiedRailOffset = unifiedShellEnabled
+    ? (activityRailCollapsed ? ACTIVITY_RAIL_COLLAPSED_WIDTH : ACTIVITY_RAIL_WIDTH) + PANEL_GAP
+    : 0
   const [sidebarWidth, setSidebarWidth] = React.useState(() => {
     return storage.get(storage.KEYS.sidebarWidth, 220)
   })
@@ -2465,6 +2474,9 @@ function AppShellContent({
           gap: PANEL_GAP,
         }}
       >
+        {/* W1 unified shell: rail left, surface tabs above the stack, inspector
+            right — UnifiedShellLayout renders children unchanged when OFF. */}
+        <UnifiedShellLayout>
         <PanelStackContainer
           sidebarSlot={
             <div
@@ -2518,9 +2530,9 @@ function AppShellContent({
                     // All Sessions: expandable with status children (sortable) + Flagged & Archived as trailing items
                     {
                       id: "nav:allSessions",
-                      title: t("sidebar.allSessions"),
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.sessions.labelKey),
                       label: String(workspaceSessionMetas.length),
-                      icon: Inbox,
+                      icon: APP_NAV_DESTINATIONS_BY_ID.sessions.icon,
                       variant: sessionFilter?.kind === 'allSessions' ? "default" : "ghost",
                       onClick: handleAllSessionsClick,
                       expandable: true,
@@ -2609,9 +2621,9 @@ function AppShellContent({
                     // --- Sources & Skills Section ---
                     {
                       id: "nav:sources",
-                      title: t("sidebar.sources"),
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.sources.labelKey),
                       label: String(sources.length),
-                      icon: DatabaseZap,
+                      icon: APP_NAV_DESTINATIONS_BY_ID.sources.icon,
                       variant: (isSourcesNavigation(navState) && !sourceFilter) ? "default" : "ghost",
                       onClick: handleSourcesClick,
                       dataTutorial: "sources-nav",
@@ -2666,9 +2678,9 @@ function AppShellContent({
                     },
                     {
                       id: "nav:skills",
-                      title: t("sidebar.skills"),
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.skills.labelKey),
                       label: String(skills.length),
-                      icon: Zap,
+                      icon: APP_NAV_DESTINATIONS_BY_ID.skills.icon,
                       variant: isSkillsNavigation(navState) ? "default" : "ghost",
                       onClick: handleSkillsClick,
                       contextMenu: {
@@ -2678,16 +2690,16 @@ function AppShellContent({
                     },
                     {
                       id: "nav:memory",
-                      title: t("sidebar.memory"),
-                      icon: Brain,
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.memory.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.memory.icon,
                       variant: isMemoryNavigation(navState) ? "default" : "ghost",
                       onClick: handleMemoryClick,
                     },
                     {
                       id: "nav:projects",
-                      title: t("sidebar.projects"),
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.projects.labelKey),
                       label: String(projects.length),
-                      icon: FolderKanban,
+                      icon: APP_NAV_DESTINATIONS_BY_ID.projects.icon,
                       // Highlight only when on Projects view itself, not when a child is "active" (jumped-to filter)
                       variant: isProjectsNavigation(navState) ? "default" : "ghost",
                       onClick: handleProjectsClick,
@@ -2709,16 +2721,16 @@ function AppShellContent({
                     },
                     {
                       id: "nav:notes",
-                      title: "Notes",
-                      icon: BookOpen,
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.notes.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.notes.icon,
                       variant: isNotesNavigation(navState) ? "default" : "ghost",
                       onClick: handleNotesClick,
                     },
                     {
                       id: "nav:automations",
-                      title: t("sidebar.automations"),
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.automations.labelKey),
                       label: String(automations.length),
-                      icon: ListTodo,
+                      icon: APP_NAV_DESTINATIONS_BY_ID.automations.icon,
                       variant: (isAutomationsNavigation(navState) && !automationFilter) ? "default" : "ghost",
                       onClick: handleAutomationsClick,
                       expandable: true,
@@ -2763,8 +2775,8 @@ function AppShellContent({
                     // --- Settings ---
                     {
                       id: "nav:settings",
-                      title: t("sidebar.settings"),
-                      icon: Settings,
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.settings.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.settings.icon,
                       variant: isSettingsNavigation(navState) ? "default" : "ghost",
                       onClick: () => handleSettingsClick(),
                     },
@@ -3699,6 +3711,7 @@ function AppShellContent({
           isCompact={isAutoCompact}
           isResizing={!!isResizing}
         />
+        </UnifiedShellLayout>
 
         {/* Sidebar Resize Handle (absolute, hidden in focused mode) */}
         {!effectiveSidebarAndNavigatorHidden && (
@@ -3717,9 +3730,9 @@ function AppShellContent({
             width: PANEL_SASH_HIT_WIDTH,
             top: PANEL_STACK_VERTICAL_OVERFLOW,
             bottom: PANEL_STACK_VERTICAL_OVERFLOW,
-            left: isSidebarVisible
+            left: unifiedRailOffset + (isSidebarVisible
               ? sidebarWidth + (PANEL_GAP / 2) - PANEL_SASH_HALF_HIT_WIDTH
-              : -PANEL_GAP,
+              : -PANEL_GAP),
             transition: isResizing === 'sidebar' ? undefined : 'left 0.15s ease-out',
           }}
         >
@@ -3751,6 +3764,7 @@ function AppShellContent({
             top: PANEL_STACK_VERTICAL_OVERFLOW,
             bottom: PANEL_STACK_VERTICAL_OVERFLOW,
             left:
+              unifiedRailOffset +
               (isSidebarVisible ? sidebarWidth + PANEL_GAP : PANEL_EDGE_INSET) +
               sessionListWidth +
               (PANEL_GAP / 2) -

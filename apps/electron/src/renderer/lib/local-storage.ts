@@ -62,6 +62,13 @@ export const KEYS = {
   // Workspace navigation state (workspace-scoped via suffix = workspaceSlug)
   // Stores the full URL search string so switching back restores panels/focus/sidebar
   workspaceUrl: 'workspace-url',
+
+  // Unified shell (W1)
+  featureUnifiedShell: 'feature-unified-shell', // Wave flag: unified shell chrome enabled
+  surfaceLayout: 'surface-layout', // Surface layout transport (URL search string; derived via platform/layout-snapshot.ts), workspace-scoped
+  activityRailCollapsed: 'activity-rail-collapsed',
+  inspectorVisible: 'inspector-visible',
+  inspectorSection: 'inspector-section',
 } as const
 
 export const EVENTS = {

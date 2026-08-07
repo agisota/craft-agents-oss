@@ -13,3 +13,6 @@ export * from './types/index.ts';
 
 // Re-export utilities
 export * from './utils/index.ts';
+
+// Re-export platform registries and model (pure TS, unified shell)
+export * from './platform/index.ts';
