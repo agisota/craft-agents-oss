@@ -64,11 +64,20 @@ export interface InstallOptions {
   execFileFn?: ExecFileFn
   fetchFn?: MarketplaceFetch
   now?: () => number
-  onProgress?: (phase: 'clone' | 'verify' | 'install' | 'fetch', detail?: string) => void
+  onProgress?: (phase: 'clone' | 'verify' | 'install' | 'fetch' | 'collision', detail?: string) => void
 }
 
 export type MarketplaceInstallResult =
-  | { id: string; kind: 'skillpack'; status: 'installed'; ref: string; skills: string[]; targets: string[] }
+  | {
+      id: string
+      kind: 'skillpack'
+      status: 'installed'
+      ref: string
+      skills: string[]
+      targets: string[]
+      /** Pre-existing unowned dirs, пропущенные гардой (не overwrite). */
+      collisions?: string[]
+    }
   | { id: string; kind: 'context-doc'; status: 'installed'; ref: string; targets: string[] }
   | { id: string; kind: 'tool'; status: 'deferred'; ref: string; toolName: string }
 
@@ -283,9 +292,21 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
 
     const installOne = (name: string, srcDir: string): void => {
       progress('install', name)
+      const target = join(skillsDir, name)
+      // Защита чужого контента: существующая директория без нашего install-маркера
+      // и без записи в registry — это НЕ наш артефакт (напр., ручная установка
+      // пользователя). Ошибку не бросаем — пропускаем с пометкой collision'.
+      if (existsSync(target)) {
+        const markerFile = join(target, INSTALL_MARKER_NAME)
+        const registryOwns = Object.values(readLock(paths.lockFile).entries).some((r) => r.targets.includes(target))
+        if (!existsSync(markerFile) && !registryOwns) {
+          progress('collision', `${name} — existing unowned directory kept`)
+          collisions.push(`${target} (unowned — existing user content kept)`)
+          return
+        }
+      }
       const staged = join(paths.tmpDir, `stage-${randomUUID()}`)
       copyCheckout(srcDir, staged)
-      const target = join(skillsDir, name)
       swapStagedIntoPlace(staged, target)
       record.targets.push(target)
       record.skills!.push(name)
@@ -293,10 +314,14 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       writeInstallMarker(target, record)
     }
 
+    const collisions: string[] = []
     try {
       if (entry.installMode === 'directory') {
         // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
         installOne(entry.id, staging)
+        if (collisions.length > 0) {
+          throw new MarketplaceIntegrityError(`cannot install '${entry.id}': target exists and is not ours — ${collisions[0]}`)
+        }
       } else {
         const skills = scanSkillDirs(staging, entry)
         if (skills.length === 0) {
@@ -313,7 +338,9 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       throw err
     }
     upsertLockRecord(paths.lockFile, record)
-    return { id: entry.id, kind: 'skillpack', status: 'installed', ref: entry.source.ref, skills: record.skills!, targets: record.targets }
+    const result: MarketplaceInstallResult = { id: entry.id, kind: 'skillpack', status: 'installed', ref: entry.source.ref, skills: record.skills!, targets: record.targets }
+    if (collisions.length > 0 && result.kind === 'skillpack') result.collisions = collisions
+    return result
   } finally {
     rmSync(staging, { recursive: true, force: true })
   }

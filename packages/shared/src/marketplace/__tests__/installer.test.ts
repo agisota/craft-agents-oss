@@ -147,6 +147,59 @@ describe('installEntry (skillpack, directory mode)', () => {
   })
 })
 
+describe('installEntry (unowned target guard)', () => {
+  const GUARD_ENTRY: MarketplaceEntry = {
+    id: 'guard-pack',
+    kind: 'skillpack',
+    title: 'Guard Pack',
+    descriptionRu: 'Пак со скиллами, один из которых конфликтует с юзерским',
+    source: { type: 'github', repo: 'owner/guard', ref: REF },
+  }
+
+  const guardGit: ExecFileFn = async (_file, args, options) => {
+    if (args.includes('checkout')) {
+      mkdirSync(join(options.cwd!, 'review'), { recursive: true })
+      writeFileSync(join(options.cwd!, 'review', 'SKILL.md'), '# Pack Review')
+      mkdirSync(join(options.cwd!, 'deploy'), { recursive: true })
+      writeFileSync(join(options.cwd!, 'deploy', 'SKILL.md'), '# Pack Deploy')
+    }
+    return { stdout: args[0] === 'rev-parse' ? `${REF}\n` : '', stderr: '' }
+  }
+
+  it('keeps a pre-existing unowned skill dir instead of overwriting it', async () => {
+    const userSkill = join(skillsDir, 'review')
+    mkdirSync(userSkill, { recursive: true })
+    writeFileSync(join(userSkill, 'SKILL.md'), '# USER content — must survive')
+
+    const result = await installEntry(GUARD_ENTRY, { configDir, skillsDir, execFileFn: guardGit })
+    const skillResult = result as { collisions?: string[]; skills: string[] }
+
+    // Юзерская директория не тронута и в collision-списке:
+    expect(readFileSync(join(userSkill, 'SKILL.md'), 'utf8')).toBe('# USER content — must survive')
+    expect(skillResult.collisions?.some((c) => c.includes(userSkill))).toBe(true)
+    // Соседний скилл всё-таки встал:
+    expect(skillResult.skills).toEqual(['deploy'])
+    expect(existsSync(join(skillsDir, 'deploy', 'SKILL.md'))).toBe(true)
+    // В lock попала только наша цель:
+    const record = readLock(marketplacePaths(configDir).lockFile).entries['guard-pack']
+    expect(record?.targets).toEqual([join(skillsDir, 'deploy')])
+  })
+
+  it('directory mode: refuses to overwrite an unowned existing dir', async () => {
+    const userPack = join(skillsDir, 'mega-pack')
+    mkdirSync(userPack, { recursive: true })
+    writeFileSync(join(userPack, 'SKILL.md'), '# USER pack')
+
+    await expect(
+      installEntry(
+        { ...GUARD_ENTRY, id: 'mega-pack', installMode: 'directory' as const },
+        { configDir, skillsDir, execFileFn: guardGit },
+      ),
+    ).rejects.toThrow('not ours')
+    expect(readFileSync(join(userPack, 'SKILL.md'), 'utf8')).toBe('# USER pack')
+  })
+})
+
 describe('installEntry (kind:tool)', () => {
   it('rejects tools missing from the toolchain manifest', async () => {
     const entry: MarketplaceEntry = {
