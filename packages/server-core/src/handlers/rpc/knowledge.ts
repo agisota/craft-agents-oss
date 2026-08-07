@@ -80,6 +80,7 @@ import {
   KnowledgeContextSnapshotsStore,
   KnowledgeMutationProposalsStore,
   KnowledgePublicationService,
+  KnowledgePublishDraftsStore,
   credentialIdFromRef,
 } from '../../knowledge'
 import {
@@ -415,14 +416,20 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     if (workspaces.length === 1 && only) return { rootPath: only.rootPath, workspaceId: only.id }
     throw new CodedError('INVALID_REF', `knowledge: cannot resolve workspace for connection '${record.id}'`)
   }
-
   /** Proposal-id-only channels: locate the owning workspace by scanning getWorkspaces(). */
-  async function locateProposalBridge(proposalId: string): Promise<{ bridge: KnowledgeBridgeService; record: KnowledgeProposalFileRecord }> {
+  async function locateProposalBridge(proposalId: string): Promise<{
+    bridge: KnowledgeBridgeService
+    record: KnowledgeProposalFileRecord
+    rootPath: string
+    workspaceId: string
+  }> {
     for (const workspace of getWorkspaces()) {
       const bridge = bridgeFor(workspace.rootPath, workspace.id)
       await bridge.sweepExpired()
       const record = bridge.get(proposalId)
-      if (record) return { bridge, record }
+      if (record) {
+        return { bridge, record, rootPath: workspace.rootPath, workspaceId: workspace.id }
+      }
     }
     throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
   }
@@ -593,18 +600,37 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   })
 
   // ——— APPLY_PROPOSAL({proposalId, workspaceId?}) → ApplyResult ———
+  // After a successful apply, fail-soft auto-finalize any matching publish draft that is
+  // still 'publishing' for this proposalId (so UI chip works without a separate finalize hop).
   server.handle(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, async (_ctx, args: KnowledgeApplyProposalArgs): Promise<ApplyResult> => {
     const proposalId = requireProposalId(args)
+    let rootPath: string
+    let workspaceId: string | undefined
+    let bridge: KnowledgeBridgeService
     if (args?.workspaceId) {
-      const bridge = bridgeFor(requireWorkspaceRoot(args.workspaceId), args.workspaceId)
+      workspaceId = args.workspaceId
+      rootPath = requireWorkspaceRoot(workspaceId)
+      bridge = bridgeFor(rootPath, workspaceId)
       await bridge.sweepExpired()
       if (!bridge.get(proposalId)) {
         throw new CodedError('NOT_FOUND', `Knowledge mutation proposal not found: ${proposalId}`)
       }
-      return withProposalTransitions(() => bridge.apply(proposalId))
+    } else {
+      const located = await locateProposalBridge(proposalId)
+      bridge = located.bridge
+      rootPath = located.rootPath
+      workspaceId = located.workspaceId
     }
-    const { bridge } = await locateProposalBridge(proposalId)
-    return withProposalTransitions(() => bridge.apply(proposalId))
+    const result = await withProposalTransitions(() => bridge.apply(proposalId))
+    if ((result.status === 'applied' || result.applied) && rootPath) {
+      await tryAutoFinalizePublication({
+        rootPath,
+        proposalId,
+        createdRef: result.createdRef,
+        log,
+      })
+    }
+    return result
   })
 
   // ——— ROLLBACK_PROPOSAL({proposalId}) → ApplyResult ———
@@ -638,8 +664,40 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   // P4 publication pipeline (spec 06) — distill → prepare → apply(propose) →
   // finalize. Drafts/publications/links live under {workspaceRoot}/knowledge/.
   // -------------------------------------------------------------------------
-
   const publications = new KnowledgePublicationService()
+
+  /**
+   * Fail-soft: after APPLY_PROPOSAL succeeds, finalize any matching draft still in
+   * 'publishing' for this proposalId. Never throws into the apply response.
+   */
+  async function tryAutoFinalizePublication(args: {
+    rootPath: string
+    proposalId: string
+    createdRef?: KnowledgeRef
+    log: { debug: (...a: unknown[]) => void; warn: (...a: unknown[]) => void }
+  }): Promise<void> {
+    try {
+      const drafts = new KnowledgePublishDraftsStore(args.rootPath)
+      const match = drafts.list({ status: 'publishing' }).find((d) => d.proposalId === args.proposalId)
+      if (!match) return
+      const appliedDocRef =
+        args.createdRef ??
+        (match.targetDocId
+          ? { scheme: 'siyuan' as const, kind: 'document' as const, id: match.targetDocId }
+          : undefined)
+      await publications.finalize({
+        workspaceRoot: args.rootPath,
+        draftId: match.id,
+        proposalId: args.proposalId,
+        appliedDocRef,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      args.log.debug(
+        `knowledge.applyProposal: auto-finalize failed for proposal ${args.proposalId} (user can retry finalize): ${message}`,
+      )
+    }
+  }
 
   /** Map plain service Errors (P4 service throws Error, not KnowledgeError) onto CodedError. */
   function toPublishError(error: unknown, prefix: string): unknown {
@@ -824,8 +882,8 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     }
 
     // Contract: finalize only after P3 apply — proposal must be 'applied'.
-    // Prefer bridge lookup when we can resolve the workspace; otherwise require appliedDocRef
-    // and still reject unknown proposal ids via store scan when possible.
+    // Prefer stored proposal.createdRef so create-mode finalize works after reload without UI appliedDocRef.
+    let appliedDocRef = args.appliedDocRef
     if (workspaceId) {
       const bridge = bridgeFor(rootPath, workspaceId)
       await bridge.sweepExpired()
@@ -839,6 +897,13 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
           `knowledge.publishFinalize: proposal '${args.proposalId}' status is '${proposal.status}', expected 'applied'`,
         )
       }
+      const draft = publications.getDraft(rootPath, args.draftId)
+      appliedDocRef =
+        args.appliedDocRef ??
+        proposal.createdRef ??
+        (draft?.targetDocId
+          ? { scheme: 'siyuan', kind: 'document', id: draft.targetDocId }
+          : undefined)
     }
 
     try {
@@ -846,7 +911,7 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         workspaceRoot: rootPath,
         draftId: args.draftId,
         proposalId: args.proposalId,
-        appliedDocRef: args.appliedDocRef,
+        appliedDocRef,
       })
     } catch (error) {
       throw toPublishError(error, 'knowledge.publishFinalize')

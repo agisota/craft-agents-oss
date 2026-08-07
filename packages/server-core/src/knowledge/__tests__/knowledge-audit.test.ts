@@ -92,6 +92,7 @@ describe('action strings (K-05 §3.8, full list)', () => {
       'knowledge.proposal.approval_expired',
       'knowledge.snapshot.created',
       'knowledge.publication.created',
+      'publish.applied',
       'knowledge.link.added',
       'knowledge.link.removed',
     ])

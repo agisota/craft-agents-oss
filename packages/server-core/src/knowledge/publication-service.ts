@@ -576,7 +576,9 @@ export class KnowledgePublicationService {
       (draft.targetDocId
         ? { scheme: 'siyuan', kind: 'document', id: draft.targetDocId }
         : (() => {
-            throw new Error('finalize: appliedDocRef required when draft has no targetDocId')
+            throw new Error(
+              'finalize: appliedDocRef required when draft has no targetDocId (persist proposal.createdRef on apply, or pass appliedDocRef)',
+            )
           })())
 
     const publishedAt = new Date(this.now()).toISOString()
@@ -618,7 +620,7 @@ export class KnowledgePublicationService {
 
     await audit.append({
       actor: 'user',
-      action: 'knowledge.publication.created',
+      action: 'publish.applied',
       target: `siyuan://blocks/${docRef.id}`,
       detail: JSON.stringify({
         publicationId,

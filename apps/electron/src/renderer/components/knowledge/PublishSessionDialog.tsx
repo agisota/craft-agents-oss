@@ -120,41 +120,52 @@ export interface PublicationRecord {
 export interface KnowledgePublishApi {
   listConnections(): Promise<Array<{ id: string; label?: string }>>
   publishDistill(args: {
-    workspaceId?: string
     connectionId: string
     sessionId?: string
     runIds?: string[]
     language?: string
+    workspaceId?: string
   }): Promise<PublishDraft>
-  publishGetDraft(args: { draftId: string; workspaceId?: string }): Promise<PublishDraft | null>
+  publishGetDraft(args: {
+    draftId: string
+    connectionId?: string
+    workspaceId?: string
+  }): Promise<PublishDraft | null>
   publishUpdateDraft(args: {
     draftId: string
+    connectionId?: string
     workspaceId?: string
     title?: string
     markdown?: string
   }): Promise<PublishDraft>
   publishPrepare(args: {
     draftId: string
-    workspaceId?: string
+    connectionId: string
     notebookId: string
     path: string
     adoptExisting?: boolean
+    workspaceId?: string
   }): Promise<PublishPrepareResult>
   publishApply(args: {
     draftId: string
+    connectionId: string
     workspaceId?: string
   }): Promise<PublishApplyResult>
   publishFinalize(args: {
     draftId: string
     proposalId: string
+    connectionId?: string
     workspaceId?: string
+    appliedDocRef?: { scheme: string; kind: string; id: string }
   }): Promise<PublishApplyResult | PublicationRecord>
   publishList(args: {
+    connectionId?: string
     workspaceId?: string
     sessionId?: string
     runId?: string
   }): Promise<PublicationRecord[]>
   listLinks?(args: {
+    connectionId?: string
     workspaceId?: string
     craftId?: string
     knowledgeId?: string
@@ -300,6 +311,7 @@ export function PublishSessionDialog({
     try {
       const next = await api.publishUpdateDraft({
         draftId: draft.id,
+        connectionId,
         workspaceId: workspaceId ?? undefined,
         title: editTitle,
         markdown: editMarkdown,
@@ -315,14 +327,14 @@ export function PublishSessionDialog({
     } finally {
       setBusy(false)
     }
-  }, [draft, editMarkdown, editTitle, t, workspaceId])
+  }, [connectionId, draft, editMarkdown, editTitle, t, workspaceId])
 
   const runPrepare = React.useCallback(
     async (adoptExisting = false) => {
       if (!draft) return
       const api = resolveKnowledgePublishApi()
-      if (!api) {
-        setError(t('knowledge.publish.error.generic'))
+      if (!api || !connectionId) {
+        setError(t(api ? 'knowledge.publish.emptyConnections' : 'knowledge.publish.error.generic'))
         return
       }
       const nb = notebookId.trim()
@@ -336,6 +348,7 @@ export function PublishSessionDialog({
       try {
         const result = await api.publishPrepare({
           draftId: draft.id,
+          connectionId,
           workspaceId: workspaceId ?? undefined,
           notebookId: nb,
           path: p,
@@ -353,14 +366,14 @@ export function PublishSessionDialog({
         setBusy(false)
       }
     },
-    [draft, notebookId, path, t, workspaceId],
+    [connectionId, draft, notebookId, path, t, workspaceId],
   )
 
   const runApply = React.useCallback(async () => {
     if (!draft) return
     const api = resolveKnowledgePublishApi()
-    if (!api) {
-      setError(t('knowledge.publish.error.generic'))
+    if (!api || !connectionId) {
+      setError(t(api ? 'knowledge.publish.emptyConnections' : 'knowledge.publish.error.generic'))
       return
     }
     setBusy(true)
@@ -368,6 +381,7 @@ export function PublishSessionDialog({
     try {
       const result = await api.publishApply({
         draftId: draft.id,
+        connectionId,
         workspaceId: workspaceId ?? undefined,
       })
       setProposalId(result.proposalId)
@@ -395,7 +409,7 @@ export function PublishSessionDialog({
     } finally {
       setBusy(false)
     }
-  }, [draft, navigate, t, workspaceId])
+  }, [connectionId, draft, navigate, t, workspaceId])
 
   const runFinalize = React.useCallback(async () => {
     if (!draft || !proposalId) return
@@ -404,13 +418,20 @@ export function PublishSessionDialog({
       setError(t('knowledge.publish.error.generic'))
       return
     }
+    const appliedDocRef = docRef
+      ? { scheme: 'siyuan' as const, kind: docRef.kind, id: docRef.id }
+      : draft.targetDocId
+        ? { scheme: 'siyuan' as const, kind: 'document', id: draft.targetDocId }
+        : undefined
     setBusy(true)
     setError(null)
     try {
       const result = await api.publishFinalize({
         draftId: draft.id,
         proposalId,
+        connectionId,
         workspaceId: workspaceId ?? undefined,
+        appliedDocRef,
       })
       const asApply = result as PublishApplyResult
       if (asApply.docRef) {
@@ -436,7 +457,7 @@ export function PublishSessionDialog({
     } finally {
       setBusy(false)
     }
-  }, [draft, proposalId, t, workspaceId])
+  }, [connectionId, docRef, draft, proposalId, t, workspaceId])
 
   const stepIndex = STEPS.indexOf(step)
 
@@ -514,20 +535,24 @@ export function PublishSessionDialog({
                 </div>
               )}
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Notebook id</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('knowledge.publish.field.notebookId')}
+                </span>
                 <Input
                   value={notebookId}
                   onChange={(e) => setNotebookId(e.target.value)}
-                  placeholder="notebook id"
+                  placeholder={t('knowledge.publish.field.notebookIdPlaceholder')}
                   disabled={busy}
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Path</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t('knowledge.publish.field.path')}
+                </span>
                 <Input
                   value={path}
                   onChange={(e) => setPath(e.target.value)}
-                  placeholder="/folder/doc"
+                  placeholder={t('knowledge.publish.field.pathPlaceholder')}
                   disabled={busy}
                 />
               </label>
@@ -561,7 +586,7 @@ export function PublishSessionDialog({
               <p className="text-muted-foreground">
                 {draft?.status === 'published'
                   ? t('knowledge.publish.step.done')
-                  : t('knowledge.publish.mode.create')}
+                  : t('knowledge.publish.done.proposalCreated')}
               </p>
               {proposalId && (
                 <button

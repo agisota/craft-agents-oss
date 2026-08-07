@@ -176,6 +176,7 @@ export class KnowledgeBridgeService {
     if (core.approvedBy !== undefined) record.approvedBy = core.approvedBy
     if (core.approvedAt !== undefined) record.approvedAt = core.approvedAt
     if (core.appliedAt !== undefined) record.appliedAt = core.appliedAt
+    if (core.createdRef !== undefined) record.createdRef = core.createdRef
     if (core.conflictInfo !== undefined) record.conflictInfo = core.conflictInfo
     return record
   }
@@ -210,6 +211,7 @@ export class KnowledgeBridgeService {
     if (wire.appliedAt !== undefined) core.appliedAt = wire.appliedAt
     if (wire.appliedHash !== undefined) core.appliedHash = wire.appliedHash
     if (wire.rolledBackAt !== undefined) core.rolledBackAt = wire.rolledBackAt
+    if (wire.createdRef !== undefined) core.createdRef = wire.createdRef
     if (wire.conflictInfo !== undefined) core.conflictInfo = wire.conflictInfo
     return core
   }
@@ -513,14 +515,20 @@ export class KnowledgeBridgeService {
         const postHash = await hashKnowledgeContent(verified.markdown ?? '')
 
         const succeeded = transition(current, { type: 'applyOpsSucceeded', postHash }, this.now())
-        const finalProposal = inverseOps && inverseOps !== succeeded.proposal.inverseOps
+        let finalProposal = inverseOps && inverseOps !== succeeded.proposal.inverseOps
           ? { ...succeeded.proposal, inverseOps }
           : succeeded.proposal
-        const effects = finalProposal === succeeded.proposal
-          ? succeeded.effects
-          : succeeded.effects.map((effect) =>
-              effect.kind === 'persist-proposal' ? { ...effect, proposal: finalProposal } : effect,
-            )
+        // Persist kernel-created ref on the proposal record so publish finalize can resolve
+        // the doc id after reload without the UI re-supplying appliedDocRef.
+        if (appliedResult.createdRef) {
+          finalProposal = { ...finalProposal, createdRef: appliedResult.createdRef }
+        }
+        const effects =
+          finalProposal === succeeded.proposal
+            ? succeeded.effects
+            : succeeded.effects.map((effect) =>
+                effect.kind === 'persist-proposal' ? { ...effect, proposal: finalProposal } : effect,
+              )
         await this.draftEffects(effects, 'automation')
         const result: BridgeApplyResult = {
           proposalId,

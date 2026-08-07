@@ -146,6 +146,8 @@ export interface MutationProposal {
   updatedAt?: string; // engine extra (не в wire DTO): момент последнего решения; engine всегда проставляет
   approvedAt?: string;
   appliedAt?: string;
+  /** Kernel-created document/block ref after successful apply (createDocument/appendBlock). Persist so finalize survives reload without UI appliedDocRef. */
+  createdRef?: KnowledgeRef;
   rolledBackAt?: string;
 }
 

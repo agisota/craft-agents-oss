@@ -20,7 +20,13 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import { computeInverseOps, type MutationOp, type SelectionProof } from '../../../mutations.ts';
+import {
+  INSERTED_BLOCK_ID_REF,
+  computeInverseOps,
+  type MutationOp,
+  type SelectionProof,
+} from '../../../mutations.ts';
+import { PROVENANCE_ATTR } from '../../../publications.ts';
 import { hashKnowledgeContent, type ApplyResult, type MutationInput, type MutationProposal } from '../../../provider.ts';
 import type { KnowledgeRef } from '../../../refs.ts';
 import { SiyuanKnowledgeProvider } from '../adapter.ts';
@@ -290,5 +296,54 @@ describe('executeViaProvider bridge pass — InMemory-equivalent scenarios over 
       currentHash: await hashKnowledgeContent('CONCURRENT EDIT'),
     });
     expect(calls.every((call) => call.endpoint !== '/api/block/appendBlock')).toBe(true);
+  });
+
+  test('publish batch: createDocument + setAttribute($insertedBlockId[0]) multi-op applies attrs on created doc', async () => {
+    // Mirrors production buildPublishOps create path: one proposeMutation with create +
+    // provenance setAttribute ops targeting $insertedBlockId[0], then a single applyMutation.
+    const { provider, state, calls } = makeKernel();
+    const body = '# Published\n\nSession distill body.\n';
+    const ops: MutationOp[] = [
+      {
+        op: 'createDocument',
+        notebook: 'nb-1',
+        path: '/Inbox/Publish Batch',
+        title: 'Publish Batch',
+        markdown: body,
+      },
+      {
+        op: 'setAttribute',
+        blockId: `${INSERTED_BLOCK_ID_REF}[0]`,
+        name: PROVENANCE_ATTR.sourceSessionId,
+        value: 'sess-publish-1',
+      },
+      {
+        op: 'setAttribute',
+        blockId: `${INSERTED_BLOCK_ID_REF}[0]`,
+        name: PROVENANCE_ATTR.contentHash,
+        value: 'a'.repeat(64),
+      },
+    ];
+
+    const applied = await executeViaProvider(provider, ops, { targetRef: NB_REF });
+    expect(applied).toMatchObject({ applied: true, conflicted: false, status: 'applied' });
+    expect(applied.createdRef).toEqual({ scheme: 'siyuan', kind: 'document', id: 'doc-new-1' });
+    expect(state.docs.get('doc-new-1')).toEqual({
+      markdown: body,
+      notebook: 'nb-1',
+      hPath: '/Inbox/Publish Batch',
+    });
+    // custom-* IAL mapping: craft-* → custom-craft-*
+    expect(state.attrs.get('doc-new-1')).toMatchObject({
+      'custom-craft-source-session-id': 'sess-publish-1',
+      'custom-craft-content-hash': 'a'.repeat(64),
+    });
+    // create once, then two setBlockAttrs against the kernel-assigned id (not the placeholder)
+    expect(calls.filter((c) => c.endpoint === '/api/filetree/createDocWithMd')).toHaveLength(1);
+    const attrCalls = calls.filter((c) => c.endpoint === '/api/attr/setBlockAttrs');
+    expect(attrCalls).toHaveLength(2);
+    for (const call of attrCalls) {
+      expect(call.body.id).toBe('doc-new-1');
+    }
   });
 });

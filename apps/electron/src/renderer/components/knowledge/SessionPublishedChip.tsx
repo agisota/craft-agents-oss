@@ -40,8 +40,33 @@ export function SessionPublishedChip({ sessionId, className }: SessionPublishedC
         return
       }
       try {
-        const list = await api.publishList({ sessionId })
-        if (!cancelled) setPubs(Array.isArray(list) ? list : [])
+        const listApi =
+          api.listConnections ??
+          (window.electronAPI?.knowledge as
+            | { listConnections?: () => Promise<Array<{ id: string }>> }
+            | undefined)?.listConnections
+        const connections =
+          typeof listApi === 'function' ? await listApi() : ([] as Array<{ id: string }>)
+        if (cancelled) return
+
+        if (!Array.isArray(connections) || connections.length === 0) {
+          // Fall back without connectionId when none are configured.
+          const list = await api.publishList({ sessionId })
+          if (!cancelled) setPubs(Array.isArray(list) ? list : [])
+          return
+        }
+
+        let found: PublicationRecord[] = []
+        for (const conn of connections) {
+          if (!conn?.id) continue
+          const list = await api.publishList({ sessionId, connectionId: conn.id })
+          if (cancelled) return
+          if (Array.isArray(list) && list.length > 0) {
+            found = list
+            break
+          }
+        }
+        if (!cancelled) setPubs(found)
       } catch {
         if (!cancelled) setPubs([])
       }

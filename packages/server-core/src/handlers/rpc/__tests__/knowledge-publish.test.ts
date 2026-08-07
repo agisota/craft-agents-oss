@@ -18,6 +18,7 @@ import type { CredentialId } from '@craft-agent/shared/credentials'
 import type { HandlerFn, RequestContext, RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../../handler-deps'
 import type {
+  ApplyResult,
   KnowledgeConnection,
   KnowledgeProvider,
   PublishApplyResult,
@@ -56,6 +57,30 @@ function useInMemoryProvider() {
       constructor(options: { connection: KnowledgeConnection; token: string }) {
         this.inner = new InMemoryKnowledgeProvider({
           connectionId: options.connection.id,
+          // Match production publish batch: createDocument + provenance setAttribute ops.
+          capabilities: {
+            provider: 'memory',
+            version: '0.0.0-inmemory',
+            minSupportedVersion: '0.0.0',
+            features: {
+              search: true,
+              backlinks: true,
+              attributes: true,
+              databases: true,
+              assets: true,
+              liveReference: true,
+              watch: false,
+              deepLinks: true,
+            },
+            mutations: {
+              createDocument: true,
+              appendBlock: true,
+              updateBlock: true,
+              setAttribute: true,
+              transactions: true,
+              rollback: true,
+            },
+          },
           seed: {
             nodes: [
               {
@@ -412,6 +437,131 @@ describe('publishApply + finalize', () => {
     expect(finalized.status).toBe('published')
     expect(finalized.publicationId).toMatch(/^pub_/)
     expect(finalized.docRef).toEqual({ scheme: 'siyuan', kind: 'document', id: 'doc_pub_1' })
+  })
+
+  it('finalize create uses proposal.createdRef when appliedDocRef omitted', async () => {
+    useInMemoryProvider()
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    const { invoke } = createHarness()
+    const draft = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_DISTILL, {
+      connectionId: 'conn-1',
+      sessionId: 'sess_created_ref',
+      messages: SAMPLE_MESSAGES,
+    })) as PublishDraft
+    await invoke(RPC_CHANNELS.knowledge.PUBLISH_PREPARE, {
+      draftId: draft.id,
+      connectionId: 'conn-1',
+      notebookId: 'nb-1',
+      path: '/Research/Created Ref Path',
+    })
+    const applied = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_APPLY, {
+      draftId: draft.id,
+      connectionId: 'conn-1',
+    })) as PublishApplyResult
+
+    // Real apply path: approve + APPLY_PROPOSAL persists createdRef on the proposal record.
+    await invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL, { proposalId: applied.proposalId })
+    const applyResult = (await invoke(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, {
+      proposalId: applied.proposalId,
+      workspaceId: 'ws1',
+    })) as ApplyResult
+    expect(applyResult.status).toBe('applied')
+    expect(applyResult.createdRef?.kind).toBe('document')
+    expect(applyResult.createdRef?.id).toBeTruthy()
+
+    const record = new KnowledgeMutationProposalsStore(workspaceRoot).get(applied.proposalId)
+    expect(record?.createdRef).toEqual(applyResult.createdRef)
+
+    // Auto-finalize may already have published the draft; if so, re-finalize is idempotent.
+    // Drop appliedDocRef intentionally — handler must resolve via proposal.createdRef.
+    const finalized = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_FINALIZE, {
+      draftId: draft.id,
+      proposalId: applied.proposalId,
+      connectionId: 'conn-1',
+    })) as PublishApplyResult
+
+    expect(finalized.status).toBe('published')
+    expect(finalized.publicationId).toMatch(/^pub_/)
+    expect(finalized.docRef).toEqual(applyResult.createdRef)
+  })
+
+  it('apply → approve → applyProposal auto-finalizes publishing draft', async () => {
+    useInMemoryProvider()
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    const { invoke } = createHarness()
+    const draft = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_DISTILL, {
+      connectionId: 'conn-1',
+      sessionId: 'sess_auto_fin',
+      messages: SAMPLE_MESSAGES,
+    })) as PublishDraft
+    await invoke(RPC_CHANNELS.knowledge.PUBLISH_PREPARE, {
+      draftId: draft.id,
+      connectionId: 'conn-1',
+      notebookId: 'nb-1',
+      path: '/Research/Auto Finalize',
+    })
+    const applied = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_APPLY, {
+      draftId: draft.id,
+      connectionId: 'conn-1',
+    })) as PublishApplyResult
+    expect(applied.status).toBe('publishing')
+
+    await invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL, { proposalId: applied.proposalId })
+    const applyResult = (await invoke(RPC_CHANNELS.knowledge.APPLY_PROPOSAL, {
+      proposalId: applied.proposalId,
+      workspaceId: 'ws1',
+    })) as ApplyResult
+    expect(applyResult.status).toBe('applied')
+    expect(applyResult.createdRef?.id).toBeTruthy()
+
+    const published = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_GET_DRAFT, {
+      draftId: draft.id,
+      connectionId: 'conn-1',
+    })) as PublishDraft
+    expect(published.status).toBe('published')
+    expect(published.publicationId).toMatch(/^pub_/)
+    expect(published.targetDocId).toBe(applyResult.createdRef!.id)
+
+    const pubs = (await invoke(RPC_CHANNELS.knowledge.PUBLISH_LIST, {
+      connectionId: 'conn-1',
+      sessionId: 'sess_auto_fin',
+    })) as Array<{ id: string; targetRef: { id: string }; proposalId: string }>
+    expect(pubs).toHaveLength(1)
+    expect(pubs[0]!.proposalId).toBe(applied.proposalId)
+    expect(pubs[0]!.targetRef.id).toBe(applyResult.createdRef!.id)
+
+    const links = (await invoke(RPC_CHANNELS.knowledge.LIST_LINKS, {
+      connectionId: 'conn-1',
+    })) as Array<{ relation: string; knowledgeRef: { id: string } }>
+    expect(links.some((l) => l.relation === 'published-from' && l.knowledgeRef.id === applyResult.createdRef!.id)).toBe(
+      true,
+    )
+  })
+})
+
+describe('publish prepare/apply require connectionId', () => {
+  it('prepare without connectionId → INVALID_REF', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PUBLISH_PREPARE, {
+        draftId: 'draft_x',
+        notebookId: 'nb-1',
+        path: '/x',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
+  })
+
+  it('apply without connectionId → INVALID_REF', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    const { invoke } = createHarness()
+    await expect(
+      invoke(RPC_CHANNELS.knowledge.PUBLISH_APPLY, {
+        draftId: 'draft_x',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REF' })
   })
 })
 
