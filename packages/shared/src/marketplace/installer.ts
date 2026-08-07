@@ -15,7 +15,7 @@
 
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -192,6 +192,21 @@ function scanForSkillFiles(base: string, depth: number, out: string[]): void {
  */
 export function scanSkillDirs(checkoutDir: string, entry: MarketplaceEntry): ScannedSkill[] {
   const scanRoot = entry.skillsSubdir ? join(checkoutDir, entry.skillsSubdir) : checkoutDir
+  // Containment: absolute skillsSubdir would make join() drop checkoutDir on POSIX.
+  // Fail closed if scan root escapes the pinned checkout (or does not exist yet).
+  try {
+    const realCheckout = realpathSync(checkoutDir)
+    const realScan = existsSync(scanRoot) ? realpathSync(scanRoot) : scanRoot
+    const prefix = realCheckout.endsWith(sep) ? realCheckout : realCheckout + sep
+    if (realScan !== realCheckout && !String(realScan).startsWith(prefix)) {
+      throw new MarketplaceIntegrityError(
+        `skillsSubdir escapes checkout: '${entry.skillsSubdir}' → ${realScan}`,
+      )
+    }
+  } catch (err) {
+    if (err instanceof MarketplaceIntegrityError) throw err
+    // realpath failures (ENOENT on checkout) — fall through; empty scan below.
+  }
   const found: string[] = []
   if (existsSync(join(scanRoot, 'SKILL.md'))) found.push(scanRoot)
   scanForSkillFiles(scanRoot, 1, found)
@@ -317,12 +332,15 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       return null
     }
 
+    const collisions: string[] = []
+
     const installOne = (name: string, srcDir: string, allowRename: boolean): void => {
       progress('install', name)
       let finalName = name
       let target = join(skillsDir, finalName)
       // Защита чужого контента: существующая директория без нашего install-маркера
       // и без записи в registry пропускается (не overwrite). Ошибку не бросаем —
+      // помечаем collision'ом.
       if (existsSync(target)) {
         const owner = ownerOf(target)
         if (owner === null) {
@@ -339,10 +357,8 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
             return
           }
           // Cross-pack коллизия имён (skills-режим): basename занят ДРУГИМ
-          // пакетом (маркер и registry принадлежат ему), поэтому guard выше
-          // считает директорию «нашей» и swap уничтожил бы чужой контент.
-          // Политика: ставим под namespaced-именем '<packid>--<skill>',
-          // чужой пакет не трогаем, факт фиксируем collision'ом.
+          // пакетом (маркер и registry принадлежат ему). Политика: namespaced
+          // '<packid>--<skill>', чужой пакет не трогаем.
           const occupied = target
           finalName = `${entry.id}--${name}`
           target = join(skillsDir, finalName)
@@ -372,7 +388,6 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
       writeInstallMarker(target, record)
     }
 
-    const collisions: string[] = []
     try {
       if (entry.installMode === 'directory') {
         // Whole-repo pack (clone-only). Upstream install.sh is NEVER executed.
@@ -386,6 +401,14 @@ async function installSkillpack(entry: MarketplaceEntry, options: InstallOptions
           throw new MarketplaceIntegrityError(`no SKILL.md found in ${entry.source.repo}@${entry.source.ref.slice(0, 8)} (subdir '${entry.skillsSubdir ?? '.'}')`)
         }
         for (const skill of skills) installOne(skill.name, skill.dir, true)
+        // Mirror context-doc: all-collision install must not write a false
+        // 'installed' lock row with zero targets (UI would show Installed, remove no-ops).
+        if (record.targets.length === 0) {
+          throw new MarketplaceIntegrityError(
+            `cannot install '${entry.id}': no writable skills` +
+              (collisions[0] ? ` — ${collisions[0]}` : ''),
+          )
+        }
       }
     } catch (err) {
       // Rollback: иначе частично установленные скиллы останутся сиротами

@@ -40,9 +40,9 @@ export const meta: DetailsPageMeta = {
 // ============================================
 
 /**
- * Display names + stable row order for the core manifest tools. Kept in the
- * renderer because the wire ToolStatus intentionally carries no UI copy and
- * the shared manifest may be partially collected.
+ * Preferred display order for status rows. Unknown/new tools from the manager
+ * append alphabetically after this list so default-on/opt-in (just, fzf, gbrain…)
+ * are never dropped from the Runtime status section.
  */
 const TOOL_ORDER: readonly ToolchainToolName[] = [
   'omp',
@@ -56,6 +56,26 @@ const TOOL_ORDER: readonly ToolchainToolName[] = [
   'yq',
   'ffmpeg',
   'pandoc',
+  'just',
+  'fzf',
+  'mise',
+  'worktrunk',
+  'gbrain',
+  'opencode-ai',
+  'oh-my-codex',
+  'oh-my-claude-sisyphus',
+  'skills',
+  'infisical',
+  'eve',
+  'agent-browser',
+  'portless',
+  'just-bash',
+  'opensrc',
+  'deepsec',
+  'dev3000',
+  'mole',
+  'docker',
+  'brew',
 ]
 
 const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
@@ -70,6 +90,26 @@ const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
   yq: 'yq',
   ffmpeg: 'ffmpeg',
   pandoc: 'pandoc',
+  just: 'just',
+  fzf: 'fzf',
+  mise: 'mise',
+  worktrunk: 'worktrunk (wt)',
+  gbrain: 'gbrain',
+  'opencode-ai': 'OpenCode',
+  'oh-my-codex': 'oh-my-codex',
+  'oh-my-claude-sisyphus': 'oh-my-claude-sisyphus',
+  skills: 'skills CLI',
+  infisical: 'Infisical CLI',
+  eve: 'eve',
+  'agent-browser': 'agent-browser',
+  portless: 'portless',
+  'just-bash': 'just-bash',
+  opensrc: 'opensrc',
+  deepsec: 'deepsec',
+  dev3000: 'dev3000',
+  mole: 'Mole',
+  docker: 'Docker',
+  brew: 'Homebrew',
 }
 
 /** Extract a displayable message from an unknown caught value. */
@@ -240,9 +280,15 @@ export default function RuntimeSettingsPage() {
   const orderedTools = useMemo(() => {
     const byName: Partial<Record<ToolchainToolName, ToolchainToolStatus>> = {}
     for (const tool of tools) byName[tool.name] = tool
-    return TOOL_ORDER.map((name) => byName[name]).filter(
+    const preferred = TOOL_ORDER.map((name) => byName[name]).filter(
       (tool): tool is ToolchainToolStatus => tool !== undefined,
     )
+    const preferredSet = new Set(TOOL_ORDER)
+    const extras = tools
+      .filter((tool) => !preferredSet.has(tool.name))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return [...preferred, ...extras]
   }, [tools])
 
   useEffect(() => {

@@ -67,7 +67,12 @@ export function writeLock(lockPath: string, lock: MarketplaceLockFile): void {
   atomicWriteFileSync(lockPath, JSON.stringify(lock, null, 2))
 }
 
-/** Insert or replace a record (idempotent by record.id). */
+/**
+ * Insert or replace a record (idempotent by record.id).
+ * Sync RMW is safe in-process: no await between read and write, and the
+ * marketplace server is single-writer for this config dir. Cross-id concurrent
+ * installEntry calls serialize here at the JS event-loop boundary.
+ */
 export function upsertLockRecord(lockPath: string, record: MarketplaceLockRecord): MarketplaceLockFile {
   const lock = readLock(lockPath)
   lock.entries[record.id] = record

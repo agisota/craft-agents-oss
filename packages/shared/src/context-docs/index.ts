@@ -22,11 +22,19 @@
  * same-named global documents (see CONTEXT_FILE_PATTERNS in prompts/system.ts).
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
-import { join, basename } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs';
+import { dirname, join, basename } from 'path';
 import { homedir } from 'os';
 import { getBundledAssetsDir } from '../utils/paths.ts';
 import { debug } from '../utils/debug.ts';
+
+/** Atomic write: tmp sibling + rename (same FS → atomic on POSIX/NTFS). */
+function atomicWriteFileSync(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  writeFileSync(tmp, content, 'utf-8');
+  renameSync(tmp, path);
+}
 
 // ============================================================
 // Constants
@@ -159,7 +167,7 @@ export function ensureContextDocs(): void {
     const destPath = join(docsDir, filename);
     if (existsSync(destPath)) continue; // ensure-once: user content always wins
     try {
-      writeFileSync(destPath, readFileSync(srcPath, 'utf-8'), 'utf-8');
+      atomicWriteFileSync(destPath, readFileSync(srcPath, 'utf-8'));
       debug('[context-docs] Seeded', filename);
     } catch (error) {
       debug('[context-docs] Failed to seed', filename, error);
@@ -267,7 +275,7 @@ export function writeContextDoc(filename: string, content: string): ContextDocIn
     mkdirSync(docsDir, { recursive: true });
   }
   const path = join(docsDir, filename);
-  writeFileSync(path, content, 'utf-8');
+  atomicWriteFileSync(path, content);
   debug('[context-docs] Wrote', filename, `(${content.length} chars)`);
   return buildDocInfo(filename, content, statMtimeMs(path));
 }

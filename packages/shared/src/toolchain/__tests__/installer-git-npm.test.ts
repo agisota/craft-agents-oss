@@ -1,8 +1,9 @@
 /**
  * git-npm supply-chain путь: installGitNpmPinned.
- * - апстрим bun.lock есть → checkout + --frozen-lockfile + global из чекаута
+ * - апстрим bun.lock есть → checkout + HEAD pin verify + --frozen-lockfile + global из чекаута
  * - bun.lock нет → legacy 'github:<repo>#<commit>' + WARNING (transitives unpinned)
  * - git недоступен (ENOENT) → тот же legacy fallback + WARNING
+ * - HEAD !== pin → throw (no install)
  */
 import { describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,9 +19,13 @@ function makePaths(name: string) {
 const REPO = 'garrytan/gbrain';
 const COMMIT = 'a'.repeat(40);
 
-function collectRunCmd(impl: (args: string[], options: { cwd?: string }) => Promise<{ stdout: string; stderr: string } | void>) {
+function writeDetachedHead(cwd: string, sha: string): void {
+  mkdirSync(join(cwd, '.git'), { recursive: true });
+  writeFileSync(join(cwd, '.git', 'HEAD'), `${sha}\n`);
+}
+
+function collectRunCmd(impl: (args: string[], options: { cwd?: string }) => Promise<void>) {
   const calls: { args: string[]; cwd?: string }[] = [];
-  // runCommand contract is Promise<void> — discard stdout/stderr from the stub body.
   const fn = async (args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }): Promise<void> => {
     calls.push({ args, cwd: options?.cwd });
     await impl(args, options ?? {});
@@ -33,11 +38,10 @@ describe('installGitNpmPinned', () => {
     const { base, workDir, versionDir } = makePaths('lock');
     const { calls, fn } = collectRunCmd(async (args, options) => {
       if (args.includes('checkout')) {
-        mkdirSync(options!.cwd!, { recursive: true });
+        writeDetachedHead(options!.cwd!, COMMIT);
         writeFileSync(join(options!.cwd!, 'bun.lock'), 'fake');
         writeFileSync(join(options!.cwd!, 'package.json'), '{}');
       }
-      return { stdout: '', stderr: '' };
     });
     const logs: string[] = [];
     await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
@@ -51,7 +55,6 @@ describe('installGitNpmPinned', () => {
       `/bun install --frozen-lockfile`,
       `/bun install --global ${workDir}`,
     ]);
-    // cwd frozen-lockfile: в чекауте
     expect(calls[4]?.cwd).toBe(workDir);
     expect(logs).toEqual([]);
     expect(existsSync(workDir)).toBe(false); // cleanup
@@ -62,10 +65,9 @@ describe('installGitNpmPinned', () => {
     const { base, workDir, versionDir } = makePaths('nolock');
     const { calls, fn } = collectRunCmd(async (args, options) => {
       if (args.includes('checkout')) {
-        mkdirSync(options!.cwd!, { recursive: true });
+        writeDetachedHead(options!.cwd!, COMMIT);
         writeFileSync(join(options!.cwd!, 'package.json'), '{}');
       }
-      return { stdout: '', stderr: '' };
     });
     const logs: string[] = [];
     await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
@@ -80,7 +82,6 @@ describe('installGitNpmPinned', () => {
     const { base, workDir, versionDir } = makePaths('nogit');
     const { calls, fn } = collectRunCmd(async (args) => {
       if (args[0] === 'git') throw new Error('spawn git ENOENT');
-      return { stdout: '', stderr: '' };
     });
     const logs: string[] = [];
     await installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn, onLog: (m) => logs.push(m) });
@@ -88,6 +89,21 @@ describe('installGitNpmPinned', () => {
     const last = calls[calls.length - 1]!;
     expect(last.args.join(' ')).toBe(`/bun install --global github:${REPO}#${COMMIT}`);
     expect(logs.some((m) => m.includes('git unavailable'))).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('HEAD !== pinned commit → throws (no install)', async () => {
+    const { base, workDir, versionDir } = makePaths('badhead');
+    const { calls, fn } = collectRunCmd(async (args, options) => {
+      if (args.includes('checkout')) {
+        writeDetachedHead(options!.cwd!, 'b'.repeat(40));
+        writeFileSync(join(options!.cwd!, 'bun.lock'), 'fake');
+      }
+    });
+    await expect(
+      installGitNpmPinned({ bun: '/bun', versionDir, repo: REPO, commit: COMMIT, workDir, runCmd: fn }),
+    ).rejects.toThrow(/ref mismatch/);
+    expect(calls.some((c) => c.args.includes('--frozen-lockfile'))).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
 });

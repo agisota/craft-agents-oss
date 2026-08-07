@@ -144,8 +144,16 @@ export function parseCatalog(raw: unknown): MarketplaceCatalog {
         issues.push(`${where}.installMode must be 'skills'|'directory'`)
       }
       if (rec.skills !== undefined && !Array.isArray(rec.skills)) issues.push(`${where}.skills must be an array`)
-      if (rec.skillsSubdir !== undefined && (typeof rec.skillsSubdir !== 'string' || rec.skillsSubdir.includes('..'))) {
-        issues.push(`${where}.skillsSubdir must be a safe relative path`)
+      if (
+        rec.skillsSubdir !== undefined &&
+        (typeof rec.skillsSubdir !== 'string' ||
+          rec.skillsSubdir.length === 0 ||
+          rec.skillsSubdir.includes('..') ||
+          rec.skillsSubdir.startsWith('/') ||
+          rec.skillsSubdir.startsWith('\\') ||
+          /^[A-Za-z]:[\\/]/.test(rec.skillsSubdir))
+      ) {
+        issues.push(`${where}.skillsSubdir must be a safe relative path (no abs/..)`)
       }
     }
     if (kind === 'tool') {
@@ -215,7 +223,10 @@ export function createConfigMetaStore(
     get: () => ({ ...(loadConfig()?.marketplace ?? {}) }),
     set: (meta) => {
       const existing = loadConfig()
-      saveConfig({ ...(existing ?? {}), marketplace: { ...meta } })
+      // Never synthesize a bare {marketplace} config — that would wipe workspaces
+      // if loadConfig transiently returned null (torn read / missing file).
+      if (!existing) return
+      saveConfig({ ...existing, marketplace: { ...meta } })
     },
   }
 }

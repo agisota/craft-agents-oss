@@ -127,6 +127,12 @@ export interface StoredConfig {
   runtime?: {
     envOverrides?: Record<string, string>;
   };
+  // Marketplace catalog meta (ETag + last fetch). Persisted by createConfigMetaStore
+  // in marketplace RPC handlers (plan §0.1).
+  marketplace?: {
+    catalogEtag?: string;
+    lastCatalogFetchAt?: number;
+  };
   // Network proxy
   networkProxy?: import('./types.ts').NetworkProxySettings;
   // Windows: path to Git Bash (bash.exe) for the SDK subprocess

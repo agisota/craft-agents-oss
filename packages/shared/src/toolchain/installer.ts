@@ -462,6 +462,13 @@ export async function installGitNpmPinned(req: GitNpmPinnedInstall): Promise<voi
     // fetch по полному sha — content-addressed: FETCH_HEAD === req.commit.
     await runCmd(['git', 'fetch', '-q', '--depth', '1', 'origin', req.commit], { cwd: req.workDir });
     await runCmd(['git', '-c', 'advice.detachedHead=false', 'checkout', '-q', 'FETCH_HEAD'], { cwd: req.workDir });
+    // Defense-in-depth: same HEAD===pin invariant as marketplace.checkoutPinnedRef.
+    // runCommand is void (no stdout capture) — read detached HEAD from .git/HEAD.
+    const headRaw = (await fs.promises.readFile(path.join(req.workDir, '.git', 'HEAD'), 'utf8')).trim();
+    const head = headRaw.startsWith('ref:') ? '' : headRaw;
+    if (head !== req.commit) {
+      throw new Error(`git-npm ref mismatch for ${req.repo}: pinned ${req.commit}, got HEAD ${headRaw}`);
+    }
     hasLockfile =
       fs.existsSync(path.join(req.workDir, 'bun.lock')) || fs.existsSync(path.join(req.workDir, 'bun.lockb'));
   } catch (error) {

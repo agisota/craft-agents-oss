@@ -7,6 +7,7 @@ import { OAuthFlowStore } from '@craft-agent/shared/auth'
 import { ensureConfigDir, loadStoredConfig, saveConfig } from '@craft-agent/shared/config'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { ensureContextDocs } from '@craft-agent/shared/context-docs'
+import { ensureBundledSkills } from '@craft-agent/shared/skills'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
 import { WsRpcServer, type WsRpcTlsOptions } from '../transport/server'
 import type { EventSink, RpcServer } from '../transport/types'
@@ -322,6 +323,14 @@ function bootstrapConfigArtifacts(platform: PlatformServices): void {
     ensureContextDocs()
   } catch (error) {
     platform.logger.warn(`[bootstrap] Context documents seeding failed: ${error instanceof Error ? error.message : error}`)
+  }
+
+  // Preset skill packs (superpowers/vercel/mattpocock/…): same as electron main.
+  // Hash-merge keeps user-local edits; disabled packs skipped via config.
+  try {
+    ensureBundledSkills()
+  } catch (error) {
+    platform.logger.warn(`[bootstrap] Bundled skills seeding failed: ${error instanceof Error ? error.message : error}`)
   }
 
   // Toolchain: fire-and-forget background install/update of missing/outdated

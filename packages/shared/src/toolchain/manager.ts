@@ -456,7 +456,19 @@ export function createManager(
           const batch = wave.length > 0 ? wave : [...remaining]; // цикл: ставим как есть
           for (const w of batch) remaining.splice(remaining.indexOf(w), 1);
           await runPool(batch);
-          for (const w of batch) installedNames.add(w.entry.name);
+          // Only tools that actually reached ready (or were already ready on disk)
+          // unlock dependsOn. Failed/offline providers must not unblock dependents.
+          try {
+            const st = await readStateFile(paths.stateFile);
+            for (const w of batch) {
+              const meta = st.tools[w.entry.name];
+              if (meta?.installedVersion && meta.installedPath && fs.existsSync(meta.installedPath)) {
+                installedNames.add(w.entry.name);
+              }
+            }
+          } catch {
+            // state unreadable — dependents stay blocked this run
+          }
         }
       })().finally(() => {
         if (activeRun === run) activeRun = null;

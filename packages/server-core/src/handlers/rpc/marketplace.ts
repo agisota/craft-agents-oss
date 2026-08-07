@@ -2,15 +2,17 @@
  * Marketplace RPC handlers (runtime-context-marketplace PRD §8, plan §5 M4a).
  *
  * LOCAL_ONLY: the catalog cache, lock registry, and installed artifacts live
- * in the local config dir; kind:tool installs are validated against the
- * toolchain manifest (TOOL_NOT_IN_MANIFEST) and recorded as 'deferred' — M4a
- * never performs the actual tool install (toolchain:update owns that).
+ * in the local config dir. kind:tool installs validate against the toolchain
+ * manifest, record a lock entry, then call toolchain.update(toolName) so the
+ * binary/npm artifact is actually installed (progress via toolchain:statusChanged).
  */
 
 import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { loadStoredConfig, saveConfig, type StoredConfig } from '@craft-agent/shared/config'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
+import { getToolchainManager } from '@craft-agent/shared/toolchain-runtime'
+import type { ToolName } from '@craft-agent/shared/toolchain'
 import {
   createConfigMetaStore,
   createFileStatsStore,
@@ -108,17 +110,24 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
     })
   })
 
-  // Install by catalog id (kind:tool → deferred record only, no tool install)
+  // Install by catalog id. kind:tool → lock + toolchain.update (actual binary/npm).
   server.handle(RPC_CHANNELS.marketplace.INSTALL, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       const entry = await requireEntry(id)
       const result = await installEntry(entry, { fetchFn: catalogFetch })
+      if (result.kind === 'tool' && result.toolName) {
+        // Fire-and-forget would leave the UI on "deferred" forever if update
+        // fails silently. Await so INSTALL rejects on toolchain failure and
+        // the lock can stay as the intent marker (user can retry Update).
+        await getToolchainManager().update(result.toolName as ToolName)
+      }
       pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'installed', ref: entry.source.ref })
       return result
     })
   })
 
-  // Remove artifacts we own (soft-clean: locally-edited targets are kept)
+  // Remove artifacts we own (soft-clean: locally-edited targets are kept).
+  // kind:tool: lock only — we do NOT uninstall toolchain binaries (shared).
   server.handle(RPC_CHANNELS.marketplace.REMOVE, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       const ref = readLock(marketplacePaths().lockFile).entries[id]?.ref
@@ -130,7 +139,8 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
     })
   })
 
-  // Update = re-install from the current catalog pin; requires an installed record
+  // Update = re-install from the current catalog pin; requires an installed record.
+  // kind:tool: re-run toolchain.update so pinned version refresh lands.
   server.handle(RPC_CHANNELS.marketplace.UPDATE, async (_ctx, id: string) => {
     return exclusive(id, async () => {
       if (!readLock(marketplacePaths().lockFile).entries[id]) {
@@ -138,6 +148,9 @@ export function registerMarketplaceHandlers(server: RpcServer, _deps: HandlerDep
       }
       const entry = await requireEntry(id)
       const result = await installEntry(entry, { fetchFn: catalogFetch })
+      if (result.kind === 'tool' && result.toolName) {
+        await getToolchainManager().update(result.toolName as ToolName)
+      }
       pushTyped(server, RPC_CHANNELS.marketplace.CHANGED, { to: 'all' }, { id, action: 'updated', ref: entry.source.ref })
       return result
     })

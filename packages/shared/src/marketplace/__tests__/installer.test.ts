@@ -297,6 +297,21 @@ describe('installEntry (unowned target guard)', () => {
     expect(record?.targets).toEqual([join(skillsDir, 'deploy')])
   })
 
+  it('fails closed when every skill collides (no empty installed lock row)', async () => {
+    // Both review and deploy already exist as unowned user dirs.
+    for (const name of ['review', 'deploy']) {
+      const dir = join(skillsDir, name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'SKILL.md'), `# USER ${name}`)
+    }
+    await expect(installEntry(GUARD_ENTRY, { configDir, skillsDir, execFileFn: guardGit })).rejects.toThrow(
+      /no writable skills|unowned/,
+    )
+    expect(readLock(marketplacePaths(configDir).lockFile).entries['guard-pack']).toBeUndefined()
+    expect(readFileSync(join(skillsDir, 'review', 'SKILL.md'), 'utf8')).toBe('# USER review')
+    expect(readFileSync(join(skillsDir, 'deploy', 'SKILL.md'), 'utf8')).toBe('# USER deploy')
+  })
+
   it('directory mode: refuses to overwrite an unowned existing dir', async () => {
     const userPack = join(skillsDir, 'mega-pack')
     mkdirSync(userPack, { recursive: true })
