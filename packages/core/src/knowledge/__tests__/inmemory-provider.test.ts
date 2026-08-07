@@ -231,8 +231,8 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     });
     expect(proposal.status).toBe('pending_review');
     expect(proposal.connectionId).toBe('test-connection');
-    expect(proposal.diff?.base).toContain('Integrating Craft with SiYuan engine.');
-    expect(proposal.diff?.patched).toBe('# Rewritten');
+    expect(proposal.diffDocument?.base).toContain('Integrating Craft with SiYuan engine.');
+    expect(proposal.diffDocument?.patched).toBe('# Rewritten');
     expect(proposal.hashAlgorithm).toBe('sha256-canonical-v1');
     expect(proposal.baseHash).toMatch(/^[0-9a-f]{64}$/);
     expect(proposal.statusHistory.map((entry) => `${entry.from}->${entry.to}`)).toEqual(['draft->pending_review']);
@@ -271,7 +271,7 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
       ops: [{ op: 'appendBlock', documentId: 'doc-1', markdown: 'Appended paragraph.' }],
       summary: 'append to doc-1',
     });
-    expect(proposal.diff?.patched).toContain('Appended paragraph.');
+    expect(proposal.diffDocument?.patched).toContain('Appended paragraph.');
     const result = await provider.applyMutation(proposal.id);
     expect(result.applied).toBe(true);
     expect(result.createdRef?.kind).toBe('block');
@@ -281,9 +281,10 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     expect(context.children.map((child) => child.blockId)).toContain(result.createdRef!.id);
   });
 
-  test('createDocument does not need targetRef; apply returns createdRef and the doc is searchable', async () => {
+  test('createDocument targets the notebook (wire contract); apply returns createdRef and the doc is searchable', async () => {
     const provider = await seededProvider();
     const proposal = await provider.proposeMutation({
+      targetRef: { scheme: 'siyuan', kind: 'notebook', id: 'nb-1' },
       ops: [{ op: 'createDocument', notebook: 'nb-1', path: '/Research/New Doc', title: 'New Doc', markdown: 'hello kernel' }],
       summary: 'new doc',
     });
@@ -299,6 +300,7 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
     const provider = await seededProvider();
     const error = await catchKnowledgeError(() =>
       provider.proposeMutation({
+        targetRef: { scheme: 'siyuan', kind: 'notebook', id: 'ghost' },
         ops: [{ op: 'createDocument', notebook: 'ghost', path: '/x', title: 'x', markdown: '' }],
         summary: 'x',
       }),
@@ -321,7 +323,8 @@ describe('InMemoryKnowledgeProvider mutations (documented choice: full in-memory
   test('missing targetRef → INVALID_REF; op/target mismatch → INVALID_REF', async () => {
     const provider = await seededProvider();
     const noTarget = await catchKnowledgeError(() =>
-      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'doc-1', markdown: 'x' }], summary: 'x' }),
+      // targetRef is wire-REQUIRED (canonical contract); cast probes the provider's defense-in-depth guard.
+      provider.proposeMutation({ ops: [{ op: 'updateBlock', blockId: 'doc-1', markdown: 'x' }], summary: 'x' } as Parameters<typeof provider.proposeMutation>[0]),
     );
     expect(noTarget.code).toBe('INVALID_REF');
 

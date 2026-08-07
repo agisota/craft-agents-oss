@@ -34,24 +34,20 @@
  *   T3 (approve) and T5/T10 write passes (apply, rollback) — mode is resolved
  *   per proposal session (fail-closed via the gate's default).
  *
- * Persistence: the store owns the SHARED wire-record shape
- * (`MutationProposalRecord` from '@craft-agent/shared/protocol'); the engine
- * owns the richer core record (structured diff, updatedAt, appliedHash,
- * preStateAttributes). Mapping happens at this boundary only:
- * engine→wire on save (`toWireRecord`), wire→engine on load (`toCoreRecord`).
- * Lifecycle-critical fields absent from the wire DTO (updatedAt,
- * preStateAttributes, appliedHash, rolledBackAt) ride as file-level extras —
+ * Persistence: ONE canonical record shape lives in core
+ * (`MutationProposalRecord`, canonical home packages/core/src/knowledge/mutations.ts;
+ * '@craft-agent/shared/protocol' re-exports it). File-level extras (updatedAt,
+ * preStateAttributes, appliedHash, rolledBackAt) are optional fields on that record —
  * the store's fail-soft parse preserves them verbatim. The wire `diff` is a
- * unified-diff STRING (KnowledgeDiff.tsx renders it); the core structured
- * ProposalDiff is deterministically rebuilable from (preState, ops), so a
- * cold record loses nothing.
+ * unified-diff STRING (KnowledgeDiff.tsx renders it); the engine's structured
+ * ProposalDiffDocument rides as record.diffDocument and is deterministically
+ * rebuildable from (preState, ops), so a cold record loses nothing. Mapping at this
+ * boundary (`toWireRecord`/`toCoreRecord`) now only renders/rebuilds that diff.
  */
 import { CodedError } from '@craft-agent/shared/protocol'
 import type {
-  ConflictInfo as WireConflictInfo,
   KnowledgeChangedPayload,
   MutationInput as WireMutationInput,
-  MutationProposalRecord as WireProposalRecord,
   MutationProposalStatus,
 } from '@craft-agent/shared/protocol'
 import assertKnowledgeActionAllowed from '@craft-agent/shared/agent/knowledge-permissions'
@@ -83,7 +79,7 @@ import type {
   MutationActor,
   MutationOp,
   MutationProposal as CoreProposal,
-  ProposalDiff,
+  ProposalDiffDocument,
   TransitionEffect,
 } from '@craft-agent/core/knowledge'
 
@@ -100,26 +96,14 @@ const SYSTEM_ACTOR_AUDIT_ACTIONS: Record<string, true> = {
 const DEFAULT_NO_SESSION = 'knowledge-ui' // mode-manager default ('ask') for session-less UI proposals
 
 /**
- * Wire record + lifecycle extras persisted side-by-side in the proposal file.
- * Extras are absent from the wire DTO but required for cold-store approve
- * (preStateAttributes/preStateChildren), the T10 rollback hash guard (appliedHash) and
- * precise TTL bookkeeping (updatedAt).
+ * Persisted proposal file = the canonical record (wire shape incl. lifecycle extras:
+ * preStateAttributes/preStateChildren for cold-store approve, appliedHash for the T10
+ * rollback hash guard, updatedAt for precise TTL bookkeeping).
  */
-export interface KnowledgeProposalFileRecord extends WireProposalRecord {
-  updatedAt?: string
-  preStateAttributes?: Record<string, Record<string, string>>
-  /** Child-chain capture at T1 READ (§3.4.1 scope guard data + P1-4 block-accurate inverse source). */
-  preStateChildren?: Record<string, string>
-  appliedHash?: string
-  rolledBackAt?: string
-}
+export type KnowledgeProposalFileRecord = CoreProposal
 
-/** Bridge apply/rollback result: core engine outcome + wire-mapped conflict details for the UI card. */
-export interface BridgeApplyResult extends CoreApplyResult {
-  conflictInfo?: WireConflictInfo
-  /** T10 completion timestamp (wire ApplyResult.rolledBackAt) — never aliased onto appliedAt. */
-  rolledBackAt?: string
-}
+/** Bridge apply/rollback result = the canonical (converged wire+engine) ApplyResult. */
+export type BridgeApplyResult = CoreApplyResult
 
 /** Sweep outcome: the store's TTL result plus bridge-side stuck-apply evacuations (engine 'expire'). */
 export interface BridgeSweepResult extends ProposalSweepResult {
@@ -173,7 +157,7 @@ export class KnowledgeBridgeService {
       selectionProofs: core.selectionProofs,
       baseHash: core.baseHash,
       baseReadAt: core.baseReadAt,
-      preState: core.preState ?? '',
+      preState: core.preState,
       hashAlgorithm: 'sha256-canonical-v1',
       status: core.status,
       statusHistory: core.statusHistory,
@@ -188,19 +172,11 @@ export class KnowledgeBridgeService {
     }
     if (core.sessionId !== undefined) record.sessionId = core.sessionId
     if (core.inverseOps !== undefined) record.inverseOps = core.inverseOps
-    if (core.diff !== undefined) record.diff = renderUnifiedDiff(core.diff)
+    if (core.diffDocument !== undefined) record.diff = renderUnifiedDiff(core.diffDocument)
     if (core.approvedBy !== undefined) record.approvedBy = core.approvedBy
     if (core.approvedAt !== undefined) record.approvedAt = core.approvedAt
     if (core.appliedAt !== undefined) record.appliedAt = core.appliedAt
-    if (core.conflictInfo !== undefined) {
-      record.conflictInfo = {
-        baseHash: core.conflictInfo.expectedHash,
-        actualHash: core.conflictInfo.actualHash,
-        currentContent: core.conflictInfo.currentContent,
-        baseReadAt: core.baseReadAt,
-      }
-      if (core.conflictInfo.reason !== undefined) record.conflictInfo.reason = core.conflictInfo.reason
-    }
+    if (core.conflictInfo !== undefined) record.conflictInfo = core.conflictInfo
     return record
   }
 
@@ -214,6 +190,7 @@ export class KnowledgeBridgeService {
       selectionProofs: wire.selectionProofs,
       baseHash: wire.baseHash,
       baseReadAt: wire.baseReadAt,
+      preState: wire.preState,
       hashAlgorithm: 'sha256-canonical-v1',
       status: wire.status,
       statusHistory: wire.statusHistory,
@@ -222,26 +199,18 @@ export class KnowledgeBridgeService {
       actor: wire.actor,
     }
     if (wire.sessionId !== undefined) core.sessionId = wire.sessionId
-    core.preState = wire.preState
     if (wire.preStateAttributes !== undefined) core.preStateAttributes = wire.preStateAttributes
     if (wire.preStateChildren !== undefined) core.preStateChildren = wire.preStateChildren
     // Deterministic rebuild (buildProposalDiff is pure in preState+ops): no diff state is
     // route-tripped through the wire representation.
-    if (wire.diff !== undefined) core.diff = buildProposalDiff(wire.preState, wire.ops)
+    if (wire.diff !== undefined) core.diffDocument = buildProposalDiff(wire.preState, wire.ops)
     if (wire.inverseOps !== undefined) core.inverseOps = wire.inverseOps
     if (wire.approvedBy !== undefined) core.approvedBy = wire.approvedBy
     if (wire.approvedAt !== undefined) core.approvedAt = wire.approvedAt
     if (wire.appliedAt !== undefined) core.appliedAt = wire.appliedAt
     if (wire.appliedHash !== undefined) core.appliedHash = wire.appliedHash
     if (wire.rolledBackAt !== undefined) core.rolledBackAt = wire.rolledBackAt
-    if (wire.conflictInfo !== undefined) {
-      core.conflictInfo = {
-        expectedHash: wire.conflictInfo.baseHash,
-        actualHash: wire.conflictInfo.actualHash,
-        currentContent: wire.conflictInfo.currentContent,
-        reason: wire.conflictInfo.reason,
-      }
-    }
+    if (wire.conflictInfo !== undefined) core.conflictInfo = wire.conflictInfo
     return core
   }
 
@@ -578,7 +547,8 @@ export class KnowledgeBridgeService {
           { from: begun.proposal.status, to: 'conflict', at, actor: 'automation', reason: 'apply-failed' },
         ],
         conflictInfo: {
-          expectedHash: begun.proposal.baseHash,
+          baseHash: begun.proposal.baseHash,
+          baseReadAt: begun.proposal.baseReadAt,
           // The provider RE-READ may never have happened — baseHash placeholder, partial-apply precedent.
           actualHash: observedHash ?? begun.proposal.baseHash,
           currentContent: message, // the error text IS the actionable content of this card
@@ -646,7 +616,8 @@ export class KnowledgeBridgeService {
             { from: core.status, to: 'conflict', at, actor: 'automation', reason: 'rollback-hash-mismatch' },
           ],
           conflictInfo: {
-            expectedHash: core.appliedHash ?? core.baseHash,
+            baseHash: core.appliedHash ?? core.baseHash,
+            baseReadAt: core.baseReadAt,
             actualHash: currentHash,
             currentContent,
             reason: 'rollback-hash-mismatch',
@@ -868,7 +839,7 @@ export class KnowledgeBridgeService {
 }
 
 /** Render the engine's structured line diff as the unified-diff string the wire/UI expect. */
-function renderUnifiedDiff(diff: ProposalDiff): string {
+function renderUnifiedDiff(diff: ProposalDiffDocument): string {
   const body = diff.lines
     .map((line) => (line.kind === 'added' ? `+${line.text}` : line.kind === 'removed' ? `-${line.text}` : ` ${line.text}`))
     .join('\n')

@@ -455,7 +455,7 @@ export class SiyuanKnowledgeProvider implements KnowledgeProvider {
     // Diff PREVIEW rides the draft for consumers that read provider proposals directly; the
     // engine's T2 hop (draft → pending_review) is the bridge's, so status stays 'draft' while
     // the diff field is filled by the same buildProposalDiff the engine would use.
-    const proposal: MutationProposal = { ...draft.proposal, diff: buildProposalDiff(preState, ops) };
+    const proposal: MutationProposal = { ...draft.proposal, diffDocument: buildProposalDiff(preState, ops) };
     if (this.proposals.size >= SiyuanKnowledgeProvider.MAX_QUEUED_PROPOSALS) {
       const oldest = this.proposals.keys().next().value;
       if (oldest !== undefined) this.proposals.delete(oldest);
