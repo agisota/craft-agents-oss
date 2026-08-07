@@ -118,9 +118,16 @@ describe('downloader (localhost http server)', () => {
 
   it('сетевой сбой -> NetworkError', async () => {
     const dest = path.join(tmpDir, 'offline.bin');
+    // A port that is guaranteed closed: bind an ephemeral TCP server, read its
+    // port, then stop it. Hard-coding 127.0.0.1:1 races with anything actually
+    // listening there (in the full suite another test's server won that race
+    // and answered 404 instead of refusing the connection).
+    const probe = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('x') });
+    const deadPort = probe.port;
+    probe.stop(true);
     await expect(
       downloadArtifact({
-        url: 'http://127.0.0.1:1/unreachable',
+        url: `http://127.0.0.1:${deadPort}/unreachable`,
         dest,
         sha256: RAW_SHA256,
         retryDelaysMs: [1],
