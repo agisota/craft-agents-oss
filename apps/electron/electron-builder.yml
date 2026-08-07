@@ -21,6 +21,7 @@ files:
   - resources/session-mcp-server/**/*
   # Include Pi agent server subprocess for Pi SDK sessions
   - resources/pi-agent-server/**/*
+  - resources/cloud-runner/**/*
   # Note: Bundled assets (docs, themes, permissions, tool-icons) are in resources/
   # and copied to dist/resources/ by build:copy. They're included via dist/**/* above.
   # Include network interceptor for API error capture and MCP schema injection
