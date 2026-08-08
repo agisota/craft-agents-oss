@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,6 +13,7 @@ import {
   type MarketplaceCatalog,
   type MarketplaceFetch,
 } from '../catalog.ts'
+import { signCatalogBody } from '../catalog-signing.ts'
 
 const REF = 'a'.repeat(40)
 
@@ -212,10 +213,19 @@ describe('catalog remote digest verification', () => {
   const goodDigest = `${sha256HexOfString(body)}  catalog.json\n`
   const badDigest = `${'0'.repeat(64)}  catalog.json\n`
 
+  const signingKey = readFileSync(
+    join(import.meta.dir, '../../../../../scripts/.marketplace-catalog-signing-key.b64'),
+    'utf8',
+  ).trim()
+  const goodSig = `${signCatalogBody(body, signingKey)}\n`
+  const badSig = Buffer.alloc(64, 7).toString('base64') + '\n'
+
   function makeFetch(opts: {
     catalogBody?: string
     digestBody?: string | null
     digestStatus?: number
+    sigBody?: string | null
+    sigStatus?: number
     catalogStatus?: number
   }): MarketplaceFetch {
     const catalogBody = opts.catalogBody ?? body
@@ -233,6 +243,22 @@ describe('catalog remote digest verification', () => {
           ok: true,
           status: 200,
           text: async () => opts.digestBody ?? goodDigest,
+          headers: { get: () => null },
+        }
+      }
+      if (url.endsWith('catalog.json.sig')) {
+        if (opts.sigBody === null) {
+          return {
+            ok: false,
+            status: opts.sigStatus ?? 404,
+            text: async () => 'missing',
+            headers: { get: () => null },
+          }
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => opts.sigBody ?? goodSig,
           headers: { get: () => null },
         }
       }
@@ -295,5 +321,46 @@ describe('catalog remote digest verification', () => {
     expect(sha256HexOfString('abc')).toBe(
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
     )
+  })
+
+  it('accepts remote catalog when digest and ed25519 signature match', async () => {
+    const result = await getCatalog({
+      configDir: dir,
+      metaStore: createMemoryMetaStore(),
+      fetchFn: makeFetch({ digestBody: goodDigest, sigBody: goodSig }),
+      remoteUrl,
+      maxCacheAgeMs: 0,
+    })
+    expect(result.origin).toBe('remote')
+  })
+
+  it('rejects remote catalog on signature mismatch and falls back', async () => {
+    const bundledCatalogPath = join(dir, 'bundle-sig.json')
+    writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
+    const result = await getCatalog({
+      configDir: dir,
+      metaStore: createMemoryMetaStore(),
+      fetchFn: makeFetch({ digestBody: goodDigest, sigBody: badSig }),
+      remoteUrl,
+      bundledCatalogPath,
+      maxCacheAgeMs: 0,
+    })
+    expect(result.origin).not.toBe('remote')
+    expect(result.error ?? '').toMatch(/signature|ed25519/i)
+  })
+
+  it('rejects remote catalog when signature fetch fails', async () => {
+    const bundledCatalogPath = join(dir, 'bundle-sig-miss.json')
+    writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
+    const result = await getCatalog({
+      configDir: dir,
+      metaStore: createMemoryMetaStore(),
+      fetchFn: makeFetch({ digestBody: goodDigest, sigBody: null, sigStatus: 404 }),
+      remoteUrl,
+      bundledCatalogPath,
+      maxCacheAgeMs: 0,
+    })
+    expect(result.origin).not.toBe('remote')
+    expect(result.error ?? '').toMatch(/signature/i)
   })
 })

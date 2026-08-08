@@ -15,9 +15,10 @@
  *
  * Failures are logged and skipped (partial pin is OK). Tools are ignored.
  *
- * After rewriting catalog.json, also writes catalog.json.sha256 beside it
- * (GNU `shasum -a 256` format: `<hex>  catalog.json\n`) so remote/bundled
- * loaders can verify the catalog body digest.
+ * After rewriting catalog.json, also writes:
+ *   - catalog.json.sha256 (GNU shasum format) for body digest verify
+ *   - catalog.json.sig when CRAFT_MARKETPLACE_CATALOG_SIGNING_KEY or
+ *     scripts/.marketplace-catalog-signing-key.b64 is available (ed25519)
  *
  * Usage:
  *   bun scripts/marketplace-content-sha.ts
@@ -37,6 +38,7 @@ import {
   sha256FileContent,
 } from '../packages/shared/src/marketplace/installer.ts'
 import { parseCatalog, sha256HexOfString, type MarketplaceCatalog, type MarketplaceEntry } from '../packages/shared/src/marketplace/catalog.ts'
+import { signCatalogBody } from '../packages/shared/src/marketplace/catalog-signing.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(SCRIPT_DIR, '..')
@@ -179,6 +181,20 @@ async function main(): Promise<void> {
   writeFileSync(sidecarPath, `${sha256HexOfString(out)}  catalog.json\n`, 'utf8')
   log(`\nwrote ${catalogPath}`)
   log(`wrote ${sidecarPath}`)
+
+  // Ed25519 signature (optional if no signing key in env / local gitignored file).
+  const keyFromEnv = process.env.CRAFT_MARKETPLACE_CATALOG_SIGNING_KEY?.trim()
+  const keyFile = join(SCRIPT_DIR, '.marketplace-catalog-signing-key.b64')
+  const keyFromFile = existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : ''
+  const signingKey = keyFromEnv || keyFromFile
+  if (signingKey) {
+    const sigPath = `${catalogPath}.sig`
+    writeFileSync(sigPath, `${signCatalogBody(out, signingKey)}\n`, 'utf8')
+    log(`wrote ${sigPath}`)
+  } else {
+    warn('no catalog signing key (CRAFT_MARKETPLACE_CATALOG_SIGNING_KEY or scripts/.marketplace-catalog-signing-key.b64) — left existing .sig untouched')
+  }
+
   log(`summary: pinned=${pinned} failed=${failed} total=${targets.length}`)
 }
 

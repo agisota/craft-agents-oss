@@ -5,6 +5,8 @@
  * Trust model: the catalog is an index, not executable code. Entries are
  * curated (GitHub-only sources, pinned commit SHA). Remote refresh uses
  * ETag + 24h TTL; on any failure the last cache or the bundled copy wins.
+ * Body integrity: sibling catalog.json.sha256 (SHA-256). Authenticity:
+ * sibling catalog.json.sig (ed25519 over body bytes; public key baked in).
  */
 
 import { createHash } from 'node:crypto'
@@ -13,6 +15,7 @@ import { dirname, join } from 'node:path'
 
 import { CONFIG_DIR } from '../config/paths.ts'
 import { getBundledAssetsDir } from '../utils/paths.ts'
+import { verifyCatalogEd25519Signature } from './catalog-signing.ts'
 
 // ---------------------------------------------------------------------------
 // Schema (PRD §8.1 + descriptionRu)
@@ -118,6 +121,17 @@ function assertCatalogBodyMatchesSidecar(body: string, sidecarBody: string, labe
     throw new Error(`${label}: catalog sha256 mismatch (expected ${token}, got ${actual})`)
   }
 }
+
+/** Verify ed25519 signature (base64) over the exact catalog body bytes. */
+function assertCatalogBodySignature(body: string, signatureBase64: string, label: string): void {
+  try {
+    verifyCatalogEd25519Signature(body, signatureBase64)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`${label}: ${msg}`)
+  }
+}
+
 
 /**
  * Parse + validate a catalog payload. Throws CatalogValidationError on any
@@ -442,11 +456,16 @@ function loadBundled(bundledCatalogPath?: string): MarketplaceCatalog | null {
     if (existsSync(sidecarPath)) {
       assertCatalogBodyMatchesSidecar(body, readFileSync(sidecarPath, 'utf8'), 'bundled catalog')
     }
+    const sigPath = `${file}.sig`
+    if (existsSync(sigPath)) {
+      assertCatalogBodySignature(body, readFileSync(sigPath, 'utf8'), 'bundled catalog')
+    }
     return parseCatalog(JSON.parse(body))
   } catch {
     return null
   }
 }
+
 
 const EMPTY_CATALOG: MarketplaceCatalog = { catalogVersion: 0, entries: [] }
 
@@ -502,8 +521,8 @@ async function refreshCatalogInternal(options: GetCatalogOptions & { allowFreshC
       if (Buffer.byteLength(body) > MAX_CATALOG_BYTES) {
         throw new Error(`catalog exceeds 4MB cap (${Buffer.byteLength(body)} bytes)`)
       }
-      // Integrity: when the remote URL points at catalog.json, require a matching
-      // sibling catalog.json.sha256 (GNU shasum format) before parseCatalog.
+      // Integrity + authenticity when URL ends with catalog.json:
+      // sibling .sha256 (body digest) and .sig (ed25519 over body bytes).
       if (remoteUrl.endsWith('catalog.json')) {
         const digestUrl = remoteUrl.replace(/catalog\.json$/, 'catalog.json.sha256')
         const digestRes = await fetchFn(digestUrl, {
@@ -512,7 +531,15 @@ async function refreshCatalogInternal(options: GetCatalogOptions & { allowFreshC
         })
         if (!digestRes.ok) throw new Error(`catalog digest HTTP ${digestRes.status}`)
         assertCatalogBodyMatchesSidecar(body, await digestRes.text(), 'remote catalog')
+        const sigUrl = remoteUrl.replace(/catalog\.json$/, 'catalog.json.sig')
+        const sigRes = await fetchFn(sigUrl, {
+          headers: { 'user-agent': 'craft-agents-marketplace' },
+          signal: AbortSignal.timeout(30_000),
+        })
+        if (!sigRes.ok) throw new Error(`catalog signature HTTP ${sigRes.status}`)
+        assertCatalogBodySignature(body, await sigRes.text(), 'remote catalog')
       }
+
       const catalog = parseCatalog(JSON.parse(body)) // throws CatalogValidationError
       // Version monotonicity: never replace a newer cache with an older catalog.
       if (cached && catalog.catalogVersion < cached.catalog.catalogVersion) {

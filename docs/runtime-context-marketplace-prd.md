@@ -343,5 +343,5 @@ tradeoff и предложи скучно-безопасный вариант.
 - **Brew:** install uses `brew install --quiet <formula>`; on pin mismatch uninstall uses `brew uninstall --force` then errors; no `formula@version` pin form for mole.
 - **CLI-Anything:** shipped as toolchain opt-in pip tool `cli-anything` / lock `cli-anything@0.4.1` (hub entry `cli-hub` / `cli_hub.cli`).
 - **Marketplace card copy:** entry descriptions remain curated Russian (`descriptionRu`); machine translation of upstream READMEs is not used.
-- **Catalog signing:** ed25519 signing of the catalog is explicitly deferred (content pins + HTTPS raw URL + sidecar sha256 are the current trust chain).
+- **Catalog signing:** ed25519 over catalog.json body (`catalog.json.sig`); public key baked in `catalog-signing.ts`; private key via `CRAFT_MARKETPLACE_CATALOG_SIGNING_KEY` or gitignored `scripts/.marketplace-catalog-signing-key.b64` when running `marketplace-content-sha.ts`. Combined with `catalog.json.sha256` digest + content pins.
 - **Model switch from Runtime:** always updates the default LLM connection; when a chat session is focused (`activeSessionIdAtom`), also calls existing `electronAPI.setSessionModel(sessionId, workspaceId, defaultModel, slug)` (same path as ChatPage). Without a focused session, applies to the next session only.

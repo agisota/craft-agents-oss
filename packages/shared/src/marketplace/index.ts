@@ -4,6 +4,7 @@
  */
 
 export * from './catalog.ts'
+export * from './catalog-signing.ts'
 export * from './lock.ts'
 export * from './stats.ts'
 export * from './installer.ts'
