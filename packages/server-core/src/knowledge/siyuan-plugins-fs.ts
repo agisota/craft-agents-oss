@@ -1,15 +1,15 @@
 /**
  * Filesystem feed for installed SiYuan plugins (offline-capable).
  *
- * Reads dataDir/plugins/<name>/plugin.json and optional
- * dataDir/storage/petal/petals.json enabled flags. Never spawns or
- * downloads SiYuan (G2). Kernel remains optional enrichment elsewhere.
+ * Scans known SiYuan *data* directories for plugins/<name>/plugin.json and
+ * storage/petal/petals.json. Also exposes conf.json api.token readers for
+ * external-local kernel assist (G2-safe: read-only, never spawn/download).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { parseSiYuanPluginManifest, type SiYuanBridgeManifest } from '@craft-agent/shared/extensions'
-
+import { SIYUAN_DEFAULT_BASE_URL } from './siyuan-detect'
 /** Test-only override of candidate data dirs (null = use platform defaults). */
 let candidateDataDirsOverride: string[] | null = null
 
@@ -61,6 +61,139 @@ export function findSiyuanDataDirs(platform: NodeJS.Platform = process.platform)
       return false
     }
   })
+}
+
+/**
+ * Candidate SiYuan conf.json paths (contain api.token).
+ * Layout: <workspaceRoot>/conf/conf.json next to data/; also nested under
+ * Application Support / .config roots when data candidates are known.
+ */
+export function candidateSiyuanConfPaths(platform: NodeJS.Platform = process.platform): string[] {
+  const fromEnv = process.env.CRAFT_SIYUAN_CONF_PATHS
+  if (fromEnv && fromEnv.trim()) {
+    return fromEnv
+      .split(platform === 'win32' ? ';' : ':')
+      .map((p) => p.trim())
+      .filter(Boolean)
+  }
+
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (p: string) => {
+    if (!p || seen.has(p)) return
+    seen.add(p)
+    out.push(p)
+  }
+
+  // Derive conf.json from known data dirs: .../SiYuan/data → .../SiYuan/conf/conf.json
+  for (const dataDir of candidateSiyuanDataDirs(platform)) {
+    const workspaceRoot = dirname(dataDir)
+    push(join(workspaceRoot, 'conf', 'conf.json'))
+    // Some installs keep conf under the data parent as conf.json
+    push(join(workspaceRoot, 'conf.json'))
+  }
+
+  // Explicit platform roots (same as data candidates' parents)
+  const home = homedir()
+  switch (platform) {
+    case 'darwin':
+      push(join(home, 'Library', 'Application Support', 'SiYuan', 'conf', 'conf.json'))
+      break
+    case 'win32': {
+      const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming')
+      push(join(appData, 'SiYuan', 'conf', 'conf.json'))
+      break
+    }
+    default:
+      push(join(home, '.config', 'siyuan', 'conf', 'conf.json'))
+      push(join(home, '.config', 'SiYuan', 'conf', 'conf.json'))
+      push(join(home, '.siyuan', 'conf', 'conf.json'))
+      push(join(home, 'SiYuan', 'conf', 'conf.json'))
+      break
+  }
+
+  return out
+}
+
+/** Existing conf.json candidates only. */
+export function findSiyuanConfPaths(platform: NodeJS.Platform = process.platform): string[] {
+  return candidateSiyuanConfPaths(platform).filter((p) => {
+    try {
+      return existsSync(p) && statSync(p).isFile()
+    } catch {
+      return false
+    }
+  })
+}
+
+export interface SiyuanConfApiToken {
+  /** Non-empty api.token from conf.json — NEVER log. */
+  token: string
+  /** Kernel base URL (default 127.0.0.1:6806). */
+  baseUrl: string
+  /** conf.json path the token was read from. */
+  confPath: string
+}
+
+/**
+ * Read api.token (+ optional baseUrl hints) from a SiYuan conf.json.
+ * Fail-soft: missing/malformed/empty token → null. Never logs token.
+ */
+export function readSiyuanApiTokenFromConf(confPath: string): SiyuanConfApiToken | null {
+  if (!confPath) return null
+  try {
+    if (!existsSync(confPath)) return null
+    const raw = JSON.parse(readFileSync(confPath, 'utf8')) as unknown
+    if (!raw || typeof raw !== 'object') return null
+    const root = raw as Record<string, unknown>
+    const api = root.api
+    let token = ''
+    if (api && typeof api === 'object' && !Array.isArray(api)) {
+      const t = (api as Record<string, unknown>).token
+      if (typeof t === 'string') token = t.trim()
+    }
+    // Also accept top-level apiToken / token (defensive; official shape is api.token)
+    if (!token && typeof root.apiToken === 'string') token = root.apiToken.trim()
+    if (!token) return null
+
+    let baseUrl = SIYUAN_DEFAULT_BASE_URL
+    // Prefer serverAddrs local loopback when present
+    const addrs = root.serverAddrs
+    if (Array.isArray(addrs)) {
+      const loopback = addrs.find(
+        (a): a is string => typeof a === 'string' && /127\.0\.0\.1|localhost/i.test(a),
+      )
+      if (loopback) {
+        baseUrl = loopback.replace(/\/+$/, '')
+      } else if (typeof addrs[0] === 'string' && addrs[0]) {
+        baseUrl = String(addrs[0]).replace(/\/+$/, '')
+      }
+    }
+    // Optional explicit fields if ever present
+    if (typeof root.baseUrl === 'string' && root.baseUrl.trim()) {
+      baseUrl = root.baseUrl.trim().replace(/\/+$/, '')
+    } else if (typeof root.apiUrl === 'string' && root.apiUrl.trim()) {
+      baseUrl = root.apiUrl.trim().replace(/\/+$/, '')
+    }
+
+    return { token, baseUrl, confPath }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * First readable non-empty api.token across conf candidates.
+ * Never logs token values.
+ */
+export function readFirstSiyuanApiTokenFromConf(
+  platform: NodeJS.Platform = process.platform,
+): SiyuanConfApiToken | null {
+  for (const confPath of findSiyuanConfPaths(platform)) {
+    const hit = readSiyuanApiTokenFromConf(confPath)
+    if (hit) return hit
+  }
+  return null
 }
 
 /**

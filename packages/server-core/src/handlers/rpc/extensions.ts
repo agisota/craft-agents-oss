@@ -3,11 +3,11 @@
  *
  * Federated list of craft-curated catalog + installed projections
  * (skills/sources/automations/marketplace lock + optional SiYuan bridge
- * fixtures). Enable/disable is stored in
+ * fixtures / remote Bazaar soft-fail). Enable/disable is stored in
  * `{configDir}/extensions/state.json` and does NOT rewrite entity stores.
  *
  * Install/remove for marketplace ids remains on marketplace.* handlers.
- * Live kernel Bazaar / contribution host execution remain residual.
+ * Live kernel Bazaar install remains residual (catalog lists available only).
  */
 
 import { existsSync } from 'node:fs'
@@ -45,7 +45,10 @@ import { resolveAutomationsConfigPath } from '@craft-agent/shared/automations/re
 import type { AutomationsConfig } from '@craft-agent/shared/automations'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
-import { pluginBridgeBazaarListFn } from './plugin-bridge'
+import {
+  pluginBridgeBazaarCatalogListFn,
+  pluginBridgeBazaarListFn,
+} from './plugin-bridge'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensions.LIST_CATALOG,
@@ -114,7 +117,7 @@ export function registerExtensionsHandlers(server: RpcServer, deps: HandlerDeps)
     RPC_CHANNELS.extensions.LIST_CATALOG,
     async (_ctx, args?: ExtensionsListCatalogArgs): Promise<ExtensionsListCatalogResult> => {
       const registry = createDefaultCatalogRegistry(() => loadMarketplaceCatalog(), {
-        bazaarListFn: pluginBridgeBazaarListFn,
+        bazaarListFn: pluginBridgeBazaarCatalogListFn,
       })
       const entries = await registry.listAll(args?.filter)
       return {

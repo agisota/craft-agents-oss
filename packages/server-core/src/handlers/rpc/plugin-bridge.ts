@@ -1,8 +1,10 @@
 /**
  * SiYuan plugin bridge RPC handlers (W6).
  *
- * LOCAL_ONLY. LIST order: fixture/env → healthy knowledge kernel (soft) →
- * filesystem scan of known SiYuan data dirs → empty + residual.
+ * LOCAL_ONLY. LIST order: fixture/env → kernel (soft) → filesystem scan of
+ * known SiYuan data dirs → empty + residual.
+ * Kernel client resolution: healthy knowledge connections → any-status
+ * connections with token → conf.json api.token fallback (G2-safe, never spawn).
  * Never spawns/downloads SiYuan (G2). Does not execute third-party plugin code.
  * Does not rewrite petals.json on disk — kernel owns petal state.
  */
@@ -27,6 +29,7 @@ import {
 } from '@craft-agent/shared/extensions'
 import {
   SiyuanKernelClient,
+  type SiyuanBazaarPluginPackage,
   type SiyuanInstalledPluginPackage,
   type SiyuanPetalInfo,
 } from '@craft-agent/core/knowledge/providers/siyuan'
@@ -35,9 +38,11 @@ import type { HandlerDeps } from '../handler-deps'
 import {
   credentialIdFromRef,
   KnowledgeConnectionsStore,
+  type KnowledgeConnectionRecord,
 } from '../../knowledge/connections-store'
 import {
   listInstalledPluginsFromFilesystem,
+  readFirstSiyuanApiTokenFromConf,
   type InstalledPluginFeedItem,
 } from '../../knowledge/siyuan-plugins-fs'
 
@@ -165,6 +170,55 @@ function packagesToManifests(
   return out
 }
 
+/**
+ * Prefer fuller filesystem plugin.json fields when kernel rows are thin
+ * (missing craft block / backends / frontends / minAppVersion). Kernel/petals
+ * enabled flags stay on the load result, not the manifest body.
+ */
+function enrichManifestsWithFilesystem(
+  kernelManifests: SiYuanBridgeManifest[],
+): SiYuanBridgeManifest[] {
+  let fsByName: Map<string, SiYuanBridgeManifest> | null = null
+  try {
+    const items = listInstalledPluginsFromFilesystem()
+    if (items.length > 0) {
+      fsByName = new Map(items.map((i) => [i.manifest.name, i.manifest]))
+    }
+  } catch {
+    fsByName = null
+  }
+  if (!fsByName || fsByName.size === 0) return kernelManifests
+
+  const out: SiYuanBridgeManifest[] = []
+  for (const km of kernelManifests) {
+    const fs = fsByName.get(km.name)
+    if (!fs) {
+      out.push(km)
+      continue
+    }
+    // FS wins on fuller metadata; keep kernel name/version when present.
+    const merged: SiYuanBridgeManifest = {
+      ...fs,
+      ...km,
+      name: km.name || fs.name,
+      version: km.version || fs.version,
+    }
+    // Prefer FS craft block when kernel lacks one
+    if (!km.craft && fs.craft) merged.craft = fs.craft
+    else if (km.craft) merged.craft = km.craft
+    // Prefer non-empty localized / author fields from the richer side
+    if (fs.displayName && !km.displayName) merged.displayName = fs.displayName
+    if (fs.description && !km.description) merged.description = fs.description
+    if (fs.author && !km.author) merged.author = fs.author
+    if (fs.minAppVersion && !km.minAppVersion) merged.minAppVersion = fs.minAppVersion
+    if (fs.backends?.length && !km.backends?.length) merged.backends = fs.backends
+    if (fs.frontends?.length && !km.frontends?.length) merged.frontends = fs.frontends
+    out.push(merged)
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return out
+}
+
 function petalsToEnabledMap(petals: SiyuanPetalInfo[]): Map<string, boolean> {
   const map = new Map<string, boolean>()
   for (const p of petals) {
@@ -173,35 +227,73 @@ function petalsToEnabledMap(petals: SiyuanPetalInfo[]): Map<string, boolean> {
   return map
 }
 
-async function resolveKernelClient(): Promise<SiyuanKernelClient | null> {
+async function clientFromConnection(
+  record: KnowledgeConnectionRecord,
+): Promise<SiyuanKernelClient | null> {
+  try {
+    const id = credentialIdFromRef(record.credentialRef)
+    if (!id) return null
+    const credential = await getCredentialManager().get(id)
+    const token = credential?.value ?? ''
+    if (!token) return null
+    const client = new SiyuanKernelClient({
+      baseUrl: record.baseUrl,
+      token,
+      timeoutMs: 2_500,
+    })
+    // Cheap health probe — soft-fail on unreachable kernel
+    await client.getVersion()
+    return client
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve a live SiYuan kernel client.
+ * Order: test override → healthy knowledge connections → any-status connections
+ * with token → conf.json api.token (external-local assist). Never logs tokens.
+ */
+export async function resolveKernelClient(): Promise<SiyuanKernelClient | null> {
   if (kernelClientOverride !== undefined) {
     return kernelClientOverride
   }
+
+  // 1–2. Knowledge connections (healthy first, then any status with token)
   try {
     const store = new KnowledgeConnectionsStore(configDir())
-    const healthy = store.list().filter((r) => r.provider === 'siyuan' && r.status === 'ok')
+    const siyuan = store.list().filter((r) => r.provider === 'siyuan')
+    const healthy = siyuan.filter((r) => r.status === 'ok')
+    const rest = siyuan.filter((r) => r.status !== 'ok')
+
     for (const record of healthy) {
-      try {
-        const id = credentialIdFromRef(record.credentialRef)
-        if (!id) continue
-        const credential = await getCredentialManager().get(id)
-        const token = credential?.value ?? ''
-        if (!token) continue
-        const client = new SiyuanKernelClient({
-          baseUrl: record.baseUrl,
-          token,
-          timeoutMs: 2_500,
-        })
-        // Cheap health probe — soft-fail on unreachable kernel
-        await client.getVersion()
-        return client
-      } catch {
-        /* try next connection */
-      }
+      const client = await clientFromConnection(record)
+      if (client) return client
+    }
+    for (const record of rest) {
+      const client = await clientFromConnection(record)
+      if (client) return client
     }
   } catch {
     /* no connections store / credentials */
   }
+
+  // 3. conf.json api.token fallback (G2-safe: read-only, never spawn)
+  try {
+    const conf = readFirstSiyuanApiTokenFromConf()
+    if (conf?.token) {
+      const client = new SiyuanKernelClient({
+        baseUrl: conf.baseUrl,
+        token: conf.token,
+        timeoutMs: 2_000,
+      })
+      await client.getVersion()
+      return client
+    }
+  } catch {
+    /* conf missing / kernel down / bad token */
+  }
+
   return null
 }
 
@@ -213,8 +305,9 @@ async function loadFromKernel(
       client.getInstalledPlugin('desktop'),
       client.loadPetals('desktop').catch(() => [] as SiyuanPetalInfo[]),
     ])
-    const manifests = packagesToManifests(packages)
+    let manifests = packagesToManifests(packages)
     if (manifests.length === 0) return null
+    manifests = enrichManifestsWithFilesystem(manifests)
     const enabledByName = petalsToEnabledMap(petals)
     // Also pick enabled flags embedded on package rows when petals empty
     if (enabledByName.size === 0) {
@@ -294,7 +387,7 @@ export async function loadPluginBridgeManifests(): Promise<PluginBridgeManifestL
   return emptyLoad(kernelResidual ?? EMPTY_RESIDUAL)
 }
 
-/** Catalog listFn for SiYuan Bazaar provider (sync fixture/fs snapshot). */
+/** Sync catalog listFn for SiYuan Bazaar provider (installed fixture/fs snapshot). */
 export function pluginBridgeBazaarListFn(): SiYuanBridgeManifest[] {
   if (fixtureManifests) return fixtureManifests
   const fromEnv = loadFixtureFromEnv()
@@ -305,6 +398,63 @@ export function pluginBridgeBazaarListFn(): SiYuanBridgeManifest[] {
   } catch {
     return []
   }
+}
+
+/** Map a remote Bazaar package row → bridge manifest (typically L0/L1, no craft). */
+export function bazaarPackageToManifest(
+  pkg: SiyuanBazaarPluginPackage,
+): SiYuanBridgeManifest | null {
+  const version =
+    typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version.trim() : '0.0.0'
+  return parseSiYuanPluginManifest({
+    name: pkg.name,
+    version,
+    ...(pkg.displayName !== undefined ? { displayName: pkg.displayName } : {}),
+    ...(pkg.description !== undefined ? { description: pkg.description } : {}),
+    ...(typeof pkg.author === 'string' ? { author: pkg.author } : {}),
+    ...(typeof pkg.minAppVersion === 'string' ? { minAppVersion: pkg.minAppVersion } : {}),
+    ...(Array.isArray(pkg.backends) ? { backends: pkg.backends } : {}),
+    ...(Array.isArray(pkg.frontends) ? { frontends: pkg.frontends } : {}),
+  })
+}
+
+/**
+ * Soft-fail remote Bazaar catalog via kernel. Empty when kernel down / no token.
+ * Does NOT auto-install.
+ */
+export async function loadBazaarRemoteManifests(
+  keyword = '',
+): Promise<SiYuanBridgeManifest[]> {
+  try {
+    const client = await resolveKernelClient()
+    if (!client) return []
+    const packages = await client.getBazaarPlugin('desktop', keyword)
+    const out: SiYuanBridgeManifest[] = []
+    for (const pkg of packages) {
+      const m = bazaarPackageToManifest(pkg)
+      if (m) out.push(m)
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name))
+    return out
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Async catalog listFn: installed (sync fixture/fs) + optional remote Bazaar.
+ * Installed wins on name collision. Soft-fail empty remote when kernel down.
+ */
+export async function pluginBridgeBazaarCatalogListFn(): Promise<SiYuanBridgeManifest[]> {
+  const installed = pluginBridgeBazaarListFn()
+  const remote = await loadBazaarRemoteManifests()
+  if (remote.length === 0) return installed
+
+  const byName = new Map<string, SiYuanBridgeManifest>()
+  // Remote first, then installed overwrites — installed wins
+  for (const m of remote) byName.set(m.name, m)
+  for (const m of installed) byName.set(m.name, m)
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function findManifest(
@@ -344,7 +494,7 @@ function toListItem(
 
 function residualForSource(source: PluginBridgeFeedSource | null, extra?: string): string | undefined {
   const parts: string[] = []
-  if (source === 'filesystem') parts.push("source: filesystem")
+  if (source === 'filesystem') parts.push('source: filesystem')
   else if (source === 'kernel') parts.push('source: kernel')
   else if (source === 'fixture') parts.push('source: fixture')
   if (extra) parts.push(extra)

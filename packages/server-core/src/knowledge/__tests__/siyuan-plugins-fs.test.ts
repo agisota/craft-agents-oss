@@ -1,5 +1,5 @@
 /**
- * Filesystem feed for installed SiYuan plugins.
+ * Filesystem feed for installed SiYuan plugins + conf.json api.token readers.
  */
 import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,11 +7,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   __setSiyuanDataDirCandidatesForTests,
+  candidateSiyuanConfPaths,
   candidateSiyuanDataDirs,
+  findSiyuanConfPaths,
   findSiyuanDataDirs,
   listInstalledPluginManifests,
   listInstalledPluginsFromFilesystem,
+  readFirstSiyuanApiTokenFromConf,
   readPetalsEnabledMap,
+  readSiyuanApiTokenFromConf,
 } from '../siyuan-plugins-fs'
 
 function makeTempDataDir(): string {
@@ -27,10 +31,14 @@ function writePlugin(dataDir: string, name: string, body: Record<string, unknown
   writeFileSync(join(dir, 'plugin.json'), JSON.stringify(body), 'utf8')
 }
 
+let prevConfPaths: string | undefined
+
 afterEach(() => {
   __setSiyuanDataDirCandidatesForTests(null)
+  if (prevConfPaths === undefined) delete process.env.CRAFT_SIYUAN_CONF_PATHS
+  else process.env.CRAFT_SIYUAN_CONF_PATHS = prevConfPaths
+  prevConfPaths = undefined
 })
-
 describe('candidateSiyuanDataDirs / findSiyuanDataDirs', () => {
   it('returns platform candidates and only existing dirs from find', () => {
     const candidates = candidateSiyuanDataDirs(process.platform)
@@ -119,6 +127,73 @@ describe('listInstalledPluginManifests + petals', () => {
       expect(listInstalledPluginManifests(join(dataDir, 'nope'))).toEqual([])
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('readSiyuanApiTokenFromConf', () => {
+  it('reads api.token and prefers loopback serverAddrs', () => {
+    const root = mkdtempSync(join(tmpdir(), 'craft-siyuan-conf-'))
+    try {
+      const confPath = join(root, 'conf.json')
+      writeFileSync(
+        confPath,
+        JSON.stringify({
+          api: { token: 'test-token-value' },
+          serverAddrs: ['http://192.168.1.10:6806', 'http://127.0.0.1:6806'],
+        }),
+        'utf8',
+      )
+      const hit = readSiyuanApiTokenFromConf(confPath)
+      expect(hit).not.toBeNull()
+      expect(hit!.token).toBe('test-token-value')
+      expect(hit!.baseUrl).toBe('http://127.0.0.1:6806')
+      expect(hit!.confPath).toBe(confPath)
+      // Never embed token in confPath / baseUrl strings accidentally
+      expect(hit!.baseUrl.includes('test-token-value')).toBe(false)
+      expect(hit!.confPath.includes('test-token-value')).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('returns null for empty token / missing file / malformed json', () => {
+    const root = mkdtempSync(join(tmpdir(), 'craft-siyuan-conf-empty-'))
+    try {
+      const emptyTok = join(root, 'empty.json')
+      writeFileSync(emptyTok, JSON.stringify({ api: { token: '   ' } }), 'utf8')
+      expect(readSiyuanApiTokenFromConf(emptyTok)).toBeNull()
+
+      const noApi = join(root, 'no-api.json')
+      writeFileSync(noApi, JSON.stringify({ system: {} }), 'utf8')
+      expect(readSiyuanApiTokenFromConf(noApi)).toBeNull()
+
+      const bad = join(root, 'bad.json')
+      writeFileSync(bad, '{nope', 'utf8')
+      expect(readSiyuanApiTokenFromConf(bad)).toBeNull()
+
+      expect(readSiyuanApiTokenFromConf(join(root, 'missing.json'))).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('findSiyuanConfPaths honors CRAFT_SIYUAN_CONF_PATHS exclusive override', () => {
+    const root = mkdtempSync(join(tmpdir(), 'craft-siyuan-conf-paths-'))
+    try {
+      const confPath = join(root, 'conf.json')
+      writeFileSync(confPath, JSON.stringify({ api: { token: 'from-env-path' } }), 'utf8')
+      prevConfPaths = process.env.CRAFT_SIYUAN_CONF_PATHS
+      process.env.CRAFT_SIYUAN_CONF_PATHS = confPath
+
+      expect(candidateSiyuanConfPaths()).toEqual([confPath])
+      expect(findSiyuanConfPaths()).toEqual([confPath])
+
+      const first = readFirstSiyuanApiTokenFromConf()
+      expect(first?.token).toBe('from-env-path')
+      expect(first?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:6806$/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

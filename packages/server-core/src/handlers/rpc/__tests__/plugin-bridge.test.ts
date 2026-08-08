@@ -7,8 +7,12 @@ import { resetExtensionStateStoreCache } from '@craft-agent/shared/extensions'
 import { SiyuanKernelClient } from '@craft-agent/core/knowledge/providers/siyuan'
 import {
   HANDLED_CHANNELS,
+  loadBazaarRemoteManifests,
+  pluginBridgeBazaarCatalogListFn,
+  pluginBridgeBazaarListFn,
   registerPluginBridgeHandlers,
   resetPluginBridgeFixture,
+  resolveKernelClient,
   setPluginBridgeFixture,
   __setPluginBridgeKernelClientForTests,
 } from '../plugin-bridge'
@@ -64,12 +68,16 @@ function makeKernelClient(handlers: Record<string, FetchHandler>): SiyuanKernelC
 describe('pluginBridge handlers', () => {
   let configDir: string
   let prevConfig: string | undefined
+  let prevConfPaths: string | undefined
   let dataDir: string | undefined
 
   beforeEach(() => {
     configDir = mkdtempSync(join(tmpdir(), 'craft-plugin-bridge-'))
     prevConfig = process.env.CRAFT_CONFIG_DIR
     process.env.CRAFT_CONFIG_DIR = configDir
+    // Isolate conf-token fallback from the developer's real SiYuan conf.
+    prevConfPaths = process.env.CRAFT_SIYUAN_CONF_PATHS
+    process.env.CRAFT_SIYUAN_CONF_PATHS = join(configDir, 'no-such-conf.json')
     resetExtensionStateStoreCache()
     resetPluginBridgeFixture()
     __setPluginBridgeKernelClientForTests(null) // force no auto kernel
@@ -83,6 +91,8 @@ describe('pluginBridge handlers', () => {
     __setSiyuanDataDirCandidatesForTests(null)
     if (prevConfig === undefined) delete process.env.CRAFT_CONFIG_DIR
     else process.env.CRAFT_CONFIG_DIR = prevConfig
+    if (prevConfPaths === undefined) delete process.env.CRAFT_SIYUAN_CONF_PATHS
+    else process.env.CRAFT_SIYUAN_CONF_PATHS = prevConfPaths
     rmSync(configDir, { recursive: true, force: true })
     if (dataDir) {
       rmSync(dataDir, { recursive: true, force: true })
@@ -392,5 +402,186 @@ describe('pluginBridge handlers', () => {
     }
     expect(result.route).toBe('knowledge/notebook/__full__')
     expect(result.ref).toEqual({ kind: 'notebook', id: '__full__' })
+  })
+})
+
+describe('resolveKernelClient conf fallback + bazaar catalog merge', () => {
+  let configDir: string
+  let prevConfig: string | undefined
+  let prevConfPaths: string | undefined
+  let dataDir: string | undefined
+
+  beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), 'craft-kernel-resolve-'))
+    prevConfig = process.env.CRAFT_CONFIG_DIR
+    process.env.CRAFT_CONFIG_DIR = configDir
+    prevConfPaths = process.env.CRAFT_SIYUAN_CONF_PATHS
+    process.env.CRAFT_SIYUAN_CONF_PATHS = join(configDir, 'missing-conf.json')
+    resetPluginBridgeFixture()
+    __setPluginBridgeKernelClientForTests(undefined)
+    __setSiyuanDataDirCandidatesForTests([])
+    dataDir = undefined
+  })
+
+  afterEach(() => {
+    resetPluginBridgeFixture()
+    __setPluginBridgeKernelClientForTests(undefined)
+    __setSiyuanDataDirCandidatesForTests(null)
+    if (prevConfig === undefined) delete process.env.CRAFT_CONFIG_DIR
+    else process.env.CRAFT_CONFIG_DIR = prevConfig
+    if (prevConfPaths === undefined) delete process.env.CRAFT_SIYUAN_CONF_PATHS
+    else process.env.CRAFT_SIYUAN_CONF_PATHS = prevConfPaths
+    rmSync(configDir, { recursive: true, force: true })
+    if (dataDir) {
+      rmSync(dataDir, { recursive: true, force: true })
+      dataDir = undefined
+    }
+  })
+
+  it('resolveKernelClient returns null without connections/conf/override', async () => {
+    await expect(resolveKernelClient()).resolves.toBeNull()
+  })
+
+  it('resolveKernelClient uses conf api.token when no knowledge connections', async () => {
+    const confPath = join(configDir, 'conf.json')
+    writeFileSync(
+      confPath,
+      JSON.stringify({
+        api: { token: 'conf-secret-token' },
+        serverAddrs: ['http://127.0.0.1:6806'],
+      }),
+      'utf8',
+    )
+    process.env.CRAFT_SIYUAN_CONF_PATHS = confPath
+
+    // Inject healthy client AFTER conf is read by patching via override is not the path under test.
+    // Instead, install a fetchImpl-backed client through a temporary override only to prove the
+    // conf-read unit separately, then exercise resolveKernelClient end-to-end with a mock fetch
+    // by constructing SiyuanKernelClient ourselves after conf read (assignment: conf unit + mock probe).
+    // Here we probe resolveKernelClient against a temporary HTTP mock that accepts conf token.
+    const seenAuth: string[] = []
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      const endpoint = String(url).replace(/^https?:\/\/[^/]+/, '')
+      const auth = String((init?.headers as Record<string, string> | undefined)?.Authorization ?? '')
+      seenAuth.push(auth)
+      if (endpoint === '/api/system/version') {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: '3.1.28' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`unmocked ${endpoint}`)
+    }) as unknown as typeof fetch
+
+    // Monkey-patch global fetch only for this call so conf-built client can probe.
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = fetchImpl
+    try {
+      const client = await resolveKernelClient()
+      expect(client).not.toBeNull()
+      expect(client!.baseUrl).toBe('http://127.0.0.1:6806')
+      expect(seenAuth.some((a) => a.includes('Token conf-secret-token'))).toBe(true)
+      // Never leak token into baseUrl
+      expect(client!.baseUrl.includes('conf-secret-token')).toBe(false)
+    } finally {
+      globalThis.fetch = prevFetch
+    }
+  })
+
+  it('loadBazaarRemoteManifests soft-fails empty when kernel unavailable', async () => {
+    __setPluginBridgeKernelClientForTests(null)
+    await expect(loadBazaarRemoteManifests()).resolves.toEqual([])
+  })
+
+  it('pluginBridgeBazaarCatalogListFn merges installed + remote; installed wins', async () => {
+    setPluginBridgeFixture([
+      {
+        name: 'shared-plugin',
+        version: '9.9.9',
+        displayName: { en: 'Installed Shared' },
+        craft: { level: 2, contributes: { commands: [{ id: 'c1', title: 'C1' }] } },
+      },
+      {
+        name: 'local-only',
+        version: '1.0.0',
+      },
+    ])
+
+    const remoteClient = makeKernelClient({
+      '/api/bazaar/getBazaarPlugin': () => ({
+        data: {
+          packages: [
+            {
+              name: 'shared-plugin',
+              version: '1.0.0',
+              displayName: { en: 'Remote Shared' },
+            },
+            {
+              name: 'remote-only',
+              version: '2.0.0',
+              author: 'bazaar',
+            },
+          ],
+        },
+      }),
+    })
+    __setPluginBridgeKernelClientForTests(remoteClient)
+
+    const installed = pluginBridgeBazaarListFn()
+    expect(installed.map((m) => m.name).sort()).toEqual(['local-only', 'shared-plugin'])
+
+    const merged = await pluginBridgeBazaarCatalogListFn()
+    expect(merged.map((m) => m.name).sort()).toEqual(['local-only', 'remote-only', 'shared-plugin'])
+
+    const shared = merged.find((m) => m.name === 'shared-plugin')
+    expect(shared?.version).toBe('9.9.9')
+    expect(shared?.craft?.level).toBe(2)
+
+    const remoteOnly = merged.find((m) => m.name === 'remote-only')
+    expect(remoteOnly?.version).toBe('2.0.0')
+    expect(remoteOnly?.author).toBe('bazaar')
+  })
+
+  it('LIST_PLUGINS enriches thin kernel packages from filesystem plugin.json', async () => {
+    dataDir = makeTempDataDir()
+    writePlugin(dataDir, 'thin-kernel', {
+      name: 'thin-kernel',
+      version: '3.0.0',
+      displayName: { en: 'Full FS Name' },
+      description: { en: 'From disk' },
+      author: 'fs-author',
+      backends: ['all'],
+      frontends: ['desktop'],
+      craft: {
+        level: 2,
+        contributes: { commands: [{ id: 'cmd.fs', title: 'FS Cmd' }] },
+      },
+    })
+    __setSiyuanDataDirCandidatesForTests([dataDir])
+
+    const client = makeKernelClient({
+      '/api/system/version': () => ({ data: '3.1.28' }),
+      '/api/bazaar/getInstalledPlugin': () => ({
+        data: [{ name: 'thin-kernel', version: '3.0.0', enabled: true }],
+      }),
+      '/api/petal/loadPetals': () => ({
+        data: [{ name: 'thin-kernel', enabled: true }],
+      }),
+    })
+    __setPluginBridgeKernelClientForTests(client)
+
+    const server = createMockServer()
+    registerPluginBridgeHandlers(server as never, {
+      platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+    } as never)
+    const list = server.handlers.get(RPC_CHANNELS.pluginBridge.LIST_PLUGINS)!
+    const result = (await list({})) as {
+      plugins: Array<{ name: string; level: number; displayName?: string }>
+    }
+    const hit = result.plugins.find((p) => p.name === 'thin-kernel')
+    expect(hit).toBeTruthy()
+    // craft block from FS → L2
+    expect(hit?.level).toBe(2)
+    expect(hit?.displayName).toBe('Full FS Name')
   })
 })
