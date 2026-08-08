@@ -97,6 +97,7 @@ import { initModelRefreshService, getModelRefreshService, setFetcherPlatform } f
 import { setSearchPlatform, setImageProcessor } from '@craft-agent/server-core/services'
 import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
+import { stopAllExtensionHosts } from './extension-host-manager'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces, getWorkspaceByNameOrId, loadStoredConfig, addWorkspace, saveConfig } from '@craft-agent/shared/config'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
@@ -1321,6 +1322,13 @@ async function performQuitCleanup(): Promise<void> {
   // Clean up browser pane instances
   if (browserPaneManager) {
     browserPaneManager.destroyAll()
+  }
+
+  // Stop all per-workspace Extension Hosts (utilityProcess children) cleanly.
+  try {
+    await stopAllExtensionHosts()
+  } catch (err) {
+    mainLog.warn('[extension-host] stopAll on quit failed:', err)
   }
 
   // Clean up OAuth flow store (stop periodic cleanup timer)

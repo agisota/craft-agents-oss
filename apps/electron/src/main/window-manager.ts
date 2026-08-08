@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import { classifyExternalUrl, formatBlockedUrlError } from '@craft-agent/shared/utils/url-safety'
 import { RPC_CHANNELS, type WindowCloseRequestSource } from '../shared/types'
+import { getExtensionHostManager } from './extension-host-manager'
 import type { SavedWindow } from './window-state'
 
 // Vite dev server URL for hot reload
@@ -522,6 +523,20 @@ export class WindowManager {
     })
 
     windowLog.info(`Created window for workspace ${workspaceId} (focused: ${focused})`)
+
+    // Best-effort per-workspace Extension Host auto-start (S-05 §3.5): craft-sandbox
+    // workers spin up lazily on first workspace window; crashed hosts recover on focus.
+    void (async () => {
+      try {
+        const mgr = getExtensionHostManager(workspaceId)
+        if (mgr.getStatus().status !== 'running') {
+          await mgr.start()
+        }
+      } catch (err) {
+        windowLog.warn(`Extension Host auto-start for ${workspaceId} failed: ${err}`)
+      }
+    })()
+
     return window
   }
 
