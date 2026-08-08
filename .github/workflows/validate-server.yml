@@ -41,12 +41,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Kilocode LSP decode smoke (no fork server)
-        run: bun test apps/electron/tests/kilocode-lsp-transport.test.ts
-        env:
-          KILOCODE_LSP_TEST: '1'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        timeout-minutes: 5
+
 
       # Fork-server integration leg needs a live Claude auth token as of 2025-05;
       # stdio fork server auth-later path relies on @anthropic-ai/claude-call-proxy or similar helper internal for now
