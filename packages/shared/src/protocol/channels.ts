@@ -656,6 +656,11 @@ export const RPC_CHANNELS = {
     CHANGED: 'kanban:changed',
   },
 
+  mindmap: {
+    /** One-shot LLM outline improve → enriched MindMapGraph (LOCAL_ONLY). */
+    ENRICH: 'mindmap:enrich',
+  },
+
   messaging: {
     // WhatsApp subprocess → Gateway (subprocess invokes on server)
     WA_REGISTER: 'messaging:wa:register',

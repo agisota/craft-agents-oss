@@ -21,6 +21,13 @@ import type { NoteTask } from './notes/NoteInspector'
 import { NotesAIMenu } from './notes/NotesAIMenu'
 import type { AIActionMode } from './notes/NotesAIMenu'
 import { NotesDialogs } from './notes/NotesDialogs'
+import {
+  defaultNoteEntityCapabilities,
+  EntityViewTabs,
+  useEntityView,
+} from '@/components/app-shell/EntityViewTabs'
+import { MindMapHost } from '@/mindmap/MindMapHost'
+import { deriveNoteMindMap, type MindMapGraph } from '@craft-agent/core/mindmap'
 
 interface NotesPageProps {
   selectedNoteId: string | null
@@ -582,6 +589,25 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
   const taskCacheRef = React.useRef<Map<string, NoteTask[]>>(new Map())
   const dirtyRef = React.useRef(dirty)
   const contentRef = React.useRef(content)
+  const noteViewCapabilities = React.useMemo(() => defaultNoteEntityCapabilities(), [])
+  const [noteView, setNoteView] = useEntityView(
+    activeNote ? `note:${activeNote.id}` : 'note:none',
+    noteViewCapabilities,
+    'standard',
+  )
+  const noteMindMapGraph = React.useMemo((): MindMapGraph | null => {
+    if (!activeNote) return null
+    if (noteView !== 'map' && noteView !== 'outline') return null
+    return deriveNoteMindMap({
+      noteId: activeNote.id,
+      title: activeNote.title,
+      markdown: content,
+      backlinks: (activeNote.backlinks ?? []).map((b) => ({
+        id: b.noteId,
+        title: b.title || b.noteId,
+      })),
+    })
+  }, [activeNote, content, noteView])
   const activeNoteIdRef = React.useRef<string | null>(null)
   const richEditorRef = React.useRef<TiptapEditorHandle | null>(null)
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
@@ -1720,6 +1746,14 @@ h1,h2,h3{margin-top:1.5em}
           </span>
         </div>
 
+        {activeNote ? (
+          <EntityViewTabs
+            value={noteView}
+            onChange={setNoteView}
+            capabilities={noteViewCapabilities}
+          />
+        ) : null}
+
         <div className="relative flex-1 min-h-0">
           {!activeNote ? (
             <div className="h-full grid place-items-center">
@@ -1742,6 +1776,12 @@ h1,h2,h3{margin-top:1.5em}
                 </div>
               )}
             </div>
+          ) : noteView === 'map' || noteView === 'outline' ? (
+            <MindMapHost
+              entity={{ type: 'note', noteId: activeNote.id }}
+              graph={noteMindMapGraph}
+              mode={noteView}
+            />
           ) : (
             <div
               className="h-full overflow-y-auto px-6 py-6"

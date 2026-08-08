@@ -298,6 +298,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
   RPC_CHANNELS.knowledge.DETECT_ENGINE,
   RPC_CHANNELS.knowledge.ENGINE_START,
+  RPC_CHANNELS.mindmap.ENRICH,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
