@@ -26,7 +26,7 @@ import type { SessionStatus } from '@/config/session-status-config'
 import { KanbanBoard, type KanbanMoveTarget } from './KanbanBoard'
 import { KANBAN_COLUMNS, statusToColumn } from './status-column'
 import { DEFAULT_KANBAN_COLUMN_COLORS } from './kanban-colors'
-import { BoardListToggle } from './BoardListToggle'
+import { CollectionViewToggle } from './BoardListToggle'
 import { KanbanProjectFilter, type KanbanProjectFilterOption } from './KanbanProjectFilter'
 import { TaskEditor } from './TaskEditor'
 import { mergeSubtaskRows, type SpecNodeSummary, type SubtaskChildRow } from './subtask-merge'
@@ -895,10 +895,11 @@ export function KanbanBoardContainer() {
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2.5} /> {t('kanban.newTask')}
           </button>
-          <BoardListToggle
+          <CollectionViewToggle
             value="board"
             onChange={view => {
               if (view === 'list') navigate(routes.view.allSessions())
+              else if (view === 'table') navigate(routes.view.table())
             }}
           />
         </div>

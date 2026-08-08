@@ -71,7 +71,7 @@ import {
 } from "@/components/ui/collapsible"
 import { SessionList, type ChatGroupingMode } from "./SessionList"
 import { MainContentPanel } from "./MainContentPanel"
-import { BoardListToggle } from "./kanban/BoardListToggle"
+import { CollectionViewToggle } from "./kanban/BoardListToggle"
 import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
@@ -2945,13 +2945,14 @@ function AppShellContent({
               ) : undefined}
               actions={
                 <>
-                  {/* List ⇄ Board view switch (sessions mode, desktop widths only).
+                  {/* List ⇄ Board ⇄ Table view switch (sessions mode, desktop widths only).
                       In board view the navigator is collapsed, so the board hosts its own copy. */}
                   {!isAutoCompact && isSessionsNavigation(navState) && (
-                    <BoardListToggle
+                    <CollectionViewToggle
                       value="list"
                       onChange={view => {
                         if (view === 'board') navigate(routes.view.board())
+                        else if (view === 'table') navigate(routes.view.table())
                       }}
                     />
                   )}
