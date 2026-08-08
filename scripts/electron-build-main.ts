@@ -23,6 +23,14 @@ const WA_WORKER_OUTPUT = join(WA_WORKER_DIR, "dist/worker.cjs");
 const DISCORD_WORKER_DIR = join(ROOT_DIR, "packages/messaging-discord-worker");
 const DISCORD_WORKER_SOURCE = join(DISCORD_WORKER_DIR, "src/worker.ts");
 const DISCORD_WORKER_OUTPUT = join(DISCORD_WORKER_DIR, "dist/worker.cjs");
+const EXTENSION_HOST_WORKER_SOURCE = join(
+  ROOT_DIR,
+  "apps/electron/src/main/extension-host/worker.ts",
+);
+const EXTENSION_HOST_WORKER_OUTPUT = join(
+  DIST_DIR,
+  "extension-host-worker.cjs",
+);
 
 // Load .env file if it exists
 function loadEnvFile(): void {
@@ -343,6 +351,41 @@ async function buildDiscordWorker(): Promise<void> {
   console.log("✅ Discord worker built successfully");
 }
 
+async function buildExtensionHostWorker(): Promise<void> {
+  console.log("🔨 Building extension-host worker...");
+  if (!existsSync(EXTENSION_HOST_WORKER_SOURCE)) {
+    console.error("❌ Extension host worker source missing:", EXTENSION_HOST_WORKER_SOURCE);
+    process.exit(1);
+  }
+  const proc = spawn({
+    cmd: [
+      "bun",
+      "run",
+      "esbuild",
+      "apps/electron/src/main/extension-host/worker.ts",
+      "--bundle",
+      "--platform=node",
+      "--format=cjs",
+      "--outfile=apps/electron/dist/extension-host-worker.cjs",
+      "--external:electron",
+    ],
+    cwd: ROOT_DIR,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    console.error("❌ extension-host worker build failed with exit code", exitCode);
+    process.exit(exitCode);
+  }
+  const verification = await verifyJsFile(EXTENSION_HOST_WORKER_OUTPUT);
+  if (!verification.valid) {
+    console.error("❌ extension-host worker verification failed:", verification.error);
+    process.exit(1);
+  }
+  console.log("✅ extension-host worker built");
+}
+
 async function main(): Promise<void> {
   loadEnvFile();
 
@@ -369,6 +412,9 @@ async function main(): Promise<void> {
 
   // Build Discord worker (discord.js subprocess — optional package)
   await buildDiscordWorker();
+
+  // Build Extension Host craft-sandbox worker (utilityProcess entry)
+  await buildExtensionHostWorker();
 
   const buildDefines = getBuildDefines();
 

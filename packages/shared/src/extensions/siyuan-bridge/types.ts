@@ -216,4 +216,6 @@ export interface ExtensionHostStatus {
   /** honest: host does NOT execute SiYuan plugins */
   executesSiyuanPlugins: false
   message?: string
+  /** craft-sandbox extension ids currently loaded in the worker */
+  loadedExtensions?: string[]
 }

@@ -34,6 +34,7 @@ import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
   CatalogCategory,
   CatalogEntry,
+  ExtensionHostStatus,
   ExtensionPermission,
   ExtensionRecord,
   ExtensionRuntime,
@@ -348,6 +349,7 @@ export default function ExtensionsSettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [actionMsg, setActionMsg] = useState<string | null>(null)
+  const [hostStatus, setHostStatus] = useState<ExtensionHostStatus | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -358,14 +360,16 @@ export default function ExtensionsSettingsPage() {
               category: category === 'all' ? undefined : category,
               query: query.trim() || undefined,
             }
-      const [cat, inst] = await Promise.all([
+      const [cat, inst, host] = await Promise.all([
         window.electronAPI.extensionsListCatalog({ filter }),
         window.electronAPI.extensionsListInstalled({
           workspaceId: workspaceId ?? undefined,
         }),
+        window.electronAPI.extensionHostStatus().catch(() => null),
       ])
       setCatalog(cat)
       setInstalled(inst)
+      setHostStatus(host)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -793,9 +797,25 @@ export default function ExtensionsSettingsPage() {
               <p className="opacity-70 text-xs leading-relaxed">
                 {t('extensions.developer.body', {
                   defaultValue:
-                    'Local folder install and Extension Host verbose logs land in W6 (Extension Host residual). W5 keeps enable/disable state in extensions/state.json without rewriting skills/sources/automations stores.',
+                    'Extension Host runs craft-sandbox modules in a utilityProcess. SiYuan plugins are never executed here.',
                 })}
               </p>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1 font-mono">
+                <div>
+                  {t('extensions.developer.hostStatus', { defaultValue: 'Host status' })}:{' '}
+                  <span className="font-semibold">{hostStatus?.status ?? 'unknown'}</span>
+                  {hostStatus?.pid != null ? ` · pid ${hostStatus.pid}` : null}
+                </div>
+                <div className="opacity-70">
+                  executesSiyuanPlugins: {String(hostStatus?.executesSiyuanPlugins ?? false)}
+                </div>
+                {hostStatus?.message ? (
+                  <div className="opacity-60 break-words whitespace-pre-wrap">{hostStatus.message}</div>
+                ) : null}
+                {hostStatus?.loadedExtensions?.length ? (
+                  <div className="opacity-60">loaded: {hostStatus.loadedExtensions.join(', ')}</div>
+                ) : null}
+              </div>
               <div className="text-xs font-mono opacity-60 break-all">
                 state keys: {Object.keys(installed?.state.enabled ?? {}).length}
               </div>

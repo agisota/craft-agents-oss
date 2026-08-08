@@ -23,8 +23,8 @@
     "build:renderer": "vite build",
     "build:copy": "bun scripts/copy-assets.ts",
     "build:validate": "bun scripts/validate-assets.ts",
-    "build": "bun run lint && bun run build:main && bun run build:preload && bun run build:preload-toolbar && bun run build:interceptor && bun run build:renderer && bun run build:copy && bun run build:validate",
-    "build:win": "bun run build:main:win && bun run build:preload && bun run build:preload-toolbar && bun run build:interceptor && bun run build:renderer && bun run build:copy && bun run build:validate",
+    "build": "bun run lint && bun run build:main && bun run build:extension-host-worker && bun run build:preload && bun run build:preload-toolbar && bun run build:interceptor && bun run build:renderer && bun run build:copy && bun run build:validate",
+    "build:win": "bun run build:main:win && bun run build:extension-host-worker && bun run build:preload && bun run build:preload-toolbar && bun run build:interceptor && bun run build:renderer && bun run build:copy && bun run build:validate",
     "start": "bun run build && electron .",
     "start:win": "bun run build:win && electron .",
     "dev": "vite dev",
@@ -33,7 +33,8 @@
     "dist:mac:x64": "bash scripts/build-dmg.sh x64",
     "dist:win": "powershell -ExecutionPolicy Bypass -File scripts/build-win.ps1",
     "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix"
+    "lint:fix": "eslint src/ --fix",
+    "build:extension-host-worker": "esbuild src/main/extension-host/worker.ts --bundle --platform=node --format=cjs --outfile=dist/extension-host-worker.cjs --external:electron"
   },
   "dependencies": {
     "@craft-agent/core": "workspace:*",
