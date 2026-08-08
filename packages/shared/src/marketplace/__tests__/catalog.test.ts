@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -213,11 +213,9 @@ describe('catalog remote digest verification', () => {
   const goodDigest = `${sha256HexOfString(body)}  catalog.json\n`
   const badDigest = `${'0'.repeat(64)}  catalog.json\n`
 
-  const signingKey = readFileSync(
-    join(import.meta.dir, '../../../../../scripts/.marketplace-catalog-signing-key.b64'),
-    'utf8',
-  ).trim()
-  const goodSig = `${signCatalogBody(body, signingKey)}\n`
+  const signingKeyPath = join(import.meta.dir, '../../../../../scripts/.marketplace-catalog-signing-key.b64')
+  const signingKey = existsSync(signingKeyPath) ? readFileSync(signingKeyPath, 'utf8').trim() : undefined
+  const goodSig = signingKey ? `${signCatalogBody(body, signingKey)}\n` : ''
   const badSig = Buffer.alloc(64, 7).toString('base64') + '\n'
 
   function makeFetch(opts: {
@@ -323,7 +321,7 @@ describe('catalog remote digest verification', () => {
     )
   })
 
-  it('accepts remote catalog when digest and ed25519 signature match', async () => {
+  (signingKey ? it : it.skip)('accepts remote catalog when digest and ed25519 signature match', async () => {
     const result = await getCatalog({
       configDir: dir,
       metaStore: createMemoryMetaStore(),
@@ -334,7 +332,7 @@ describe('catalog remote digest verification', () => {
     expect(result.origin).toBe('remote')
   })
 
-  it('rejects remote catalog on signature mismatch and falls back', async () => {
+  (signingKey ? it : it.skip)('rejects remote catalog on signature mismatch and falls back', async () => {
     const bundledCatalogPath = join(dir, 'bundle-sig.json')
     writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
     const result = await getCatalog({
@@ -349,7 +347,7 @@ describe('catalog remote digest verification', () => {
     expect(result.error ?? '').toMatch(/signature|ed25519/i)
   })
 
-  it('rejects remote catalog when signature fetch fails', async () => {
+  (signingKey ? it : it.skip)('rejects remote catalog when signature fetch fails', async () => {
     const bundledCatalogPath = join(dir, 'bundle-sig-miss.json')
     writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
     const result = await getCatalog({
