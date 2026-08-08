@@ -1,7 +1,7 @@
 # Sessions Collection Linear Views — PRD / Spec
 
 **Date:** 2026-08-08  
-**Status:** Draft — awaiting user review  
+**Status:** Approved (2026-08-08)
 **Author:** agent + user (brainstorming session)  
 **Reviewers:** user  
 **Inspiration (patterns only, MIT):** [ln-dev7/circle](https://github.com/ln-dev7/circle) — Linear-style PM UI template. **No Circle source is vendored.**  

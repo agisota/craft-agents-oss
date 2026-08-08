@@ -173,6 +173,8 @@ export const RPC_CHANNELS = {
     METRICS_GET: 'knowledge:metricsGet',
     /** LOCAL_ONLY: ensure default connection + start local SiYuan if installed. */
     ENGINE_START: 'knowledge:engineStart',
+    /** P4.4 user-initiated Craft notes vault → SiYuan notebook. */
+    MIGRATE_NOTES: 'knowledge:migrateNotes',
     CHANGED: 'knowledge:changed',
     // P3 write-back, spec 05 — safe mutation-proposal lifecycle. All seven are
     // REMOTE_ELIGIBLE (workspace data lives on the workspace-owning server);
