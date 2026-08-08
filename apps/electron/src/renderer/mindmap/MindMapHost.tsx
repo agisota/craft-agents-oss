@@ -132,7 +132,6 @@ export function MindMapHost({
   const childCount = Object.keys(graph.nodes).length
   const onlyRoot = childCount <= 1
   const showMapChrome = mode === 'map' && !onlyRoot
-  const mapBody = !onlyRoot && (mode === 'map' || (mode === 'outline' && false))
 
   const renderMap = () => (
     <SvgMindMapView
@@ -252,9 +251,9 @@ export function MindMapHost({
         <div className="flex-1 flex items-center justify-center px-6 text-center text-sm text-muted-foreground">
           {t('mindmap.empty')}
         </div>
-      ) : mode === 'outline' && !split ? (
+      ) : mode === 'outline' ? (
         renderOutline()
-      ) : mode === 'map' && split ? (
+      ) : split ? (
         <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
           <ResizablePanel defaultSize={62} minSize={30}>
             <div className="flex h-full min-h-0 flex-col">{renderMap()}</div>
@@ -266,10 +265,8 @@ export function MindMapHost({
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
-      ) : mode === 'map' ? (
-        renderMap()
       ) : (
-        renderOutline()
+        renderMap()
       )}
     </div>
   )
