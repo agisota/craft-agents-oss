@@ -36,6 +36,12 @@ export type DueBucket = 'overdue' | 'today' | 'this_week' | 'later' | 'none'
 export interface FilterSessionMetaOptions {
   showCompleted: boolean
   now?: number
+  /**
+   * Workspace status config lookup. When provided, a status with
+   * `category === 'closed'` is treated as terminal even if its id is not the
+   * built-in `done`/`cancelled` (custom statuses: `closed`, `shipped`, ...).
+   */
+  statusById?: ReadonlyMap<string, { category?: string }>
 }
 
 const PRIORITY_WEIGHT: Record<SessionPriority, number> = {
@@ -115,12 +121,16 @@ export function filterSessionMeta(
     typeof showCompletedOrOpts === 'boolean'
       ? nowArg
       : (showCompletedOrOpts.now ?? nowArg)
+  const statusById =
+    typeof showCompletedOrOpts === 'boolean' ? undefined : showCompletedOrOpts.statusById
 
   const status = meta.sessionStatus ?? 'todo'
   const statusChips = f.status ?? []
   const statusChipSet = new Set(statusChips)
 
-  if (!showCompleted && TERMINAL_STATUSES[status] && !statusChipSet.has(status)) {
+  const isTerminal = TERMINAL_STATUSES[status] === true || statusById?.get(status)?.category === 'closed'
+
+  if (!showCompleted && isTerminal && !statusChipSet.has(status)) {
     return false
   }
 
@@ -218,8 +228,11 @@ export function querySessionMetas(
   filters: CollectionFilters,
   display: Pick<CollectionDisplay, 'orderBy' | 'orderDir' | 'showCompleted'>,
   now: number = Date.now(),
+  statusById?: ReadonlyMap<string, { category?: string }>,
 ): CollectionSessionMeta[] {
   return metas
-    .filter((m) => filterSessionMeta(m, filters, display.showCompleted, now))
+    .filter((m) =>
+      filterSessionMeta(m, filters, { showCompleted: display.showCompleted, now, statusById }),
+    )
     .sort((a, b) => compareSessions(a, b, display.orderBy, display.orderDir))
 }

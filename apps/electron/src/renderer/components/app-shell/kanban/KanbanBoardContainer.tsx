@@ -406,7 +406,7 @@ export function KanbanBoardContainer() {
       if (meta.parentSessionId) continue
       if (meta.isArchived || meta.hidden || meta.taskDraft) continue
       // B6: honor workspace collection filters (Display.showCompleted EC-5 respects explicit status chips).
-      if (!filterSessionMeta(meta, collectionFilters, collectionDisplay.showCompleted, now)) continue
+      if (!filterSessionMeta(meta, collectionFilters, { showCompleted: collectionDisplay.showCompleted, now, statusById: statusesById })) continue
       const statusId = meta.sessionStatus ?? 'todo'
       const column = meta.kanbanColumn ?? statusToColumn(statusId)
       const children: SubtaskChildRow[] = (childrenByParent.get(meta.id) ?? []).map(child => ({
@@ -439,7 +439,7 @@ export function KanbanBoardContainer() {
       })
     }
     return result
-  }, [metaMap, statusesById, specNodesBySlug])
+  }, [metaMap, statusesById, specNodesBySlug, collectionFilters, collectionDisplay])
 
   const visibleTasks = React.useMemo(() => {
     if (projectFilter.length === 0) return tasks
