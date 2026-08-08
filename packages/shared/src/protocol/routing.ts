@@ -233,7 +233,6 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.contextDocs.LIST,
   RPC_CHANNELS.contextDocs.READ,
   RPC_CHANNELS.contextDocs.WRITE,
-  RPC_CHANNELS.contextDocs.DELETE,
   RPC_CHANNELS.contextDocs.READ_TEMPLATE,
   RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE,
   RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE,
@@ -255,27 +254,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
-  // extensions — Extension Center catalog/state (local config dir + projections; same host as marketplace)
-  RPC_CHANNELS.extensions.LIST_CATALOG,
-  RPC_CHANNELS.extensions.LIST_INSTALLED,
-  RPC_CHANNELS.extensions.SET_ENABLED,
-  RPC_CHANNELS.extensions.GET_STATE,
-  RPC_CHANNELS.extensions.CHANGED,
-
-  // pluginBridge — SiYuan plugin bridge (local fixtures / residual kernel; never proxied)
-  RPC_CHANNELS.pluginBridge.LIST_PLUGINS,
-  RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
-  RPC_CHANNELS.pluginBridge.SET_ENABLED,
-  RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
-
-  // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
-  RPC_CHANNELS.extensionHost.STATUS,
-  RPC_CHANNELS.extensionHost.RESTART,
-
-
-  // knowledge — engine status + install detect reflect the answering host, never proxied
+  // knowledge — engine status reflects local engine process state, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
-  RPC_CHANNELS.knowledge.DETECT_ENGINE,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -452,8 +432,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
-  // P7-prep G1 metrics — workspace file under {workspaceRoot}/knowledge/metrics.json
-  RPC_CHANNELS.knowledge.METRICS_GET,
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
@@ -481,17 +460,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
-
-  // identity — profile + service connections (Identity Center, S-07)
-  RPC_CHANNELS.identity.GET_STATE,
-  RPC_CHANNELS.identity.UPDATE_PROFILE,
-  RPC_CHANNELS.identity.CONNECT,
-  RPC_CHANNELS.identity.DISCONNECT,
-  RPC_CHANNELS.identity.REFRESH_STATUS,
-  RPC_CHANNELS.identity.CHANGED,
-
-
-
 
   // llmConnections — LLM config lives on server running workspace
   RPC_CHANNELS.llmConnections.LIST,

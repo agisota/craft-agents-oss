@@ -168,31 +168,6 @@ export const CHANNEL_MAP = {
   logout: invoke(RPC_CHANNELS.auth.LOGOUT),
   getCredentialHealth: invoke(RPC_CHANNELS.credentials.HEALTH_CHECK),
 
-  // Identity Center (S-07)
-  identityGetState: invoke(RPC_CHANNELS.identity.GET_STATE),
-  identityUpdateProfile: invoke(RPC_CHANNELS.identity.UPDATE_PROFILE),
-  identityConnect: invoke(RPC_CHANNELS.identity.CONNECT),
-  identityDisconnect: invoke(RPC_CHANNELS.identity.DISCONNECT),
-  identityRefreshStatus: invoke(RPC_CHANNELS.identity.REFRESH_STATUS),
-  onIdentityChanged: listener(RPC_CHANNELS.identity.CHANGED),
-
-  // Extension Center (S-05)
-  extensionsListCatalog: invoke(RPC_CHANNELS.extensions.LIST_CATALOG),
-  extensionsListInstalled: invoke(RPC_CHANNELS.extensions.LIST_INSTALLED),
-  extensionsSetEnabled: invoke(RPC_CHANNELS.extensions.SET_ENABLED),
-  extensionsGetState: invoke(RPC_CHANNELS.extensions.GET_STATE),
-  onExtensionsChanged: listener(RPC_CHANNELS.extensions.CHANGED),
-
-  // SiYuan plugin bridge (W6)
-  pluginBridgeListPlugins: invoke(RPC_CHANNELS.pluginBridge.LIST_PLUGINS),
-  pluginBridgeGetProjections: invoke(RPC_CHANNELS.pluginBridge.GET_PROJECTIONS),
-  pluginBridgeSetEnabled: invoke(RPC_CHANNELS.pluginBridge.SET_ENABLED),
-  pluginBridgeOpenCompat: invoke(RPC_CHANNELS.pluginBridge.OPEN_COMPAT),
-
-  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
-  extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),
-  extensionHostRestart: invoke(RPC_CHANNELS.extensionHost.RESTART),
-
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
   getSetupNeeds: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE, r => r.setupNeeds),
@@ -316,8 +291,7 @@ export const CHANNEL_MAP = {
   'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
   'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
   'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
-  'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
-  'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
+  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop
@@ -653,7 +627,6 @@ export const CHANNEL_MAP = {
   listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
   readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
   writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
-  deleteContextDoc: invoke(RPC_CHANNELS.contextDocs.DELETE),
   readContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.READ_TEMPLATE),
   acceptContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE),
   keepMineContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE),

@@ -201,10 +201,8 @@ export const RPC_CHANNELS = {
     // P6 knowledge change watcher (poll) — start/stop per connection; emits into AutomationSystem.
     WATCH: 'knowledge:watch',
     UNWATCH: 'knowledge:unwatch',
-    // P7-prep G1 metrics (workspace data → REMOTE_ELIGIBLE) + external-local detect (LOCAL_ONLY).
-    // Full managed kernel remains blocked on G1 thresholds + G2 legal decision.
-    METRICS_GET: 'knowledge:metricsGet',
-    DETECT_ENGINE: 'knowledge:detectEngine',
+    // P4.4 — user-initiated Craft notes vault → SiYuan migration (REMOTE_ELIGIBLE).
+    MIGRATE_NOTES: 'knowledge:migrateNotes',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)
@@ -293,39 +291,6 @@ export const RPC_CHANNELS = {
   credentials: {
     HEALTH_CHECK: 'credentials:healthCheck',
   },
-  identity: {
-    GET_STATE: 'identity:getState',
-    UPDATE_PROFILE: 'identity:updateProfile',
-    CONNECT: 'identity:connect',
-    DISCONNECT: 'identity:disconnect',
-    REFRESH_STATUS: 'identity:refreshStatus',
-    CHANGED: 'identity:changed',
-  },
-  extensions: {
-    LIST_CATALOG: 'extensions:listCatalog',
-    LIST_INSTALLED: 'extensions:listInstalled',
-    SET_ENABLED: 'extensions:setEnabled',
-    GET_STATE: 'extensions:getState',
-    CHANGED: 'extensions:changed',
-  },
-
-  // pluginBridge — SiYuan plugin bridge projections (W6). LOCAL_ONLY.
-  // Kernel plugin list is residual; handlers fail-soft / fixture-backed.
-  pluginBridge: {
-    LIST_PLUGINS: 'pluginBridge:listPlugins',
-    GET_PROJECTIONS: 'pluginBridge:getProjections',
-    SET_ENABLED: 'pluginBridge:setEnabled',
-    OPEN_COMPAT: 'pluginBridge:openCompat', // returns route descriptor only
-  },
-
-  // extensionHost — Craft Extension Host lifecycle scaffold (W6).
-  // Does NOT execute SiYuan plugins.
-  extensionHost: {
-    STATUS: 'extensionHost:status',
-    RESTART: 'extensionHost:restart',
-  },
-
-
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',
@@ -691,7 +656,6 @@ export const RPC_CHANNELS = {
     LIST: 'contextDocs:list',
     READ: 'contextDocs:read',
     WRITE: 'contextDocs:write',
-    DELETE: 'contextDocs:delete',
     READ_TEMPLATE: 'contextDocs:readTemplate',
     ACCEPT_TEMPLATE: 'contextDocs:acceptTemplate',
     KEEP_MINE_TEMPLATE: 'contextDocs:keepMineTemplate',
