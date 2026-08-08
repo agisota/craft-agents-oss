@@ -220,8 +220,11 @@ interface ChatDisplayProps {
   // State/status selection (for # menu and ActiveOptionBadges)
   /** Available workflow states */
   sessionStatuses?: import('@/config/session-status-config').SessionStatus[]
-  /** Callback when session state changes */
   onSessionStatusChange?: (stateId: string) => void
+  /** Workspace projects for main-session Projects chip */
+  projects?: Array<{ id: string; slug: string; name: string; color?: string }>
+  /** Bind/unbind session project */
+  onSetProjectId?: (projectId: string | null) => void
   /** Workspace ID for loading skill icons */
   workspaceId?: string
   // Working directory (per session)
@@ -498,6 +501,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // States (for # menu and badge)
   sessionStatuses,
   onSessionStatusChange,
+  projects,
+  onSetProjectId,
   workspaceId,
   // Working directory
   workingDirectory,
@@ -1991,6 +1996,9 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             sessionStatuses={sessionStatuses}
             currentSessionStatus={session.sessionStatus || 'todo'}
             onSessionStatusChange={onSessionStatusChange}
+            projects={projects}
+            projectId={session.projectId}
+            onSetProjectId={onSetProjectId}
             inputProps={{
               placeholder,
               disabled: isInputDisabled,

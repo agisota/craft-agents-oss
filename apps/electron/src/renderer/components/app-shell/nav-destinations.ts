@@ -73,7 +73,7 @@ export interface AppNavDestination {
   disabledTooltipKey?: string
 }
 
-/** Rail order = `links[]` order in AppShell; knowledge live since W2 (order 20, after sessions). */
+/** Rail order = `links[]` order in AppShell. */
 export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
   {
     id: 'sessions',
@@ -84,12 +84,20 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     isActive: isSessionsNavigation,
   },
   {
-    id: 'knowledge',
-    linkId: 'nav:knowledge',
-    icon: NotebookPen,
-    labelKey: 'knowledge.nav.title',
-    route: () => routes.view.knowledge(),
-    isActive: isKnowledgeNavigation,
+    id: 'projects',
+    linkId: 'nav:projects',
+    icon: FolderKanban,
+    labelKey: 'sidebar.projects',
+    route: () => routes.view.projects(),
+    isActive: isProjectsNavigation,
+  },
+  {
+    id: 'memory',
+    linkId: 'nav:memory',
+    icon: Brain,
+    labelKey: 'sidebar.memory',
+    route: () => routes.view.memory(),
+    isActive: isMemoryNavigation,
   },
   {
     id: 'sources',
@@ -108,28 +116,20 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     isActive: isSkillsNavigation,
   },
   {
-    id: 'memory',
-    linkId: 'nav:memory',
-    icon: Brain,
-    labelKey: 'sidebar.memory',
-    route: () => routes.view.memory(),
-    isActive: isMemoryNavigation,
-  },
-  {
-    id: 'projects',
-    linkId: 'nav:projects',
-    icon: FolderKanban,
-    labelKey: 'sidebar.projects',
-    route: () => routes.view.projects(),
-    isActive: isProjectsNavigation,
-  },
-  {
     id: 'notes',
     linkId: 'nav:notes',
     icon: BookOpen,
     labelKey: 'sidebar.notes',
     route: () => routes.view.notes(),
     isActive: isNotesNavigation,
+  },
+  {
+    id: 'knowledge',
+    linkId: 'nav:knowledge',
+    icon: NotebookPen,
+    labelKey: 'knowledge.nav.title',
+    route: () => routes.view.knowledge(),
+    isActive: isKnowledgeNavigation,
   },
   {
     id: 'automations',
