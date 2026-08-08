@@ -151,6 +151,7 @@ const EXPECTED_CHANNELS: string[] = [
   'knowledge:approveProposal',
   'knowledge:capabilities',
   'knowledge:changed',
+  'knowledge:engineStart',
   'knowledge:engineStatus',
   'knowledge:envelopeGet',
   'knowledge:envelopeList',

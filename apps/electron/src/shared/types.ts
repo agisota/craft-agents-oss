@@ -101,51 +101,6 @@ export interface SshBootstrapProgress {
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
 
-// Identity Center (S-07)
-import type {
-  IdentityState,
-  UpdateProfileInput,
-  ServiceProvider,
-  ServiceConnection,
-} from '@craft-agent/core/platform';
-export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
-
-// Extension Center (S-05) + SiYuan plugin bridge / Extension Host (W6)
-import type {
-  BridgeProjectedContributions,
-  CatalogEntry,
-  CatalogFilter,
-  ExtensionHostStatus,
-  ExtensionRecord,
-  ExtensionsChangedPayload,
-  ExtensionsGetStateResult,
-  ExtensionsListCatalogResult,
-  ExtensionsListInstalledResult,
-  ExtensionsSetEnabledResult,
-  ExtensionStateFile,
-  PluginBridgeGetProjectionsArgs,
-  PluginBridgeListResult,
-  PluginBridgeSetEnabledArgs,
-  PluginBridgeSetEnabledResult,
-} from '@craft-agent/shared/extensions'
-export type {
-  BridgeProjectedContributions,
-  CatalogEntry,
-  CatalogFilter,
-  ExtensionHostStatus,
-  ExtensionRecord,
-  ExtensionsChangedPayload,
-  ExtensionsGetStateResult,
-  ExtensionsListCatalogResult,
-  ExtensionsListInstalledResult,
-  ExtensionsSetEnabledResult,
-  ExtensionStateFile,
-  PluginBridgeGetProjectionsArgs,
-  PluginBridgeListResult,
-  PluginBridgeSetEnabledArgs,
-  PluginBridgeSetEnabledResult,
-}
-
 // Source types for session source selection
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
@@ -360,10 +315,9 @@ import type {
   RemoteSessionTransferPayload,
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
-  KnowledgeDetectEngineResult,
+  KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
-  KnowledgeMetricsSnapshot,
   MutationInput,
   MutationProposal,
   MutationProposalStatus,
@@ -750,11 +704,9 @@ export interface ElectronAPI {
       notebookId: string
     }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
-    engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
-    /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
-    metricsGet(args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot>
-    /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
-    detectEngine(): Promise<KnowledgeDetectEngineResult>
+    engineStatus(args: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStatus>
+    /** LOCAL_ONLY: seed default connection + start/open local SiYuan if installed. */
+    engineStart(args?: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStartResult>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
   }
   // Debug: send renderer logs to main process log file
@@ -844,43 +796,6 @@ export interface ElectronAPI {
 
   // Credential health check (startup validation)
   getCredentialHealth(): Promise<CredentialHealthStatus>
-
-  // Identity Center (S-07)
-  identityGetState(args?: { workspaceId?: string }): Promise<IdentityState>
-  identityUpdateProfile(input: UpdateProfileInput): Promise<IdentityState>
-  identityConnect(args: {
-    provider: ServiceProvider
-    workspaceId: string
-    accountLabel?: string
-    credentialValue?: string
-    connectionId?: string
-  }): Promise<IdentityState>
-  identityDisconnect(args: { connectionId: string }): Promise<IdentityState>
-  identityRefreshStatus(args?: { workspaceId?: string }): Promise<IdentityState>
-  onIdentityChanged(callback: () => void): () => void
-
-  // Extension Center (S-05)
-  extensionsListCatalog(args?: { filter?: CatalogFilter }): Promise<ExtensionsListCatalogResult>
-  extensionsListInstalled(args?: {
-    workspaceId?: string
-    workingDirectory?: string
-  }): Promise<ExtensionsListInstalledResult>
-  extensionsSetEnabled(args: { id: string; enabled: boolean }): Promise<ExtensionsSetEnabledResult>
-  extensionsGetState(): Promise<ExtensionsGetStateResult>
-  onExtensionsChanged(callback: (payload: ExtensionsChangedPayload) => void): () => void
-
-  // SiYuan plugin bridge (W6)
-  pluginBridgeListPlugins(): Promise<PluginBridgeListResult>
-  pluginBridgeGetProjections(args: PluginBridgeGetProjectionsArgs): Promise<BridgeProjectedContributions>
-  pluginBridgeSetEnabled(args: PluginBridgeSetEnabledArgs): Promise<PluginBridgeSetEnabledResult>
-  pluginBridgeOpenCompat(args?: { pluginId?: string }): Promise<{
-    route: string
-    ref: { kind: 'notebook'; id: string }
-  }>
-
-  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
-  extensionHostStatus(): Promise<ExtensionHostStatus>
-  extensionHostRestart(): Promise<ExtensionHostStatus>
 
   // Onboarding
   getAuthState(): Promise<AuthState>
@@ -1399,7 +1314,6 @@ export interface ElectronAPI {
   listContextDocs(): Promise<ContextDocInfo[]>
   readContextDoc(filename: string): Promise<ContextDocContent>
   writeContextDoc(filename: string, content: string): Promise<ContextDocInfo>
-  deleteContextDoc(filename: string): Promise<void>
   readContextDocTemplate(filename: string): Promise<string | null>
   acceptContextDocTemplate(filename: string): Promise<ContextDocInfo>
   keepMineContextDocTemplate(filename: string): Promise<ContextDocInfo>
