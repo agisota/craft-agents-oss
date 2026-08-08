@@ -751,7 +751,7 @@ export async function escalateMint() {
       mgr.proxyFetch({
         token: minted.token,
         url: 'https://api.example/v1',
-        fetchImpl: (async () => new Response('nope', { status: 200 })) as typeof fetch,
+        fetchImpl: (async () => new Response('nope', { status: 200 })) as unknown as typeof fetch,
       }),
     ).rejects.toThrow(/invalid|expired|capability/i)
   })
