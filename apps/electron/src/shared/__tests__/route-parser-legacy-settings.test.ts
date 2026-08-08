@@ -2,6 +2,7 @@
  * Legacy settings subpage redirects:
  * - 'toolchain' → 'runtime' (PRD runtime-context-marketplace §5.1)
  * - 'marketplace' → 'extensions' (S-05 / W5 Extension Center)
+ * - 'preferences' → 'context' (P2.1 Context ↔ Preferences merge)
  */
 import { describe, it, expect } from 'bun:test'
 import { parseCompoundRoute, parseRouteToNavigationState } from '../route-parser'
@@ -15,6 +16,13 @@ describe('legacy settings redirects', () => {
     expect(parseCompoundRoute('settings/marketplace')!.details).toEqual({
       type: 'extensions',
       id: 'extensions',
+    })
+  })
+
+  it('redirects preferences → context', () => {
+    expect(parseCompoundRoute('settings/preferences')!.details).toEqual({
+      type: 'context',
+      id: 'context',
     })
   })
 

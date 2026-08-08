@@ -256,6 +256,12 @@ export interface MemoryPromptBlocks {
   /** Output of formatWorkspaceMemoryForPrompt */
   memoryBlock?: string
   /**
+   * Pre-formatted retrieved source docs (FTS hits from the workspace source
+   * index). Injected after lessons/memory blocks. Empty/absent when the index
+   * is missing, the query is blank, or no hits fit the token budget.
+   */
+  sourcesBlock?: string
+  /**
    * Provenance (spec F4): lessons actually included in lessonsBlock, listed as
    * `{rule, scope}` pairs in the same order they were passed to
    * formatLessonsForPrompt. Absent in records predating F4; present (possibly

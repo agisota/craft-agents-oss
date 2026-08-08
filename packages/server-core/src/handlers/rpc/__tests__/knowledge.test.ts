@@ -201,7 +201,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares P1–P6 knowledge channels plus ENGINE_START bootstrap — no engineStop, no CHANGED push event', () => {
+  it('declares P1–P6 knowledge channels plus ENGINE_START/DETECT/METRICS — no engineStop, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -213,7 +213,9 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
       RPC_CHANNELS.knowledge.SNAPSHOT_GET,
       RPC_CHANNELS.knowledge.ENGINE_STATUS,
+      RPC_CHANNELS.knowledge.DETECT_ENGINE,
       RPC_CHANNELS.knowledge.ENGINE_START,
+      RPC_CHANNELS.knowledge.METRICS_GET,
       RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
       RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
       RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
@@ -243,7 +245,7 @@ describe('registration', () => {
     expect(HANDLED_CHANNELS.some((ch) => /engineStop/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
-    expect(HANDLED_CHANNELS).toHaveLength(35) // previous 34 + ENGINE_START
+    expect(HANDLED_CHANNELS).toHaveLength(37) // + DETECT_ENGINE + METRICS_GET
   })
 
   it('registers a handler for every declared channel and nothing else', () => {

@@ -15,7 +15,8 @@
  * draft → diff → review → apply, with inverse-ops rollback) — no direct
  * provider write path is registered from this file except migrateNotes,
  * which uses SiyuanKernelClient.createDocWithMd (whitelist) for bulk vault
- * import. Engine-lifecycle channels remain P7 and absent by design.
+ * import. ENGINE_STATUS/START/DETECT are LOCAL_ONLY bootstrap assist;
+ * full managed lifecycle (stop/pin) remains P7.
  * Publication APPLY only creates a proposal; FINALIZE commits
  * publications/links after the proposal reaches 'applied' via P3 UI.
  * VIEW_SET_ATTRIBUTE also only proposes (never applies).
@@ -46,8 +47,10 @@
 import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type {
   ApplyResult,
+  KnowledgeDetectEngineResult,
   KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
+  KnowledgeMetricsSnapshot,
   KnowledgeLinkRecord,
   MutationActor,
   MutationInput,
@@ -106,9 +109,11 @@ import {
   resolveWorkspaceNotesRoot,
   type MigrateNotesArgs,
   type MigrateNotesResult,
+  detectSiyuanEngine,
   ensureDefaultLocalConnection,
   ensureLocalKernel,
   getKernelBootstrapStatus,
+  KnowledgeMetricsStore,
   maybeAutoStartLocalKernel,
   SIYUAN_INSTALL_URL,
   SIYUAN_LOCAL_CONNECTION_ID,
@@ -160,7 +165,7 @@ export function __setSkipKnowledgeWatchAutoStart(skip: boolean): void {
   skipKnowledgeWatchAutoStart = skip
 }
 
-/** The complete knowledge channel set — 9 P1 read + getExportPayload + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch + migrateNotes; asserted by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + getExportPayload + ENGINE_STATUS/DETECT/START + METRICS_GET + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch + migrateNotes; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -172,7 +177,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
   RPC_CHANNELS.knowledge.ENGINE_START,
+  RPC_CHANNELS.knowledge.METRICS_GET,
   RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
   RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
   RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
@@ -823,6 +830,58 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         ...(result.error ? { error: result.error } : {}),
         installUrl: SIYUAN_INSTALL_URL,
       }
+    },
+  )
+
+  // ——— DETECT_ENGINE() → KnowledgeDetectEngineResult (LOCAL_ONLY) ———
+  // Install-path + default-port probe only. Never downloads or spawns.
+  server.handle(RPC_CHANNELS.knowledge.DETECT_ENGINE, async (): Promise<KnowledgeDetectEngineResult> => {
+    const result = await detectSiyuanEngine()
+    return {
+      installed: result.installed,
+      runningOnDefaultPort: result.runningOnDefaultPort,
+      suggestedBaseUrl: result.suggestedBaseUrl,
+      installPathsFound: result.installPathsFound,
+      platform: result.platform,
+      canOpenApp: result.canOpenApp,
+      installDocsUrl: result.installDocsUrl,
+    }
+  })
+
+  // ——— METRICS_GET({workspaceId?}) → KnowledgeMetricsSnapshot (REMOTE_ELIGIBLE) ———
+  server.handle(
+    RPC_CHANNELS.knowledge.METRICS_GET,
+    async (_ctx, args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot> => {
+      const workspaceId =
+        typeof args?.workspaceId === 'string' && args.workspaceId.length > 0
+          ? args.workspaceId
+          : undefined
+      let rootPath: string | null = null
+      if (workspaceId) {
+        rootPath = requireWorkspaceRoot(workspaceId)
+      } else {
+        const workspaces = getWorkspaces()
+        if (workspaces.length === 1 && workspaces[0]) rootPath = workspaces[0].rootPath
+      }
+      if (!rootPath) {
+        // Fail-soft empty snapshot when no workspace context (matches store read semantics).
+        return {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          counters: {
+            connectionsActive: 0,
+            publicationsTotal: 0,
+            publicationsLast7d: 0,
+            automationProposalsTotal: 0,
+            automationRunsTriggered: 0,
+            knowledgeSurfaceOpens: 0,
+            viewRunsTotal: 0,
+            watchTicksTotal: 0,
+          },
+          daily: {},
+        }
+      }
+      return new KnowledgeMetricsStore(rootPath).snapshot()
     },
   )
 

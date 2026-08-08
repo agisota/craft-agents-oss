@@ -15,6 +15,7 @@ export {
   loadSkillBySlug,
   getSkillIconPath,
   updateSkillContent,
+  resolveWorkspaceSkillDir,
   deleteSkill,
   skillExists,
   listSkillSlugs,

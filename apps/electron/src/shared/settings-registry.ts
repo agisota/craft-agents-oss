@@ -53,7 +53,6 @@ export const SETTINGS_PAGES = [
   { id: 'server' as const, labelKey: 'settings.server.title', descriptionKey: 'settings.server.description' },
   { id: 'cloudRuns' as const, labelKey: 'settings.cloudRuns.title', descriptionKey: 'settings.cloudRuns.description' },
   { id: 'shortcuts' as const, labelKey: 'settings.shortcuts.title', descriptionKey: 'settings.shortcuts.description' },
-  { id: 'preferences' as const, labelKey: 'settings.preferences.title', descriptionKey: 'settings.preferences.description' },
 ] satisfies readonly SettingsPageDefinition[]
 
 /**

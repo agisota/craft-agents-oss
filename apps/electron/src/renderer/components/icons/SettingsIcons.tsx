@@ -21,7 +21,6 @@ import {
   Sparkles,
   Tag,
   ToggleRight,
-  UserCircle,
   Users,
 } from 'lucide-react'
 import type { SettingsSubpage } from '../../../shared/types'
@@ -41,7 +40,6 @@ export const OrganizationsIcon = ({ className }: IconProps) => <Users className=
 export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquare className={className} />
 export const ServerSettingsIcon = ({ className }: IconProps) => <Server className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
-export const PreferencesIcon = ({ className }: IconProps) => <UserCircle className={className} />
 export const RuntimeIcon = ({ className }: IconProps) => <Settings className={className} />
 export const ContextIcon = ({ className }: IconProps) => <FileText className={className} />
 export const KnowledgeIcon = ({ className }: IconProps) => <BookOpen className={className} />
@@ -70,5 +68,4 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   server: ServerSettingsIcon,
   cloudRuns: CloudRunsIcon,
   shortcuts: ShortcutsIcon,
-  preferences: PreferencesIcon,
 }

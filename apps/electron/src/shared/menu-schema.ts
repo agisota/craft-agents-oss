@@ -397,7 +397,6 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   cloudRuns: 'Cloud',
   organizations: 'Users',
   shortcuts: 'Keyboard',
-  preferences: 'UserCircle',
 }
 
 /**
