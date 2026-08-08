@@ -55,7 +55,6 @@ type ApiToChannelMapKeys = Exclude<
   | 'onSshBootstrapProgress'
   | 'onSshConnectionStatus'
   | 'onOmniboxOpen' // direct IPC listener — embedded BrowserView ⌘K bridge
-  | 'onSessionsBulkChanged' // direct IPC listener — session bulk patches
 > | BrowserPaneKeys
   | KnowledgeKeys
   | SiyuanEngineKeys
