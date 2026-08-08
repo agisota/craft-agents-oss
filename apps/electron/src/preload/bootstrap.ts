@@ -493,6 +493,13 @@ client.onConnectionStateChanged((state) => {
   return () => { ipcRenderer.removeListener('ssh:connectionStatus', handler) }
 }
 
+// Omnibox open from main when ⌘K hits embedded BrowserView page webContents
+;(api as ElectronAPI).onOmniboxOpen = (cb) => {
+  const handler = () => cb()
+  ipcRenderer.on('omnibox:open', handler)
+  return () => { ipcRenderer.removeListener('omnibox:open', handler) }
+}
+
 // System warnings — expose env-based flags set during main process startup
 // (preload-only: reads env var directly, no IPC round-trip needed)
 ;(api as ElectronAPI).getSystemWarnings = async () => ({

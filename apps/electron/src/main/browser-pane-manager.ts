@@ -10,6 +10,7 @@ import { join, parse as parsePath } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { validateFilePath, getWorkspaceAllowedDirs } from '@craft-agent/server-core/handlers'
 import { BrowserView, BrowserWindow, app, ipcMain, nativeTheme, session, shell, type Session as ElectronSession } from 'electron'
+import { isOmniboxChord } from './global-input-router'
 import { mainLog } from './logger'
 import type { WindowManager } from './window-manager'
 import { BrowserCDP, type AccessibilitySnapshot, type ElementGeometry } from './browser-cdp'
@@ -2340,6 +2341,22 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     return null
   }
 
+  /**
+   * Open the host-window omnibox when ⌘K/Ctrl+K lands on an embedded page webContents.
+   * Prefer the instance's current embed host; fall back to the active main window.
+   */
+  private requestOmniboxOpen(instance: BrowserInstance): void {
+    const host = instance.embeddedHostWindow ?? this.resolveEmbedHostWindow()
+    if (!host || host.isDestroyed()) return
+    try {
+      host.webContents.send('omnibox:open')
+    } catch (error) {
+      mainLog.warn(
+        `[browser-pane] omnibox:open send failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
   /** Attach the three views to a host window and subscribe to its resize/closed events. */
   private attachEmbeddedViews(instance: BrowserInstance, hostWindow: BrowserWindow): void {
     if (instance.embeddedAttached && instance.embeddedHostWindow === hostWindow) {
@@ -3764,9 +3781,14 @@ export class BrowserPaneManager implements IBrowserPaneManager {
       void this.extractThemeColor(instance)
     })
 
-    pageWc.on('before-input-event', (_event, _input) => {
+    pageWc.on('before-input-event', (event, input) => {
       if (instance.lockState.active) {
-        _event.preventDefault()
+        event.preventDefault()
+        return
+      }
+      if (isOmniboxChord(input)) {
+        event.preventDefault()
+        this.requestOmniboxOpen(instance)
       }
     })
 

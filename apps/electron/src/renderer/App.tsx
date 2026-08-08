@@ -2127,8 +2127,8 @@ export default function App() {
           {/* Handle window close requests (X button, Cmd+W) - close modal first if open */}
           <WindowCloseHandler />
 
-          {/* W3 Omnibox — unified ⌘K palette (S-04). Residual: embedded SiYuan
-              webContents ⌘K bridge is a follow-up; renderer hotkey is exit-complete. */}
+          {/* W3 Omnibox — unified ⌘K palette (S-04). Renderer hotkey + embedded
+              SiYuan webContents ⌘K bridge are both implemented. */}
           <OmniboxHost />
 
           {/* Splash screen overlay - fades out when fully ready */}

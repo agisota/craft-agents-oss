@@ -48,7 +48,7 @@ import {
   DrawerTrigger,
 } from '@/components/ui/drawer'
 import { PanelHeaderCenterButton } from '@/components/ui/PanelHeaderCenterButton'
-import { CompactWorkspaceSwitcher } from './CompactWorkspaceSwitcher'
+import { AccountMenu } from './AccountMenu'
 
 // Spring transition for smooth animations (matches sidebar)
 const springTransition = { type: 'spring' as const, stiffness: 300, damping: 30 }
@@ -113,10 +113,11 @@ function CompactChatHeader({ leadingAction, titleNode, centerButton, actions, ri
             <DrawerTitle>{t('menu.craftMenu')}</DrawerTitle>
           </DrawerHeader>
           <div className="flex flex-col gap-2 px-3 pb-6">
-            <CompactWorkspaceSwitcher
+            <AccountMenu
+              compact
               workspaces={workspaces}
               activeWorkspaceId={activeWorkspaceId}
-              onSelect={onSelectWorkspace}
+              onSelectWorkspace={onSelectWorkspace}
               onWorkspaceCreated={onRefreshWorkspaces}
               onWorkspaceRemoved={onRefreshWorkspaces}
             />

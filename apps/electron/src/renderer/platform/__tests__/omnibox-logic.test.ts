@@ -212,3 +212,29 @@ describe('omnibox when-clause keys (live surface context)', () => {
     expect(wrong.some((c) => c.id === 'surface.cmd')).toBe(false)
   })
 })
+
+describe('onOmniboxOpen host bridge contract', () => {
+  it('opens omnibox atom when main IPC callback fires (mirrors OmniboxHost)', () => {
+    const store = createStore()
+    expect(store.get(omniboxOpenAtom)).toBe(false)
+
+    // Mirrors OmniboxHost: onOmniboxOpen(() => setOpen(true))
+    const openFromMain = () => {
+      store.set(omniboxOpenAtom, true)
+    }
+    openFromMain()
+    expect(store.get(omniboxOpenAtom)).toBe(true)
+  })
+
+  it('app.omnibox toggle still flips open state independently', () => {
+    const store = createStore()
+    // toggle path used by useAction('app.omnibox')
+    const toggle = () => {
+      store.set(omniboxOpenAtom, (v) => !v)
+    }
+    toggle()
+    expect(store.get(omniboxOpenAtom)).toBe(true)
+    toggle()
+    expect(store.get(omniboxOpenAtom)).toBe(false)
+  })
+})

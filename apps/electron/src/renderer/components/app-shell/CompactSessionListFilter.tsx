@@ -3,7 +3,7 @@
  *
  * Bottom-sheet replacement for the desktop session-list filter dropdown,
  * used when AppShell is in compact / mobile mode. Mirrors the behaviour of
- * `CompactPermissionModeSelector` and `CompactWorkspaceSwitcher`: the trigger
+ * `CompactPermissionModeSelector`: the trigger
  * is the same `HeaderIconButton` users see on desktop, but the picker opens
  * as a vaul `Drawer` so it isn't clipped by the narrow viewport / panel
  * container query the desktop Radix dropdown gets caught on.
