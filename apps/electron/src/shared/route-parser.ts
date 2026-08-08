@@ -151,9 +151,11 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     // Legacy subpages.
     // toolchain → runtime (PRD runtime-context-marketplace §5.1)
     // marketplace → extensions (S-05 / W5 Extension Center)
+    // preferences → context (P2.1 Context ↔ Preferences merge)
     const LEGACY_SETTINGS_REDIRECT: Record<string, SettingsSubpage> = {
       toolchain: 'runtime',
       marketplace: 'extensions',
+      preferences: 'context',
     }
     const redirected = LEGACY_SETTINGS_REDIRECT[subpage] ?? subpage
     if (!isValidSettingsSubpage(redirected)) return null
@@ -929,7 +931,7 @@ function convertParsedRouteToNavigationState(parsed: ParsedRoute): NavigationSta
     case 'shortcuts':
       return { navigator: 'settings', subpage: 'shortcuts' }
     case 'preferences':
-      return { navigator: 'settings', subpage: 'preferences' }
+      return { navigator: 'settings', subpage: 'context' }
     case 'sources':
       return { navigator: 'sources', details: null }
     case 'source-info':

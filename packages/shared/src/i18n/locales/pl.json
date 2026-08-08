@@ -833,6 +833,7 @@
   "knowledge.publish.title": "Publish to Knowledge",
   "knowledge.search.placeholder": "Szukaj w bazie wiedzy…",
   "knowledge.surface.compatHint": "Widok zgodności: niektóre funkcje edycji mogą być ograniczone.",
+  "knowledge.surface.copy.blockKramdown": "Kopiuj kramdown bloku",
   "knowledge.surface.copy.deepLink": "Kopiuj deep link",
   "knowledge.surface.copy.failed": "Nie udało się skopiować",
   "knowledge.surface.copy.hPath": "Kopiuj ścieżkę",

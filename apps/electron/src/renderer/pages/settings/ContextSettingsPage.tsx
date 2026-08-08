@@ -1,11 +1,11 @@
 /**
- * ContextSettingsPage — standing runtime context documents:
+ * ContextSettingsPage — merged Context ↔ Preferences:
+ * - user preferences form (name, timezone, location, notes)
  * - list & edit <CONFIG_DIR>/context/*.md (soul.md, rules.md, user-*.md)
  * - Add document
  * - template-stale: Accept template / Keep mine
- * - bundled skill packs enable/disable
  * - project-level override explanation
- * - pointer to skills management
+ * - memory shortlink + open skills link
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -19,9 +19,10 @@ import { Input } from '@/components/ui/input'
 import { navigate, routes } from '@/lib/navigate'
 import { useAppShellContext, useActiveWorkspace } from '@/context/AppShellContext'
 import { Spinner } from '@craft-agent/ui'
-import { SettingsSection, SettingsCard, SettingsRow, SettingsToggle } from '@/components/settings'
+import { SettingsSection, SettingsCard, SettingsRow } from '@/components/settings'
+import { PreferencesForm } from './PreferencesPage'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
-import type { BundledSkillPackStatus, ContextDocContent, ContextDocInfo, Lesson } from '../../../shared/types'
+import type { ContextDocContent, ContextDocInfo, Lesson } from '../../../shared/types'
 
 const BUILTIN_CONTEXT_DOCS = new Set(['soul.md', 'rules.md'])
 
@@ -60,9 +61,6 @@ export default function ContextSettingsPage() {
   const [pageError, setPageError] = useState<string | null>(null)
   const [projectOverrides, setProjectOverrides] = useState<Record<string, boolean>>({})
 
-  const [packs, setPacks] = useState<BundledSkillPackStatus[] | null>(null)
-  const [packsBusy, setPacksBusy] = useState(false)
-
   const [lessons, setLessons] = useState<Lesson[] | null>(null)
   const [templatePreview, setTemplatePreview] = useState<string | null>(null)
   const [showTemplateDiff, setShowTemplateDiff] = useState(false)
@@ -81,26 +79,13 @@ export default function ContextSettingsPage() {
       })
   }, [])
 
-  const loadPacks = useCallback(() => {
-    window.electronAPI
-      .listBundledSkillPacks()
-      .then(setPacks)
-      .catch((error) => {
-        console.error('Failed to list bundled skill packs:', error)
-        setPacks([])
-      })
-  }, [])
-
   useEffect(() => {
     loadDocs()
-    loadPacks()
     const offDocs = window.electronAPI.onContextDocsChanged(() => loadDocs())
-    const offPacks = window.electronAPI.onBundledSkillsChanged(() => loadPacks())
     return () => {
       offDocs()
-      offPacks()
     }
-  }, [loadDocs, loadPacks])
+  }, [loadDocs])
 
   // C3: surface active project-level soul.md/rules.md overrides when workspace root exists.
   useEffect(() => {
@@ -308,28 +293,6 @@ export default function ContextSettingsPage() {
     }
   }, [currentDoc, draft])
 
-  const togglePack = useCallback(
-    async (slug: string, enabled: boolean) => {
-      if (!packs) return
-      setPacksBusy(true)
-      setPageError(null)
-      try {
-        const currentlyDisabled = packs.filter((p) => p.disabled).map((p) => p.slug)
-        const next = enabled
-          ? currentlyDisabled.filter((s) => s !== slug)
-          : [...new Set([...currentlyDisabled, slug])]
-        await window.electronAPI.setBundledSkillsDisabled(next)
-        const refreshed = await window.electronAPI.listBundledSkillPacks()
-        setPacks(refreshed)
-      } catch (error) {
-        console.error('Failed to toggle bundled pack:', error)
-        setPageError(error instanceof Error ? error.message : String(error))
-      } finally {
-        setPacksBusy(false)
-      }
-    },
-    [packs],
-  )
 
   const isDirty = currentDoc !== null && draft !== currentDoc.content
   const showTemplateActions = currentDoc?.templateStale === true
@@ -348,6 +311,8 @@ export default function ContextSettingsPage() {
                 {pageError}
               </p>
             )}
+
+            <PreferencesForm />
 
             <SettingsSection
               title={t('settings.context.docsTitle')}
@@ -559,39 +524,6 @@ export default function ContextSettingsPage() {
                 ))}
             </SettingsSection>
 
-            <SettingsSection
-              title={t('settings.context.bundledTitle')}
-              description={t('settings.context.bundledDesc')}
-            >
-              {packs === null ? (
-                <div className="flex justify-center py-6">
-                  <Spinner className="w-4 h-4" />
-                </div>
-              ) : packs.length === 0 ? (
-                <p className="text-sm text-muted-foreground px-1">{t('settings.context.bundledEmpty')}</p>
-              ) : (
-                <SettingsCard>
-                  {packs.map((pack) => (
-                    <SettingsToggle
-                      key={pack.slug}
-                      label={pack.slug}
-                      description={
-                        [
-                          pack.commit ? pack.commit.slice(0, 8) : null,
-                          pack.localModified ? t('settings.context.bundledLocalModified') : null,
-                          `${pack.installed.length}/${pack.skills.length} ${t('settings.context.bundledSkillsCount')}`,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')
-                      }
-                      checked={!pack.disabled}
-                      disabled={packsBusy}
-                      onCheckedChange={(checked) => void togglePack(pack.slug, checked)}
-                    />
-                  ))}
-                </SettingsCard>
-              )}
-            </SettingsSection>
 
             <SettingsSection
               title={t('settings.context.memoryTitle')}

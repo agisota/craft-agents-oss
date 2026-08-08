@@ -833,6 +833,7 @@
   "knowledge.publish.title": "Publish to Knowledge",
   "knowledge.search.placeholder": "Keresés a tudástárban…",
   "knowledge.surface.compatHint": "Kompatibilitási nézet: egyes szerkesztési funkciók korlátozottak lehetnek.",
+  "knowledge.surface.copy.blockKramdown": "Blokk kramdown másolása",
   "knowledge.surface.copy.deepLink": "Mélyhivatkozás másolása",
   "knowledge.surface.copy.failed": "A másolás nem sikerült",
   "knowledge.surface.copy.hPath": "Útvonal másolása",

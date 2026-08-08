@@ -833,6 +833,7 @@
   "knowledge.publish.title": "Publish to Knowledge",
   "knowledge.search.placeholder": "ナレッジベースを検索…",
   "knowledge.surface.compatHint": "互換ビュー: 一部の編集機能が制限される場合があります。",
+  "knowledge.surface.copy.blockKramdown": "ブロック Kramdown をコピー",
   "knowledge.surface.copy.deepLink": "ディープリンクをコピー",
   "knowledge.surface.copy.failed": "コピーできませんでした",
   "knowledge.surface.copy.hPath": "パスをコピー",

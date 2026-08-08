@@ -19,5 +19,4 @@ export {
   PermissionsSettingsPage,
   LabelsSettingsPage,
   ShortcutsPage,
-  PreferencesPage,
 } from './settings'

@@ -113,6 +113,29 @@ export interface SourceSearchResult {
   query: string
 }
 
+/** Retrieved hit with a budgeted excerpt for system-prompt injection. */
+export interface SourceRetrieveHit {
+  path: string
+  excerpt: string
+  rank: number
+  tokens: number
+}
+
+export interface SourceRetrieveResult {
+  hits: SourceRetrieveHit[]
+  totalTokens: number
+  query: string
+}
+
+/** Default token budget for source docs injected into the agent system prompt. */
+export const SOURCE_RETRIEVE_MAX_TOKENS = 2000
+
+/** Default max ranked hits considered before token budget fill. */
+export const SOURCE_RETRIEVE_DEFAULT_LIMIT = 5
+
+/** Cap on a single hit excerpt so one huge file cannot dominate the budget. */
+const SOURCE_RETRIEVE_MAX_EXCERPT_CHARS = 4_000
+
 const handles = new Map<string, { db: Database; fts: boolean }>()
 
 function estimateTokens(text: string): number {
@@ -490,6 +513,137 @@ export function searchSourceIndex(
   } catch {
     return empty
   }
+}
+
+/**
+ * Fetch short body excerpts for ranked paths (top hits only). Fail-soft: any
+ * SQL error yields an empty map and callers fall back to search snippets.
+ */
+function loadBodyExcerpts(
+  workspaceRoot: string,
+  paths: string[],
+  query: string,
+): Map<string, string> {
+  const out = new Map<string, string>()
+  if (paths.length === 0) return out
+  const handle = openDb(workspaceRoot)
+  if (!handle) return out
+  try {
+    const placeholders = paths.map(() => '?').join(', ')
+    const rows = handle.db
+      .query<{ path: string; body_text: string }, string[]>(
+        `SELECT path, body_text FROM files WHERE path IN (${placeholders})`,
+      )
+      .all(...paths)
+    for (const row of rows) {
+      const body = row.body_text ?? ''
+      if (!body) continue
+      // Prefer a match-centered window; fall back to head when no match.
+      const excerpt = snippetFor(body, query, SOURCE_RETRIEVE_MAX_EXCERPT_CHARS)
+      if (excerpt) out.set(row.path, excerpt)
+    }
+  } catch {
+    // fail-soft
+  }
+  return out
+}
+
+/**
+ * Ranked source retrieve for agent system-prompt injection.
+ * Greedy-fills hit excerpts by search rank until SOURCE_RETRIEVE_MAX_TOKENS
+ * (or options.maxTokens). Fail-soft: missing index / blank query / errors →
+ * empty hits (caller omits the prompt block).
+ */
+export function retrieveSourcesForPrompt(
+  workspaceRoot: string,
+  query: string,
+  options: { limit?: number; maxTokens?: number } = {},
+): SourceRetrieveResult {
+  const q = (query ?? '').trim()
+  const empty: SourceRetrieveResult = { hits: [], totalTokens: 0, query: q }
+  if (!q || !workspaceRoot) return empty
+
+  const limit = Math.max(1, Math.min(options.limit ?? SOURCE_RETRIEVE_DEFAULT_LIMIT, 20))
+  const maxTokens = Math.max(1, options.maxTokens ?? SOURCE_RETRIEVE_MAX_TOKENS)
+
+  let search: SourceSearchResult
+  try {
+    search = searchSourceIndex(workspaceRoot, q, { limit })
+  } catch {
+    return empty
+  }
+  if (!search.hits.length) return empty
+
+  let bodies: Map<string, string>
+  try {
+    bodies = loadBodyExcerpts(
+      workspaceRoot,
+      search.hits.map((h) => h.path),
+      q,
+    )
+  } catch {
+    bodies = new Map()
+  }
+
+  const hits: SourceRetrieveHit[] = []
+  let totalTokens = 0
+
+  for (const hit of search.hits) {
+    const raw =
+      bodies.get(hit.path)?.trim() ||
+      hit.snippet?.trim() ||
+      ''
+    if (!raw) continue
+
+    // Header cost: "### path\n" plus blank line around the excerpt.
+    const header = `### ${hit.path}\n`
+    const headerTokens = estimateTokens(header)
+    const remaining = maxTokens - totalTokens - headerTokens
+    if (remaining <= 0) break
+
+    let excerpt = raw
+    let excerptTokens = estimateTokens(excerpt)
+    if (excerptTokens > remaining) {
+      // Reserve 1 token for the truncation marker when we slice.
+      const bodyBudget = Math.max(0, remaining - 1)
+      const charBudget = bodyBudget * 4
+      if (charBudget < 24) {
+        // Not enough room for a useful excerpt on a subsequent hit.
+        if (hits.length > 0) break
+        // First hit: take a minimal head so the block is non-empty.
+        excerpt = `${raw.slice(0, Math.min(raw.length, 80)).trimEnd()}…`
+        excerptTokens = estimateTokens(excerpt)
+      } else {
+        excerpt = `${raw.slice(0, charBudget).trimEnd()}…`
+        excerptTokens = estimateTokens(excerpt)
+        // If ceil still overshoots, shave a few more chars.
+        while (excerptTokens > remaining && excerpt.length > 4) {
+          excerpt = `${excerpt.slice(0, Math.max(0, excerpt.length - 8)).trimEnd()}…`
+          excerptTokens = estimateTokens(excerpt)
+        }
+      }
+      if (excerptTokens <= 0) break
+    }
+
+    const cost = headerTokens + excerptTokens
+    // Prefer omitting a later hit over blowing the budget; allow the first hit
+    // only when even the minimal excerpt still edges over (tiny maxTokens).
+    if (totalTokens + cost > maxTokens) {
+      if (hits.length > 0) break
+      // Still accept first hit, but clamp reported total to maxTokens below.
+    }
+
+    hits.push({
+      path: hit.path,
+      excerpt,
+      rank: hit.rank,
+      tokens: cost,
+    })
+    totalTokens = Math.min(maxTokens, totalTokens + cost)
+    if (totalTokens >= maxTokens) break
+  }
+
+  return { hits, totalTokens, query: q }
 }
 
 /** Count indexed files (0 if missing). */

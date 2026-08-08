@@ -32,7 +32,7 @@ import MessagingSettingsPage from './MessagingSettingsPage'
 import ServerSettingsPage from './ServerSettingsPage'
 import CloudRunsSettingsPage from './CloudRunsSettingsPage'
 import ShortcutsPage from './ShortcutsPage'
-import PreferencesPage from './PreferencesPage'
+
 
 /**
  * Map of settings subpage IDs to their page components.
@@ -57,7 +57,6 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   server: ServerSettingsPage,
   cloudRuns: CloudRunsSettingsPage,
   shortcuts: ShortcutsPage,
-  preferences: PreferencesPage,
 }
 
 /**

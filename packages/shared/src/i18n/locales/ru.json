@@ -833,6 +833,7 @@
   "knowledge.publish.title": "Publish to Knowledge",
   "knowledge.search.placeholder": "Поиск по базе знаний…",
   "knowledge.surface.compatHint": "Режим совместимости: часть функций редактирования может быть недоступна.",
+  "knowledge.surface.copy.blockKramdown": "Копировать kramdown блока",
   "knowledge.surface.copy.deepLink": "Копировать deep link",
   "knowledge.surface.copy.failed": "Не удалось скопировать",
   "knowledge.surface.copy.hPath": "Копировать путь",

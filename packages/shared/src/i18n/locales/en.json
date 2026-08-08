@@ -833,6 +833,7 @@
   "knowledge.publish.title": "Publish to Knowledge",
   "knowledge.search.placeholder": "Search your knowledge base…",
   "knowledge.surface.compatHint": "Compatibility view: some editing features may be limited.",
+  "knowledge.surface.copy.blockKramdown": "Copy block kramdown",
   "knowledge.surface.copy.deepLink": "Copy deep link",
   "knowledge.surface.copy.failed": "Couldn't copy",
   "knowledge.surface.copy.hPath": "Copy path",
