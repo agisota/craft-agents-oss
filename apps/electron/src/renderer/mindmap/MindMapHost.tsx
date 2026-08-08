@@ -183,7 +183,8 @@ export function MindMapHost({
 
   const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
-  const displayGraph = enrichDraft ?? graph
+  // Draft > fresh pin structure > live projection. Never write back to entity.
+  const displayGraph = enrichDraft ?? (pinFresh && pin ? pin.graph : graph)
 
   const handleTogglePin = React.useCallback(() => {
     if (!graph) return
@@ -204,6 +205,7 @@ export function MindMapHost({
     const next = createPinnedMap(graph, layoutFromCollapsed(collapsed))
     savePin(next)
     setPin(next)
+    setEnrichDraft(null)
     setStaleDismissed(false)
   }, [collapsed, graph])
 

@@ -47,8 +47,8 @@ import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindm
 const SESSION_ENTITY_VIEW_CAPABILITIES: EntityViewCapability[] = defaultSessionEntityCapabilities({
   siyuanConnected: true,
 }).map((cap) => {
-  // Legacy SiYuan mindmap + teamchat stay disabled until separately wired.
-  if (cap.id === 'mindmap' || cap.id === 'teamchat') {
+  // teamchat remains placeholder; legacy SiYuan mindmap stays available with distinct label.
+  if (cap.id === 'teamchat') {
     return { ...cap, available: false }
   }
   return cap
@@ -565,6 +565,16 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             kind="notebook"
             id={SIYUAN_FULL_SURFACE_ID}
             mode="global-graph"
+          />
+        )
+      }
+      if (sessionView === 'mindmap') {
+        // Legacy SiYuan mind-map/graph dock (not Craft projection).
+        return (
+          <KnowledgeSurfacePage
+            kind="notebook"
+            id={SIYUAN_FULL_SURFACE_ID}
+            mode="graph"
           />
         )
       }
