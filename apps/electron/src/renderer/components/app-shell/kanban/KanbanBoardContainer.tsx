@@ -8,6 +8,8 @@ import type { KanbanBoardConfig, KanbanGroupBy } from '@craft-agent/shared/kanba
 import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
 import { collectionDisplayAtom } from '@/atoms/collection-display'
+import { collectionFiltersAtom } from '@/atoms/collection-filters'
+import { filterSessionMeta } from '@craft-agent/shared/sessions'
 import { projectsAtom } from '@/atoms/projects'
 import {
   kanbanProjectFilterAtom,
@@ -189,6 +191,7 @@ export function KanbanBoardContainer() {
   const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(() => new Set())
   const [editorTarget, setEditorTarget] = useAtom(kanbanEditorTargetAtom)
   const collectionDisplay = useAtomValue(collectionDisplayAtom)
+  const collectionFilters = useAtomValue(collectionFiltersAtom)
 
   // Workspace board config (columns + groupBy).
   const [boardConfig, setBoardConfig] = React.useState<KanbanBoardConfig | null>(null)
@@ -397,9 +400,12 @@ export function KanbanBoardContainer() {
     }
 
     const result: KanbanTask[] = []
+    const now = Date.now()
     for (const meta of metaMap.values()) {
       if (meta.parentSessionId) continue
       if (meta.isArchived || meta.hidden || meta.taskDraft) continue
+      // B6: honor workspace collection filters (Display.showCompleted EC-5 respects explicit status chips).
+      if (!filterSessionMeta(meta, collectionFilters, collectionDisplay.showCompleted, now)) continue
       const statusId = meta.sessionStatus ?? 'todo'
       const column = meta.kanbanColumn ?? statusToColumn(statusId)
       const children: SubtaskChildRow[] = (childrenByParent.get(meta.id) ?? []).map(child => ({
