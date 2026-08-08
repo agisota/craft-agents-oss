@@ -5,7 +5,7 @@
 ## Стек и воркфлоу
 - Менеджер: **Bun** (`bun install`, isolated linker).
 - Тесты: `bun test <path>`; typecheck: `bun run tsc --noEmit` внутри пакета.
-- i18n: ВСЕ user-facing строки — через `t()` из react-i18next; переводы в `packages/shared/src/i18n/locales/*.json` (8 локалей, ru — дефолт UI-язык, `fallbackLng: ['ru','en']`). Новый ключ → все 8 файлов, ключи ASCII-сортировкой; паритет проверяется `bun test packages/shared/src/i18n`.
+- i18n: ВСЕ user-facing строки — через `t()` из react-i18next; переводы в `packages/shared/src/i18n/locales/*.json` (10 локалей: de, en, es, fr, hu, ja, pl, ru, zh-Hans, zh-Hant; ru — дефолт UI-язык, `fallbackLng: ['ru','en']`). Новый ключ → все 10 файлов, ключи ASCII-сортировкой; паритет проверяется `bun test packages/shared/src/i18n`.
 - Русские плюральные ключи: `_one/_few/_many`; `_other` добавляем по польской конвенции.
 
 ## OMP-бэкенд (провайдер `omp`)

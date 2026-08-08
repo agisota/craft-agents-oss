@@ -8,6 +8,7 @@
  * + focus so main can position or hide the view.
  *
  * Instance identity: durableKey `ext:${ws||'_default'}:${extensionId}:${viewId}`.
+ * Each effect run owns one create/destroy pair; URL changes release before recreating.
  */
 
 import * as React from 'react'
@@ -35,6 +36,7 @@ export default function ExtensionSurfacePage({
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef(0)
+  const releaseRef = useRef<Promise<void>>(Promise.resolve())
   const [instanceId, setInstanceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [removed, setRemoved] = useState(false)
@@ -55,25 +57,13 @@ export default function ExtensionSurfacePage({
   useEffect(() => {
     let cancelled = false
     let createdId: string | null = null
-    let released = false
-    const releaseOrphan = () => {
-      if (createdId === null || released) return
-      released = true
-      const orphanId = createdId
-      void (async () => {
-        try {
-          await window.electronAPI.extensionSurface.syncBounds({ instanceId: orphanId, rect: null })
-        } catch {
-          // Best-effort hide
-        }
-        try {
-          await window.electronAPI.extensionSurface.destroy({ instanceId: orphanId })
-        } catch {
-          // Instance may already be gone
-        }
-      })()
-    }
-    void (async () => {
+    const previousRelease = releaseRef.current
+    setInstanceId(null)
+    setError(null)
+    setRemoved(false)
+    const acquire = (async () => {
+      await previousRelease
+      if (cancelled) return
       try {
         createdId = await window.electronAPI.extensionSurface.createEmbedded({
           durableKey,
@@ -82,19 +72,26 @@ export default function ExtensionSurfacePage({
           viewId,
           workspaceId: activeWorkspaceId,
         })
-        if (cancelled) {
-          releaseOrphan()
-          return
-        }
-        released = true
-        setInstanceId(createdId)
+        if (!cancelled) setInstanceId(createdId)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
       }
     })()
     return () => {
       cancelled = true
-      releaseOrphan()
+      releaseRef.current = acquire.then(async () => {
+        if (createdId === null) return
+        try {
+          await window.electronAPI.extensionSurface.syncBounds({ instanceId: createdId, rect: null })
+        } catch {
+          // Best-effort hide
+        }
+        try {
+          await window.electronAPI.extensionSurface.destroy({ instanceId: createdId })
+        } catch {
+          // Instance may already be gone
+        }
+      })
     }
   }, [durableKey, surfaceUrl, extensionId, viewId, activeWorkspaceId])
 
@@ -150,24 +147,6 @@ export default function ExtensionSurfacePage({
     return () => {
       offRemoved()
       offStateChanged()
-    }
-  }, [instanceId])
-
-  useEffect(() => {
-    return () => {
-      if (!instanceId) return
-      void (async () => {
-        try {
-          await window.electronAPI.extensionSurface.syncBounds({ instanceId, rect: null })
-        } catch {
-          // Best-effort hide
-        }
-        try {
-          await window.electronAPI.extensionSurface.destroy({ instanceId })
-        } catch {
-          // Instance may already be gone
-        }
-      })()
     }
   }, [instanceId])
 

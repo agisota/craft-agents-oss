@@ -27,6 +27,9 @@ export const collectionDisplayAtom = atom<CollectionDisplay>(cloneDisplay())
 /** True while a workspace display load is in flight. */
 export const collectionDisplayLoadingAtom = atom(false)
 
+const collectionDisplayUpdateChains = new Map<string, Promise<void>>()
+const collectionDisplayUpdateVersions = new Map<string, number>()
+
 /**
  * Replace local display state. Prefer `setCollectionDisplayAtom` when the
  * change should persist to the workspace file.
@@ -79,15 +82,28 @@ export const setCollectionDisplayAtom = atom(
       return next
     }
 
-    try {
-      const saved = await window.electronAPI.setCollectionDisplay(workspaceId, next)
-      set(collectionDisplayAtom, cloneDisplay(saved))
-      return saved
-    } catch (err) {
-      // Keep optimistic value; caller may toast. Reload on next workspace tick.
-      console.warn('[collection-display] setCollectionDisplay failed', err)
-      return next
-    }
+    const version = (collectionDisplayUpdateVersions.get(workspaceId) ?? 0) + 1
+    collectionDisplayUpdateVersions.set(workspaceId, version)
+    const previousUpdate = collectionDisplayUpdateChains.get(workspaceId) ?? Promise.resolve()
+    const update = previousUpdate.catch(() => undefined).then(async () => {
+      try {
+        const saved = await window.electronAPI.setCollectionDisplay(workspaceId, next)
+        const activeWorkspaceId = get(windowWorkspaceIdAtom)
+        if (
+          collectionDisplayUpdateVersions.get(workspaceId) === version &&
+          (activeWorkspaceId == null || activeWorkspaceId === workspaceId)
+        ) {
+          set(collectionDisplayAtom, cloneDisplay(saved))
+        }
+        return saved
+      } catch (err) {
+        // Keep optimistic value; caller may toast. Reload on next workspace tick.
+        console.warn('[collection-display] setCollectionDisplay failed', err)
+        return next
+      }
+    })
+    collectionDisplayUpdateChains.set(workspaceId, update.then(() => undefined))
+    return update
   },
 )
 

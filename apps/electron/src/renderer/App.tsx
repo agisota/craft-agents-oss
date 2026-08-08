@@ -1149,6 +1149,18 @@ export default function App() {
     reconcilePermissionModeState,
   ])
 
+  useEffect(() => {
+    const cleanup = window.electronAPI.onSessionsBulkChanged((event) => {
+      if (event.workspaceId !== windowWorkspaceId) return
+      void refreshSessionListMetadataFromServer({
+        removeMissing: false,
+        reason: 'bulk-changed',
+      })
+    })
+
+    return cleanup
+  }, [refreshSessionListMetadataFromServer, windowWorkspaceId])
+
   // Transport reconnect recovery — refresh session metadata plus active/processing
   // session content after stale reconnects.
   useEffect(() => {

@@ -84,6 +84,7 @@ import type {
 } from '@craft-agent/core/knowledge'
 
 import { KnowledgeAuditLog } from './knowledge-audit'
+import { getSharedAutomationLoopGuard, type AutomationLoopGuard } from './automation-loop-guard'
 import { KnowledgeMutationProposalsStore, type ProposalListFilter, type ProposalSweepResult } from './proposals-store'
 
 /** Engine-driven status transitions whose audit actor is 'automation' (§3.2 table, initiator column). */
@@ -134,13 +135,16 @@ export interface KnowledgeBridgeDeps {
   workspaceId?: string
   /** appendBlock cap (§3.4.1 capability; default DEFAULT_MAX_BLOCK_BYTES in core). */
   maxBlockBytes?: number
+  loopGuard?: AutomationLoopGuard
 }
 
 export class KnowledgeBridgeService {
   private readonly assertAllowed: (action: KnowledgeAction, ctx: KnowledgeActionContext) => void
+  private readonly loopGuard: AutomationLoopGuard
 
   constructor(private readonly deps: KnowledgeBridgeDeps) {
     this.assertAllowed = deps.assertAllowed ?? assertKnowledgeActionAllowed
+    this.loopGuard = deps.loopGuard ?? getSharedAutomationLoopGuard()
   }
 
   // -------------------------------------------------------------------------
@@ -498,6 +502,8 @@ export class KnowledgeBridgeService {
             conflictInfo: this.toWireRecord(drifted.proposal).conflictInfo,
           }
         }
+
+        this.loopGuard.consumePendingWrite(proposalId)
 
         // §3.8: kernel-assigned ids exist only at apply time — bind $insertedBlockId placeholders
         // in the persisted inverse ops to the concrete created ref.

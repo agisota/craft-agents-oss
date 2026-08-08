@@ -7,7 +7,7 @@
  * - publish_run proposes a createDocument report placeholder with provenance attrs
  *   + review required; never silent publish.
  * - actor on every proposal = 'automation'; audit detail includes automation:<id>.
- * - Loop-safety: noteWrite after successful propose so watcher/handler suppress re-fire.
+ * - Loop-safety: reserve after successful propose; bridge consumes at successful apply.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -558,7 +558,7 @@ export class ServerKnowledgeActionExecutor {
       },
     })
 
-    this.loopGuard.noteWrite({
+    this.loopGuard.notePendingWrite(proposal.id, {
       connectionId,
       refId: targetRef.id,
       automationId,

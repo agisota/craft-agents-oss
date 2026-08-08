@@ -3,7 +3,8 @@
  * would re-fire the same automation (P6 / K-10).
  *
  * Both KnowledgeChangeWatcher (before emit) and KnowledgeActionExecutor
- * (after propose) consult this registry. TTL defaults to 120s.
+ * (after bridge apply) consult this registry. Automation proposals reserve a
+ * pending write for five minutes, then consume it when the write succeeds.
  *
  * Keys: `${connectionId}|${refId}|${attrName|*}|${automationId}`
  * Watcher suppress uses shouldSuppressRef (any automation wrote this ref/attr).
@@ -37,6 +38,7 @@ export interface LoopGuardRefCheckMeta {
 }
 
 const DEFAULT_TTL_MS = 120_000
+const PENDING_TTL_MS = 5 * 60_000
 
 function keyOf(meta: {
   connectionId: string
@@ -50,6 +52,7 @@ function keyOf(meta: {
 
 export class AutomationLoopGuard {
   private readonly entries = new Map<string, number>()
+  private readonly pendingWrites = new Map<string, LoopGuardWriteMeta>()
   private readonly ttlMs: number
   private readonly nowFn: () => number
 
@@ -74,6 +77,27 @@ export class AutomationLoopGuard {
       )
     }
     this.prune(ts)
+  }
+
+  notePendingWrite(proposalId: string, meta: LoopGuardWriteMeta): void {
+    const ts = meta.ts ?? this.nowFn()
+    this.pendingWrites.set(proposalId, { ...meta, ts })
+    this.prune(ts)
+  }
+
+  consumePendingWrite(proposalId: string): void {
+    const meta = this.pendingWrites.get(proposalId)
+    if (!meta) return
+    this.pendingWrites.delete(proposalId)
+    if (this.nowFn() - (meta.ts ?? 0) <= PENDING_TTL_MS) {
+      const writeMeta: LoopGuardWriteMeta = {
+        connectionId: meta.connectionId,
+        refId: meta.refId,
+        automationId: meta.automationId,
+      }
+      if (meta.attrName !== undefined) writeMeta.attrName = meta.attrName
+      this.noteWrite(writeMeta)
+    }
   }
 
   /**
@@ -132,6 +156,9 @@ export class AutomationLoopGuard {
     for (const [k, ts] of this.entries) {
       if (now - ts > this.ttlMs) this.entries.delete(k)
     }
+    for (const [proposalId, meta] of this.pendingWrites) {
+      if (now - (meta.ts ?? now) > PENDING_TTL_MS) this.pendingWrites.delete(proposalId)
+    }
   }
 
   /** Test helper — number of live entries after prune. */
@@ -142,6 +169,7 @@ export class AutomationLoopGuard {
 
   clear(): void {
     this.entries.clear()
+    this.pendingWrites.clear()
   }
 }
 

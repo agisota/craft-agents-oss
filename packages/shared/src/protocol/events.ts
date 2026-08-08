@@ -137,5 +137,13 @@ export interface BroadcastEventMap {
 
   // Messaging gateway broadcasts
   [RPC_CHANNELS.messaging.BINDING_CHANGED]: [workspaceId: string]
-  [RPC_CHANNELS.messaging.PLATFORM_STATUS]: [workspaceId: string, platform: string, connected: boolean]
+  [RPC_CHANNELS.messaging.PLATFORM_STATUS]: [workspaceId: string, platform: string, status: {
+    platform: string
+    configured: boolean
+    connected: boolean
+    state: 'disconnected' | 'connecting' | 'connected' | 'reconnect_required' | 'error'
+    identity?: string
+    lastError?: string
+    updatedAt: number
+  }]
 }

@@ -83,6 +83,8 @@ function createMockDeps(): HandlerDeps {
       dispose: () => {},
       size: 0,
     } as unknown as HandlerDeps['oauthFlowStore'],
+    // Required so registerMessagingHandlers doesn't early-return and skip channel registration.
+    messagingRegistry: {} as unknown as NonNullable<HandlerDeps['messagingRegistry']>,
   }
 }
 
@@ -126,6 +128,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     kanban,
     collection,
     gamification,
+    messaging,
   ] = await Promise.all([
     import('@craft-agent/server-core/handlers/rpc/auth'),
     import('@craft-agent/server-core/handlers/rpc/automations'),
@@ -164,6 +167,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/kanban'),
     import('@craft-agent/server-core/handlers/rpc/collection'),
     import('@craft-agent/server-core/handlers/rpc/gamification'),
+    import('@craft-agent/server-core/handlers/rpc/messaging'),
   ])
 
   const [browser, guiSystem, guiWorkspace, guiSettings, siyuan, extensionHost, extensionSurface] = await Promise.all([
@@ -214,6 +218,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...kanban.HANDLED_CHANNELS,
     ...collection.HANDLED_CHANNELS,
     ...gamification.HANDLED_CHANNELS,
+    ...messaging.HANDLED_CHANNELS,
     ...browser.HANDLED_CHANNELS,
     ...guiSystem.GUI_HANDLED_CHANNELS,
     ...guiWorkspace.GUI_HANDLED_CHANNELS,
