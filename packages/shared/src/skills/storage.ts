@@ -9,18 +9,20 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'fs';
 import type { Dirent } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
 import matter from 'gray-matter';
 import type { LoadedSkill, SkillMetadata, SkillSource } from './types.ts';
 import { listOmpSkills } from './omp-discovery.ts';
 import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
 import { getBundledSkillsDisabled } from '../config/storage.ts';
+import { SLUG_RE } from '../tasks/schema.ts';
 import {
   validateIconValue,
   findIconFile,
@@ -398,6 +400,32 @@ export function getSkillIconPath(workspaceRoot: string, slug: string): string | 
 // Write / Delete Operations
 // ============================================================
 
+
+/**
+ * Resolve a workspace skill directory with slug + path-escape guards.
+ * Throws on invalid slug or path that escapes {workspace}/skills/.
+ */
+export function resolveWorkspaceSkillDir(workspaceRoot: string, slug: string): string {
+  if (!SLUG_RE.test(slug)) {
+    throw new Error(`Invalid skill slug: ${slug}`);
+  }
+  const skillsDir = resolve(getWorkspaceSkillsPath(workspaceRoot));
+  const skillDir = resolve(skillsDir, slug);
+  const rel = relative(skillsDir, skillDir);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Skill path escapes skills directory: ${slug}`);
+  }
+  if (existsSync(skillDir)) {
+    const realSkillsDir = realpathSync(skillsDir);
+    const realSkillDir = realpathSync(skillDir);
+    const realRel = relative(realSkillsDir, realSkillDir);
+    if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) {
+      throw new Error(`Skill path escapes skills directory: ${slug}`);
+    }
+  }
+  return skillDir;
+}
+
 export interface UpdateSkillContentInput {
   /** Display name (frontmatter name) */
   name?: string;
@@ -419,8 +447,8 @@ export function updateSkillContent(
   slug: string,
   updates: UpdateSkillContentInput,
 ): LoadedSkill | null {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  const skillDir = join(skillsDir, slug);
+  const skillDir = resolveWorkspaceSkillDir(workspaceRoot, slug);
+  const skillsDir = resolve(getWorkspaceSkillsPath(workspaceRoot));
   const skillFile = join(skillDir, 'SKILL.md');
 
   if (!existsSync(skillFile)) {
@@ -489,8 +517,7 @@ export function updateSkillContent(
  * @param slug - Skill directory name
  */
 export function deleteSkill(workspaceRoot: string, slug: string): boolean {
-  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
-  const skillDir = join(skillsDir, slug);
+  const skillDir = resolveWorkspaceSkillDir(workspaceRoot, slug);
 
   if (!existsSync(skillDir)) {
     return false;

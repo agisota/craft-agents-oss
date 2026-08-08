@@ -41,6 +41,7 @@ type ApiToChannelMapKeys = Exclude<
   | 'onTransferProgress' // direct IPC listener — chunk upload progress
   | 'changeLanguage' // direct IPC to main process — syncs i18n language
   | 'exportNotePdf' // direct IPC to main process — uses BrowserWindow.printToPDF
+  | 'saveTextFile' // direct IPC — save dialog + write for knowledge export
   | 'getFilePath' // renderer-local — webUtils.getPathForFile, no IPC round-trip
   // SSH remote hosts + tunnels — direct IPC to main process (Electron-only)
   | 'sshListHosts'

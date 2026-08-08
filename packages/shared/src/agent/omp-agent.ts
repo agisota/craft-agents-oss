@@ -50,6 +50,7 @@ import { getSessionPath } from '../sessions/storage.ts';
 import { loadProjectById, getProjectAssetsPath, listProjectAssets, getProjectMemoryPath, loadProjectMemory } from '../projects/storage.ts';
 import type { ProjectPromptContext } from '../projects/types.ts';
 import { formatProjectContextForPrompt } from '../prompts/system.ts';
+import type { MemoryPromptBlocks } from '../memory/types.ts';
 import { getContextDocsPromptBlock } from '../context-docs/index.ts';
 import { formatPreferencesForPrompt } from '../config/preferences.ts';
 import type { AgentEvent, AgentEventUsage } from '@craft-agent/core/types';
@@ -132,13 +133,13 @@ const OMP_CRAFT_CONTEXT_PROMPT = [
 /**
  * Compose the `--append-system-prompt` payload for OMP spawn.
  * Ordering mirrors getSystemPrompt: craft briefing → preferences → project →
- * context docs (rules/soul) → memory blocks.
+ * context docs (rules/soul) → memory blocks → retrieved sources.
  */
 export function composeOmpAppendSystemPrompt(input: {
   workingDirectory: string;
   preferences?: string | null;
   projectContextBlock?: string | null;
-  memoryBlocks?: { lessonsBlock?: string; memoryBlock?: string } | null;
+  memoryBlocks?: MemoryPromptBlocks | null;
 }): string {
   const parts = [OMP_CRAFT_CONTEXT_PROMPT];
   if (input.preferences) parts.push(input.preferences);
@@ -152,6 +153,7 @@ export function composeOmpAppendSystemPrompt(input: {
   const blocks = input.memoryBlocks;
   if (blocks?.lessonsBlock) parts.push(blocks.lessonsBlock);
   if (blocks?.memoryBlock) parts.push(blocks.memoryBlock);
+  if (blocks?.sourcesBlock) parts.push(blocks.sourcesBlock);
   return parts.join('\n');
 }
 

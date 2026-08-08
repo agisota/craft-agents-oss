@@ -92,7 +92,8 @@ import { type Session, type SessionEvent, type FileAttachment, type SendMessageO
 import { messageToStored, storedToMessage, type Message, type StoredAttachment, type ToolDisplayMeta, type TokenUsage, type SessionMemoryMode } from '@craft-agent/core/types'
 import { formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrlAsync, getEmojiIcon, resetSummarizationClient, resolveToolIcon, readFileAttachment, selectSpreadMessages, normalizePath } from '@craft-agent/shared/utils'
 import { loadAllSkills, loadSkillBySlug, invalidateSkillsCache, type LoadedSkill } from '@craft-agent/shared/skills'
-import { invalidateContextFileCache } from '@craft-agent/shared/prompts/system'
+import { invalidateContextFileCache, formatSourceRetrieveForPrompt } from '@craft-agent/shared/prompts/system'
+import { retrieveSourcesForPrompt } from '../sources/source-index'
 import { getToolIconsDir, getMiniModel } from '@craft-agent/shared/config'
 import { getDefaultSummarizationModel } from '@craft-agent/shared/config/models'
 import type { SummarizeCallback } from '@craft-agent/shared/sources'
@@ -4044,9 +4045,22 @@ export class SessionManager implements ISessionManager {
         .map(m => m.content)
         .join('\n')
         .trim()
-      const memoryBlocks = managed.memoryMode === 'temporary'
+      let memoryBlocks = managed.memoryMode === 'temporary'
         ? undefined
         : await this.memoryServiceFor(managed.workspace)?.buildMemoryBlocks(memoryQuery ? { query: memoryQuery } : undefined)
+      // P2.7: FTS-retrieve local source docs into the same memoryBlocks payload
+      // (sourcesBlock). Same memoryQuery as lessons; fail-soft on missing index.
+      if (memoryQuery && managed.workspace?.rootPath) {
+        try {
+          const retrieved = retrieveSourcesForPrompt(managed.workspace.rootPath, memoryQuery)
+          const sourcesBlock = formatSourceRetrieveForPrompt(retrieved.hits)
+          if (sourcesBlock) {
+            memoryBlocks = { ...(memoryBlocks ?? {}), sourcesBlock }
+          }
+        } catch (err) {
+          sessionLog.warn(`Failed to retrieve sources for prompt (${managed.id}):`, err)
+        }
+      }
       // Provenance (spec F4): persist which lessons were injected so the feedback
       // loop and usage UI can attribute behavior later. BackendConfig.memoryBlocks
       // is a constructor-time snapshot, so this record refreshes per session start

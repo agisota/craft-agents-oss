@@ -369,6 +369,7 @@ import type {
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
   KnowledgeDetectEngineResult,
+  KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
   KnowledgeMetricsSnapshot,
@@ -646,6 +647,18 @@ export interface ElectronAPI {
     get(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<KnowledgeNode>
     getContext(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef; mode: ContextMode }): Promise<ContextPayload>
     getBacklinks(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<ContextPayload['backlinks']>
+    getExportPayload(args: {
+      connectionId: string
+      ref: KnowledgeRef
+      formats?: Array<'markdown' | 'deepLink' | 'id' | 'hPath' | 'blockKramdown'>
+    }): Promise<{
+      id: string
+      deepLink?: string
+      markdown?: string
+      hPath?: string
+      blockKramdown?: string
+      title?: string
+    }>
     createSnapshot(args: {
       workspaceId: string
       connectionId: string
@@ -734,8 +747,22 @@ export interface ElectronAPI {
     /** P6: start polling watcher → AutomationSystem knowledge events. */
     watch(args: { connectionId: string; workspaceId: string; intervalMs?: number }): Promise<{ ok: true }>
     unwatch(args: { connectionId: string; workspaceId: string }): Promise<{ ok: true }>
+    /** P4.4: user-initiated Craft notes vault → SiYuan migration (does not delete vault). */
+    migrateNotes(args: {
+      workspaceId: string
+      connectionId: string
+      notebookName?: string
+    }): Promise<{
+      migrated: number
+      skipped: number
+      failed: Array<{ noteId: string; error: string }>
+      mapPath: string
+      notebookId: string
+    }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
-    engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
+    engineStatus(args: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStatus>
+    /** LOCAL_ONLY: seed default connection + start/open local SiYuan if installed. */
+    engineStart(args?: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStartResult>
     /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
     metricsGet(args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot>
     /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
@@ -804,6 +831,12 @@ export interface ElectronAPI {
   openFile(path: string): Promise<void>
   showInFolder(path: string): Promise<void>
   exportNotePdf(opts: { html: string; defaultPath: string }): Promise<{ canceled: boolean; filePath?: string }>
+  /** Save plain text via native save dialog (knowledge export, etc.). */
+  saveTextFile(opts: {
+    content: string
+    defaultPath: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }): Promise<{ canceled: boolean; filePath?: string }>
 
   // Menu event listeners
   onMenuNewChat(callback: () => void): () => void
@@ -1050,6 +1083,32 @@ export interface ElectronAPI {
   getWorkspacePermissionsConfig(workspaceId: string): Promise<import('@craft-agent/shared/agent').PermissionsConfigFile | null>
   getDefaultPermissionsConfig(): Promise<{ config: import('@craft-agent/shared/agent').PermissionsConfigFile | null; path: string }>
   getMcpTools(workspaceId: string, sourceSlug: string): Promise<McpToolsResult>
+  reindexSources(workspaceId: string): Promise<{
+    indexed: number
+    skipped: number
+    truncated: boolean
+    dbPath: string
+    fts: boolean
+    fileCount: number
+    rootCount: number
+  }>
+  searchSourcesIndex(
+    workspaceId: string,
+    query: string,
+    limit?: number,
+  ): Promise<{
+    hits: Array<{
+      path: string
+      chars: number
+      tokens: number
+      mtime: number
+      snippet: string
+      rank: number
+    }>
+    total: number
+    fts: boolean
+    query: string
+  }>
 
   // OAuth (server-owned credentials, client-orchestrated flow)
   performOAuth(args: { sourceSlug: string; sessionId?: string; authRequestId?: string }): Promise<{ success: boolean; error?: string; email?: string }>
@@ -1307,6 +1366,8 @@ export interface ElectronAPI {
     list(args?: { workspaceId?: string | null }): Promise<SiyuanSurfaceState[]>
     syncBounds(args: { instanceId: string; rect: { x: number; y: number; width: number; height: number } | null }): Promise<void>
     focus(args: { instanceId: string }): Promise<void>
+    /** Run JS in the embedded surface (dock open / location assign). LOCAL_ONLY. */
+    evaluate(args: { instanceId: string; expression: string }): Promise<unknown>
     onStateChanged(callback: (state: SiyuanSurfaceState) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
   }
@@ -1778,10 +1839,11 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return 'skills'
   }
   if (state.navigator === 'notes') {
+    // Legacy vault surface only (P4.2); primary IA uses knowledge.
     if (state.details?.type === 'note') {
-      return `notes/note/${encodeURIComponent(state.details.noteId)}`
+      return `notes-legacy/note/${encodeURIComponent(state.details.noteId)}`
     }
-    return 'notes'
+    return 'notes-legacy'
   }
   if (state.navigator === 'automations') {
     if (state.details?.type === 'automation') {
@@ -1871,10 +1933,14 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     return { navigator: 'skills', details: null }
   }
 
-  // Handle notes
-  if (key === 'notes') return { navigator: 'notes', details: null }
-  if (key.startsWith('notes/note/')) {
-    const noteId = decodeURIComponent(key.slice(11))
+  // P4.2: bare `notes` / `notes/note/*` alias to Knowledge home (IA unify).
+  // Legacy vault uses `notes-legacy` so migration tooling can still open Tiptap.
+  if (key === 'notes' || key.startsWith('notes/note/')) {
+    return { navigator: 'knowledge', details: null }
+  }
+  if (key === 'notes-legacy') return { navigator: 'notes', details: null }
+  if (key.startsWith('notes-legacy/note/')) {
+    const noteId = decodeURIComponent(key.slice(18))
     if (noteId) {
       return { navigator: 'notes', details: { type: 'note', noteId } }
     }
@@ -1915,8 +1981,9 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
   if (key === 'settings') return { navigator: 'settings', subpage: null }
   if (key.startsWith('settings:')) {
     const subpage = key.slice(9)
-    // Legacy subpages, поглощённые вкладкой Runtime (PRD §5.1) — как в route-parser.
+    // Legacy subpages absorbed into other tabs
     if (subpage === 'toolchain') return { navigator: 'settings', subpage: 'runtime' }
+    if (subpage === 'preferences') return { navigator: 'settings', subpage: 'context' }
     if (isValidSettingsSubpage(subpage)) {
       return { navigator: 'settings', subpage }
     }

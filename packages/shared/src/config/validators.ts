@@ -62,6 +62,7 @@ const WorkspaceSchema = z.object({
   createdAt: z.number().int().positive(),
   sessionId: z.string().optional(),
   iconUrl: z.string().optional(),
+  orgId: z.string().optional(),
 });
 
 // --- LLM Connection schema for config validation ---

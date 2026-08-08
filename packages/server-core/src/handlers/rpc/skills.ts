@@ -58,10 +58,15 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
       return []
     }
 
-    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
+    const { resolveWorkspaceSkillDir } = await import('@craft-agent/shared/skills')
 
-    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
-    const skillDir = join(skillsDir, skillSlug)
+    let skillDir: string
+    try {
+      skillDir = resolveWorkspaceSkillDir(workspace.rootPath, skillSlug)
+    } catch (err) {
+      deps.platform.logger?.error(`SKILLS_GET_FILES: invalid skill slug: ${skillSlug}`, err)
+      return []
+    }
 
     function scanDirectory(dirPath: string): SkillFile[] {
       try {
@@ -163,10 +168,9 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     if (!workspace) throw new Error('Workspace not found')
     if (workspace.remoteServer) throw new Error('Open in editor is not available for remote workspaces')
 
-    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
-
-    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
-    const skillFile = join(skillsDir, skillSlug, 'SKILL.md')
+    const { resolveWorkspaceSkillDir } = await import('@craft-agent/shared/skills')
+    const skillDir = resolveWorkspaceSkillDir(workspace.rootPath, skillSlug)
+    const skillFile = join(skillDir, 'SKILL.md')
     await deps.platform.openPath?.(skillFile)
   })
 
@@ -176,10 +180,8 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     if (!workspace) throw new Error('Workspace not found')
     if (workspace.remoteServer) throw new Error('Show in Finder is not available for remote workspaces')
 
-    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
-
-    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
-    const skillDir = join(skillsDir, skillSlug)
+    const { resolveWorkspaceSkillDir } = await import('@craft-agent/shared/skills')
+    const skillDir = resolveWorkspaceSkillDir(workspace.rootPath, skillSlug)
     await deps.platform.showItemInFolder?.(skillDir)
   })
 

@@ -47,7 +47,9 @@ interface EmbeddedCalls {
   created: Array<{ url?: string; workspaceId?: string | null }>
   destroyed: string[]
   focused: string[]
+  navigated: Array<{ id: string; url: string }>
   bounds: Array<{ id: string; rect: unknown }>
+  evaluated: Array<{ id: string; expression: string }>
   nextInstanceId: number
 }
 
@@ -81,6 +83,14 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
       focus: (id: string) => {
         calls.focused.push(id)
       },
+      navigate: async (id: string, url: string) => {
+        calls.navigated.push({ id, url })
+        return { url, title: '' }
+      },
+      evaluate: async (id: string, expression: string) => {
+        calls.evaluated.push({ id, expression })
+        return 'ok'
+      },
       onStateChange: () => {},
       onRemoved: () => {},
       onInteracted: () => {},
@@ -90,7 +100,7 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
 }
 
 function makeCalls(): EmbeddedCalls {
-  return { created: [], destroyed: [], focused: [], bounds: [], nextInstanceId: 0 }
+  return { created: [], destroyed: [], focused: [], navigated: [], bounds: [], evaluated: [], nextInstanceId: 0 }
 }
 
 const CTX = {} as never
@@ -111,13 +121,14 @@ describe('siyuan surface handlers', () => {
     HANDLED_CHANNELS = mod.HANDLED_CHANNELS
   })
 
-  it('declares exactly the 5 invoke channels — push events are handler-external', () => {
+  it('declares exactly the 6 invoke channels — push events are handler-external', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
       RPC_CHANNELS.siyuan.DESTROY,
       RPC_CHANNELS.siyuan.LIST,
       RPC_CHANNELS.siyuan.SYNC_BOUNDS,
       RPC_CHANNELS.siyuan.FOCUS,
+      RPC_CHANNELS.siyuan.EVALUATE,
     ])
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.siyuan.STATE_CHANGED)
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.siyuan.REMOVED)
@@ -176,6 +187,115 @@ describe('siyuan surface handlers', () => {
     expect(calls.focused).toEqual([first])
     // One push for creation, one for the dedup re-open.
     expect(recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.STATE_CHANGED)).toHaveLength(2)
+  })
+
+  it('createEmbedded re-open navigates when URL differs and updates stored url after navigate succeeds', async () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const list = recorder.handlers.get(RPC_CHANNELS.siyuan.LIST)!
+
+    const first = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: 'http://h/desktop/?id=x',
+      workspaceId: 'ws-1',
+    }) as string
+    const second = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: 'http://h/desktop/?id=x&craftSurface=graph',
+      workspaceId: 'ws-1',
+    })
+
+    expect(second).toBe(first)
+    expect(calls.created).toHaveLength(1)
+    expect(calls.navigated).toEqual([
+      { id: first, url: 'http://h/desktop/?id=x&craftSurface=graph' },
+    ])
+    // Immediate reopen still focuses and pushes OLD url until navigate settles.
+    const mid = list(CTX) as SiyuanSurfaceState[]
+    expect(mid.find((s) => s.instanceId === first)?.url).toBe('http://h/desktop/?id=x')
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const states = list(CTX) as SiyuanSurfaceState[]
+    expect(states.find((s) => s.instanceId === first)?.url).toBe(
+      'http://h/desktop/?id=x&craftSurface=graph',
+    )
+    const statePushes = recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.STATE_CHANGED)
+    const lastPush = statePushes[statePushes.length - 1]?.args[0] as SiyuanSurfaceState
+    expect(lastPush.url).toBe('http://h/desktop/?id=x&craftSurface=graph')
+  })
+
+  it('createEmbedded re-open keeps previous url when navigate rejects and retries navigate', async () => {
+    const deps = makeDeps(calls)
+    let failNextNavigate = false
+    deps.browserPaneManager = {
+      ...deps.browserPaneManager!,
+      navigate: async (id: string, url: string) => {
+        calls.navigated.push({ id, url })
+        if (failNextNavigate) {
+          failNextNavigate = false
+          throw new Error('navigate failed')
+        }
+        return { url, title: '' }
+      },
+    } as unknown as NonNullable<HandlerDeps['browserPaneManager']>
+
+    register(recorder.server, deps)
+    const handler = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const list = recorder.handlers.get(RPC_CHANNELS.siyuan.LIST)!
+
+    const prevUrl = 'http://h/desktop/?id=x'
+    const nextUrl = 'http://h/desktop/?id=x&craftSurface=graph'
+    const first = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: prevUrl,
+      workspaceId: 'ws-1',
+    }) as string
+
+    failNextNavigate = true
+    const second = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: nextUrl,
+      workspaceId: 'ws-1',
+    })
+    expect(second).toBe(first)
+    expect(calls.focused).toContain(first)
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.navigated).toEqual([{ id: first, url: nextUrl }])
+    const afterFail = list(CTX) as SiyuanSurfaceState[]
+    expect(afterFail.find((s) => s.instanceId === first)?.url).toBe(prevUrl)
+
+    // Failed navigate must not poison registry: same nextUrl still attempts navigate.
+    const third = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: nextUrl,
+      workspaceId: 'ws-1',
+    })
+    expect(third).toBe(first)
+    expect(calls.navigated).toEqual([
+      { id: first, url: nextUrl },
+      { id: first, url: nextUrl },
+    ])
+
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const afterRetry = list(CTX) as SiyuanSurfaceState[]
+    expect(afterRetry.find((s) => s.instanceId === first)?.url).toBe(nextUrl)
+  })
+
+  it('createEmbedded re-open with same URL does not navigate', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+
+    handler(CTX, { durableKey: 'siyuan:doc:y:editor', url: 'http://h/y', workspaceId: 'ws-1' })
+    handler(CTX, { durableKey: 'siyuan:doc:y:editor', url: 'http://h/y', workspaceId: 'ws-1' })
+
+    expect(calls.navigated).toEqual([])
   })
 
   it('createEmbedded with distinct durable keys creates distinct surfaces', () => {
@@ -318,5 +438,37 @@ describe('siyuan surface handlers', () => {
 
     focus(CTX, { instanceId: 'browser-embedded-1' })
     expect(calls.focused).toEqual(['browser-embedded-1'])
+  })
+
+  it('evaluate forwards expression to browserPaneManager.evaluate', async () => {
+    register(recorder.server, makeDeps(calls))
+    const create = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const evaluate = recorder.handlers.get(RPC_CHANNELS.siyuan.EVALUATE)!
+
+    const instanceId = (await create(CTX, {
+      durableKey: 'siyuan:document:eval-doc:editor',
+      url: 'http://127.0.0.1:6806/',
+      workspaceId: 'ws-1',
+    })) as string
+
+    const result = await evaluate(CTX, {
+      instanceId,
+      expression: '1 + 1',
+    })
+    expect(result).toBe('ok')
+    expect(calls.evaluated).toEqual([{ id: instanceId, expression: '1 + 1' }])
+  })
+
+  it('evaluate rejects unknown SiYuan surface instanceIds', async () => {
+    register(recorder.server, makeDeps(calls))
+    const evaluate = recorder.handlers.get(RPC_CHANNELS.siyuan.EVALUATE)!
+
+    await expect(
+      evaluate(CTX, {
+        instanceId: 'browser-embedded-unknown',
+        expression: '1 + 1',
+      }),
+    ).rejects.toThrow(/Unknown SiYuan surface/)
+    expect(calls.evaluated).toEqual([])
   })
 })

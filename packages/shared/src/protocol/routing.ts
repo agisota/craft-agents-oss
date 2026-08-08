@@ -294,9 +294,10 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.extensionSurface.REMOVED,
 
 
-  // knowledge — engine status + install detect reflect the answering host, never proxied
+  // knowledge — engine status/start + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
   RPC_CHANNELS.knowledge.DETECT_ENGINE,
+  RPC_CHANNELS.knowledge.ENGINE_START,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -304,6 +305,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.siyuan.LIST,
   RPC_CHANNELS.siyuan.SYNC_BOUNDS,
   RPC_CHANNELS.siyuan.FOCUS,
+  RPC_CHANNELS.siyuan.EVALUATE,
   RPC_CHANNELS.siyuan.STATE_CHANGED,
   RPC_CHANNELS.siyuan.REMOVED,
 
@@ -311,6 +313,25 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.gamification.GET,
   RPC_CHANNELS.gamification.AWARD,
   RPC_CHANNELS.gamification.CHANGED,
+
+  // orgs — local-only identity/membership bookkeeping (CONFIG_DIR)
+  RPC_CHANNELS.orgs.LIST,
+  RPC_CHANNELS.orgs.CREATE,
+  RPC_CHANNELS.orgs.INVITE,
+  RPC_CHANNELS.orgs.ACCEPT,
+  RPC_CHANNELS.orgs.LIST_MEMBERS,
+  RPC_CHANNELS.orgs.GET_IDENTITY,
+  RPC_CHANNELS.orgs.UPDATE_IDENTITY,
+  RPC_CHANNELS.orgs.SET_WORKSPACE_ORG,
+
+  // identity — profile + service connections (Identity Center, S-07)
+  RPC_CHANNELS.identity.GET_STATE,
+  RPC_CHANNELS.identity.UPDATE_PROFILE,
+  RPC_CHANNELS.identity.CONNECT,
+  RPC_CHANNELS.identity.DISCONNECT,
+  RPC_CHANNELS.identity.REFRESH_STATUS,
+  RPC_CHANNELS.identity.CHANGED,
+
 ])
 
 // ---------------------------------------------------------------------------
@@ -426,6 +447,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.GET,
   RPC_CHANNELS.knowledge.GET_CONTEXT,
   RPC_CHANNELS.knowledge.GET_BACKLINKS,
+  RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.CHANGED,
@@ -461,7 +483,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
-  // P7-prep G1 metrics — workspace file under {workspaceRoot}/knowledge/metrics.json
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
   RPC_CHANNELS.knowledge.METRICS_GET,
 
   // memory — lesson/context data served by workspace host
@@ -490,17 +512,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
-
-  // identity — profile + service connections (Identity Center, S-07)
-  RPC_CHANNELS.identity.GET_STATE,
-  RPC_CHANNELS.identity.UPDATE_PROFILE,
-  RPC_CHANNELS.identity.CONNECT,
-  RPC_CHANNELS.identity.DISCONNECT,
-  RPC_CHANNELS.identity.REFRESH_STATUS,
-  RPC_CHANNELS.identity.CHANGED,
-
-
-
 
   // llmConnections — LLM config lives on server running workspace
   RPC_CHANNELS.llmConnections.LIST,
@@ -569,6 +580,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sources.CHANGED,
   RPC_CHANNELS.sources.GET_PERMISSIONS,
   RPC_CHANNELS.sources.GET_MCP_TOOLS,
+  RPC_CHANNELS.sources.REINDEX,
+  RPC_CHANNELS.sources.SEARCH,
 
   // oauth — OAuth state management
   RPC_CHANNELS.oauth.START,

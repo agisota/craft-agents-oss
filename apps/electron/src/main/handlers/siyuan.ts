@@ -2,7 +2,7 @@
  * SiYuan engine surface handlers (P2 native knowledge mode).
  *
  * Thin registry over BrowserPaneManager: embedded SiYuan desktop surfaces are
- * keyed by a durable document key (`siyuan:{kind}:{id}`), so re-opening a doc
+ * keyed by a durable document key (`siyuan:{kind}:{id}:{mode}`), so re-opening a doc
  * dedupifies onto the existing surface and renderers restore survivors across
  * restarts via LIST. This supersedes the ephemeral `browser-embedded-${n}`
  * id as the knowledge-surface handle — the durable key is the stable contract.
@@ -32,6 +32,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.siyuan.LIST,
   RPC_CHANNELS.siyuan.SYNC_BOUNDS,
   RPC_CHANNELS.siyuan.FOCUS,
+  RPC_CHANNELS.siyuan.EVALUATE,
 ] as const
 
 /** Registry record: wire state plus the last bounds reported by the renderer. */
@@ -134,6 +135,10 @@ export interface SiyuanSyncBoundsInput extends SiyuanInstanceInput {
   rect: EmbeddedBoundsRect | null
 }
 
+export interface SiyuanEvaluateInput extends SiyuanInstanceInput {
+  expression: string
+}
+
 export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): void {
   const { browserPaneManager } = deps
   if (!browserPaneManager) return
@@ -153,6 +158,32 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
       // latest opener's binding wins so workspace-scoped LIST stays accurate.
       if (input.workspaceId !== undefined) {
         existing.workspaceId = input.workspaceId ?? null
+      }
+      // Mode/URL may change on re-open (editor→graph, different craftSurface).
+      // Navigate the live instance when the URL differs so the surface reflects
+      // the latest presentation without spawning a second BrowserView.
+      // Commit existing.url only after navigate settles — a failed navigate must
+      // not poison the registry (retry with the same nextUrl must re-attempt).
+      if (input.url && input.url !== existing.url) {
+        const nextUrl = input.url
+        const instanceId = existing.instanceId
+        void browserPaneManager.navigate(instanceId, nextUrl).then(
+          () => {
+            const live = surfaces.get(input.durableKey)
+            if (!live || live.instanceId !== instanceId) return
+            // Skip if a newer successful navigate already moved past nextUrl.
+            if (live.url === nextUrl) return
+            live.url = nextUrl
+            pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(live))
+          },
+          (error: unknown) => {
+            console.warn(
+              `[siyuan] re-open navigate failed id=${instanceId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          },
+        )
       }
       browserPaneManager.focus(existing.instanceId)
       pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(existing))
@@ -216,5 +247,15 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
     // window); visibility is renderer-driven via syncBounds rects. The
     // forward is kept for contract completeness with the browserPane shape.
     browserPaneManager.focus(input.instanceId)
+  })
+
+  server.handle(RPC_CHANNELS.siyuan.EVALUATE, async (_ctx, input: SiyuanEvaluateInput) => {
+    // LOCAL_ONLY JS eval against the embedded SiYuan WebContentsView —
+    // used by the surface host to open docks / switch craftSurface modes.
+    // Refuse unknown instanceIds so callers cannot eval into arbitrary browser panes.
+    if (!surfaces.getByInstanceId(input.instanceId)) {
+      throw new Error(`Unknown SiYuan surface: ${input.instanceId}`)
+    }
+    return browserPaneManager.evaluate(input.instanceId, input.expression)
   })
 }

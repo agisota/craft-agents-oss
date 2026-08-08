@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { updateSkillContent } from '../storage.ts';
+import { updateSkillContent, deleteSkill } from '../storage.ts';
 
 let root: string;
 
@@ -40,5 +40,34 @@ describe('updateSkillContent', () => {
 
   it('returns null for missing skill', () => {
     expect(updateSkillContent(root, 'missing', { name: 'x', description: 'y' })).toBeNull();
+  });
+
+  it('rejects path-traversal and invalid slugs', () => {
+    expect(() =>
+      updateSkillContent(root, '../outside', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, 'Demo', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, '', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, 'has/slash', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+  });
+});
+
+
+describe('deleteSkill path safety', () => {
+  it('rejects path-traversal and invalid slugs', () => {
+    expect(() => deleteSkill(root, '../outside')).toThrow(/Invalid skill slug/);
+    expect(() => deleteSkill(root, 'Demo')).toThrow(/Invalid skill slug/);
+    expect(() => deleteSkill(root, 'has/slash')).toThrow(/Invalid skill slug/);
+  });
+
+  it('deletes a valid workspace skill', () => {
+    expect(deleteSkill(root, 'demo')).toBe(true);
+    expect(deleteSkill(root, 'demo')).toBe(false);
   });
 });

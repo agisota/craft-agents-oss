@@ -153,8 +153,8 @@ export const RPC_CHANNELS = {
   },
   // knowledge — P1 read-only knowledge provider (spec 03) plus P3 write-back
   // mutation-proposal channels (spec 05) plus P4 Session→Knowledge publication
-  // pipeline (spec 06). Engine lifecycle (engineStart/engineStop) remains P7
-  // and MUST NOT be added here.
+  // pipeline (spec 06). ENGINE_START is local bootstrap (detect/open/spawn);
+  // full managed lifecycle (stop/pin) remains out of scope.
   knowledge: {
     LIST_CONNECTIONS: 'knowledge:listConnections',
     CAPABILITIES: 'knowledge:capabilities',
@@ -162,9 +162,17 @@ export const RPC_CHANNELS = {
     GET: 'knowledge:get',
     GET_CONTEXT: 'knowledge:getContext',
     GET_BACKLINKS: 'knowledge:getBacklinks',
+    /** P4.3 Craft chrome copy/export payload (read-only; REMOTE_ELIGIBLE). */
+    GET_EXPORT_PAYLOAD: 'knowledge:getExportPayload',
     SNAPSHOT_CREATE: 'knowledge:snapshotCreate',
     SNAPSHOT_GET: 'knowledge:snapshotGet',
     ENGINE_STATUS: 'knowledge:engineStatus',
+    /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
+    DETECT_ENGINE: 'knowledge:detectEngine',
+    /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
+    METRICS_GET: 'knowledge:metricsGet',
+    /** LOCAL_ONLY: ensure default connection + start local SiYuan if installed. */
+    ENGINE_START: 'knowledge:engineStart',
     CHANGED: 'knowledge:changed',
     // P3 write-back, spec 05 — safe mutation-proposal lifecycle. All seven are
     // REMOTE_ELIGIBLE (workspace data lives on the workspace-owning server);
@@ -199,10 +207,8 @@ export const RPC_CHANNELS = {
     // P6 knowledge change watcher (poll) — start/stop per connection; emits into AutomationSystem.
     WATCH: 'knowledge:watch',
     UNWATCH: 'knowledge:unwatch',
-    // P7-prep G1 metrics (workspace data → REMOTE_ELIGIBLE) + external-local detect (LOCAL_ONLY).
-    // Full managed kernel remains blocked on G1 thresholds + G2 legal decision.
-    METRICS_GET: 'knowledge:metricsGet',
-    DETECT_ENGINE: 'knowledge:detectEngine',
+    // P4.4 — user-initiated Craft notes vault → SiYuan migration (REMOTE_ELIGIBLE).
+    MIGRATE_NOTES: 'knowledge:migrateNotes',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)
@@ -214,6 +220,8 @@ export const RPC_CHANNELS = {
     LIST: 'siyuan:list',
     SYNC_BOUNDS: 'siyuan:syncBounds',
     FOCUS: 'siyuan:focus',
+    /** Run JS in an embedded SiYuan surface (LOCAL_ONLY; dock open / mode switch). */
+    EVALUATE: 'siyuan:evaluate',
     STATE_CHANGED: 'siyuan:stateChanged',
     REMOVED: 'siyuan:removed',
   },
@@ -347,7 +355,6 @@ export const RPC_CHANNELS = {
     REMOVED: 'extensionSurface:removed',
   },
 
-
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',
@@ -431,6 +438,8 @@ export const RPC_CHANNELS = {
     CHANGED: 'sources:changed',
     GET_PERMISSIONS: 'sources:getPermissions',
     GET_MCP_TOOLS: 'sources:getMcpTools',
+    REINDEX: 'sources:reindex',
+    SEARCH: 'sources:search',
   },
   oauth: {
     START: 'oauth:start',

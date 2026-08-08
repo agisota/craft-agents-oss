@@ -621,12 +621,13 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
         id: typeof incoming.id === 'string' && incoming.id.trim() ? incoming.id : randomUUID(),
         topic: String(incoming.topic ?? '').trim(),
         everyHours: Number(incoming.everyHours) > 0 ? Number(incoming.everyHours) : 24,
-        sessionId: String(incoming.sessionId ?? ''),
+        sessionId: String(incoming.sessionId ?? '').trim(),
         kind: incoming.kind,
         enabled: incoming.enabled !== false,
         lastFireAt: incoming.lastFireAt,
       };
       if (!schedule.topic) throw new CloudRunnerError('schedule.topic is required', 'invalid_spec');
+      if (!schedule.sessionId) throw new CloudRunnerError('schedule.sessionId is required', 'invalid_spec');
       const schedules = readSchedules();
       const idx = schedules.findIndex((s) => s.id === schedule.id);
       if (idx >= 0) {

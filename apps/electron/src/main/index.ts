@@ -592,6 +592,28 @@ app.whenReady().then(async () => {
       await writeFile(result.filePath, pdfBuffer)
       return { canceled: false, filePath: result.filePath }
     })
+    // Generic text save dialog (knowledge surface markdown export, etc.)
+    ipcMain.handle(
+      'file:saveText',
+      async (
+        event,
+        opts: { content: string; defaultPath: string; filters?: Array<{ name: string; extensions: string[] }> },
+      ) => {
+        const win =
+          BrowserWindow.fromWebContents(event.sender) ||
+          BrowserWindow.getFocusedWindow() ||
+          BrowserWindow.getAllWindows()[0]
+        if (!win) return { canceled: true as const }
+        const result = await dialog.showSaveDialog(win, {
+          defaultPath: opts.defaultPath,
+          filters: opts.filters ?? [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        })
+        if (result.canceled || !result.filePath) return { canceled: true as const }
+        const { writeFile } = await import('fs/promises')
+        await writeFile(result.filePath, opts.content, 'utf-8')
+        return { canceled: false as const, filePath: result.filePath }
+      },
+    )
 
     if (!isClientOnly) {
       // Restore persisted Git Bash path on Windows (must happen before any SDK subprocess spawn)

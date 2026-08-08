@@ -3,17 +3,23 @@
  * 2026-08-07-siyuan-integration/03 §§3.2–3.6, storage per spec 04 §3.3) plus
  * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md)
  * plus 8 Session→Knowledge publication channels (P4, spec 06) plus 6 P5
- * saved-views / work-envelope channels (K-09 §3.5 / S-08).
+ * saved-views / work-envelope channels (K-09 §3.5 / S-08) plus P4.3
+ * getExportPayload (Craft chrome copy/export, read-only) plus P4.4
+ * migrateNotes (Craft notes vault → SiYuan).
  *
  * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
- * channels + the 7 spec-05 proposal channels + the 8 spec-06 publication
- * channels + the 6 P5 view/envelope channels. Every mutation channel routes
- * through KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
+ * channels + getExportPayload + the 7 spec-05 proposal channels + the 8
+ * spec-06 publication channels + the 6 P5 view/envelope channels + 2 P6
+ * watch channels + migrateNotes. Every mutation channel routes through
+ * KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
  * draft → diff → review → apply, with inverse-ops rollback) — no direct
- * provider write path is registered from this file, and engine-lifecycle
- * channels remain P7 and absent by design. Publication APPLY only creates a
- * proposal; FINALIZE commits publications/links after the proposal reaches
- * 'applied' via P3 UI. VIEW_SET_ATTRIBUTE also only proposes (never applies).
+ * provider write path is registered from this file except migrateNotes,
+ * which uses SiyuanKernelClient.createDocWithMd (whitelist) for bulk vault
+ * import. ENGINE_STATUS/START/DETECT are LOCAL_ONLY bootstrap assist;
+ * full managed lifecycle (stop/pin) remains P7.
+ * Publication APPLY only creates a proposal; FINALIZE commits
+ * publications/links after the proposal reaches 'applied' via P3 UI.
+ * VIEW_SET_ATTRIBUTE also only proposes (never applies).
  *
  * Proposal wiring: one memoized KnowledgeBridgeService per workspace root —
  * proposals/audit are workspace data at {root}/knowledge/{proposals,
@@ -42,9 +48,10 @@ import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type {
   ApplyResult,
   KnowledgeDetectEngineResult,
+  KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
-  KnowledgeLinkRecord,
   KnowledgeMetricsSnapshot,
+  KnowledgeLinkRecord,
   MutationActor,
   MutationInput,
   MutationProposal,
@@ -65,6 +72,7 @@ import {
   MutationValidationError,
   ProposalTransitionError,
   isAllowedAttributeName,
+  siyuanDeepLink,
 } from '@craft-agent/core/knowledge'
 import type {
   ContextMode,
@@ -97,9 +105,18 @@ import {
   KnowledgePublishDraftsStore,
   KnowledgeWorkEnvelopesStore,
   credentialIdFromRef,
-  bumpKnowledgeMetric,
-  metricsStoreFor,
+  migrateCraftNotesToSiyuan,
+  resolveWorkspaceNotesRoot,
+  type MigrateNotesArgs,
+  type MigrateNotesResult,
   detectSiyuanEngine,
+  ensureDefaultLocalConnection,
+  ensureLocalKernel,
+  getKernelBootstrapStatus,
+  KnowledgeMetricsStore,
+  maybeAutoStartLocalKernel,
+  SIYUAN_INSTALL_URL,
+  SIYUAN_LOCAL_CONNECTION_ID,
 } from '../../knowledge'
 import {
   KnowledgeBridgeService,
@@ -129,7 +146,10 @@ import type {
  * ТОЛЬКО через эти фактори; тесты ставят свой и возвращают оригинал в afterEach.
  */
 type SiyuanKnowledgeProviderCtor = new (options: { connection: KnowledgeConnection; token: string }) => KnowledgeProvider
-type SiyuanKernelClientCtor = new (options: { baseUrl: string; token: string }) => Pick<SiyuanKernelClient, 'getVersion'>
+type SiyuanKernelClientCtor = new (options: { baseUrl: string; token: string }) => Pick<
+  SiyuanKernelClient,
+  'getVersion' | 'listNotebooks' | 'createDocWithMd' | 'checkBlockExist'
+>
 let knowledgeProviderCtor: SiyuanKnowledgeProviderCtor = SiyuanKnowledgeProvider as unknown as SiyuanKnowledgeProviderCtor
 let siyuanKernelClientCtor: SiyuanKernelClientCtor = SiyuanKernelClient
 export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor | null, clientCtor?: SiyuanKernelClientCtor | null): void {
@@ -145,7 +165,7 @@ export function __setSkipKnowledgeWatchAutoStart(skip: boolean): void {
   skipKnowledgeWatchAutoStart = skip
 }
 
-/** The complete knowledge channel set — P1–P6 + P7-prep metrics/detect; asserted by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + getExportPayload + ENGINE_STATUS/DETECT/START + METRICS_GET + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch + migrateNotes; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -153,9 +173,13 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.GET,
   RPC_CHANNELS.knowledge.GET_CONTEXT,
   RPC_CHANNELS.knowledge.GET_BACKLINKS,
+  RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
+  RPC_CHANNELS.knowledge.ENGINE_START,
+  RPC_CHANNELS.knowledge.METRICS_GET,
   RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
   RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
   RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
@@ -182,9 +206,8 @@ export const HANDLED_CHANNELS = [
   // P6 change watcher
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
-  // P7-prep G1 metrics + external-local detect (no managed spawn)
-  RPC_CHANNELS.knowledge.METRICS_GET,
-  RPC_CHANNELS.knowledge.DETECT_ENGINE,
+  // P4.4 Craft notes vault → SiYuan
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -205,6 +228,22 @@ export interface KnowledgeRefArgs extends KnowledgeConnectionArgs {
 
 export interface KnowledgeGetContextArgs extends KnowledgeRefArgs {
   mode: ContextMode
+}
+
+export type KnowledgeExportFormat = 'markdown' | 'deepLink' | 'id' | 'hPath' | 'blockKramdown'
+
+export interface KnowledgeGetExportPayloadArgs extends KnowledgeRefArgs {
+  /** Subset of formats to return; default = all applicable. */
+  formats?: KnowledgeExportFormat[]
+}
+
+export interface KnowledgeExportPayload {
+  id: string
+  deepLink?: string
+  markdown?: string
+  hPath?: string
+  blockKramdown?: string
+  title?: string
 }
 
 export interface KnowledgeSnapshotCreateArgs extends KnowledgeConnectionArgs {
@@ -414,6 +453,13 @@ function assertKnowledgeRef(ref: unknown): asserts ref is KnowledgeRef {
 export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps): void {
   const log = deps.platform.logger
 
+  // Non-blocking local kernel bootstrap (detect binary → open/spawn if down).
+  // Never awaits readiness; UI polls ENGINE_STATUS / uses ENGINE_START CTA.
+  // Skipped under the same test seam as watch auto-start.
+  if (!skipKnowledgeWatchAutoStart) {
+    maybeAutoStartLocalKernel({ log: log ?? undefined })
+  }
+
   // Per-registration registry: factory re-runs on every connect(), picking up
   // the current token from tokensByConnection (set just before connect()).
   const tokensByConnection = new Map<string, string>()
@@ -568,9 +614,13 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   }
 
   // ——— LIST_CONNECTIONS({}) → KnowledgeConnection[] ———
-  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () =>
-    new KnowledgeConnectionsStore().list().map(toContractConnection),
-  )
+  // Seeds a default local connection row when the registry is empty so Settings
+  // / Home always have something to show (token still user-supplied).
+  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () => {
+    const store = new KnowledgeConnectionsStore()
+    ensureDefaultLocalConnection(store)
+    return store.list().map(toContractConnection)
+  })
 
   // ——— CAPABILITIES({connectionId}) → KnowledgeCapabilities ———
   server.handle(RPC_CHANNELS.knowledge.CAPABILITIES, (_ctx, args: KnowledgeConnectionArgs) =>
@@ -607,6 +657,67 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     return payload.backlinks
   })
 
+  // ——— GET_EXPORT_PAYLOAD({connectionId, ref, formats?}) → KnowledgeExportPayload ———
+  // P4.3 Craft chrome copy/export. Read-only: deep link always; content via provider.get
+  // (document/block markdown + path). Does not expand the write whitelist.
+  server.handle(
+    RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
+    async (_ctx, args: KnowledgeGetExportPayloadArgs): Promise<KnowledgeExportPayload> => {
+      if (typeof args?.connectionId !== 'string' || args.connectionId.length === 0) {
+        throw new Error('knowledge.getExportPayload: connectionId is required')
+      }
+      assertKnowledgeRef(args?.ref)
+      const ref = args.ref
+      const requested = Array.isArray(args.formats) && args.formats.length > 0
+        ? args.formats
+        : (['markdown', 'deepLink', 'id', 'hPath', 'blockKramdown'] as KnowledgeExportFormat[])
+      const want: Record<KnowledgeExportFormat, boolean> = {
+        markdown: false,
+        deepLink: false,
+        id: false,
+        hPath: false,
+        blockKramdown: false,
+      }
+      for (const f of requested) {
+        if (f in want) want[f] = true
+      }
+
+      const payload: KnowledgeExportPayload = { id: ref.id }
+
+      if (want.id) payload.id = ref.id
+      if (want.deepLink) {
+        payload.deepLink = siyuanDeepLink({
+          scheme: 'siyuan',
+          kind: ref.kind,
+          id: ref.id,
+        })
+      }
+
+      const needsContent = want.markdown || want.hPath || want.blockKramdown
+      // Content formats require a real document/block (not notebook full-surface sentinel).
+      const isContentKind = ref.kind === 'document' || ref.kind === 'block'
+      const isFullSurface = ref.id === '__full__'
+
+      if (needsContent && isContentKind && !isFullSurface) {
+        const node = await callProvider(args.connectionId, (provider) => provider.get(ref))
+        if (want.markdown && typeof node.markdown === 'string') {
+          payload.markdown = node.markdown
+        }
+        if (want.hPath && typeof node.path === 'string' && node.path.length > 0) {
+          payload.hPath = node.path
+        }
+        if (want.blockKramdown && ref.kind === 'block' && typeof node.markdown === 'string') {
+          payload.blockKramdown = node.markdown
+        }
+        if (typeof node.title === 'string' && node.title.length > 0) {
+          payload.title = node.title
+        }
+      }
+
+      return payload
+    },
+  )
+
   // ——— SNAPSHOT_CREATE({workspaceId, connectionId, ref, mode?, sessionId, provenance?}) → ContextSnapshot ———
   server.handle(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE, async (_ctx, args: KnowledgeSnapshotCreateArgs): Promise<ContextSnapshot> => {
     const rootPath = requireWorkspaceRoot(args.workspaceId)
@@ -639,32 +750,140 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     return toContextSnapshot(record)
   })
 
-  // ——— ENGINE_STATUS({connectionId}) → KnowledgeEngineStatus (LOCAL_ONLY) ———
+  // ——— ENGINE_STATUS({connectionId?}) → KnowledgeEngineStatus (LOCAL_ONLY) ———
   // Probe semantics, not command semantics: an unreachable kernel yields
   // running:false (the channel's answer), never a thrown provider error.
-  // Managed mode is typed but fail-closed until G1+G2 (no process spawn).
-  server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
-    const record = requireConnection(args.connectionId)
-    if (record.mode === 'managed') {
+  // connectionId is optional: when omitted (or unknown), still report binary
+  // detection + health against the default local base URL.
+  server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args?: Partial<KnowledgeConnectionArgs>): Promise<KnowledgeEngineStatus> => {
+    const bootstrap = await getKernelBootstrapStatus({ log: log ?? undefined })
+    const extras = {
+      binaryFound: bootstrap.binaryFound,
+      ...(bootstrap.binaryPath ? { binaryPath: bootstrap.binaryPath } : {}),
+      installUrl: bootstrap.installUrl,
+      starting: bootstrap.starting,
+    }
+
+    const connectionId = typeof args?.connectionId === 'string' && args.connectionId.length > 0
+      ? args.connectionId
+      : null
+    const record = connectionId
+      ? new KnowledgeConnectionsStore().get(connectionId)
+      : new KnowledgeConnectionsStore().list()[0] ?? null
+
+    if (!record) {
       return {
-        mode: 'managed',
-        running: false,
-        reason:
-          'Managed kernel is disabled until G1 metrics thresholds are met and G2 licensing decision is ACCEPTED (spec K-08). Craft does not ship or spawn SiYuan; use external-local.',
+        mode: 'external-local',
+        running: bootstrap.running,
+        ...(bootstrap.version ? { version: bootstrap.version } : {}),
+        ...extras,
       }
     }
+
     try {
       // Construction itself may fail (missing token / bad baseUrl) — probe semantics
       // still answer running:false rather than throw a provider error to the wire.
       const token = await readToken(record)
       const client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
       const version = await client.getVersion()
-      return { mode: record.mode, running: true, version }
+      return { mode: record.mode, running: true, version, ...extras }
     } catch (error) {
       log?.debug?.(`KNOWLEDGE_ENGINE_STATUS: probe failed for connection ${record.id}: ${String((error as Error)?.message ?? error)}`)
-      return { mode: record.mode, running: false }
+      // Fall back to unauthenticated health probe so "running" still reflects a live kernel
+      // even when the token is missing/wrong.
+      return {
+        mode: record.mode,
+        running: bootstrap.running,
+        ...(bootstrap.version ? { version: bootstrap.version } : {}),
+        ...extras,
+      }
     }
   })
+
+  // ——— ENGINE_START({connectionId?, workspaceId?}) → KnowledgeEngineStartResult (LOCAL_ONLY) ———
+  // User CTA / explicit start: seed default connection, spawn or open SiYuan if installed.
+  server.handle(
+    RPC_CHANNELS.knowledge.ENGINE_START,
+    async (_ctx, args?: { connectionId?: string; workspaceId?: string }): Promise<KnowledgeEngineStartResult> => {
+      const workspaceId =
+        typeof args?.workspaceId === 'string' && args.workspaceId.length > 0
+          ? args.workspaceId
+          : undefined
+      // Prefer binding the default connection credential to the active workspace when provided.
+      if (workspaceId) {
+        const store = new KnowledgeConnectionsStore()
+        const existing = store.get(SIYUAN_LOCAL_CONNECTION_ID)
+        if (!existing) {
+          ensureDefaultLocalConnection(store, { workspaceId })
+        }
+      }
+      const result = await ensureLocalKernel({ log: log ?? undefined })
+      return {
+        ok: result.ok,
+        started: result.started,
+        alreadyRunning: result.alreadyRunning,
+        method: result.method,
+        binaryPath: result.binaryPath,
+        baseUrl: result.baseUrl,
+        connectionId: result.connectionId,
+        ...(result.version ? { version: result.version } : {}),
+        ...(result.error ? { error: result.error } : {}),
+        installUrl: SIYUAN_INSTALL_URL,
+      }
+    },
+  )
+
+  // ——— DETECT_ENGINE() → KnowledgeDetectEngineResult (LOCAL_ONLY) ———
+  // Install-path + default-port probe only. Never downloads or spawns.
+  server.handle(RPC_CHANNELS.knowledge.DETECT_ENGINE, async (): Promise<KnowledgeDetectEngineResult> => {
+    const result = await detectSiyuanEngine()
+    return {
+      installed: result.installed,
+      runningOnDefaultPort: result.runningOnDefaultPort,
+      suggestedBaseUrl: result.suggestedBaseUrl,
+      installPathsFound: result.installPathsFound,
+      platform: result.platform,
+      canOpenApp: result.canOpenApp,
+      installDocsUrl: result.installDocsUrl,
+    }
+  })
+
+  // ——— METRICS_GET({workspaceId?}) → KnowledgeMetricsSnapshot (REMOTE_ELIGIBLE) ———
+  server.handle(
+    RPC_CHANNELS.knowledge.METRICS_GET,
+    async (_ctx, args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot> => {
+      const workspaceId =
+        typeof args?.workspaceId === 'string' && args.workspaceId.length > 0
+          ? args.workspaceId
+          : undefined
+      let rootPath: string | null = null
+      if (workspaceId) {
+        rootPath = requireWorkspaceRoot(workspaceId)
+      } else {
+        const workspaces = getWorkspaces()
+        if (workspaces.length === 1 && workspaces[0]) rootPath = workspaces[0].rootPath
+      }
+      if (!rootPath) {
+        // Fail-soft empty snapshot when no workspace context (matches store read semantics).
+        return {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          counters: {
+            connectionsActive: 0,
+            publicationsTotal: 0,
+            publicationsLast7d: 0,
+            automationProposalsTotal: 0,
+            automationRunsTriggered: 0,
+            knowledgeSurfaceOpens: 0,
+            viewRunsTotal: 0,
+            watchTicksTotal: 0,
+          },
+          daily: {},
+        }
+      }
+      return new KnowledgeMetricsStore(rootPath).snapshot()
+    },
+  )
 
   // -------------------------------------------------------------------------
   // P3 write-back (spec 05) — the mutation-proposal lifecycle. All seven
@@ -1281,7 +1500,6 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
         items = enriched
       }
 
-      bumpKnowledgeMetric(rootPath, 'viewRunsTotal', 'viewRuns')
       return { items, view }
     },
   )
@@ -1410,40 +1628,51 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     },
   )
 
-  // ——— METRICS_GET({workspaceId?}) → KnowledgeMetricsSnapshot (REMOTE_ELIGIBLE) ———
-  // G1 usage counters under {workspaceRoot}/knowledge/metrics.json.
+  // ——— MIGRATE_NOTES({workspaceId, connectionId, notebookName?}) → MigrateNotesResult ———
+  // P4.4 user-initiated Craft notes vault → SiYuan. Soft-fail per note; never deletes vault.
+  // createNotebook is not on the kernel whitelist — docs land under /Craft Notes/... path
+  // prefix in the named notebook when present, else the first open notebook.
   server.handle(
-    RPC_CHANNELS.knowledge.METRICS_GET,
-    (_ctx, args: { workspaceId?: string } = {}): KnowledgeMetricsSnapshot => {
-      let rootPath: string
-      if (typeof args?.workspaceId === 'string' && args.workspaceId.length > 0) {
-        rootPath = requireWorkspaceRoot(args.workspaceId)
-      } else {
-        const workspaces = getWorkspaces()
-        const only = workspaces[0]
-        if (workspaces.length === 1 && only) {
-          rootPath = only.rootPath
-        } else if (workspaces.length === 0) {
-          throw new CodedError('NOT_FOUND', 'knowledge.metricsGet: no workspace available')
-        } else {
-          throw new CodedError(
-            'INVALID_REF',
-            'knowledge.metricsGet: workspaceId is required when multiple workspaces are present',
-          )
-        }
+    RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+    async (_ctx, args: MigrateNotesArgs): Promise<MigrateNotesResult> => {
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new Error('knowledge.migrateNotes: workspaceId is required')
       }
-      return metricsStoreFor(rootPath).snapshot()
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new Error('knowledge.migrateNotes: connectionId is required')
+      }
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      const record = requireConnection(args.connectionId)
+      const token = await readToken(record)
+      if (!token) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          `Knowledge connection '${record.id}' has no token — save a SiYuan API token first`,
+        )
+      }
+      let client: InstanceType<SiyuanKernelClientCtor>
+      try {
+        client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
+      } catch (error) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+      const notesRoot = resolveWorkspaceNotesRoot(args.workspaceId)
+      try {
+        return await migrateCraftNotesToSiyuan({
+          workspaceRoot: rootPath,
+          notesRoot,
+          client,
+          notebookName: args.notebookName,
+        })
+      } catch (error) {
+        throw toTransportError(error)
+      }
     },
   )
 
-  // ——— DETECT_ENGINE() → KnowledgeDetectEngineResult (LOCAL_ONLY) ———
-  // Path existence + TCP probe only. NEVER downloads or spawns SiYuan.
-  server.handle(
-    RPC_CHANNELS.knowledge.DETECT_ENGINE,
-    async (): Promise<KnowledgeDetectEngineResult> => {
-      return detectSiyuanEngine()
-    },
-  )
 
   // Auto-start process-level watches for existing connections (daemon / headless).
   // Fail-soft: missing credentials or provider errors are logged and skipped.

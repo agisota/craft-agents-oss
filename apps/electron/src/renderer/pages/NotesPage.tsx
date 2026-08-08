@@ -8,6 +8,10 @@ import { TiptapMarkdownEditor, type TiptapEditorHandle } from '@craft-agent/ui'
 import type { FileAttachment, NoteAsset, NoteChangedPayload, NoteDocument, NoteRenameImpact, NoteSummary } from '../../shared/types'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { navigate, routes } from '@/lib/navigate'
+import {
+  lookupMigratedSiyuanId,
+} from '@/lib/notes-migration-map'
+
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -500,6 +504,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
   const { t } = useTranslation()
   const {
     activeWorkspaceId,
+    workspaces,
     onCreateSession,
     onOpenFile,
     onSendMessage,
@@ -509,6 +514,10 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     sessionStatuses = [],
     projects = [],
   } = useAppShellContext()
+  const activeWorkspaceRoot = React.useMemo(
+    () => workspaces.find((w) => w.id === activeWorkspaceId)?.rootPath ?? null,
+    [workspaces, activeWorkspaceId],
+  )
   const activeSessionId = useAtomValue(activeSessionIdAtom)
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const activeProjectId = activeSessionId ? sessionMetaMap.get(activeSessionId)?.projectId : undefined
@@ -875,7 +884,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setCreateTitle('')
     setCreateInFolder(undefined)
     await refreshNotes()
-    navigate(routes.view.notes(note.id))
+    navigate(routes.view.notesLegacy(note.id))
   }
 
   const openCreateNoteDialog = (folder?: string) => {
@@ -893,7 +902,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setCreateFolderDialogOpen(false)
     setCreateFolderName('')
     await refreshNotes()
-    navigate(routes.view.notes(note.id))
+    navigate(routes.view.notesLegacy(note.id))
   }
 
   const handleDaily = async (date?: string) => {
@@ -901,7 +910,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     if (!await flushBeforeAction()) return
     const note = await window.electronAPI.getDailyNote(activeWorkspaceId, date)
     await refreshNotes()
-    navigate(routes.view.notes(note.id))
+    navigate(routes.view.notesLegacy(note.id))
   }
 
   const handleDailyShift = async (deltaDays: number) => {
@@ -928,7 +937,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setRenameTitle(document.title)
     setRenameImpact(null)
     setRenameDialogOpen(true)
-    navigate(routes.view.notes(document.id))
+    navigate(routes.view.notesLegacy(document.id))
   }
 
   const openDeleteDialogForNote = async (note: NoteSummary) => {
@@ -940,7 +949,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setDirty(false)
     setTagDraft(document.tags.join(', '))
     setDeleteDialogOpen(true)
-    navigate(routes.view.notes(document.id))
+    navigate(routes.view.notesLegacy(document.id))
   }
 
   const duplicateNote = async (note: NoteSummary) => {
@@ -951,7 +960,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     const created = await window.electronAPI.createNote(activeWorkspaceId, title, noteFolder(note) || undefined)
     const saved = await window.electronAPI.saveNote(activeWorkspaceId, created.id, updateMarkdownTitle(document.content, title))
     await refreshNotes()
-    navigate(routes.view.notes(saved.id))
+    navigate(routes.view.notesLegacy(saved.id))
     toast.success(t('notes.toast.duplicated'))
   }
 
@@ -979,7 +988,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       setMoveTargetNote(null)
       setMoveFolderName('')
       await refreshNotes()
-      navigate(routes.view.notes(saved.id))
+      navigate(routes.view.notesLegacy(saved.id))
       toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) {
@@ -999,7 +1008,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       const saved = await window.electronAPI.saveNote(activeWorkspaceId, created.id, document.content)
       await window.electronAPI.deleteNote(activeWorkspaceId, note.id)
       await refreshNotes()
-      navigate(routes.view.notes(saved.id))
+      navigate(routes.view.notesLegacy(saved.id))
       toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) await window.electronAPI.deleteNote(activeWorkspaceId, created.id).catch(() => {})
@@ -1056,7 +1065,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
         setActiveNote(null)
         setContent('')
         setDirty(false)
-        navigate(routes.view.notes())
+        navigate(routes.view.notesLegacy())
       }
       await refreshNotes()
       toast.success(t('notes.toast.deletedFolder', { count: result.deletedNotes.length }))
@@ -1100,7 +1109,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     const result = await window.electronAPI.renameNote(activeWorkspaceId, activeNote.id, renameTitle.trim())
     setRenameDialogOpen(false)
     await refreshNotes()
-    navigate(routes.view.notes(result.note.id))
+    navigate(routes.view.notesLegacy(result.note.id))
     toast.success(t('notes.toast.updatedLinkedNotes', { count: result.updatedNotes.length }))
   }
 
@@ -1110,7 +1119,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     await window.electronAPI.deleteNote(activeWorkspaceId, activeNote.id)
     setDeleteDialogOpen(false)
     await refreshNotes()
-    navigate(routes.view.notes())
+    navigate(routes.view.notesLegacy())
   }
 
   const updateProperty = React.useCallback(async (key: string, value: unknown | undefined) => {
@@ -1239,7 +1248,7 @@ h1,h2,h3{margin-top:1.5em}
 
   const handleOpenNote = async (noteId: string) => {
     if (!await flushBeforeAction()) return
-    navigate(routes.view.notes(noteId))
+    navigate(routes.view.notesLegacy(noteId))
   }
 
   const openWikiLinkAtCursor = async () => {
@@ -1273,7 +1282,7 @@ h1,h2,h3{margin-top:1.5em}
     const created = await window.electronAPI.createNote(activeWorkspaceId, title, parts.length > 0 ? parts.join('/') : undefined)
     setMissingLinkTarget(null)
     await refreshNotes()
-    navigate(routes.view.notes(created.id))
+    navigate(routes.view.notesLegacy(created.id))
   }, [activeWorkspaceId, missingLinkTarget, refreshNotes])
 
   const AI_PROMPTS: Record<AIActionMode, { sessionNameKey: string; instructionKey: string }> = {
@@ -1322,9 +1331,24 @@ h1,h2,h3{margin-top:1.5em}
     const sessionName = `${t(sessionNameKey)}: ${activeNote.title}`
     const instruction = t(instructionKey)
     const session = await onCreateSession(activeWorkspaceId, { name: sessionName })
+
+    // Prefer SiYuan document ref when this note was migrated (P4.4 map).
+    const legacyPath = `notes/${activeNote.relativePath}`
+    const migrated = await lookupMigratedSiyuanId(
+      activeWorkspaceRoot,
+      activeNote.id,
+    ).catch(() => null)
+    const attachPath = migrated
+      ? `siyuan/document/${migrated.siyuanId}`
+      : legacyPath
+    const attachTitle = migrated?.title?.trim() || activeNote.title
+    const pathLine = migrated
+      ? `${t('notes.ai.contextPath', { path: attachPath })} ${`[knowledge:siyuan/document/${migrated.siyuanId}]`}`
+      : t('notes.ai.contextPath', { path: legacyPath })
+
     const prompt = [
-      t('notes.ai.contextHeader', { title: activeNote.title }),
-      t('notes.ai.contextPath', { path: `notes/${activeNote.relativePath}` }),
+      t('notes.ai.contextHeader', { title: attachTitle }),
+      pathLine,
       t('notes.ai.contextTags', {
         tags: activeNote.tags.length ? activeNote.tags.map(tag => `#${tag}`).join(' ') : t('notes.inspector.none'),
       }),
@@ -1347,7 +1371,7 @@ h1,h2,h3{margin-top:1.5em}
     onInputChange(session.id, prompt)
     setSideSessionId(session.id)
     setSideSessionPrompt(prompt)
-    setSideNoteChip({ title: activeNote.title, path: `notes/${activeNote.relativePath}` })
+    setSideNoteChip({ title: attachTitle, path: attachPath })
   }
 
   const closeSideSession = React.useCallback(() => {
@@ -1360,10 +1384,13 @@ h1,h2,h3{margin-top:1.5em}
     if (!sideSessionId) return
     const draft = (getDraft(sideSessionId) || sideSessionPrompt).trim()
     if (!draft) return
-    onSendMessage(sideSessionId, draft)
-    onInputChange(sideSessionId, '')
+    const sessionId = sideSessionId
+    onSendMessage(sessionId, draft)
+    onInputChange(sessionId, '')
     setSideSessionPrompt('')
-  }, [sideSessionId, sideSessionPrompt, getDraft, onSendMessage, onInputChange])
+    closeSideSession()
+    navigate(routes.view.allSessions(sessionId))
+  }, [sideSessionId, sideSessionPrompt, getDraft, onSendMessage, onInputChange, closeSideSession])
 
   const openAssetRenameDialog = (asset: NoteAsset) => {
     setAssetRenameTarget(asset)

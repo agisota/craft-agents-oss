@@ -3,6 +3,7 @@ export type {
   CreateOrganizationInput,
   InviteToOrgInput,
   OrgInvite,
+  OrgInvitePublic,
   OrgMember,
   OrgRole,
   Organization,

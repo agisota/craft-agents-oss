@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useRef } from 'react'
 import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
@@ -157,7 +158,7 @@ function mergeBoardColumns(config: KanbanBoardConfig | null): KanbanColumnMeta[]
  * rename/color/prompts, and group-by live in `{workspace}/kanban/config.json`.
  */
 export function KanbanBoardContainer() {
-  const { activeWorkspaceId, llmConnections, sessionStatuses, onCreateSession, onSendMessage, onJumpToTaskSessions } =
+  const { activeWorkspaceId, workspaces, llmConnections, sessionStatuses, onCreateSession, onSendMessage, onJumpToTaskSessions } =
     useAppShellContext()
   const { t } = useTranslation()
   const metaMap = useAtomValue(sessionMetaMapAtom)
@@ -190,6 +191,17 @@ export function KanbanBoardContainer() {
   // Workspace board config (columns + groupBy).
   const [boardConfig, setBoardConfig] = React.useState<KanbanBoardConfig | null>(null)
   const boardConfigRef = React.useRef<KanbanBoardConfig | null>(null)
+  // Sync-safe loop-guard: metaMap updates are async/batched, so a second drop
+  // in the same tick can still see isProcessing=false. Keep an immediate Set.
+  const processingRef = useRef(new Set<string>())
+
+  // Drop loop-guard entries once session meta reports idle again.
+  React.useEffect(() => {
+    for (const id of [...processingRef.current]) {
+      if (!metaMap.get(id)?.isProcessing) processingRef.current.delete(id)
+    }
+  }, [metaMap])
+
   boardConfigRef.current = boardConfig
 
   React.useEffect(() => {
@@ -197,6 +209,7 @@ export function KanbanBoardContainer() {
       setBoardConfig(null)
       return
     }
+    const remoteWorkspaceId = workspaces.find(w => w.id === activeWorkspaceId)?.remoteServer?.remoteWorkspaceId
     let cancelled = false
     void window.electronAPI.getKanbanConfig(activeWorkspaceId).then(cfg => {
       if (cancelled) return
@@ -208,9 +221,18 @@ export function KanbanBoardContainer() {
           const overrides = JSON.parse(raw) as Record<string, string>
           const keys = Object.keys(overrides)
           if (keys.length > 0) {
-            const nextCols = cfg.columns.map(c =>
-              overrides[c.id] && !c.color ? { ...c, color: overrides[c.id] } : c,
-            )
+            const nextCols = cfg.columns.map(c => {
+              const override = overrides[c.id]
+              if (!override) return c
+              // Prefer localStorage override when file color is missing OR still
+              // the stock default — user overrides always win once, then clear.
+              const stock =
+                DEFAULT_KANBAN_COLUMN_COLORS[c.id as BuiltInKanbanColumnId]
+              if (!c.color || (stock && c.color === stock)) {
+                return { ...c, color: override }
+              }
+              return c
+            })
             const changed = nextCols.some((c, i) => c.color !== cfg.columns[i]?.color)
             if (changed) {
               const next = { ...cfg, columns: nextCols }
@@ -218,8 +240,10 @@ export function KanbanBoardContainer() {
                 if (!cancelled) setBoardConfig(saved)
               })
               setColumnColors({})
-              localStorage.removeItem('craft-kanban-column-colors')
             }
+            // One-shot: drop localStorage whether or not file colors changed
+            // (overrides for stock defaults already applied above).
+            localStorage.removeItem('craft-kanban-column-colors')
           }
         }
       } catch {
@@ -229,13 +253,13 @@ export function KanbanBoardContainer() {
       if (!cancelled) setBoardConfig(null)
     })
     const unsub = window.electronAPI.onKanbanConfigChanged((wsId, cfg) => {
-      if (wsId === activeWorkspaceId) setBoardConfig(cfg)
+      if (wsId === activeWorkspaceId || (!!remoteWorkspaceId && wsId === remoteWorkspaceId)) setBoardConfig(cfg)
     })
     return () => {
       cancelled = true
       unsub()
     }
-  }, [activeWorkspaceId, setColumnColors])
+  }, [activeWorkspaceId, workspaces, setColumnColors])
 
   const persistBoardConfig = React.useCallback(
     (next: KanbanBoardConfig) => {
@@ -493,6 +517,13 @@ export function KanbanBoardContainer() {
       const target: KanbanMoveTarget = typeof to === 'string' ? { columnId: to } : to
       const toColumn = target.columnId
 
+      // Capture prior column before optimistic writes so same-column project
+      // drops never re-trigger auto-run.
+      const priorMeta = metaMap.get(taskId)
+      const previousColumn: KanbanColumnId =
+        (priorMeta?.kanbanColumn as KanbanColumnId | undefined) ??
+        statusToColumn(priorMeta?.sessionStatus ?? 'todo')
+
       // Optimistic column placement.
       updateSessionMeta(taskId, { kanbanColumn: toColumn })
       void window.electronAPI.sessionCommand(taskId, { type: 'setKanbanColumn', column: toColumn })
@@ -516,12 +547,14 @@ export function KanbanBoardContainer() {
         handleChangeStatus(taskId, autoStatus)
       }
 
-      // P1.4 auto-run hook — in-progress always starts; other columns need prompt.
+      // P1.4 auto-run hook — only when the column actually changes.
+      // In-progress always starts; other columns need prompt.
       const destColumn = activeColumns.find(c => c.id === toColumn)
       if (!activeWorkspaceId) return
+      if (previousColumn === toColumn) return
       if (!shouldAutoRunOnDrop(toColumn, destColumn)) return
       const meta = metaMap.get(taskId)
-      if (!meta || meta.isProcessing) return
+      if (!meta || meta.isProcessing || processingRef.current.has(taskId)) return
 
       const title = getSessionTitle(meta) || meta.name?.trim() || ''
       const kick = (goalText: string) => {
@@ -539,9 +572,15 @@ export function KanbanBoardContainer() {
           {
             sendMessage: onSendMessage,
             runTask: (wsId, args) => window.electronAPI.runTask(wsId, args),
-            isProcessing: id => !!metaMap.get(id)?.isProcessing,
-            markProcessing: id => updateSessionMeta(id, { isProcessing: true }),
-            onError: err => {
+            isProcessing: id =>
+              processingRef.current.has(id) || !!metaMap.get(id)?.isProcessing,
+            markProcessing: id => {
+              processingRef.current.add(id)
+              updateSessionMeta(id, { isProcessing: true })
+            },
+            onError: (err, job) => {
+              processingRef.current.delete(job.sessionId)
+              updateSessionMeta(job.sessionId, { isProcessing: false })
               toast.error(t('kanban.toastAutoRunFailed'), {
                 description: err instanceof Error ? err.message : String(err),
               })

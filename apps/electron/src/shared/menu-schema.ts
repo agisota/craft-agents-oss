@@ -382,6 +382,7 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   runtime: 'Settings',
   context: 'FileText',
   knowledge: 'BookOpen',
+  marketplace: 'ShoppingBag',
   extensions: 'Blocks',
   app: 'ToggleRight',
   ai: 'Sparkles',
@@ -396,7 +397,6 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   cloudRuns: 'Cloud',
   organizations: 'Users',
   shortcuts: 'Keyboard',
-  preferences: 'UserCircle',
 }
 
 /**

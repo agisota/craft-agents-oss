@@ -298,9 +298,11 @@ export const CHANNEL_MAP = {
   'knowledge.get': invoke(RPC_CHANNELS.knowledge.GET),
   'knowledge.getContext': invoke(RPC_CHANNELS.knowledge.GET_CONTEXT),
   'knowledge.getBacklinks': invoke(RPC_CHANNELS.knowledge.GET_BACKLINKS),
+  'knowledge.getExportPayload': invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD),
   'knowledge.createSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE),
   'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
+  'knowledge.engineStart': invoke(RPC_CHANNELS.knowledge.ENGINE_START),
   // P3 write-back (spec 05): mutation-proposal lifecycle.
   'knowledge.proposeMutation': invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION),
   'knowledge.approveProposal': invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL),
@@ -327,6 +329,7 @@ export const CHANNEL_MAP = {
   'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
   'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
   'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
+  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
   'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
   'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
@@ -339,6 +342,7 @@ export const CHANNEL_MAP = {
   'siyuanEngine.list': invoke(RPC_CHANNELS.siyuan.LIST),
   'siyuanEngine.syncBounds': invoke(RPC_CHANNELS.siyuan.SYNC_BOUNDS),
   'siyuanEngine.focus': invoke(RPC_CHANNELS.siyuan.FOCUS),
+  'siyuanEngine.evaluate': invoke(RPC_CHANNELS.siyuan.EVALUATE),
   'siyuanEngine.onStateChanged': listener(RPC_CHANNELS.siyuan.STATE_CHANGED),
   'siyuanEngine.onRemoved': listener(RPC_CHANNELS.siyuan.REMOVED),
 
@@ -389,6 +393,8 @@ export const CHANNEL_MAP = {
   getDefaultPermissionsConfig: invoke(RPC_CHANNELS.permissions.GET_DEFAULTS),
   onDefaultPermissionsChanged: listener(RPC_CHANNELS.permissions.DEFAULTS_CHANGED),
   getMcpTools: invoke(RPC_CHANNELS.sources.GET_MCP_TOOLS),
+  reindexSources: invoke(RPC_CHANNELS.sources.REINDEX),
+  searchSourcesIndex: invoke(RPC_CHANNELS.sources.SEARCH),
 
   // Session content search
   searchSessionContent: invoke(RPC_CHANNELS.sessions.SEARCH_CONTENT),

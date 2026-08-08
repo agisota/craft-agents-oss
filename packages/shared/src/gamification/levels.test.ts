@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -109,5 +109,24 @@ describe('gamification storage + award', () => {
     const state = loadGamificationState(dir)
     expect(state.xp).toBe(450)
     expect(state.level).toBe(4)
+  })
+
+  it('writes gamification.json without leaving .tmp sibling', () => {
+    const dir = tempConfigDir()
+    saveGamificationState(
+      {
+        version: 1,
+        xp: 10,
+        level: 1,
+        balance: null,
+      },
+      dir,
+    )
+    const path = join(dir, 'gamification.json')
+    expect(existsSync(path)).toBe(true)
+    expect(existsSync(`${path}.tmp`)).toBe(false)
+    const parsed = JSON.parse(readFileSync(path, 'utf-8'))
+    expect(parsed.xp).toBe(10)
+    expect(parsed.version).toBe(1)
   })
 })

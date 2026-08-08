@@ -15,7 +15,6 @@
  * the entry still renders and the surface shows the featureDisabled state.
  */
 import {
-  BookOpen,
   Brain,
   DatabaseZap,
   FolderKanban,
@@ -31,7 +30,6 @@ import {
   isAutomationsNavigation,
   isKnowledgeNavigation,
   isMemoryNavigation,
-  isNotesNavigation,
   isProjectsNavigation,
   isSessionsNavigation,
   isSettingsNavigation,
@@ -47,7 +45,6 @@ export type AppNavDestinationId =
   | 'skills'
   | 'memory'
   | 'projects'
-  | 'notes'
   | 'automations'
   | 'settings'
 
@@ -114,14 +111,6 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     labelKey: 'sidebar.skills',
     route: () => routes.view.skills(),
     isActive: isSkillsNavigation,
-  },
-  {
-    id: 'notes',
-    linkId: 'nav:notes',
-    icon: BookOpen,
-    labelKey: 'sidebar.notes',
-    route: () => routes.view.notes(),
-    isActive: isNotesNavigation,
   },
   {
     id: 'knowledge',

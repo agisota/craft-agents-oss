@@ -1,6 +1,6 @@
 /**
  * Session multi-view tabs: Standard | Graph | Mind map | Team chat.
- * Standard is the live chat; others show RU «Скоро» placeholders until wired.
+ * Graph hosts the SiYuan global-graph surface; mindmap and team chat stay placeholders.
  */
 
 import * as React from 'react'
@@ -18,7 +18,7 @@ const VIEWS: Array<{
   available: boolean
 }> = [
   { id: 'standard', labelKey: 'sessionView.standard', icon: MessageSquare, available: true },
-  { id: 'graph', labelKey: 'sessionView.graph', icon: Share2, available: false },
+  { id: 'graph', labelKey: 'sessionView.graph', icon: Share2, available: true },
   { id: 'mindmap', labelKey: 'sessionView.mindmap', icon: Network, available: false },
   { id: 'teamchat', labelKey: 'sessionView.teamChat', icon: GitBranch, available: false },
 ]
