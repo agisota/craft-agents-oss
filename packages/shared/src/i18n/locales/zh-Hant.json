@@ -2841,5 +2841,9 @@
   "workspaceRail.linkMissingUrl": "請輸入網址",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "筆記 ID（選填）",
-  "workspaceRail.removeLink": "刪除連結"
+  "workspaceRail.removeLink": "刪除連結",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializing": "Saving…",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note"
 }
