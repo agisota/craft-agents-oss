@@ -71,7 +71,7 @@ import {
 } from "@/components/ui/collapsible"
 import { SessionList, type ChatGroupingMode } from "./SessionList"
 import { MainContentPanel } from "./MainContentPanel"
-import { CollectionViewToggle } from "./kanban/BoardListToggle"
+import { CollectionOpsBar } from "./collection/CollectionOpsBar"
 import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
@@ -104,6 +104,7 @@ import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
 import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSource, LoadedSkill, PermissionMode, SourceFilter, AutomationFilter } from "../../../shared/types"
 import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/atoms/sessions"
+import { collectionDisplayAtom } from "@/atoms/collection-display"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
@@ -754,9 +755,12 @@ function AppShellContent({
 
   const sessionFilter = sessionsContext?.filter ?? null
 
-  // Board view replaces the session-list navigator with the full-width Kanban panel,
-  // so the navigator (and its resize handle) collapse to zero width while it's active.
-  const isBoardView = isSessionsNavigation(navState) && navState.viewMode === 'board'
+  // Board and table replace the session-list navigator with a full-width host,
+  // so the navigator (and its resize handle) collapse to zero width while active.
+  // Each host renders its own CollectionViewToggle.
+  const isBoardView =
+    isSessionsNavigation(navState) &&
+    (navState.viewMode === 'board' || navState.viewMode === 'table')
 
   // Derive source filter from navigation state (only when in sources navigator)
   const sourceFilter: SourceFilter | null = isSourcesNavigation(navState) ? navState.filter ?? null : null
@@ -1514,6 +1518,7 @@ function AppShellContent({
   // This prevents closures from retaining full message arrays
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const setSessionMetaMap = useSetAtom(sessionMetaMapAtom)
+  const collectionDisplay = useAtomValue(collectionDisplayAtom)
 
   const hasPendingPrompt = React.useCallback((sessionId: string) => {
     return (pendingPermissions.get(sessionId)?.length ?? 0) > 0
@@ -1796,8 +1801,21 @@ function AppShellContent({
       }
     }
 
+    // Display.showCompleted (EC-5): hide terminal statuses unless a status chip includes them.
+    if (!collectionDisplay.showCompleted) {
+      const statusIncludes = new Set<string>()
+      for (const [id, mode] of listFilter) {
+        if (mode === 'include') statusIncludes.add(id)
+      }
+      result = result.filter((s) => {
+        const st = s.sessionStatus || 'todo'
+        if (st !== 'done' && st !== 'cancelled') return true
+        return statusIncludes.has(st)
+      })
+    }
+
     return result
-  }, [workspaceSessionMetas, activeSessionMetas, sessionFilter, listFilter, labelFilter, projectFilter, labelConfigs])
+  }, [workspaceSessionMetas, activeSessionMetas, sessionFilter, listFilter, labelFilter, projectFilter, labelConfigs, collectionDisplay.showCompleted])
 
   // Derive "pinned" (non-removable) filters from the current sessionFilter path.
   // These represent filters that are implicit in the current deeplink/route and
@@ -2945,12 +2963,12 @@ function AppShellContent({
               ) : undefined}
               actions={
                 <>
-                  {/* List ⇄ Board ⇄ Table view switch (sessions mode, desktop widths only).
-                      In board view the navigator is collapsed, so the board hosts its own copy. */}
-                  {!isAutoCompact && isSessionsNavigation(navState) && (
-                    <CollectionViewToggle
-                      value="list"
-                      onChange={view => {
+                  {/* Collection ops: view toggle + Display (list mode only; board/table host own chrome). */}
+                  {!isAutoCompact && isSessionsNavigation(navState) && navState.viewMode !== 'board' && navState.viewMode !== 'table' && (
+                    <CollectionOpsBar
+                      workspaceId={activeWorkspaceId}
+                      viewMode="list"
+                      onViewModeChange={view => {
                         if (view === 'board') navigate(routes.view.board())
                         else if (view === 'table') navigate(routes.view.table())
                       }}

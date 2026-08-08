@@ -14,15 +14,22 @@ const BASE = ALPHA.length
 const MID = Math.floor(BASE / 2) // 31 → 'V'
 const MID_CHAR = ALPHA[MID]!
 const RANK_RE = /^[0-9A-Za-z]+$/
+/** Hard cap — rejects multi-KB garbage (NFR-3). Normal ranks stay well under this. */
+export const LEXORANK_MAX_LENGTH = 64
 
 /** digit code → char, char → code (static tables) */
 const CHAR_CODE: Record<string, number> = Object.fromEntries(
   Array.from(ALPHA, (ch, i) => [ch, i]),
 )
 
-/** True when rank is a non-empty base62 string. */
+/** True when rank is a non-empty base62 string within LEXORANK_MAX_LENGTH. */
 export function lexorankValidate(rank: string): boolean {
-  return typeof rank === 'string' && rank.length > 0 && RANK_RE.test(rank)
+  return (
+    typeof rank === 'string' &&
+    rank.length > 0 &&
+    rank.length <= LEXORANK_MAX_LENGTH &&
+    RANK_RE.test(rank)
+  )
 }
 
 /**

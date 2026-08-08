@@ -14,13 +14,15 @@ describe('lexorankValidate', () => {
     expect(lexorankValidate('abcXYZ012')).toBe(true)
   })
 
-  it('rejects empty and garbage', () => {
+  it('rejects empty, garbage, and oversized ranks', () => {
     expect(lexorankValidate('')).toBe(false)
     expect(lexorankValidate(' ')).toBe(false)
     expect(lexorankValidate('a-b')).toBe(false)
     expect(lexorankValidate('a_b')).toBe(false)
     expect(lexorankValidate('hello!')).toBe(false)
     expect(lexorankValidate('a.b')).toBe(false)
+    expect(lexorankValidate('V'.repeat(65))).toBe(false)
+    expect(lexorankValidate('V'.repeat(64))).toBe(true)
   })
 })
 
