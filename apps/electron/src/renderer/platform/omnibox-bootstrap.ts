@@ -354,9 +354,13 @@ async function refreshPluginBridgeCommands(commands: CommandRegistry): Promise<v
                   if (typeof api.pluginBridgeOpenCompat === 'function') {
                     await api.pluginBridgeOpenCompat({ pluginId: plugin.id })
                   }
+                } catch (err) {
+                  console.warn('[omnibox] plugin bridge openCompat failed', id, err)
+                }
+                try {
                   openSiyuanCompatSurface()
                 } catch (err) {
-                  console.debug('[omnibox] bridge invoke stub', id, err)
+                  console.warn('[omnibox] openSiyuanCompatSurface failed', id, err)
                 }
               },
             })

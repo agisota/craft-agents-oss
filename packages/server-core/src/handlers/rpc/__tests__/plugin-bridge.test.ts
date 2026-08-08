@@ -22,12 +22,17 @@ type Handler = (ctx: unknown, ...args: unknown[]) => unknown | Promise<unknown>
 
 function createMockServer() {
   const handlers = new Map<string, Handler>()
+  const pushes: Array<{ channel: string; target: unknown; args: unknown[] }> = []
   return {
     handlers,
+    pushes,
     handle(channel: string, fn: Handler) {
       handlers.set(channel, fn)
     },
     broadcast() {},
+    push(channel: string, target: unknown, ...args: unknown[]) {
+      pushes.push({ channel, target, args })
+    },
   }
 }
 
@@ -337,6 +342,11 @@ describe('pluginBridge handlers', () => {
     expect(result.enabled).toBe(false)
     expect(result.persisted).toBe('local')
     expect(result.residual).toContain('kernel')
+    // Multi-window UI stays in sync via extensions.CHANGED
+    expect(server.pushes.some((p) => p.channel === RPC_CHANNELS.extensions.CHANGED)).toBe(true)
+    expect(server.pushes.some((p) => p.args[0] && (p.args[0] as { reason?: string }).reason === 'state')).toBe(
+      true,
+    )
   })
 
   it('SET_ENABLED local then LIST shows disabled without kernel', async () => {

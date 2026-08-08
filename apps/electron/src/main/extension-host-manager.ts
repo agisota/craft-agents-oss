@@ -323,6 +323,9 @@ export class ExtensionHostManager {
     keywords?: string[]
   }>> {
     if (!extensionId) throw new Error('extensionId is required')
+    if (!this.loadedExtensions.has(extensionId)) {
+      throw new Error(`Extension not loaded: ${extensionId}`)
+    }
     await this.ensureRunning()
     const result = await this.request({
       id: nextId(),
