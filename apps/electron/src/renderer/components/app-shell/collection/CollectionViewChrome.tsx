@@ -1,9 +1,7 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
-  DEFAULT_COLLECTION_FILTERS,
   type CollectionDisplay,
-  type CollectionFilters,
   type SessionPriority,
 } from '@craft-agent/shared/sessions'
 import type { SessionStatus } from '@/config/session-status-config'
@@ -13,6 +11,7 @@ import {
   replaceCollectionDisplayAtom,
   setCollectionDisplayAtom,
 } from '@/atoms/collection-display'
+import { collectionFiltersAtom } from '@/atoms/collection-filters'
 import { CollectionViewToggle, type CollectionViewMode } from '../kanban/BoardListToggle'
 import { CollectionDisplayPopover } from './CollectionDisplayPopover'
 import { CollectionOpsBar } from './CollectionOpsBar'
@@ -53,9 +52,8 @@ export function CollectionViewChrome({
   const setDisplay = useSetAtom(setCollectionDisplayAtom)
   const replaceDisplay = useSetAtom(replaceCollectionDisplayAtom)
   const loadDisplay = useSetAtom(loadCollectionDisplayAtom)
-  const [filters, setFilters] = React.useState<CollectionFilters>(() => ({
-    ...DEFAULT_COLLECTION_FILTERS,
-  }))
+  const filters = useAtomValue(collectionFiltersAtom)
+  const setFilters = useSetAtom(collectionFiltersAtom)
 
   React.useEffect(() => {
     void loadDisplay(workspaceId)

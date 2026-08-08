@@ -21,6 +21,7 @@ import {
   replaceCollectionDisplayAtom,
   setCollectionDisplayAtom,
 } from '@/atoms/collection-display'
+import { collectionFiltersAtom } from '@/atoms/collection-filters'
 import { sessionSelection } from '@/hooks/useEntitySelection'
 import type { SessionStatus } from '@/config/session-status-config'
 import { CollectionViewToggle } from '../kanban/BoardListToggle'
@@ -106,7 +107,8 @@ export function SessionTableHost() {
   const setDisplay = useSetAtom(setCollectionDisplayAtom)
   const replaceDisplay = useSetAtom(replaceCollectionDisplayAtom)
   const loadDisplay = useSetAtom(loadCollectionDisplayAtom)
-  const [filters, setFilters] = React.useState<CollectionFilters>({ ...DEFAULT_COLLECTION_FILTERS })
+  const filters = useAtomValue(collectionFiltersAtom)
+  const setFilters = useSetAtom(collectionFiltersAtom)
   const { toggle, selectAll, clearMultiSelect, isSelected } = sessionSelection.useSelection()
 
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => loadCollapsed())
