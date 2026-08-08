@@ -4,6 +4,7 @@
  * Spawns a single Electron utilityProcess worker for craft-sandbox extensions.
  * - No SiYuan plugin execution (executesSiyuanPlugins always false)
  * - No raw secrets in worker env
+ * - Capability broker: mints scoped tokens; redeems secrets only in main
  * - Crash → degraded; restart recovers
  * - start/stop/restart single-flight (mutex + generation token)
  * - Injectable forkFn / workerPath for tests (never requires real Electron)
@@ -16,13 +17,23 @@ import { EventEmitter } from 'node:events'
 
 import type { ExtensionHostStatus } from '@craft-agent/shared/extensions'
 import { CONFIG_DIR } from '@craft-agent/shared/config'
+import {
+  getCredentialManager,
+  type CredentialId,
+} from '@craft-agent/shared/credentials'
 
 import {
   assertPathAllowlisted,
   resolveSandboxRoots,
 } from './extension-host/path-allowlist'
 import {
+  getCapabilityBroker,
+  type CapabilityBroker,
+  type GetCredentialFn,
+} from './extension-host/capability-broker'
+import {
   buildScrubbedWorkerEnv,
+  type BrokerRequestMessage,
   type MainToWorkerMessage,
   type WorkerToMainMessage,
 } from './extension-host/protocol'
@@ -63,6 +74,10 @@ export interface ExtensionHostManagerOptions {
   messageTimeoutMs?: number
   /** Skip waiting for worker `ready` (tests that drive messages manually). */
   skipReadyWait?: boolean
+  /** Injectable capability broker (tests). Defaults to singleton. */
+  broker?: CapabilityBroker
+  /** Injectable credential resolver (tests). Defaults to CredentialManager.get. */
+  getCredential?: GetCredentialFn
 }
 
 interface PendingRequest {
@@ -129,12 +144,16 @@ export class ExtensionHostManager {
   private pid: number | undefined
   private readonly pending = new Map<string, PendingRequest>()
   private readonly loadedExtensions = new Set<string>()
+  /** grantedPermissions per extensionId (defaults for broker mint). */
+  private readonly grantedByExtension = new Map<string, readonly string[]>()
   private readonly forkFn: ExtensionHostForkFn | null
   private readonly workerPath: string
   private readonly configDir: string
   private readonly sandboxRootEnv?: string
   private readonly messageTimeoutMs: number
   private readonly skipReadyWait: boolean
+  private readonly broker: CapabilityBroker
+  private readonly getCredential: GetCredentialFn
   private onChildMessage: ((msg: unknown) => void) | null = null
   private onChildExit: ((code: number | null) => void) | null = null
   private onChildError: (() => void) | null = null
@@ -160,6 +179,10 @@ export class ExtensionHostManager {
     this.sandboxRootEnv = options.sandboxRootEnv
     this.messageTimeoutMs = options.messageTimeoutMs ?? DEFAULT_MESSAGE_TIMEOUT_MS
     this.skipReadyWait = options.skipReadyWait ?? false
+    this.broker = options.broker ?? getCapabilityBroker()
+    this.getCredential =
+      options.getCredential ??
+      ((id: CredentialId) => getCredentialManager().get(id))
   }
 
   getStatus(): ExtensionHostStatus {
@@ -235,8 +258,13 @@ export class ExtensionHostManager {
   /**
    * Load a craft-sandbox extension module into the worker.
    * entryPath must pass the sandbox allowlist (checked in main AND worker).
+   * grantedPermissions are stored as the sole authority for broker mint.
    */
-  async loadExtension(extensionId: string, entryPath: string): Promise<void> {
+  async loadExtension(
+    extensionId: string,
+    entryPath: string,
+    grantedPermissions?: readonly string[],
+  ): Promise<void> {
     if (!extensionId) throw new Error('extensionId is required')
     const roots = resolveSandboxRoots({
       configDir: this.configDir,
@@ -252,9 +280,16 @@ export class ExtensionHostManager {
       entryPath: resolved,
     })
     this.loadedExtensions.add(extensionId)
+    if (grantedPermissions) {
+      this.grantedByExtension.set(extensionId, [...grantedPermissions])
+    } else if (!this.grantedByExtension.has(extensionId)) {
+      this.grantedByExtension.set(extensionId, [])
+    }
   }
 
   async unloadExtension(extensionId: string): Promise<void> {
+    this.broker.revokeExtension(extensionId)
+    this.grantedByExtension.delete(extensionId)
     if (this.lifecycle !== 'running' || !this.child) {
       this.loadedExtensions.delete(extensionId)
       return
@@ -292,6 +327,70 @@ export class ExtensionHostManager {
       args,
       permissions,
     })
+  }
+
+  /**
+   * Mint a scoped capability token for an extension (main-side RPC).
+   * Returns { token, expiresAt, permission } — never the secret.
+   *
+   * Authority: only grants stored at loadExtension time. Callers cannot
+   * self-supply grantedPermissions (renderer input is ignored).
+   */
+  mintCapability(input: {
+    extensionId: string
+    permission: string
+    ttlMs?: number
+    singleUse?: boolean
+  }): { token: string; expiresAt: number; permission: string } {
+    const granted = this.requireStoredGrants(input.extensionId)
+    const cap = this.broker.mint({
+      extensionId: input.extensionId,
+      permission: input.permission,
+      grantedPermissions: granted,
+      ttlMs: input.ttlMs,
+      singleUse: input.singleUse,
+    })
+    return {
+      token: cap.token,
+      expiresAt: cap.expiresAt,
+      permission: cap.permission,
+    }
+  }
+
+  revokeCapability(token: string): void {
+    this.broker.revoke(token)
+  }
+
+  revokeExtensionCapabilities(extensionId: string): void {
+    this.broker.revokeExtension(extensionId)
+  }
+
+  /** Main-side authenticated fetch via capability token (no worker hop). */
+  async proxyFetch(input: {
+    token: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    allowedUrlPrefixes?: string[]
+    fetchImpl?: (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => Promise<Response>
+  }): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+    return this.broker.proxyFetch({
+      token: input.token,
+      url: input.url,
+      method: input.method,
+      headers: input.headers,
+      body: input.body,
+      allowedUrlPrefixes: input.allowedUrlPrefixes,
+      fetchImpl: input.fetchImpl,
+      getCredential: this.getCredential,
+    })
+  }
+  getGrantedPermissions(extensionId: string): readonly string[] {
+    return this.grantedByExtension.get(extensionId) ?? []
   }
 
   /** Ping worker (health). */
@@ -434,12 +533,32 @@ export class ExtensionHostManager {
   private async stopExclusive(): Promise<ExtensionHostStatus> {
     this.rejectAllPending(new Error('Extension Host stopped'))
     this.teardownChild()
+    // Kill all live capability tokens — stop must not leave redeemable grants.
+    this.broker.clear()
     this.loadedExtensions.clear()
+    this.grantedByExtension.clear()
     this.lifecycle = 'stopped'
     this.message = 'Extension Host stopped'
     this.pid = undefined
     this.intentionalStop = false
     return this.getStatus()
+  }
+
+  /**
+   * Stored load-time grants only. Rejects unknown / unloaded extensions and
+   * never accepts caller-supplied grant lists as authority.
+   */
+  private requireStoredGrants(extensionId: string): readonly string[] {
+    const id = typeof extensionId === 'string' ? extensionId.trim() : ''
+    if (!id) throw new Error('extensionId is required')
+    if (!this.loadedExtensions.has(id)) {
+      throw new Error(`Extension not loaded: ${id}`)
+    }
+    const granted = this.grantedByExtension.get(id)
+    if (!granted) {
+      throw new Error(`No stored grants for extension: ${id}`)
+    }
+    return granted
   }
 
   private async ensureRunning(): Promise<void> {
@@ -480,6 +599,11 @@ export class ExtensionHostManager {
       return
     }
 
+    if (msg.type === 'broker-request') {
+      void this.handleBrokerRequest(msg)
+      return
+    }
+
     if (!('id' in msg) || !msg.id) return
     const pending = this.pending.get(msg.id)
     if (!pending) return
@@ -492,6 +616,73 @@ export class ExtensionHostManager {
     }
     if (msg.type === 'error') {
       pending.reject(new Error(msg.error || 'Extension host error'))
+    }
+  }
+
+  private async handleBrokerRequest(msg: BrokerRequestMessage): Promise<void> {
+    const child = this.child
+    if (!child) return
+
+    try {
+      if (msg.action === 'mint') {
+        // Worker cannot escalate: only main-stored load grants authorize mint.
+        const granted = this.requireStoredGrants(msg.extensionId)
+        const cap = this.broker.mint({
+          extensionId: msg.extensionId,
+          permission: msg.permission,
+          grantedPermissions: granted,
+          ttlMs: msg.ttlMs,
+          singleUse: msg.singleUse,
+        })
+        const response: MainToWorkerMessage = {
+          id: msg.id,
+          type: 'broker-ok',
+          result: {
+            token: cap.token,
+            expiresAt: cap.expiresAt,
+            permission: cap.permission,
+          },
+        }
+        child.postMessage(response)
+        return
+      }
+
+      if (msg.action === 'fetch') {
+        const result = await this.broker.proxyFetch({
+          token: msg.capabilityToken,
+          url: msg.url,
+          method: msg.method,
+          headers: msg.headers,
+          body: msg.body,
+          getCredential: this.getCredential,
+        })
+        const response: MainToWorkerMessage = {
+          id: msg.id,
+          type: 'broker-ok',
+          result,
+        }
+        child.postMessage(response)
+        return
+      }
+
+      // Exhaustiveness: BrokerRequestMessage only has mint|fetch today.
+      const _exhaustive: never = msg
+      child.postMessage({
+        id: (_exhaustive as BrokerRequestMessage).id,
+        type: 'broker-error',
+        error: 'Unknown broker action',
+      } satisfies MainToWorkerMessage)
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      try {
+        child.postMessage({
+          id: msg.id,
+          type: 'broker-error',
+          error,
+        } satisfies MainToWorkerMessage)
+      } catch {
+        // ignore post failure
+      }
     }
   }
 
@@ -508,8 +699,10 @@ export class ExtensionHostManager {
     this.detachChildListeners()
     this.child = null
     this.pid = undefined
+    // Crash path: revoke every token so orphaned workers cannot redeem later.
+    this.broker.clear()
     this.loadedExtensions.clear()
-
+    this.grantedByExtension.clear()
     if (stale) {
       return
     }

@@ -7,6 +7,8 @@
  * - Never special-cases SiYuan plugin paths
  * - Permission check on inbound `call` (basic: method must be a function;
  *   optional permissions list is accepted and recorded for future broker)
+ * - Injects globalThis.__craftCapability for mint/fetch RPC to main
+ *   (raw secrets never returned from mint)
  */
 
 import { pathToFileURL } from 'node:url'
@@ -35,6 +37,32 @@ export interface WorkerOptions {
   importFn?: (url: string) => Promise<unknown>
 }
 
+export interface CraftCapabilityApi {
+  /**
+   * Request a scoped capability token from main.
+   * Only load-time grants stored in main authorize mint.
+   */
+  mint(
+    permission: string,
+    options?: { extensionId?: string; ttlMs?: number; singleUse?: boolean },
+  ): Promise<{ token: string; expiresAt: number; permission: string }>
+  fetch(
+    capabilityToken: string,
+    url: string,
+    init?: {
+      method?: string
+      headers?: Record<string, string>
+      body?: string
+      extensionId?: string
+    },
+  ): Promise<{ status: number; body: string; headers: Record<string, string> }>
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __craftCapability: CraftCapabilityApi | undefined
+}
+
 function getParentPort(): MessagePortLike | null {
   const p = (process as NodeJS.Process & { parentPort?: MessagePortLike }).parentPort
   return p ?? null
@@ -51,22 +79,24 @@ function attachListener(
   if (typeof port.on === 'function') {
     // Node/Electron EventEmitter / MessagePortMain style: on('message', (msg) => ...)
     port.on('message', (message: unknown) => {
-      // Electron MessagePortMain wraps as { data }; plain postMessage may send raw.
+      // Electron MessagePortMain delivers { data }; plain EventEmitter may deliver raw.
       if (
         message &&
         typeof message === 'object' &&
-        'data' in (message as object) &&
-        Object.keys(message as object).length <= 2
+        'data' in message &&
+        (message as { data: unknown }).data !== undefined
       ) {
         handler((message as { data: unknown }).data)
-        return
+      } else {
+        handler(message)
       }
-      handler(message)
     })
     return
   }
   if (typeof port.addEventListener === 'function') {
-    port.addEventListener('message', (event) => handler(event.data))
+    port.addEventListener('message', (event: { data: unknown }) => {
+      handler(event.data)
+    })
   }
 }
 
@@ -85,10 +115,16 @@ function resolveCallable(
       return nested as (...args: unknown[]) => unknown
     }
   }
-  if (typeof def === 'function' && (method === 'default' || method === 'activate')) {
+  if (typeof def === 'function' && method === 'default') {
     return def as (...args: unknown[]) => unknown
   }
   return null
+}
+
+let brokerSeq = 0
+function nextBrokerId(): string {
+  brokerSeq += 1
+  return `b-${brokerSeq}-${Date.now().toString(36)}`
 }
 
 /**
@@ -114,9 +150,88 @@ export function startWorker(options: WorkerOptions = {}): {
       sandboxRootEnv: options.sandboxRootEnv ?? process.env.CRAFT_EXTENSION_SANDBOX_ROOT,
     })
 
+  // Pending broker RPCs: id → resolvers
+  const pendingBroker = new Map<
+    string,
+    {
+      resolve: (v: unknown) => void
+      reject: (e: Error) => void
+    }
+  >()
+
+  const rpcToMain = (msg: WorkerToMainMessage & { id: string }): Promise<unknown> => {
+    const { promise, resolve, reject } = Promise.withResolvers<unknown>()
+    pendingBroker.set(msg.id, {
+      resolve,
+      reject: (e) => reject(e),
+    })
+    try {
+      send(port, msg)
+    } catch (err) {
+      pendingBroker.delete(msg.id)
+      reject(err instanceof Error ? err : new Error(String(err)))
+    }
+    return promise
+  }
+
+  // Inject capability surface for loaded modules (never returns raw secrets).
+  const craftCapability: CraftCapabilityApi = {
+    async mint(permission, opts = {}) {
+      const id = nextBrokerId()
+      const extensionId = opts.extensionId ?? '__anonymous__'
+      // Main uses only load-time stored grants for this extensionId.
+      const result = await rpcToMain({
+        type: 'broker-request',
+        id,
+        extensionId,
+        action: 'mint',
+        permission,
+        ttlMs: opts.ttlMs,
+        singleUse: opts.singleUse,
+      })
+      return result as { token: string; expiresAt: number; permission: string }
+    },
+    async fetch(capabilityToken, url, init = {}) {
+      const id = nextBrokerId()
+      const extensionId = init.extensionId ?? '__anonymous__'
+      const result = await rpcToMain({
+        type: 'broker-request',
+        id,
+        extensionId,
+        action: 'fetch',
+        capabilityToken,
+        url,
+        method: init.method,
+        headers: init.headers,
+        body: init.body,
+      })
+      return result as {
+        status: number
+        body: string
+        headers: Record<string, string>
+      }
+    },
+  }
+
+  ;(globalThis as typeof globalThis & { __craftCapability?: CraftCapabilityApi }).__craftCapability =
+    craftCapability
+
   const onMessage = async (raw: unknown) => {
     const msg = raw as MainToWorkerMessage
     if (!msg || typeof msg !== 'object' || !('type' in msg)) return
+
+    // Broker responses from main
+    if (msg.type === 'broker-ok' || msg.type === 'broker-error') {
+      const pending = pendingBroker.get(msg.id)
+      if (!pending) return
+      pendingBroker.delete(msg.id)
+      if (msg.type === 'broker-ok') {
+        pending.resolve(msg.result)
+      } else {
+        pending.reject(new Error(msg.error || 'broker error'))
+      }
+      return
+    }
 
     try {
       switch (msg.type) {
@@ -200,6 +315,15 @@ export function startWorker(options: WorkerOptions = {}): {
     loaded,
     dispose: () => {
       loaded.clear()
+      for (const [, p] of pendingBroker) {
+        p.reject(new Error('Worker disposed'))
+      }
+      pendingBroker.clear()
+      try {
+        delete (globalThis as { __craftCapability?: CraftCapabilityApi }).__craftCapability
+      } catch {
+        // ignore
+      }
     },
   }
 }
@@ -214,13 +338,13 @@ if (isDirectRun) {
   try {
     startWorker()
   } catch (err) {
-    // Last resort — parent will time out on missing ready.
-    const msg = err instanceof Error ? err.message : String(err)
+    // Last-resort stderr — no secrets.
+    const message = err instanceof Error ? err.message : String(err)
     try {
-      const port = getParentPort()
-      port?.postMessage({ type: 'error', id: 'boot', error: msg })
+      process.stderr?.write?.(`extension-host worker failed: ${message}\n`)
     } catch {
       // ignore
     }
+    process.exitCode = 1
   }
 }

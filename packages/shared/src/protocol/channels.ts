@@ -327,6 +327,7 @@ export const RPC_CHANNELS = {
 
   // extensionHost — Craft Extension Host lifecycle (S-05 §3.5).
   // craft-sandbox utilityProcess only. Does NOT execute SiYuan plugins.
+  // Capability broker: mint/revoke/proxyFetch stay LOCAL_ONLY in main.
   extensionHost: {
     STATUS: 'extensionHost:status',
     START: 'extensionHost:start',
@@ -334,6 +335,9 @@ export const RPC_CHANNELS = {
     RESTART: 'extensionHost:restart',
     LOAD: 'extensionHost:load',
     CALL: 'extensionHost:call',
+    MINT_CAPABILITY: 'extensionHost:mintCapability',
+    REVOKE_CAPABILITY: 'extensionHost:revokeCapability',
+    PROXY_FETCH: 'extensionHost:proxyFetch',
   },
 
 
