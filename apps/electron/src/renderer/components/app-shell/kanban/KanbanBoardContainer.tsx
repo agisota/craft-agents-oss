@@ -550,7 +550,8 @@ export function KanbanBoardContainer() {
         )
       }
 
-      // Spec-backed: load goal/acceptance from task.yaml; plain tiles use title.
+      // Spec-backed: load goal/acceptance from task.yaml; plain tiles use
+      // title + any acceptance/goal-like text from session meta preview.
       if (meta.taskSlug) {
         void window.electronAPI
           .getTask(activeWorkspaceId, meta.taskSlug)
@@ -565,7 +566,13 @@ export function KanbanBoardContainer() {
           })
           .catch(() => kick(title))
       } else {
-        kick(title)
+        const preview = typeof meta.preview === 'string' ? meta.preview.trim() : ''
+        // Prefer preview when it carries more than the bare title (acceptance/goal context).
+        if (preview && preview !== title) {
+          kick(preview)
+        } else {
+          kick(title)
+        }
       }
     },
     [

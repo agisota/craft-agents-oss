@@ -17,6 +17,7 @@ import type { AppShellContextType } from '@/context/AppShellContext'
 import { OnboardingWizard, ReauthScreen } from '@/components/onboarding'
 import { WorkspacePicker } from '@/components/workspace'
 import { ResetConfirmationDialog } from '@/components/ResetConfirmationDialog'
+import { KeyboardShortcutsDialog } from '@/components/KeyboardShortcutsDialog'
 import { SplashScreen } from '@/components/SplashScreen'
 import { TooltipProvider } from '@craft-agent/ui'
 import { FocusProvider } from '@/context/FocusContext'
@@ -399,6 +400,7 @@ export default function App() {
   const [appTheme, setAppTheme] = useState<ThemeOverrides | null>(null)
   // Reset confirmation dialog
   const [showResetDialog, setShowResetDialog] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   // Auto-update state
   const updateChecker = useUpdateChecker()
@@ -1812,7 +1814,7 @@ export default function App() {
   }, [])
 
   const handleOpenKeyboardShortcuts = useCallback(() => {
-    navigate(routes.view.settings('shortcuts'))
+    setShowShortcuts(true)
   }, [])
 
   const handleOpenStoredUserPreferences = useCallback(() => {
@@ -2200,6 +2202,10 @@ export default function App() {
                 open={showResetDialog}
                 onConfirm={executeReset}
                 onCancel={() => setShowResetDialog(false)}
+              />
+              <KeyboardShortcutsDialog
+                open={showShortcuts}
+                onOpenChange={setShowShortcuts}
               />
             </div>
           </div>
