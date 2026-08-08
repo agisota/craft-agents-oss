@@ -46,6 +46,7 @@
 import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type {
   ApplyResult,
+  KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
   MutationActor,
@@ -105,6 +106,12 @@ import {
   resolveWorkspaceNotesRoot,
   type MigrateNotesArgs,
   type MigrateNotesResult,
+  ensureDefaultLocalConnection,
+  ensureLocalKernel,
+  getKernelBootstrapStatus,
+  maybeAutoStartLocalKernel,
+  SIYUAN_INSTALL_URL,
+  SIYUAN_LOCAL_CONNECTION_ID,
 } from '../../knowledge'
 import {
   KnowledgeBridgeService,
@@ -165,6 +172,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.ENGINE_START,
   RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
   RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
   RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
@@ -438,6 +446,13 @@ function assertKnowledgeRef(ref: unknown): asserts ref is KnowledgeRef {
 export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps): void {
   const log = deps.platform.logger
 
+  // Non-blocking local kernel bootstrap (detect binary → open/spawn if down).
+  // Never awaits readiness; UI polls ENGINE_STATUS / uses ENGINE_START CTA.
+  // Skipped under the same test seam as watch auto-start.
+  if (!skipKnowledgeWatchAutoStart) {
+    maybeAutoStartLocalKernel({ log: log ?? undefined })
+  }
+
   // Per-registration registry: factory re-runs on every connect(), picking up
   // the current token from tokensByConnection (set just before connect()).
   const tokensByConnection = new Map<string, string>()
@@ -592,9 +607,13 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   }
 
   // ——— LIST_CONNECTIONS({}) → KnowledgeConnection[] ———
-  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () =>
-    new KnowledgeConnectionsStore().list().map(toContractConnection),
-  )
+  // Seeds a default local connection row when the registry is empty so Settings
+  // / Home always have something to show (token still user-supplied).
+  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () => {
+    const store = new KnowledgeConnectionsStore()
+    ensureDefaultLocalConnection(store)
+    return store.list().map(toContractConnection)
+  })
 
   // ——— CAPABILITIES({connectionId}) → KnowledgeCapabilities ———
   server.handle(RPC_CHANNELS.knowledge.CAPABILITIES, (_ctx, args: KnowledgeConnectionArgs) =>
@@ -724,23 +743,88 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     return toContextSnapshot(record)
   })
 
-  // ——— ENGINE_STATUS({connectionId}) → KnowledgeEngineStatus (LOCAL_ONLY) ———
+  // ——— ENGINE_STATUS({connectionId?}) → KnowledgeEngineStatus (LOCAL_ONLY) ———
   // Probe semantics, not command semantics: an unreachable kernel yields
   // running:false (the channel's answer), never a thrown provider error.
-  server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args: KnowledgeConnectionArgs): Promise<KnowledgeEngineStatus> => {
-    const record = requireConnection(args.connectionId)
+  // connectionId is optional: when omitted (or unknown), still report binary
+  // detection + health against the default local base URL.
+  server.handle(RPC_CHANNELS.knowledge.ENGINE_STATUS, async (_ctx, args?: Partial<KnowledgeConnectionArgs>): Promise<KnowledgeEngineStatus> => {
+    const bootstrap = await getKernelBootstrapStatus({ log: log ?? undefined })
+    const extras = {
+      binaryFound: bootstrap.binaryFound,
+      ...(bootstrap.binaryPath ? { binaryPath: bootstrap.binaryPath } : {}),
+      installUrl: bootstrap.installUrl,
+      starting: bootstrap.starting,
+    }
+
+    const connectionId = typeof args?.connectionId === 'string' && args.connectionId.length > 0
+      ? args.connectionId
+      : null
+    const record = connectionId
+      ? new KnowledgeConnectionsStore().get(connectionId)
+      : new KnowledgeConnectionsStore().list()[0] ?? null
+
+    if (!record) {
+      return {
+        mode: 'external-local',
+        running: bootstrap.running,
+        ...(bootstrap.version ? { version: bootstrap.version } : {}),
+        ...extras,
+      }
+    }
+
     try {
       // Construction itself may fail (missing token / bad baseUrl) — probe semantics
       // still answer running:false rather than throw a provider error to the wire.
       const token = await readToken(record)
       const client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
       const version = await client.getVersion()
-      return { mode: record.mode, running: true, version }
+      return { mode: record.mode, running: true, version, ...extras }
     } catch (error) {
       log?.debug?.(`KNOWLEDGE_ENGINE_STATUS: probe failed for connection ${record.id}: ${String((error as Error)?.message ?? error)}`)
-      return { mode: record.mode, running: false }
+      // Fall back to unauthenticated health probe so "running" still reflects a live kernel
+      // even when the token is missing/wrong.
+      return {
+        mode: record.mode,
+        running: bootstrap.running,
+        ...(bootstrap.version ? { version: bootstrap.version } : {}),
+        ...extras,
+      }
     }
   })
+
+  // ——— ENGINE_START({connectionId?, workspaceId?}) → KnowledgeEngineStartResult (LOCAL_ONLY) ———
+  // User CTA / explicit start: seed default connection, spawn or open SiYuan if installed.
+  server.handle(
+    RPC_CHANNELS.knowledge.ENGINE_START,
+    async (_ctx, args?: { connectionId?: string; workspaceId?: string }): Promise<KnowledgeEngineStartResult> => {
+      const workspaceId =
+        typeof args?.workspaceId === 'string' && args.workspaceId.length > 0
+          ? args.workspaceId
+          : undefined
+      // Prefer binding the default connection credential to the active workspace when provided.
+      if (workspaceId) {
+        const store = new KnowledgeConnectionsStore()
+        const existing = store.get(SIYUAN_LOCAL_CONNECTION_ID)
+        if (!existing) {
+          ensureDefaultLocalConnection(store, { workspaceId })
+        }
+      }
+      const result = await ensureLocalKernel({ log: log ?? undefined })
+      return {
+        ok: result.ok,
+        started: result.started,
+        alreadyRunning: result.alreadyRunning,
+        method: result.method,
+        binaryPath: result.binaryPath,
+        baseUrl: result.baseUrl,
+        connectionId: result.connectionId,
+        ...(result.version ? { version: result.version } : {}),
+        ...(result.error ? { error: result.error } : {}),
+        installUrl: SIYUAN_INSTALL_URL,
+      }
+    },
+  )
 
   // -------------------------------------------------------------------------
   // P3 write-back (spec 05) — the mutation-proposal lifecycle. All seven

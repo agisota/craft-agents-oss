@@ -63,6 +63,7 @@ export default function KnowledgeSettingsPage() {
   const [token, setToken] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [testing, setTesting] = React.useState(false)
+  const [starting, setStarting] = React.useState(false)
   const [migrating, setMigrating] = React.useState(false)
   // MVP: a single external-local connection (spec K-03 §3.3); the list still
   // renders every entry so additional providers stay visible.
@@ -109,17 +110,60 @@ export default function KnowledgeSettingsPage() {
   }
 
   const handleTest = async () => {
-    if (!workspaceId || !connection) return
+    if (!workspaceId) return
     setTesting(true)
     try {
-      const status = await window.electronAPI.knowledge.engineStatus({ workspaceId, connectionId: connection.id })
+      const status = await window.electronAPI.knowledge.engineStatus({
+        workspaceId,
+        ...(connection ? { connectionId: connection.id } : {}),
+      })
       setEngineStatus(status)
+      // Refresh connections in case ENGINE_START / list seed created one.
+      const list = await window.electronAPI.knowledge.listConnections()
+      setConnections(list)
       toast.success(t('settings.knowledge.testOk'))
     } catch (error) {
       toast.error(t('settings.knowledge.testFailed', { message: errorMessage(error) }))
     } finally {
       setTesting(false)
     }
+  }
+
+  const handleStartKernel = async () => {
+    const start = window.electronAPI.knowledge.engineStart
+    if (typeof start !== 'function') {
+      toast.error(t('knowledge.kernel.startFailed', { message: 'unavailable' }))
+      return
+    }
+    setStarting(true)
+    try {
+      const result = await start({ workspaceId })
+      if (!result.ok && result.error === 'siyuan-not-installed') {
+        toast.error(t('knowledge.kernel.binaryMissing'))
+        return
+      }
+      if (!result.ok) {
+        toast.error(t('knowledge.kernel.startFailed', { message: result.error ?? 'unknown' }))
+        return
+      }
+      toast.success(t('knowledge.kernel.startOk'))
+      const list = await window.electronAPI.knowledge.listConnections()
+      setConnections(list)
+      const connectionId = result.connectionId || list[0]?.id
+      if (connectionId && workspaceId) {
+        const status = await window.electronAPI.knowledge.engineStatus({ workspaceId, connectionId })
+        setEngineStatus(status)
+      }
+    } catch (error) {
+      toast.error(t('knowledge.kernel.startFailed', { message: errorMessage(error) }))
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const openInstallPage = () => {
+    const url = engineStatus?.installUrl ?? 'https://b3log.org/siyuan/'
+    void window.electronAPI?.openUrl?.(url)
   }
 
   const handleMigrateNotes = async () => {
@@ -242,6 +286,35 @@ export default function KnowledgeSettingsPage() {
           <SettingsRow label={t('settings.knowledge.engineVersion')}>
             <span className="text-sm text-muted-foreground">{engineStatus?.version ?? '—'}</span>
           </SettingsRow>
+          <SettingsRow
+            label={engineStatus?.binaryFound ? t('knowledge.kernel.binaryFound') : t('knowledge.kernel.binaryMissing')}
+            description={
+              engineStatus?.running
+                ? undefined
+                : engineStatus?.binaryFound === false
+                  ? t('knowledge.kernel.installHint')
+                  : t('knowledge.kernel.offlineBody')
+            }
+          >
+            <div className="flex gap-2 pt-1">
+              {engineStatus?.binaryFound === false ? (
+                <Button size="sm" variant="outline" onClick={openInstallPage}>
+                  {t('knowledge.kernel.installCta')}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleStartKernel()}
+                  disabled={starting || engineStatus?.running === true}
+                >
+                  {starting || engineStatus?.starting
+                    ? t('knowledge.kernel.starting')
+                    : t('knowledge.kernel.startCta')}
+                </Button>
+              )}
+            </div>
+          </SettingsRow>
         </SettingsCard>
       </SettingsSection>
 
@@ -273,6 +346,14 @@ export default function KnowledgeSettingsPage() {
                 <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">
                   {t('settings.knowledge.connectionEmptyBody')}
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => void handleStartKernel()} disabled={starting}>
+                    {starting ? t('knowledge.kernel.starting') : t('knowledge.kernel.startCta')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={openInstallPage}>
+                    {t('knowledge.kernel.installCta')}
+                  </Button>
+                </div>
               </div>
             ) : (
               connections.map((conn) => (

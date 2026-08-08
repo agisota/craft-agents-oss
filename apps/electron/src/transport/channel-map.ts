@@ -302,6 +302,7 @@ export const CHANNEL_MAP = {
   'knowledge.createSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE),
   'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
+  'knowledge.engineStart': invoke(RPC_CHANNELS.knowledge.ENGINE_START),
   // P3 write-back (spec 05): mutation-proposal lifecycle.
   'knowledge.proposeMutation': invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION),
   'knowledge.approveProposal': invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL),
