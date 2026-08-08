@@ -94,6 +94,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     cloudRuns,
     identity,
     extensions,
+    pluginBridge,
     files,
     labels,
     llm,
@@ -126,6 +127,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/cloud-runs'),
     import('@craft-agent/server-core/handlers/rpc/identity'),
     import('@craft-agent/server-core/handlers/rpc/extensions'),
+    import('@craft-agent/server-core/handlers/rpc/plugin-bridge'),
     import('@craft-agent/server-core/handlers/rpc/files'),
     import('@craft-agent/server-core/handlers/rpc/labels'),
     import('@craft-agent/server-core/handlers/rpc/llm-connections'),
@@ -154,13 +156,13 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/projects'),
   ])
 
-  // GUI handler channels (remain in electron)
-  const [browser, guiSystem, guiWorkspace, guiSettings, siyuan] = await Promise.all([
+  const [browser, guiSystem, guiWorkspace, guiSettings, siyuan, extensionHost] = await Promise.all([
     import('../browser'),
     import('../system'),
     import('../workspace'),
     import('../settings'),
     import('../siyuan'),
+    import('../extension-host'),
   ])
 
   return new Set([
@@ -169,6 +171,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...cloudRuns.HANDLED_CHANNELS,
     ...identity.HANDLED_CHANNELS,
     ...extensions.HANDLED_CHANNELS,
+    ...pluginBridge.HANDLED_CHANNELS,
     ...files.HANDLED_CHANNELS,
     ...labels.HANDLED_CHANNELS,
     ...llm.HANDLED_CHANNELS,
@@ -200,6 +203,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...guiWorkspace.GUI_HANDLED_CHANNELS,
     ...guiSettings.GUI_HANDLED_CHANNELS,
     ...siyuan.HANDLED_CHANNELS,
+    ...extensionHost.HANDLED_CHANNELS,
   ])
 }
 

@@ -183,6 +183,16 @@ export const CHANNEL_MAP = {
   extensionsGetState: invoke(RPC_CHANNELS.extensions.GET_STATE),
   onExtensionsChanged: listener(RPC_CHANNELS.extensions.CHANGED),
 
+  // SiYuan plugin bridge (W6)
+  pluginBridgeListPlugins: invoke(RPC_CHANNELS.pluginBridge.LIST_PLUGINS),
+  pluginBridgeGetProjections: invoke(RPC_CHANNELS.pluginBridge.GET_PROJECTIONS),
+  pluginBridgeSetEnabled: invoke(RPC_CHANNELS.pluginBridge.SET_ENABLED),
+  pluginBridgeOpenCompat: invoke(RPC_CHANNELS.pluginBridge.OPEN_COMPAT),
+
+  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),
+  extensionHostRestart: invoke(RPC_CHANNELS.extensionHost.RESTART),
+
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
   getSetupNeeds: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE, r => r.setupNeeds),

@@ -27,7 +27,8 @@ import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { Spinner } from '@craft-agent/ui'
-import { routes } from '@/lib/navigate'
+import { navigate, routes } from '@/lib/navigate'
+import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
   CatalogCategory,
@@ -72,46 +73,21 @@ function isHighRisk(perm: ExtensionPermission): boolean {
   return (HIGH_RISK_PERMISSIONS as readonly string[]).includes(perm)
 }
 
-function RuntimeBadge({ runtime }: { runtime: ExtensionRuntime }) {
-  const { t } = useTranslation()
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90"
-      title={t(`extensions.runtime.${runtime}.hint`, {
-        defaultValue: RUNTIME_PLACEMENT[runtime],
-      })}
-    >
-      <span className="opacity-70">{t('extensions.card.runtime', { defaultValue: 'Runtime' })}:</span>
-      {t(`extensions.runtime.${runtime}`, { defaultValue: runtime })}
-    </span>
-  )
+/** Parse compat level from extension tags (`compat-lN` or `level:N`). */
+function parseCompatLevelFromTags(tags?: string[]): 0 | 1 | 2 | 3 | undefined {
+  if (!tags?.length) return undefined
+  for (const tag of tags) {
+    const compat = /^compat-l([0-3])$/i.exec(tag)
+    if (compat) return Number(compat[1]) as 0 | 1 | 2 | 3
+    const level = /^level:([0-3])$/i.exec(tag)
+    if (level) return Number(level[1]) as 0 | 1 | 2 | 3
+  }
+  return undefined
 }
 
-function PermissionsList({ permissions }: { permissions: ExtensionPermission[] }) {
-  const { t } = useTranslation()
-  if (!permissions.length) {
-    return (
-      <span className="text-xs opacity-60">
-        {t('extensions.card.noPermissions', { defaultValue: 'No permissions' })}
-      </span>
-    )
-  }
-  return (
-    <div className="flex flex-wrap gap-1">
-      {permissions.map((p) => (
-        <span
-          key={p}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-mono border ${
-            isHighRisk(p)
-              ? 'border-amber-500/60 text-amber-700 dark:text-amber-300 bg-amber-500/10'
-              : 'opacity-80'
-          }`}
-        >
-          {p}
-        </span>
-      ))}
-    </div>
-  )
+function tagsRequireFullChrome(tags?: string[]): boolean {
+  if (!tags?.length) return false
+  return tags.some((t) => t === 'requiresFullChrome' || t === 'requires-full-chrome')
 }
 
 function ExtensionCard({
@@ -132,6 +108,9 @@ function ExtensionCard({
   onUninstall,
   onToggle,
   marketplaceId,
+  compatLevel,
+  requiresFullChrome,
+  onOpenCompat,
 }: {
   name: string
   version: string
@@ -150,11 +129,20 @@ function ExtensionCard({
   onUninstall?: () => void
   onToggle?: (enabled: boolean) => void
   marketplaceId?: string
+  compatLevel?: 0 | 1 | 2 | 3
+  requiresFullChrome?: boolean
+  onOpenCompat?: () => void
 }) {
   const { t } = useTranslation()
   const enabled = status === 'enabled' || status === 'installed' || status === 'update-available'
   const available = status === 'available' || (!status && marketplaceId)
   const updateAvailable = status === 'update-available'
+  const showOpenFullSiyuan =
+    runtime === 'siyuan-plugin' &&
+    (compatLevel === 0 ||
+      compatLevel === 1 ||
+      Boolean(requiresFullChrome) ||
+      typeof onOpenCompat === 'function')
 
   return (
     <div className="border rounded-lg p-4 space-y-3 bg-background/40">
@@ -163,6 +151,20 @@ function ExtensionCard({
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold truncate">{name}</h3>
             <span className="text-xs opacity-60">v{version}</span>
+            {compatLevel != null ? (
+              <span
+                className="text-[10px] uppercase tracking-wide border rounded px-1.5 py-0.5 font-mono opacity-80"
+                title={t('extensions.card.compatLevelHint', {
+                  defaultValue: 'SiYuan plugin compatibility level',
+                  level: compatLevel,
+                })}
+              >
+                {t('extensions.card.compatLevel', {
+                  defaultValue: 'L{{level}}',
+                  level: compatLevel,
+                })}
+              </span>
+            ) : null}
             {status ? (
               <span className="text-[10px] uppercase tracking-wide opacity-70 border rounded px-1.5 py-0.5">
                 {t(`extensions.status.${status}`, { defaultValue: status })}
@@ -181,6 +183,16 @@ function ExtensionCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {showOpenFullSiyuan ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onOpenCompat?.()}
+              className="inline-flex items-center gap-1 text-xs border rounded-md px-2 py-1 hover:bg-muted disabled:opacity-50"
+            >
+              {t('extensions.action.openFullSiyuan', { defaultValue: 'Open in full SiYuan' })}
+            </button>
+          ) : null}
           {onToggle && !available ? (
             <button
               type="button"
@@ -276,6 +288,48 @@ function ExtensionCard({
           <PermissionsList permissions={permissions} />
         </div>
       </div>
+    </div>
+  )
+}
+
+function RuntimeBadge({ runtime }: { runtime: ExtensionRuntime }) {
+  const { t } = useTranslation()
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90"
+      title={t(`extensions.runtime.${runtime}.hint`, {
+        defaultValue: RUNTIME_PLACEMENT[runtime],
+      })}
+    >
+      <span className="opacity-70">{t('extensions.card.runtime', { defaultValue: 'Runtime' })}:</span>
+      {t(`extensions.runtime.${runtime}`, { defaultValue: runtime })}
+    </span>
+  )
+}
+
+function PermissionsList({ permissions }: { permissions: ExtensionPermission[] }) {
+  const { t } = useTranslation()
+  if (!permissions.length) {
+    return (
+      <span className="text-xs opacity-60">
+        {t('extensions.card.noPermissions', { defaultValue: 'No permissions' })}
+      </span>
+    )
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {permissions.map((p) => (
+        <span
+          key={p}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-mono border ${
+            isHighRisk(p)
+              ? 'border-amber-500/60 text-amber-700 dark:text-amber-300 bg-amber-500/10'
+              : 'opacity-80'
+          }`}
+        >
+          {p}
+        </span>
+      ))}
     </div>
   )
 }
@@ -393,11 +447,20 @@ export default function ExtensionsSettingsPage() {
     [catalog],
   )
 
+
+  const openSiyuanCompat = useCallback(() => {
+    navigate(routes.view.siyuan({ kind: 'notebook', id: SIYUAN_FULL_SURFACE_ID }))
+  }, [])
+
+
   const renderCatalogCard = (entry: CatalogEntry) => {
     const installedMatch = installedRecords.find((r) => r.id === entry.id)
     const status = installedMatch?.status ?? 'available'
     const marketplaceId = entry.marketplaceId ?? installedMatch?.marketplaceId
     const curatedInstalled = Boolean(marketplaceId && installedMatch)
+    const tags = entry.tags ?? installedMatch?.tags
+    const compatLevel = parseCompatLevelFromTags(tags)
+    const requiresFullChrome = tagsRequireFullChrome(tags)
     return (
       <ExtensionCard
         key={entry.id}
@@ -413,6 +476,13 @@ export default function ExtensionsSettingsPage() {
         providerLabel={providerLabel(entry.providerId)}
         busy={Boolean(busy[entry.id])}
         marketplaceId={marketplaceId}
+        compatLevel={compatLevel}
+        requiresFullChrome={requiresFullChrome}
+        onOpenCompat={
+          entry.runtime === 'siyuan-plugin' || installedMatch?.manifest.runtime === 'siyuan-plugin'
+            ? openSiyuanCompat
+            : undefined
+        }
         onInstall={
           marketplaceId && status === 'available'
             ? () =>
@@ -452,6 +522,8 @@ export default function ExtensionsSettingsPage() {
   const renderRecordCard = (rec: ExtensionRecord) => {
     const marketplaceId = rec.marketplaceId
     const curated = Boolean(marketplaceId) && !rec.readOnly
+    const compatLevel = parseCompatLevelFromTags(rec.tags)
+    const requiresFullChrome = tagsRequireFullChrome(rec.tags)
     return (
       <ExtensionCard
         key={rec.id}
@@ -468,6 +540,9 @@ export default function ExtensionsSettingsPage() {
         readOnly={rec.readOnly}
         busy={Boolean(busy[rec.id])}
         marketplaceId={marketplaceId}
+        compatLevel={compatLevel}
+        requiresFullChrome={requiresFullChrome}
+        onOpenCompat={rec.manifest.runtime === 'siyuan-plugin' ? openSiyuanCompat : undefined}
         onUpdate={
           curated && rec.status === 'update-available'
             ? () =>
@@ -700,7 +775,9 @@ export default function ExtensionsSettingsPage() {
                   </div>
                   <span className="text-[10px] uppercase opacity-60">
                     {p.id === 'siyuan-bazaar'
-                      ? t('extensions.registries.stub', { defaultValue: 'stub (W6)' })
+                      ? t('extensions.registries.bazaarEmpty', {
+                          defaultValue: 'Empty without kernel plugin list',
+                        })
                       : t('extensions.registries.active', { defaultValue: 'active' })}
                   </span>
                 </div>

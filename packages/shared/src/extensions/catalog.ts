@@ -1,6 +1,6 @@
 /**
  * CatalogProvider interface + Craft curated provider (wraps marketplace catalog).
- * SiYuan Bazaar is a stub empty provider in W5 (live Bazaar → W6).
+ * SiYuan Bazaar accepts optional listFn (W6 bridge); default empty.
  */
 
 import type { MarketplaceCatalog, MarketplaceEntry } from '../marketplace/catalog.ts'
@@ -10,6 +10,10 @@ import type {
   CatalogFilter,
   ExtensionProviderId,
 } from './types.ts'
+import {
+  SiyuanBazaarProvider as SiyuanBazaarProviderImpl,
+  type SiyuanBazaarListFn,
+} from './siyuan-bridge/bazaar.ts'
 
 /** Opaque package bytes / metadata from a provider fetch (W5: unused beyond type). */
 export interface ExtensionPackage {
@@ -80,19 +84,7 @@ export class CraftCuratedProvider implements CatalogProvider {
   }
 }
 
-/** Empty stub — live SiYuan Bazaar is residual W6. */
-export class SiyuanBazaarProvider implements CatalogProvider {
-  readonly id = 'siyuan-bazaar' as const
-  readonly label = 'SiYuan Bazaar'
 
-  async list(_filter?: CatalogFilter): Promise<CatalogEntry[]> {
-    return []
-  }
-
-  async fetch(_id: string, _version: string): Promise<ExtensionPackage | null> {
-    return null
-  }
-}
 
 export class CatalogRegistry {
   private readonly providers = new Map<ExtensionProviderId, CatalogProvider>()
@@ -115,12 +107,13 @@ export class CatalogRegistry {
   }
 }
 
-/** Default registry: craft-curated + empty siyuan-bazaar. */
+/** Default registry: craft-curated + siyuan-bazaar (optional listFn). */
 export function createDefaultCatalogRegistry(
   loadCatalog: CraftCuratedProviderOptions['loadCatalog'],
+  opts?: { bazaarListFn?: SiyuanBazaarListFn },
 ): CatalogRegistry {
   const registry = new CatalogRegistry()
   registry.register(new CraftCuratedProvider({ loadCatalog }))
-  registry.register(new SiyuanBazaarProvider())
+  registry.register(new SiyuanBazaarProviderImpl(opts?.bazaarListFn))
   return registry
 }

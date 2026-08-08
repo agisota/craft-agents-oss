@@ -305,6 +305,23 @@ export const RPC_CHANNELS = {
     CHANGED: 'extensions:changed',
   },
 
+  // pluginBridge — SiYuan plugin bridge projections (W6). LOCAL_ONLY.
+  // Kernel plugin list is residual; handlers fail-soft / fixture-backed.
+  pluginBridge: {
+    LIST_PLUGINS: 'pluginBridge:listPlugins',
+    GET_PROJECTIONS: 'pluginBridge:getProjections',
+    SET_ENABLED: 'pluginBridge:setEnabled',
+    OPEN_COMPAT: 'pluginBridge:openCompat', // returns route descriptor only
+  },
+
+  // extensionHost — Craft Extension Host lifecycle scaffold (W6).
+  // Does NOT execute SiYuan plugins.
+  extensionHost: {
+    STATUS: 'extensionHost:status',
+    RESTART: 'extensionHost:restart',
+  },
+
+
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',

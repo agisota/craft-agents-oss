@@ -262,6 +262,16 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.extensions.GET_STATE,
   RPC_CHANNELS.extensions.CHANGED,
 
+  // pluginBridge — SiYuan plugin bridge (local fixtures / residual kernel; never proxied)
+  RPC_CHANNELS.pluginBridge.LIST_PLUGINS,
+  RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
+  RPC_CHANNELS.pluginBridge.SET_ENABLED,
+  RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
+
+  // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
+  RPC_CHANNELS.extensionHost.STATUS,
+  RPC_CHANNELS.extensionHost.RESTART,
+
 
   // knowledge — engine status + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,

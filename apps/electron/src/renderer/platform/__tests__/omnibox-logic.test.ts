@@ -106,6 +106,22 @@ describe('omnibox command filter logic', () => {
       keywords: ['knowledge', 'siyuan'],
       execute: async () => {},
     })
+    registry.register({
+      id: 'knowledge.openCompat',
+      title: 'Open SiYuan compatibility view',
+      category: 'Knowledge',
+      source: 'craft',
+      keywords: ['knowledge', 'siyuan', 'compat'],
+      execute: async () => {},
+    })
+    registry.register({
+      id: 'siyuan.openCompat',
+      title: 'Open SiYuan compatibility view',
+      category: 'Knowledge',
+      source: 'craft',
+      keywords: ['siyuan', 'compat'],
+      execute: async () => {},
+    })
   })
 
   it('empty query returns craft actions including omnibox', () => {
@@ -133,6 +149,19 @@ describe('omnibox command filter logic', () => {
 
   it('/ prefix suppresses action section', () => {
     expect(filterCommands(registry, '/skill')).toEqual([])
+  })
+
+  it('registers knowledge.openCompat and siyuan.openCompat alias', () => {
+    expect(registry.get('knowledge.openCompat')?.title).toBe('Open SiYuan compatibility view')
+    expect(registry.get('siyuan.openCompat')?.title).toBe('Open SiYuan compatibility view')
+    expect(registry.get('knowledge.openCompat')?.source).toBe('craft')
+    expect(registry.get('siyuan.openCompat')?.source).toBe('craft')
+  })
+
+  it('filters openCompat by compat query', () => {
+    const hits = filterCommands(registry, 'compat')
+    expect(hits.some((c) => c.id === 'knowledge.openCompat')).toBe(true)
+    expect(hits.some((c) => c.id === 'siyuan.openCompat')).toBe(true)
   })
 })
 

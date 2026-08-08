@@ -14,7 +14,7 @@ export interface CommandContribution {
   id: string;
   title: string;
   category: string;
-  source: 'craft' | 'siyuan' | 'extension' | 'skill' | 'automation';
+  source: 'craft' | 'siyuan' | 'siyuan-plugin' | 'extension' | 'skill' | 'automation';
   when?: string;
   keywords?: string[];
   defaultHotkey?: string;
