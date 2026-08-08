@@ -25,6 +25,11 @@
  *   POST /api/filetree/getPathByID           data: { path, notebook }
  *   POST /api/export/exportMdContent         data: { hPath, content }  (admin role)
  *
+ * Soft plugin/petal endpoints (plugin bridge feed — optional enrichment; callers soft-fail):
+ *   POST /api/bazaar/getInstalledPlugin      args { frontend: 'desktop' } → installed plugin packages
+ *   POST /api/petal/loadPetals               args { frontend: 'desktop' } → petal enable state
+ *   POST /api/petal/setPetalEnabled          args { packageName, enabled } → enable/disable petal
+ *
  * Envelope everywhere: `{ code: 0, msg: '', data: T }` — code != 0 is a kernel-level error
  * (code 1 = generic/query error, -1 = exception, 3 = index in progress).
  *
@@ -48,6 +53,7 @@
  * /api/filetree/renameDoc, no notebook-level writes. §3.8 rollback is SOFT: tombstone updateBlock +
  * craft-rolled-back attribute. query/sql is SELECT-only, enforced client-side by assertSelectOnly
  * (../../mutations.ts, throw before any network I/O) on top of server-side mode: 'readonly'.
+ * setPetalEnabled is a soft plugin-lifecycle call for the bridge feed — not a knowledge mutation.
  */
 
 import { KnowledgeError } from '../..';
@@ -207,6 +213,29 @@ export interface SiyuanTransactionOperation {
 export interface SiyuanBlockTransaction {
   doOperations: SiyuanTransactionOperation[];
   undoOperations: unknown;
+}
+
+// -- Plugin / petal feed (soft; bridge list/enable) --------------------------------------------
+
+/** One installed plugin package as returned by /api/bazaar/getInstalledPlugin (loose). */
+export interface SiyuanInstalledPluginPackage {
+  name: string;
+  version?: string;
+  displayName?: string | Record<string, string>;
+  description?: string | Record<string, string>;
+  author?: string;
+  enabled?: boolean;
+  /** Present when kernel embeds full plugin.json fields. */
+  [key: string]: unknown;
+}
+
+/** One petal row from /api/petal/loadPetals (loose). */
+export interface SiyuanPetalInfo {
+  name: string;
+  enabled: boolean;
+  version?: string;
+  displayName?: string;
+  [key: string]: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,4 +510,74 @@ export class SiyuanKernelClient {
   async setBlockAttrs(input: { id: string; attrs: Record<string, string> }): Promise<void> {
     await this.post<null>('/api/attr/setBlockAttrs', { id: input.id, attrs: input.attrs });
   }
+
+  // -- Plugins / petals (soft bridge feed; callers MUST soft-fail) ------------------------------
+
+  /**
+   * Installed Bazaar plugins for a frontend. Kernel shapes vary slightly across versions —
+   * data may be a package array or `{ packages: [...] }`. Normalized to an array.
+   */
+  async getInstalledPlugin(frontend: string = 'desktop'): Promise<SiyuanInstalledPluginPackage[]> {
+    const data = await this.post<unknown>('/api/bazaar/getInstalledPlugin', { frontend });
+    return normalizeInstalledPluginPackages(data);
+  }
+
+  /**
+   * Load petal (plugin enable) state for a frontend. data may be an array or a map.
+   */
+  async loadPetals(frontend: string = 'desktop'): Promise<SiyuanPetalInfo[]> {
+    const data = await this.post<unknown>('/api/petal/loadPetals', { frontend });
+    return normalizePetalInfos(data);
+  }
+
+  /** Enable/disable a petal package in the running kernel (soft; does not rewrite disk from Craft). */
+  async setPetalEnabled(packageName: string, enabled: boolean): Promise<void> {
+    await this.post<unknown>('/api/petal/setPetalEnabled', { packageName, enabled });
+  }
+}
+
+function isNamedPackage(item: unknown): item is SiyuanInstalledPluginPackage {
+  return !!item && typeof item === 'object' && 'name' in item && typeof item.name === 'string';
+}
+
+function normalizeInstalledPluginPackages(data: unknown): SiyuanInstalledPluginPackage[] {
+  if (Array.isArray(data)) return data.filter(isNamedPackage);
+  if (data && typeof data === 'object' && 'packages' in data) {
+    const packages = data.packages;
+    if (Array.isArray(packages)) return packages.filter(isNamedPackage);
+  }
+  return [];
+}
+
+function normalizePetalInfos(data: unknown): SiyuanPetalInfo[] {
+  if (Array.isArray(data)) {
+    const out: SiyuanPetalInfo[] = [];
+    for (const item of data) {
+      if (!item || typeof item !== 'object' || !('name' in item)) continue;
+      const name = item.name;
+      if (typeof name !== 'string' || !name) continue;
+      const enabled = 'enabled' in item && typeof item.enabled === 'boolean' ? item.enabled : true;
+      const row: SiyuanPetalInfo = { name, enabled };
+      if ('version' in item && typeof item.version === 'string') row.version = item.version;
+      if ('displayName' in item && typeof item.displayName === 'string') row.displayName = item.displayName;
+      out.push(row);
+    }
+    return out;
+  }
+  if (data && typeof data === 'object') {
+    const out: SiyuanPetalInfo[] = [];
+    for (const [name, value] of Object.entries(data as Record<string, unknown>)) {
+      if (!name) continue;
+      if (typeof value === 'boolean') {
+        out.push({ name, enabled: value });
+        continue;
+      }
+      if (value && typeof value === 'object') {
+        const enabled = 'enabled' in value && typeof value.enabled === 'boolean' ? value.enabled : true;
+        out.push({ name, enabled });
+      }
+    }
+    return out;
+  }
+  return [];
 }

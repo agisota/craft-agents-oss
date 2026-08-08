@@ -353,3 +353,78 @@ describe('sql() SELECT-only guard (§3.4.2 — throw before any network I/O)', (
     expect(callsFor(calls, SELECT_ENDPOINT)).toHaveLength(0); // threw BEFORE any fetch
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('plugin/petal soft endpoints (bridge feed)', () => {
+  test('getInstalledPlugin normalizes array and packages wrapper', async () => {
+    {
+      const { client, calls } = makeClient({
+        '/api/bazaar/getInstalledPlugin': () => ({
+          data: [{ name: 'p1', version: '1.0.0' }, { nope: true }, null],
+        }),
+      });
+      const pkgs = await client.getInstalledPlugin('desktop');
+      expect(pkgs).toEqual([{ name: 'p1', version: '1.0.0' }]);
+      expect(callsFor(calls, '/api/bazaar/getInstalledPlugin')[0]!.body).toEqual({ frontend: 'desktop' });
+    }
+    {
+      const { client } = makeClient({
+        '/api/bazaar/getInstalledPlugin': () => ({
+          data: { packages: [{ name: 'wrapped', version: '2' }] },
+        }),
+      });
+      await expect(client.getInstalledPlugin()).resolves.toEqual([{ name: 'wrapped', version: '2' }]);
+    }
+  });
+
+  test('loadPetals normalizes array and map forms', async () => {
+    {
+      const { client, calls } = makeClient({
+        '/api/petal/loadPetals': () => ({
+          data: [
+            { name: 'a', enabled: false, version: '1' },
+            { name: 'b' },
+          ],
+        }),
+      });
+      const petals = await client.loadPetals('desktop');
+      expect(petals).toEqual([
+        { name: 'a', enabled: false, version: '1' },
+        { name: 'b', enabled: true },
+      ]);
+      expect(callsFor(calls, '/api/petal/loadPetals')[0]!.body).toEqual({ frontend: 'desktop' });
+    }
+    {
+      const { client } = makeClient({
+        '/api/petal/loadPetals': () => ({
+          data: { x: true, y: { enabled: false } },
+        }),
+      });
+      await expect(client.loadPetals()).resolves.toEqual([
+        { name: 'x', enabled: true },
+        { name: 'y', enabled: false },
+      ]);
+    }
+  });
+
+  test('setPetalEnabled posts packageName + enabled', async () => {
+    const { client, calls } = makeClient({
+      '/api/petal/setPetalEnabled': () => ({ data: null }),
+    });
+    await client.setPetalEnabled('my-plugin', false);
+    expect(callsFor(calls, '/api/petal/setPetalEnabled')[0]!.body).toEqual({
+      packageName: 'my-plugin',
+      enabled: false,
+    });
+  });
+
+  test('soft petal methods are present and still no destructive knowledge writes', () => {
+    const methods = Object.getOwnPropertyNames(SiyuanKernelClient.prototype).filter((name) => name !== 'constructor');
+    expect(methods).toContain('getInstalledPlugin');
+    expect(methods).toContain('loadPetals');
+    expect(methods).toContain('setPetalEnabled');
+    const destructive = methods.filter((name) => /delete|remove|rename|move/i.test(name));
+    expect(destructive).toEqual([]);
+  });
+});

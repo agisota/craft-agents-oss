@@ -6,6 +6,12 @@
  * SiYuan binary. Detection is path existence + TCP connect only. Optional
  * macOS `open -a SiYuan` is gated on an existing app bundle and is not wired
  * into auto-start.
+ *
+ * Data dirs (plugins/petals live under these — see siyuan-plugins-fs.ts):
+ *   darwin: ~/Library/Application Support/SiYuan/data
+ *   win32:  %APPDATA%/SiYuan/data
+ *   linux:  ~/.config/siyuan/data, ~/.config/SiYuan/data, ~/.siyuan/data, ~/SiYuan/data
+ * Override: CRAFT_SIYUAN_DATA_DIRS (path list, `:` / `;` on win32).
  */
 import { existsSync } from 'node:fs'
 import { connect } from 'node:net'
