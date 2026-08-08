@@ -93,6 +93,11 @@ export interface KanbanProject {
   name: string
   /** Hex accent color (e.g. "#6366f1"). */
   color: string
+  /** Project folder slug for icon asset path */
+  slug?: string
+  /** Icon filename under projects/{slug}/assets/ */
+  icon?: string
+  workspaceId?: string
 }
 
 export interface KanbanColumnMeta {

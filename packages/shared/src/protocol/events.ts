@@ -66,6 +66,15 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.identity.CHANGED]: []
   [RPC_CHANNELS.extensions.CHANGED]: [payload: ExtensionsChangedPayload]
   [RPC_CHANNELS.permissions.DEFAULTS_CHANGED]: [value: null]
+  [RPC_CHANNELS.gamification.CHANGED]: [payload: {
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+  }]
 
   // Theme broadcasts (global)
   [RPC_CHANNELS.theme.APP_CHANGED]: [theme: ThemeOverrides | null]
