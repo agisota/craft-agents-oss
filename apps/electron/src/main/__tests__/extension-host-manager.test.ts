@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { credentialIdToAccount } from '@craft-agent/shared/credentials'
 import {
   ExtensionHostManager,
   getExtensionHostManager,
@@ -10,6 +11,7 @@ import {
   type ExtensionHostChild,
   type ExtensionHostForkFn,
 } from '../extension-host-manager'
+import { CapabilityBroker } from '../extension-host/capability-broker'
 import { buildScrubbedWorkerEnv } from '../extension-host/protocol'
 import { isPathAllowlisted, resolveSandboxRoots } from '../extension-host/path-allowlist'
 import { startWorker } from '../extension-host/worker'
@@ -508,5 +510,283 @@ describe('ExtensionHostManager', () => {
     expect(mgr.getStatus().status).toBe('stopped')
     expect(mgr.getStatus().status).not.toBe('degraded')
     expect(mgr.getStatus().message).not.toMatch(/crash/i)
+  })
+
+  it('mintCapability returns token only; never secret; grant required', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const account = 'source_bearer::ws::src'
+    const secret = 'raw-secret-value-xyz'
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      getCredential: async (id) => {
+        if (credentialIdToAccount(id) === account) return { value: secret }
+        return null
+      },
+    })
+
+    await mgr.start()
+    await mgr.loadExtension('demo', join(tmp, 'extensions', 'sandbox', 'x.js').replace(
+      // ensure path under sandbox after mkdir
+      /.*/,
+      (() => {
+        const sandbox = join(tmp, 'extensions', 'sandbox', 'demo')
+        mkdirSync(sandbox, { recursive: true })
+        const entry = join(sandbox, 'index.mjs')
+        writeFileSync(entry, 'export function ping() { return 1 }\n')
+        return entry
+      })(),
+    ), [`secrets.use:${account}`, 'network.request'])
+
+    expect(() =>
+      mgr.mintCapability({
+        extensionId: 'demo',
+        permission: 'secrets.use:source_bearer::other::x',
+      }),
+    ).toThrow(/not granted/i)
+
+    const minted = mgr.mintCapability({
+      extensionId: 'demo',
+      permission: `secrets.use:${account}`,
+    })
+    expect(minted.token).toBeTruthy()
+    expect(minted.permission).toBe(`secrets.use:${account}`)
+    expect(JSON.stringify(minted)).not.toContain(secret)
+    expect('value' in minted).toBe(false)
+
+    let seenAuth: string | undefined
+    const result = await mgr.proxyFetch({
+      token: minted.token,
+      url: 'https://api.example/v1',
+      fetchImpl: (async (_u, init) => {
+        seenAuth = (init?.headers as Record<string, string>)?.Authorization
+        return new Response('ok', { status: 200 })
+      }) as typeof fetch,
+    })
+    expect(seenAuth).toBe(`Bearer ${secret}`)
+    expect(result.status).toBe(200)
+    expect(result.body).not.toContain(secret)
+  })
+
+  it('worker __craftCapability mint never receives secret', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'cap')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(
+      entry,
+      `
+export async function mintNet() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  const minted = await cap.mint('network.request', { extensionId: 'cap' })
+  return minted
+}
+`,
+    )
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      messageTimeoutMs: 3000,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+    await mgr.loadExtension('cap', entry, ['network.request'])
+    const minted = (await mgr.callExtension('cap', 'mintNet')) as {
+      token: string
+      expiresAt: number
+      permission: string
+    }
+    expect(minted.token).toBeTruthy()
+    expect(minted.permission).toBe('network.request')
+    expect(Object.keys(minted).sort()).toEqual(
+      ['expiresAt', 'permission', 'token'].sort(),
+    )
+    expect(broker.peek(minted.token)).not.toBeNull()
+
+    mgr.revokeCapability(minted.token)
+    expect(broker.peek(minted.token)).toBeNull()
+  })
+
+  it('worker cannot mint with self-supplied grants when not loaded', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'evil')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(
+      entry,
+      `
+export async function forgeMint() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  // Attempt to mint as a different, never-loaded extension with self-grant.
+  return cap.mint('network.request', { extensionId: 'not-loaded' })
+}
+export async function escalateMint() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  // Even with the loaded id, worker cannot escalate beyond stored grants.
+  return cap.mint('secrets.use:source_bearer::ws::x', { extensionId: 'evil' })
+}
+`,
+    )
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      messageTimeoutMs: 3000,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+    // Loaded with empty grants — worker self-supply must not authorize.
+    await mgr.loadExtension('evil', entry, [])
+
+    await expect(mgr.callExtension('evil', 'forgeMint')).rejects.toThrow(
+      /not loaded|not granted|No stored grants/i,
+    )
+    await expect(mgr.callExtension('evil', 'escalateMint')).rejects.toThrow(
+      /not granted/i,
+    )
+    expect(broker.size()).toBe(0)
+  })
+
+  it('mintCapability ignores forged grantedPermissions without prior load grants', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'forge')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+
+    // Unloaded extension — mint must fail even if caller claims grants.
+    expect(() =>
+      mgr.mintCapability({
+        extensionId: 'ghost',
+        permission: 'network.request',
+        // @ts-expect-error forged field must not authorize
+        grantedPermissions: ['network.request'],
+      }),
+    ).toThrow(/not loaded/i)
+
+    // Loaded with empty grants — forged list on mint args is stripped by type
+    // and requireStoredGrants only sees [] from loadExtension.
+    await mgr.loadExtension('forge', entry, [])
+    expect(() =>
+      mgr.mintCapability({
+        extensionId: 'forge',
+        permission: 'network.request',
+        // @ts-expect-error renderer cannot self-grant via mint
+        grantedPermissions: ['network.request', 'secrets.use:source_bearer::ws::x'],
+      }),
+    ).toThrow(/not granted/i)
+    expect(broker.size()).toBe(0)
+
+    // After real load grants, mint works for those permissions only.
+    await mgr.unloadExtension('forge')
+    await mgr.loadExtension('forge', entry, ['network.request'])
+    const ok = mgr.mintCapability({
+      extensionId: 'forge',
+      permission: 'network.request',
+    })
+    expect(ok.token).toBeTruthy()
+    expect(broker.peek(ok.token)).not.toBeNull()
+  })
+
+  it('stop revokes all tokens so proxyFetch fails after', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'stop-cap')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+    await mgr.loadExtension('stop-cap', entry, ['network.request'])
+    const minted = mgr.mintCapability({
+      extensionId: 'stop-cap',
+      permission: 'network.request',
+    })
+    expect(broker.peek(minted.token)).not.toBeNull()
+
+    await mgr.stop()
+    expect(broker.peek(minted.token)).toBeNull()
+    expect(broker.size()).toBe(0)
+
+    await expect(
+      mgr.proxyFetch({
+        token: minted.token,
+        url: 'https://api.example/v1',
+        fetchImpl: (async () => new Response('nope', { status: 200 })) as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/invalid|expired|capability/i)
+  })
+
+  it('child crash clears broker tokens', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'crash-cap')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    const { forkFn, children } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+    await mgr.loadExtension('crash-cap', entry, ['network.request'])
+    const minted = mgr.mintCapability({
+      extensionId: 'crash-cap',
+      permission: 'network.request',
+    })
+    expect(broker.peek(minted.token)).not.toBeNull()
+
+    const child = children[children.length - 1]
+    child.emit('exit', 1)
+    await flush(20)
+
+    expect(broker.peek(minted.token)).toBeNull()
+    expect(broker.size()).toBe(0)
+    expect(mgr.getStatus().status).toBe('degraded')
   })
 })

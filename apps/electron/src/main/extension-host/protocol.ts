@@ -4,6 +4,9 @@
  *
  * Third-party code never runs in Electron main — only inside the worker.
  * SiYuan plugins are NOT loaded here (executesSiyuanPlugins stays false).
+ *
+ * Capability broker: worker may request mint/fetch via parentPort; main
+ * redeems tokens and performs egress. Raw secrets never travel to worker.
  */
 
 export type MainToWorkerMessage =
@@ -19,12 +22,45 @@ export type MainToWorkerMessage =
       permissions?: string[]
     }
   | { id: string; type: 'unload'; extensionId: string }
+  /** Main → Worker response to a broker-request. */
+  | {
+      id: string
+      type: 'broker-ok'
+      result:
+        | { token: string; expiresAt: number; permission: string }
+        | { status: number; body: string; headers: Record<string, string> }
+    }
+  | { id: string; type: 'broker-error'; error: string }
+
+/** Worker → Main broker RPC (handled by ExtensionHostManager). */
+export type BrokerRequestMessage =
+  | {
+      type: 'broker-request'
+      id: string
+      extensionId: string
+      action: 'mint'
+      permission: string
+      ttlMs?: number
+      singleUse?: boolean
+    }
+  | {
+      type: 'broker-request'
+      id: string
+      extensionId: string
+      action: 'fetch'
+      capabilityToken: string
+      url: string
+      method?: string
+      headers?: Record<string, string>
+      body?: string
+    }
 
 export type WorkerToMainMessage =
   | { type: 'ready' }
   | { id: string; type: 'pong' }
   | { id: string; type: 'ok'; result?: unknown }
   | { id: string; type: 'error'; error: string }
+  | BrokerRequestMessage
 
 export interface MessagePortLike {
   postMessage(message: unknown): void

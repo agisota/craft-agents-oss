@@ -863,13 +863,37 @@ export interface ElectronAPI {
   extensionHostStart(): Promise<ExtensionHostStatus>
   extensionHostStop(): Promise<ExtensionHostStatus>
   extensionHostRestart(): Promise<ExtensionHostStatus>
-  extensionHostLoad(args: { extensionId: string; entryPath: string }): Promise<{ ok: true }>
+  extensionHostLoad(args: {
+    extensionId: string
+    entryPath: string
+    grantedPermissions?: string[]
+  }): Promise<{ ok: true }>
   extensionHostCall(args: {
     extensionId: string
     method: string
     args?: unknown[]
     permissions?: string[]
   }): Promise<unknown>
+  /** Mint scoped capability token — never returns raw secret. Grants from load only. */
+  extensionHostMintCapability(args: {
+    extensionId: string
+    permission: string
+    ttlMs?: number
+    singleUse?: boolean
+  }): Promise<{ token: string; expiresAt: number; permission: string }>
+  extensionHostRevokeCapability(args: {
+    token?: string
+    extensionId?: string
+  }): Promise<{ ok: true }>
+  /** Main-side authenticated fetch via capability token. */
+  extensionHostProxyFetch(args: {
+    token: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    allowedUrlPrefixes?: string[]
+  }): Promise<{ status: number; body: string; headers: Record<string, string> }>
 
   // Onboarding
   getAuthState(): Promise<AuthState>
