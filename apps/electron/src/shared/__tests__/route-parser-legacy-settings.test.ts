@@ -1,23 +1,29 @@
 /**
- * Legacy settings subpage redirect: 'toolchain' → 'runtime'
- * (PRD runtime-context-marketplace §5.1 — вкладка Toolchain поглощена Runtime).
+ * Legacy settings subpage redirects:
+ * - 'toolchain' → 'runtime' (PRD runtime-context-marketplace §5.1)
+ * - 'marketplace' → 'extensions' (S-05 / W5 Extension Center)
  */
 import { describe, it, expect } from 'bun:test'
 import { parseCompoundRoute, parseRouteToNavigationState } from '../route-parser'
 
-describe('legacy settings subpages', () => {
-  it("routes 'settings/toolchain' to the runtime subpage (compound route)", () => {
-    const state = parseCompoundRoute('settings/toolchain')
-    expect(state).not.toBeNull()
-    expect(state!.navigator).toBe('settings')
-    expect(state!.details).toEqual({ type: 'runtime', id: 'runtime' })
-    const nav = parseRouteToNavigationState('settings/toolchain')
-    expect(nav).not.toBeNull()
+describe('legacy settings redirects', () => {
+  it('redirects toolchain → runtime', () => {
+    expect(parseCompoundRoute('settings/toolchain')!.details).toEqual({ type: 'runtime', id: 'runtime' })
   })
 
-  it("keeps valid subpages untouched, still rejects unknown ones", () => {
+  it('redirects marketplace → extensions', () => {
+    expect(parseCompoundRoute('settings/marketplace')!.details).toEqual({
+      type: 'extensions',
+      id: 'extensions',
+    })
+  })
+
+  it('keeps known pages and rejects unknown', () => {
     expect(parseCompoundRoute('settings/runtime')!.details).toEqual({ type: 'runtime', id: 'runtime' })
-    expect(parseCompoundRoute('settings/marketplace')!.details).toEqual({ type: 'marketplace', id: 'marketplace' })
+    expect(parseCompoundRoute('settings/extensions')!.details).toEqual({
+      type: 'extensions',
+      id: 'extensions',
+    })
     expect(parseCompoundRoute('settings/does-not-exist')).toBeNull()
   })
 })

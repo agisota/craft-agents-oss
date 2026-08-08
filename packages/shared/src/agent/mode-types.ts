@@ -155,6 +155,20 @@ export const PermissionsConfigSchema = z.object({
   blockedTools: z.array(PatternSchema).optional(),
   /** Command-specific hint messages for blocked Bash commands */
   blockedCommandHints: z.array(BlockedCommandHintSchema).optional(),
+  /**
+   * Extension Center permission grants bookkeeping (S-05 §3.6).
+   * Optional — absence means no extension-scoped grants recorded yet.
+   */
+  extensions: z
+    .record(
+      z.string(),
+      z.object({
+        granted: z.array(z.string()),
+        grantedAt: z.string(),
+        revoked: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
 });
 
 export type PermissionsConfigFile = z.infer<typeof PermissionsConfigSchema>;

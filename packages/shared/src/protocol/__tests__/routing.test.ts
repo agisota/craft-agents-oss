@@ -181,3 +181,22 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     }
   })
 })
+
+describe('extensions channel routing (W5)', () => {
+  const EXTENSION_CHANNELS = Object.values(RPC_CHANNELS.extensions)
+
+  test('all extensions:* channels are LOCAL_ONLY (like marketplace)', () => {
+    expect(EXTENSION_CHANNELS.length).toBeGreaterThan(0)
+    for (const ch of EXTENSION_CHANNELS) {
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+
+  test('marketplace:* channels remain LOCAL_ONLY', () => {
+    for (const ch of Object.values(RPC_CHANNELS.marketplace)) {
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+})

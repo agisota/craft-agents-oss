@@ -176,6 +176,13 @@ export const CHANNEL_MAP = {
   identityRefreshStatus: invoke(RPC_CHANNELS.identity.REFRESH_STATUS),
   onIdentityChanged: listener(RPC_CHANNELS.identity.CHANGED),
 
+  // Extension Center (S-05)
+  extensionsListCatalog: invoke(RPC_CHANNELS.extensions.LIST_CATALOG),
+  extensionsListInstalled: invoke(RPC_CHANNELS.extensions.LIST_INSTALLED),
+  extensionsSetEnabled: invoke(RPC_CHANNELS.extensions.SET_ENABLED),
+  extensionsGetState: invoke(RPC_CHANNELS.extensions.GET_STATE),
+  onExtensionsChanged: listener(RPC_CHANNELS.extensions.CHANGED),
+
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
   getSetupNeeds: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE, r => r.setupNeeds),

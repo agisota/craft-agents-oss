@@ -17,7 +17,7 @@ import type { SettingsSubpage } from '../../../shared/settings-registry'
 import RuntimeSettingsPage from './RuntimeSettingsPage'
 import ContextSettingsPage from './ContextSettingsPage'
 import KnowledgeSettingsPage from './KnowledgeSettingsPage'
-import MarketplaceSettingsPage from './MarketplaceSettingsPage'
+import ExtensionsSettingsPage from './ExtensionsSettingsPage'
 import AppSettingsPage from './AppSettingsPage'
 import AiSettingsPage from './AiSettingsPage'
 import AppearanceSettingsPage from './AppearanceSettingsPage'
@@ -40,7 +40,7 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   runtime: RuntimeSettingsPage,
   context: ContextSettingsPage,
   knowledge: KnowledgeSettingsPage,
-  marketplace: MarketplaceSettingsPage,
+  extensions: ExtensionsSettingsPage,
   app: AppSettingsPage,
   ai: AiSettingsPage,
   appearance: AppearanceSettingsPage,

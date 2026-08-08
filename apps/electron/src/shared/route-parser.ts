@@ -148,9 +148,12 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
       // Bare `settings` route — navigator-only view (compact) / App fallback (desktop).
       return { navigator: 'settings', details: null }
     }
-    // Legacy subpages, поглощённые вкладкой Runtime (PRD runtime-context-marketplace §5.1).
+    // Legacy subpages.
+    // toolchain → runtime (PRD runtime-context-marketplace §5.1)
+    // marketplace → extensions (S-05 / W5 Extension Center)
     const LEGACY_SETTINGS_REDIRECT: Record<string, SettingsSubpage> = {
       toolchain: 'runtime',
+      marketplace: 'extensions',
     }
     const redirected = LEGACY_SETTINGS_REDIRECT[subpage] ?? subpage
     if (!isValidSettingsSubpage(redirected)) return null

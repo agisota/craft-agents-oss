@@ -297,6 +297,14 @@ export const RPC_CHANNELS = {
     REFRESH_STATUS: 'identity:refreshStatus',
     CHANGED: 'identity:changed',
   },
+  extensions: {
+    LIST_CATALOG: 'extensions:listCatalog',
+    LIST_INSTALLED: 'extensions:listInstalled',
+    SET_ENABLED: 'extensions:setEnabled',
+    GET_STATE: 'extensions:getState',
+    CHANGED: 'extensions:changed',
+  },
+
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',

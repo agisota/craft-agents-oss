@@ -54,7 +54,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   runtime: RuntimeIcon,
   context: ContextIcon,
   knowledge: KnowledgeIcon,
-  marketplace: MarketplaceIcon,
+  extensions: MarketplaceIcon,
   app: AppSettingsIcon,
   ai: AiSettingsIcon,
   appearance: AppearanceIcon,
