@@ -117,7 +117,7 @@ export function ensureLocalUserIdentity(): LocalUserIdentity {
     changed = true;
   }
   // Seed username from display name once so invite flows have a handle.
-  if (!current.username && current.name && current.name.trim()) {
+  if (!current.username && typeof current.name === 'string' && current.name.trim()) {
     const seed = current.name
       .trim()
       .toLowerCase()

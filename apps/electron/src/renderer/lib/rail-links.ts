@@ -18,7 +18,7 @@ export interface RailLink {
 const MAX_LINKS = 12
 
 function newId(): string {
-  return `rl_${Math.random().toString(36).slice(2, 10)}`
+  return `rl_${crypto.getRandomValues(new Uint32Array(2)).reduce((s, n) => s + n.toString(36), '').slice(0, 10)}`
 }
 
 export function loadRailLinks(workspaceId: string | null | undefined): RailLink[] {
