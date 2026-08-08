@@ -89,7 +89,7 @@ import {
   ACTIVITY_RAIL_COLLAPSED_WIDTH,
 } from "../../platform"
 import { featureUnifiedShellAtom, activityRailCollapsedAtom } from "@/atoms/unified-shell"
-import { useSession } from "@/hooks/useSession"
+import { useSession, useSessionSelection } from "@/hooks/useSession"
 import { ensureSessionMessagesLoadedAtom } from "@/atoms/sessions"
 import { AppShellProvider, type AppShellContextType } from "@/context/AppShellContext"
 import { EscapeInterruptProvider, useEscapeInterrupt } from "@/context/EscapeInterruptContext"
@@ -506,6 +506,17 @@ function AppShellContent({
   const collectionDisplay = useAtomValue(collectionDisplayAtom)
   const collectionFilters = useAtomValue(collectionFiltersAtom)
   const setCollectionFilters = useSetAtom(collectionFiltersAtom)
+  const { clearMultiSelect: clearSessionMultiSelect } = useSessionSelection()
+  const sessionsViewMode = isSessionsNavigation(navState) ? navState.viewMode : null
+  const collectionFiltersKey = JSON.stringify(collectionFilters)
+
+  React.useEffect(() => {
+    clearSessionMultiSelect()
+  }, [sessionsViewMode, clearSessionMultiSelect])
+
+  React.useEffect(() => {
+    clearSessionMultiSelect()
+  }, [collectionFiltersKey, clearSessionMultiSelect])
 
   // Jump to All Sessions filtered by a single project. Used by the Projects list
   // context menu — sets the allSessions view's project filter (preserving its
