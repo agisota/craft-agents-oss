@@ -6,13 +6,14 @@ import { loadSourceConfig, loadWorkspaceSources, saveSourceConfig, saveSourceGui
 import { safeJsonParse } from '@craft-agent/shared/utils/files'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { getDefaultWorkspacesDir, loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
-import type { RpcServer } from '@craft-agent/server-core/transport'
+import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import { KnowledgeConnectionsStore, credentialIdFromRef } from '../../knowledge'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sources.GET,
   RPC_CHANNELS.sources.CREATE,
+  RPC_CHANNELS.sources.UPDATE,
   RPC_CHANNELS.sources.DELETE,
   RPC_CHANNELS.sources.START_OAUTH,
   RPC_CHANNELS.sources.SAVE_CREDENTIALS,
@@ -111,6 +112,73 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
       api: config.api,
       local: config.local,
     })
+  })
+
+  // Update an existing source's editable fields (name, enabled, url/path, tagline, guide)
+  server.handle(RPC_CHANNELS.sources.UPDATE, async (
+    _ctx,
+    workspaceId: string,
+    sourceSlug: string,
+    updates: {
+      name?: string
+      enabled?: boolean
+      tagline?: string
+      /** URL or path depending on source type (mcp.url / api.baseUrl / local.path) */
+      url?: string
+      /** guide.md raw markdown */
+      guide?: string
+    },
+  ) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`)
+
+    const existing = loadSourceConfig(workspace.rootPath, sourceSlug)
+    if (!existing) throw new Error(`Source not found: ${sourceSlug}`)
+
+    const next: FolderSourceConfig = {
+      ...existing,
+      updatedAt: Date.now(),
+    }
+
+    if (typeof updates.name === 'string' && updates.name.trim()) {
+      next.name = updates.name.trim()
+    }
+    if (typeof updates.enabled === 'boolean') {
+      next.enabled = updates.enabled
+    }
+    if (typeof updates.tagline === 'string') {
+      next.tagline = updates.tagline
+    }
+
+    if (typeof updates.url === 'string') {
+      const url = updates.url.trim()
+      if (next.type === 'mcp') {
+        next.mcp = { ...(next.mcp ?? {}), url: url || undefined }
+      } else if (next.type === 'api') {
+        if (!url) throw new Error('API base URL is required')
+        next.api = { ...(next.api ?? { authType: 'none' }), baseUrl: url }
+      } else if (next.type === 'local') {
+        if (!url) throw new Error('Local path is required')
+        next.local = { ...(next.local ?? {}), path: url }
+      }
+    }
+
+    saveSourceConfig(workspace.rootPath, next)
+
+    if (typeof updates.guide === 'string') {
+      saveSourceGuide(workspace.rootPath, sourceSlug, { raw: updates.guide })
+    }
+
+    // Return fully loaded source for the UI
+    const { loadSource } = await import('@craft-agent/shared/sources')
+    const loaded = loadSource(workspace.rootPath, sourceSlug)
+    if (!loaded) throw new Error(`Source not found after update: ${sourceSlug}`)
+
+    // Notify subscribers (same shape as watcher broadcasts)
+    const sources = loadWorkspaceSources(workspace.rootPath)
+    pushTyped(server, RPC_CHANNELS.sources.CHANGED, { to: 'workspace', workspaceId }, workspaceId, sources)
+
+    return loaded
   })
 
   // Delete a source

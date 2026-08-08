@@ -27,6 +27,17 @@ const SOURCE_STATUS_CONFIG: Record<string, { labelKey: string; colorClass: strin
   local_disabled: { labelKey: 'sourcesList.statusDisabled', colorClass: 'bg-foreground/10 text-foreground/50' },
 }
 
+function estimateTokensFromGuide(raw: string | undefined): number {
+  if (!raw) return 0
+  return Math.ceil(raw.length / 4)
+}
+
+function formatApproxTokens(n: number): string {
+  if (n >= 1_000_000) return `≈${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1000) return `≈${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k`
+  return `≈${n}`
+}
+
 const SOURCE_TYPE_FILTER_LABEL_KEYS: Record<string, string> = {
   api: 'sourcesList.filterApi',
   mcp: 'sourcesList.filterMcp',
@@ -126,6 +137,15 @@ export function SourcesListPanel({
                   {t(statusConfig.labelKey)}
                 </EntityListBadge>
               )}
+              {(() => {
+                const tokens = estimateTokensFromGuide(source.guide?.raw)
+                if (tokens <= 0) return null
+                return (
+                  <EntityListBadge colorClass="bg-foreground/5 text-foreground/55" className="cursor-default tabular-nums">
+                    {t('sourcesList.tokenEstimate', { tokens: formatApproxTokens(tokens) })}
+                  </EntityListBadge>
+                )
+              })()}
               {subtitle && <span className="truncate">{subtitle}</span>}
             </>
           ),

@@ -419,6 +419,7 @@ export const RPC_CHANNELS = {
   sources: {
     GET: 'sources:get',
     CREATE: 'sources:create',
+    UPDATE: 'sources:update',
     DELETE: 'sources:delete',
     START_OAUTH: 'sources:startOAuth',
     SAVE_CREDENTIALS: 'sources:saveCredentials',
@@ -446,6 +447,7 @@ export const RPC_CHANNELS = {
   skills: {
     GET: 'skills:get',
     GET_FILES: 'skills:getFiles',
+    UPDATE: 'skills:update',
     DELETE: 'skills:delete',
     OPEN_EDITOR: 'skills:openEditor',
     OPEN_FINDER: 'skills:openFinder',
@@ -498,6 +500,7 @@ export const RPC_CHANNELS = {
   labels: {
     LIST: 'labels:list',
     CREATE: 'labels:create',
+    UPDATE: 'labels:update',
     DELETE: 'labels:delete',
     CHANGED: 'labels:changed',
   },

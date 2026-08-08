@@ -37,6 +37,7 @@ const NOTES_DIR = 'notes'
 const ASSETS_DIR = 'assets'
 const DAILY_DIR = 'daily'
 const TEMPLATES_DIR = 'templates'
+const PROJECTS_DIR = 'projects'
 const DAILY_TEMPLATE_FILE = 'daily.md'
 
 type ParsedNote = {
@@ -131,6 +132,7 @@ async function ensureNotesDirs(notesRoot: string): Promise<void> {
   await mkdir(join(notesRoot, ASSETS_DIR), { recursive: true })
   await mkdir(join(notesRoot, DAILY_DIR), { recursive: true })
   await mkdir(join(notesRoot, TEMPLATES_DIR), { recursive: true })
+  await mkdir(join(notesRoot, PROJECTS_DIR), { recursive: true })
 }
 
 function isInsidePath(root: string, candidate: string): boolean {

@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Bot, ChevronDown, FileSearch, ListChecks, Maximize2, Sparkles } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { ChevronDown, FileSearch, ListChecks, Maximize2, Sparkles } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -17,67 +18,78 @@ export interface NotesAIMenuProps {
   disabled?: boolean
 }
 
-const ACTIONS: Array<{ mode: AIActionMode; label: string; icon: React.ElementType; description: string }> = [
-  { mode: 'analyze', label: 'Analyze & act', icon: Sparkles, description: 'Analyze this note and suggest concrete next actions' },
-  { mode: 'expand', label: 'Expand note', icon: Maximize2, description: 'Enrich with additional context, examples, and detail' },
-  { mode: 'summarize', label: 'Summarize', icon: FileSearch, description: 'Write a concise summary with key takeaways' },
-  { mode: 'extract-tasks', label: 'Extract tasks', icon: ListChecks, description: 'Extract all implied and explicit action items' },
+const ACTIONS: Array<{
+  mode: AIActionMode
+  labelKey: string
+  descriptionKey: string
+  icon: React.ElementType
+}> = [
+  {
+    mode: 'extract-tasks',
+    labelKey: 'notes.ai.extractTasks',
+    descriptionKey: 'notes.ai.extractTasksDesc',
+    icon: ListChecks,
+  },
+  {
+    mode: 'analyze',
+    labelKey: 'notes.ai.analyze',
+    descriptionKey: 'notes.ai.analyzeDesc',
+    icon: Sparkles,
+  },
+  {
+    mode: 'expand',
+    labelKey: 'notes.ai.expand',
+    descriptionKey: 'notes.ai.expandDesc',
+    icon: Maximize2,
+  },
+  {
+    mode: 'summarize',
+    labelKey: 'notes.ai.summarize',
+    descriptionKey: 'notes.ai.summarizeDesc',
+    icon: FileSearch,
+  },
 ]
 
 export function NotesAIMenu({ activeNote, onAction, disabled }: NotesAIMenuProps) {
+  const { t } = useTranslation()
   const isDisabled = disabled || !activeNote
+  const primary = ACTIONS[0]
 
   return (
     <div className="flex items-center">
       <button
         className="flex h-7 items-center gap-1.5 rounded-l-[6px] border border-border/60 bg-background px-2.5 text-xs hover:bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-40"
-        onClick={() => onAction('analyze')}
+        onClick={() => onAction(primary.mode)}
         disabled={isDisabled}
-        title="Analyze note with AI"
+        title={t('notes.ai.extractTasksTitle')}
       >
-        <Bot className="h-3.5 w-3.5" />
-        Ask AI
+        <ListChecks className="h-3.5 w-3.5" />
+        {t('notes.ai.extractTasks')}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             className="-ml-px flex h-7 items-center rounded-r-[6px] border border-border/60 bg-background px-1.5 hover:bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-40"
             disabled={isDisabled}
-            title="More AI actions"
+            title={t('notes.ai.moreActions')}
           >
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </DropdownMenuTrigger>
-        <StyledDropdownMenuContent align="end" className="w-52">
+        <StyledDropdownMenuContent align="end" className="w-56">
           {ACTIONS.map((action, i) => (
             <React.Fragment key={action.mode}>
-              {i === 0 && (
-                <>
-                  <StyledDropdownMenuItem
-                    onClick={() => onAction(action.mode)}
-                    className="gap-2"
-                  >
-                    <action.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <div className="flex flex-col">
-                      <span className="text-xs font-medium">{action.label}</span>
-                      <span className="text-[10px] text-muted-foreground">{action.description}</span>
-                    </div>
-                  </StyledDropdownMenuItem>
-                  <StyledDropdownMenuSeparator />
-                </>
-              )}
-              {i > 0 && (
-                <StyledDropdownMenuItem
-                  onClick={() => onAction(action.mode)}
-                  className="gap-2"
-                >
-                  <action.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-medium">{action.label}</span>
-                    <span className="text-[10px] text-muted-foreground">{action.description}</span>
-                  </div>
-                </StyledDropdownMenuItem>
-              )}
+              {i === 1 && <StyledDropdownMenuSeparator />}
+              <StyledDropdownMenuItem
+                onClick={() => onAction(action.mode)}
+                className="gap-2"
+              >
+                <action.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium">{t(action.labelKey)}</span>
+                  <span className="text-[10px] text-muted-foreground">{t(action.descriptionKey)}</span>
+                </div>
+              </StyledDropdownMenuItem>
             </React.Fragment>
           ))}
         </StyledDropdownMenuContent>

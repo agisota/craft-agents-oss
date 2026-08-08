@@ -375,6 +375,7 @@ export const CHANNEL_MAP = {
   // Sources
   getSources: invoke(RPC_CHANNELS.sources.GET),
   createSource: invoke(RPC_CHANNELS.sources.CREATE),
+  updateSource: invoke(RPC_CHANNELS.sources.UPDATE),
   deleteSource: invoke(RPC_CHANNELS.sources.DELETE),
   startSourceOAuth: invoke(RPC_CHANNELS.sources.START_OAUTH),
   saveSourceCredentials: invoke(RPC_CHANNELS.sources.SAVE_CREDENTIALS),
@@ -396,6 +397,7 @@ export const CHANNEL_MAP = {
   // Skills
   getSkills: invoke(RPC_CHANNELS.skills.GET),
   getSkillFiles: invoke(RPC_CHANNELS.skills.GET_FILES),
+  updateSkill: invoke(RPC_CHANNELS.skills.UPDATE),
   deleteSkill: invoke(RPC_CHANNELS.skills.DELETE),
   importOmpSkill: invoke(RPC_CHANNELS.skills.IMPORT_OMP),
   getSkillUsage: invoke(RPC_CHANNELS.skills.GET_USAGE),
@@ -435,6 +437,7 @@ export const CHANNEL_MAP = {
   // Labels
   listLabels: invoke(RPC_CHANNELS.labels.LIST),
   createLabel: invoke(RPC_CHANNELS.labels.CREATE),
+  updateLabel: invoke(RPC_CHANNELS.labels.UPDATE),
   deleteLabel: invoke(RPC_CHANNELS.labels.DELETE),
   onLabelsChanged: listener(RPC_CHANNELS.labels.CHANGED),
 

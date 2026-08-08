@@ -120,6 +120,15 @@ export { resolveAutomationsConfigPath, generateShortId } from './resolve-config-
 // Cron matching
 export { matchesCron } from './cron-matcher.ts';
 
+
+// Default seeds
+export {
+  CRAFT_AUTOMATION_SEED_VERSION,
+  buildDefaultAutomationSeeds,
+  ensureDefaultAutomations,
+  type SeededAutomationsFile,
+  type EnsureDefaultAutomationsResult,
+} from './default-seeds.ts';
 // Event Bus
 export {
   WorkspaceEventBus,

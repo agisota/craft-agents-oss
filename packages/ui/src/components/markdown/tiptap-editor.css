@@ -553,6 +553,15 @@
   text-underline-offset: 2px;
 }
 
+/* ── Hash tags ── */
+.tiptap-editor .tiptap-prose .tiptap-hash-tag {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-radius: 4px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
 /* ── Slash command menu ── */
 .tiptap-slash-menu {
   /* Keep compact by default, but allow some growth for longer labels. */

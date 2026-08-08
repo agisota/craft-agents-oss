@@ -3711,9 +3711,12 @@ function AppShellContent({
                     }
                   }}
                   sessionOptions={sessionOptions}
-                  searchActive={searchActive}
+                  searchActive={searchActive || searchQuery.length > 0}
                   searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
+                  onSearchChange={(q) => {
+                    setSearchQuery(q)
+                    if (q.length > 0) setSearchActive(true)
+                  }}
                   onSearchClose={() => {
                     setSearchActive(false)
                     setSearchQuery('')
