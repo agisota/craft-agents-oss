@@ -645,6 +645,9 @@ export const RPC_CHANNELS = {
   mindmap: {
     /** One-shot LLM outline improve → enriched MindMapGraph (LOCAL_ONLY). */
     ENRICH: 'mindmap:enrich',
+    PIN_LOAD: 'mindmap:pinLoad',
+    PIN_SAVE: 'mindmap:pinSave',
+    PIN_CLEAR: 'mindmap:pinClear',
   },
 
   messaging: {

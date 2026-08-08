@@ -1149,6 +1149,18 @@ export interface ElectronAPI {
     | { ok: true; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'llm' | 'heuristic' }
     | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode?: 'passthrough' }
   >
+  mindmapPinLoad(input: {
+    workspaceId: string
+    entity: import('@craft-agent/core/mindmap').MindMapEntityRef
+  }): Promise<import('@craft-agent/core/mindmap').PinnedMap | null>
+  mindmapPinSave(input: {
+    workspaceId: string
+    pin: import('@craft-agent/core/mindmap').PinnedMap
+  }): Promise<{ ok: true } | { ok: false; error: string }>
+  mindmapPinClear(input: {
+    workspaceId: string
+    entity: import('@craft-agent/core/mindmap').MindMapEntityRef
+  }): Promise<{ ok: true } | { ok: false; error: string }>
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
   // Statuses (workspace-scoped)

@@ -46,7 +46,7 @@ import {
   SvgMindMapView,
   type SvgMindMapViewHandle,
 } from './engine/svg-engine'
-import { clearPin, loadPin, savePin } from './pin-store'
+import { clearPinAsync, loadPinAsync, savePinAsync } from './pin-store'
 
 export interface MindMapHostProps {
   entity: MindMapEntityRef
@@ -121,14 +121,20 @@ export function MindMapHost({
   const contentHash = graph?.contentHash ?? null
   const rootId = graph?.rootId ?? null
 
-  // Load pin when entity changes.
+  // Load pin when entity/workspace changes (workspace FS + localStorage fallback).
   React.useEffect(() => {
-    setPin(loadPin(entity))
+    let cancelled = false
     setStaleDismissed(false)
     setEnrichDraft(null)
-    // entity object identity is unstable; entityKey is the durable identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- entityKey
-  }, [entityKey])
+    const workspaceId = workspaceIdProp || activeWorkspaceId
+    void loadPinAsync(entity, workspaceId).then((loaded) => {
+      if (!cancelled) setPin(loaded)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- entityKey + workspace
+  }, [entityKey, workspaceIdProp, activeWorkspaceId])
 
   // Reset collapse on graph identity change; restore pin collapsed when fresh.
   React.useEffect(() => {
@@ -136,14 +142,12 @@ export function MindMapHost({
       setCollapsed(new Set())
       return
     }
-    const loaded = loadPin(entity)
-    if (loaded && !isStale(loaded, contentHash)) {
-      setCollapsed(new Set(loaded.layout.collapsed))
+    if (pin && !isStale(pin, contentHash)) {
+      setCollapsed(new Set(pin.layout.collapsed ?? []))
       return
     }
     setCollapsed(new Set())
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- entityKey
-  }, [entityKey, contentHash, rootId])
+  }, [entityKey, contentHash, rootId, pin])
 
   const handleSelect = React.useCallback(
     (id: MindMapNodeId | null) => {
@@ -176,10 +180,10 @@ export function MindMapHost({
       layout: layoutFromCollapsed(collapsed),
       updatedAt: Date.now(),
     }
-    savePin(next)
+    void savePinAsync(next, workspaceIdProp || activeWorkspaceId)
     setPin(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only collapse/layout
-  }, [collapsed])
+  }, [collapsed, activeWorkspaceId, workspaceIdProp])
 
   const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
@@ -191,7 +195,7 @@ export function MindMapHost({
     if (!graph) return
     // Unpin when a pin exists and we're treating it as active (fresh or kept).
     if (pin && ( !isStale(pin, graph.contentHash) || staleDismissed)) {
-      clearPin(entity)
+      void clearPinAsync(entity, workspaceIdProp || activeWorkspaceId)
       setPin(null)
       setEnrichDraft(null)
       setStaleDismissed(false)
@@ -204,19 +208,19 @@ export function MindMapHost({
       Date.now(),
       graph.contentHash, // track live source
     )
-    savePin(next)
+    void savePinAsync(next, workspaceIdProp || activeWorkspaceId)
     setPin(next)
     setStaleDismissed(false)
-  }, [collapsed, displayGraph, entity, graph, pin, staleDismissed])
+  }, [activeWorkspaceId, collapsed, displayGraph, entity, graph, pin, staleDismissed, workspaceIdProp])
 
   const handleRebuildPin = React.useCallback(() => {
     if (!graph) return
     const next = createPinnedMap(graph, layoutFromCollapsed(collapsed), Date.now(), graph.contentHash)
-    savePin(next)
+    void savePinAsync(next, workspaceIdProp || activeWorkspaceId)
     setPin(next)
     setEnrichDraft(null)
     setStaleDismissed(false)
-  }, [collapsed, graph])
+  }, [activeWorkspaceId, collapsed, graph, workspaceIdProp])
 
   const handleKeepStale = React.useCallback(() => {
     setStaleDismissed(true)
@@ -268,14 +272,14 @@ export function MindMapHost({
       Date.now(),
       graph.contentHash, // stay fresh vs live until source changes again
     )
-    savePin(next)
+    void savePinAsync(next, workspaceIdProp || activeWorkspaceId)
     setPin(next)
     setStaleDismissed(false)
     onAcceptDraft?.(enrichDraft)
     onGraphOverride?.(enrichDraft)
     setEnrichDraft(null)
     toast.success(t('mindmap.enrichAccepted'))
-  }, [collapsed, enrichDraft, graph, onAcceptDraft, onGraphOverride, t])
+  }, [activeWorkspaceId, collapsed, enrichDraft, graph, onAcceptDraft, onGraphOverride, t, workspaceIdProp])
 
   const handleDiscardEnrich = React.useCallback(() => {
     setEnrichDraft(null)
@@ -306,7 +310,7 @@ export function MindMapHost({
         Date.now(),
         graph?.contentHash ?? g.contentHash,
       )
-      savePin(next)
+      void savePinAsync(next, workspaceIdProp || activeWorkspaceId)
       setPin(next)
       toast.success(t('mindmap.materializeDone'))
       navigate(routes.view.notesLegacy(created.id))
