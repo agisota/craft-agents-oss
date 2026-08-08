@@ -28,6 +28,7 @@ import { DEFAULT_MODEL, getModelShortName } from '@config/models'
 import { getDefaultModelsForConnection, type LlmConnectionWithStatus } from '@config/llm-connections'
 import type { SessionStatus } from '@/config/session-status-config'
 import { KanbanBoard, type KanbanMoveTarget } from './KanbanBoard'
+import { parsePriorityGroupId } from './priority-groups'
 import { KANBAN_COLUMNS, statusToColumn } from './status-column'
 import { DEFAULT_KANBAN_COLUMN_COLORS } from './kanban-colors'
 import { CollectionViewChrome } from '../collection/CollectionViewChrome'
@@ -550,8 +551,9 @@ export function KanbanBoardContainer() {
       void window.electronAPI.sessionCommand(taskId, { type: 'setKanbanColumn', column: toColumn })
 
       // B6: pseudo group '__priority_<value>' assigns priority instead of project (FR-30/FR-47).
-      if (typeof target.projectId === 'string' && target.projectId.startsWith('__priority_')) {
-        const prio = target.projectId.slice('__priority_'.length).replace(/_$/, '') as SessionPriority
+      const priorityDrop = parsePriorityGroupId(target.projectId)
+      if (priorityDrop !== null) {
+        const prio = priorityDrop as SessionPriority
         updateSessionMeta(taskId, { priority: prio })
         void window.electronAPI.sessionCommand(taskId, { type: 'setPriority', priority: prio })
       } else if (target.projectId !== undefined) {

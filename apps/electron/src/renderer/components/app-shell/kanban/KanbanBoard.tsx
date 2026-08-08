@@ -20,6 +20,7 @@ import {
   parseProjectGroupDropId,
   type KanbanProjectGroup,
 } from './KanbanColumn'
+import { buildPriorityGroups } from './priority-groups'
 import { TaskTile } from './TaskTile'
 import type {
   KanbanColumnId,
@@ -213,33 +214,10 @@ export function KanbanBoard({
   // B6: per-column priority subsections (order urgent → high → medium → low → none).
   const priorityGroupsByColumn = React.useMemo(() => {
     if (!groupByPriority) return null
-    const order: readonly string[] = ['urgent', 'high', 'medium', 'low', 'none']
     const result = new Map<KanbanColumnId, KanbanProjectGroup[]>()
     for (const column of columns) {
       const colTasks = tasksByColumn.get(column.id) ?? []
-      const byPrio = new Map<string, KanbanTask[]>()
-      for (const task of colTasks) {
-        const key = (task.priority ?? 'none') as string
-        const list = byPrio.get(key)
-        if (list) list.push(task)
-        else byPrio.set(key, [task])
-      }
-      const groups: KanbanProjectGroup[] = []
-      for (const prio of order) {
-        const list = byPrio.get(prio)
-        if (!list || list.length === 0) continue
-        groups.push({
-          projectId: `__priority_${prio}`,
-          name: t(`priority.${prio}`, { defaultValue: prio }),
-          tasks: list,
-        })
-        byPrio.delete(prio)
-      }
-      // Preserve any unknown priorities at the end (defensive).
-      for (const [prio, list] of byPrio) {
-        groups.push({ projectId: `__priority_${prio}`, name: prio, tasks: list })
-      }
-      result.set(column.id, groups)
+      result.set(column.id, buildPriorityGroups(colTasks, t))
     }
     return result
   }, [groupByPriority, columns, tasksByColumn, t])
@@ -358,7 +336,8 @@ export function KanbanBoard({
                 ? patch => onUpdateColumn(column.id, patch)
                 : undefined
             }
-            projectGroups={priorityGroupsByColumn?.get(column.id) ?? groupsByColumn?.get(column.id)}
+            projectGroups={groupsByColumn?.get(column.id)}
+            priorityGroups={priorityGroupsByColumn?.get(column.id)}
             collapsedGroupKeys={collapsedGroupKeys}
             onToggleProjectGroup={onToggleProjectGroup}
           />

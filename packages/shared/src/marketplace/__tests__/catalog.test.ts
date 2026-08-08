@@ -272,18 +272,21 @@ describe('catalog remote digest verification', () => {
     }
   }
 
-  it('accepts remote catalog when sibling digest matches', async () => {
-    if (!signingKey) return // sig fetch falls back to empty string; covered in maintainer env
-    const result = await getCatalog({
-      configDir: dir,
-      metaStore: createMemoryMetaStore(),
-      fetchFn: makeFetch({ digestBody: goodDigest }),
-      remoteUrl,
-      maxCacheAgeMs: 0,
+  // Accept paths need a real ed25519 signature (goodSig). Without the gitignored
+  // dev signing key the tests are not registered — rejection paths below still run.
+  if (signingKey) {
+    it('accepts remote catalog when sibling digest matches', async () => {
+      const result = await getCatalog({
+        configDir: dir,
+        metaStore: createMemoryMetaStore(),
+        fetchFn: makeFetch({ digestBody: goodDigest }),
+        remoteUrl,
+        maxCacheAgeMs: 0,
+      })
+      expect(result.origin).toBe('remote')
+      expect(result.catalog.catalogVersion).toBe(1)
     })
-    expect(result.origin).toBe('remote')
-    expect(result.catalog.catalogVersion).toBe(1)
-  })
+  }
 
   it('rejects remote catalog on digest mismatch and falls back', async () => {
     const bundledCatalogPath = join(dir, 'bundle.json')
@@ -322,20 +325,21 @@ describe('catalog remote digest verification', () => {
     )
   })
 
-  it('accepts remote catalog when digest and ed25519 signature match', async () => {
-    if (!signingKey) return // dev signing key unavailable (gitignored); signature path covered in maintainer env
-    const result = await getCatalog({
-      configDir: dir,
-      metaStore: createMemoryMetaStore(),
-      fetchFn: makeFetch({ digestBody: goodDigest, sigBody: goodSig }),
-      remoteUrl,
-      maxCacheAgeMs: 0,
+  if (signingKey) {
+    it('accepts remote catalog when digest and ed25519 signature match', async () => {
+      const result = await getCatalog({
+        configDir: dir,
+        metaStore: createMemoryMetaStore(),
+        fetchFn: makeFetch({ digestBody: goodDigest, sigBody: goodSig }),
+        remoteUrl,
+        maxCacheAgeMs: 0,
+      })
+      expect(result.origin).toBe('remote')
     })
-    expect(result.origin).toBe('remote')
-  })
+  }
 
   it('rejects remote catalog on signature mismatch and falls back', async () => {
-    if (!signingKey) return // dev signing key unavailable (gitignored); signature path covered in maintainer env
+    // badSig is self-contained — no local signing key required
     const bundledCatalogPath = join(dir, 'bundle-sig.json')
     writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
     const result = await getCatalog({
@@ -351,7 +355,7 @@ describe('catalog remote digest verification', () => {
   })
 
   it('rejects remote catalog when signature fetch fails', async () => {
-    if (!signingKey) return // dev signing key unavailable (gitignored); signature path covered in maintainer env
+    // sigBody:null is self-contained — no local signing key required
     const bundledCatalogPath = join(dir, 'bundle-sig-miss.json')
     writeFileSync(bundledCatalogPath, JSON.stringify(VALID_CATALOG))
     const result = await getCatalog({
