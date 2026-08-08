@@ -2868,5 +2868,9 @@
   "workspaceRail.linkMissingUrl": "Введите URL",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "ID заметки (необяз.)",
-  "workspaceRail.removeLink": "Удалить ссылку"
+  "workspaceRail.removeLink": "Удалить ссылку",
+  "mindmap.staleBanner": "Исходник изменился после закрепления.",
+  "mindmap.keepPin": "Оставить pin",
+  "mindmap.rebuildPin": "Пересобрать из источника",
+  "mindmap.unpin": "Открепить"
 }
