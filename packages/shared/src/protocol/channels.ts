@@ -51,6 +51,8 @@ export const RPC_CHANNELS = {
     RESPOND_TO_PERMISSION: 'sessions:respondToPermission',
     RESPOND_TO_CREDENTIAL: 'sessions:respondToCredential',
     COMMAND: 'sessions:command',
+    BULK_UPDATE: 'sessions:bulkUpdate',
+    BULK_CHANGED: 'sessions:bulkChanged',
     GET_PENDING_PLAN_EXECUTION: 'sessions:getPendingPlanExecution',
     GET_PERMISSION_MODE_STATE: 'sessions:getPermissionModeState',
     SET_MEMORY_MODE: 'sessions:setMemoryMode',
@@ -209,8 +211,6 @@ export const RPC_CHANNELS = {
     // P6 knowledge change watcher (poll) — start/stop per connection; emits into AutomationSystem.
     WATCH: 'knowledge:watch',
     UNWATCH: 'knowledge:unwatch',
-    // P4.4 — user-initiated Craft notes vault → SiYuan migration (REMOTE_ELIGIBLE).
-    MIGRATE_NOTES: 'knowledge:migrateNotes',
   },
   // siyuan — P2 native knowledge surface (spec 03/P2): embedded SiYuan desktop
   // hosted in a browser pane, keyed by durable document keys (`siyuan:{kind}:{id}`)

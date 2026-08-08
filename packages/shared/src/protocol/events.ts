@@ -23,6 +23,7 @@ import type {
   KnowledgeChangedPayload,
   SiyuanSurfaceState,
   ExtensionSurfaceState,
+  SessionsBulkChangedEvent,
 } from './dto'
 import type { ExtensionsChangedPayload } from '../extensions/types'
 
@@ -46,6 +47,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.sessions.EVENT]: [event: SessionEvent]
   [RPC_CHANNELS.sessions.UNREAD_SUMMARY_CHANGED]: [summary: UnreadSummary]
   [RPC_CHANNELS.sessions.FILES_CHANGED]: [sessionId: string]
+  [RPC_CHANNELS.sessions.BULK_CHANGED]: [event: SessionsBulkChangedEvent]
 
   // Domain change broadcasts (global via broadcastToAll)
   [RPC_CHANNELS.sources.CHANGED]: [workspaceId: string, sources: LoadedSource[]]

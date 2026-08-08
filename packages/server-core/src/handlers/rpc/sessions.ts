@@ -1,6 +1,7 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join } from 'path'
 import { RPC_CHANNELS, type FileAttachment, type SendMessageOptions, type SessionEvent } from '@craft-agent/shared/protocol'
+import type { BulkUpdateSessionsInput, BulkUpdateSessionsResult } from '@craft-agent/shared/protocol/dto'
 import type { StoredAttachment, SessionMemoryMode } from '@craft-agent/core/types'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import { perf } from '@craft-agent/shared/utils'
@@ -115,6 +116,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.sessions.RESPOND_TO_PERMISSION,
   RPC_CHANNELS.sessions.RESPOND_TO_CREDENTIAL,
   RPC_CHANNELS.sessions.COMMAND,
+  RPC_CHANNELS.sessions.BULK_UPDATE,
   RPC_CHANNELS.sessions.GET_PENDING_PLAN_EXECUTION,
   RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE,
   RPC_CHANNELS.sessions.SET_MEMORY_MODE,
@@ -396,6 +398,90 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
         throw new Error(`Unknown session command: ${JSON.stringify(command)}`)
       }
     }
+  })
+
+  // B4: Multi-select bulk updates over sessions:command setters.
+  server.handle(RPC_CHANNELS.sessions.BULK_UPDATE, async (
+    _ctx,
+    input: BulkUpdateSessionsInput,
+  ): Promise<BulkUpdateSessionsResult> => {
+    if (!input || !Array.isArray(input.ids)) {
+      throw new Error('bulk_update: invalid input')
+    }
+    if (input.ids.length === 0) {
+      return { ok: [], failed: [] }
+    }
+    if (input.ids.length > 200) {
+      throw new Error('bulk_limit')
+    }
+    const patch = input.patch ?? {}
+    if ('rank' in (patch as Record<string, unknown>)) {
+      throw new Error('bulk_rank_forbidden')
+    }
+
+    // Each id must exist and belong to the workspace; report per-id failures without aborting the batch.
+    const ok: string[] = []
+    const failed: Array<{ id: string; error: string }> = []
+
+    for (const sessionId of input.ids) {
+      try {
+        const managed = sessionManager.sessions.get(sessionId)
+        if (!managed) {
+          failed.push({ id: sessionId, error: 'not_found' })
+          continue
+        }
+        if (managed.workspace.id !== input.workspaceId) {
+          failed.push({ id: sessionId, error: 'foreign' })
+          continue
+        }
+
+        if (patch.isArchived === true && managed.isProcessing) {
+          failed.push({ id: sessionId, error: 'busy' })
+          continue
+        }
+
+        if (typeof patch.isArchived === 'boolean') {
+          if (patch.isArchived) await sessionManager.archiveSession(sessionId)
+          else await sessionManager.unarchiveSession(sessionId)
+        }
+        if (typeof patch.isFlagged === 'boolean') {
+          if (patch.isFlagged) await sessionManager.flagSession(sessionId)
+          else await sessionManager.unflagSession(sessionId)
+        }
+        if (patch.sessionStatus !== undefined) {
+          await sessionManager.setSessionStatus(sessionId, patch.sessionStatus)
+        }
+        if (patch.priority !== undefined) {
+          await sessionManager.setPriority(sessionId, patch.priority)
+        }
+        if (patch.dueDate !== undefined) {
+          await sessionManager.setDueDate(sessionId, patch.dueDate)
+        }
+        if (patch.projectId !== undefined) {
+          await sessionManager.setSessionProjectId(sessionId, patch.projectId)
+        }
+        if (patch.labels !== undefined) {
+          await sessionManager.setSessionLabels(sessionId, patch.labels)
+        }
+        if (patch.kanbanColumn !== undefined) {
+          await sessionManager.setKanbanColumn(sessionId, patch.kanbanColumn)
+        }
+        ok.push(sessionId)
+      } catch (e) {
+        failed.push({ id: sessionId, error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    if (ok.length > 0) {
+      pushTyped(
+        server,
+        RPC_CHANNELS.sessions.BULK_CHANGED,
+        { to: 'workspace', workspaceId: input.workspaceId },
+        { workspaceId: input.workspaceId, ids: ok, patch },
+      )
+    }
+
+    return { ok, failed }
   })
 
   // Get pending plan execution state (for reload recovery)

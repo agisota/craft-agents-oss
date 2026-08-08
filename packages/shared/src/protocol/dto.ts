@@ -458,6 +458,42 @@ export interface SendMessageOptions {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk session updates (B4) — sessions:bulkUpdate RPC.
+// ---------------------------------------------------------------------------
+
+/** Limit enforced on sessions:bulkUpdate; beyond it the call fails with bulk_limit. */
+export const BULK_UPDATE_MAX_IDS = 200
+
+export interface BulkUpdateSessionsPatch {
+  sessionStatus?: SessionStatus
+  priority?: SessionPriority
+  /** null clears dueDate. */
+  dueDate?: number | null
+  projectId?: string | null
+  labels?: string[]
+  isFlagged?: boolean
+  isArchived?: boolean
+  kanbanColumn?: string | null
+}
+
+export interface BulkUpdateSessionsInput {
+  workspaceId: string
+  ids: string[]
+  patch: BulkUpdateSessionsPatch
+}
+
+export interface BulkUpdateSessionsResult {
+  ok: string[]
+  failed: Array<{ id: string; error: string }>
+}
+
+export interface SessionsBulkChangedEvent {
+  workspaceId: string
+  ids: string[]
+  patch: BulkUpdateSessionsPatch
+}
+
+// ---------------------------------------------------------------------------
 // Session commands (consolidated operations)
 // ---------------------------------------------------------------------------
 

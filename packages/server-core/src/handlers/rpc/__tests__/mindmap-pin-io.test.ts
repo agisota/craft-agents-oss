@@ -10,7 +10,7 @@ import {
   finalizeGraph,
   pinFilename,
 } from '@craft-agent/core/mindmap'
-import type { RpcServer } from '../../../transport/server'
+import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../../handler-deps'
 import type { RequestContext } from '../../../transport/types'
 

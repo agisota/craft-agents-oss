@@ -31,7 +31,6 @@ import { registerSettingsHandlers } from './settings'
 import { registerGamificationHandlers } from './gamification'
 import { registerProjectsHandlers } from './projects'
 import { registerKanbanHandlers } from './kanban'
-import { registerMindmapHandlers } from './mindmap'
 
 import { registerSkillsHandlers } from './skills'
 import { registerSourcesHandlers } from './sources'
