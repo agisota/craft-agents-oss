@@ -80,3 +80,17 @@ describe('pin helpers', () => {
     expect(isStale(pin, 'deadbeef')).toBe(true);
   });
 });
+
+  test('sourceContentHash override tracks live hash separately', () => {
+    const graph = deriveNoteMindMap({
+      noteId: 'n-enrich',
+      title: 'T',
+      markdown: '# A',
+    });
+    const enriched = { ...graph, contentHash: 'enriched-hash', derivation: 'enriched' as const };
+    const pin = createPinnedMap(enriched, { positions: {}, collapsed: [] }, 1, graph.contentHash);
+    expect(pin.graph.contentHash).toBe('enriched-hash');
+    expect(pin.sourceContentHash).toBe(graph.contentHash);
+    expect(isStale(pin, graph.contentHash)).toBe(false);
+    expect(isStale(pin, 'other')).toBe(true);
+  });

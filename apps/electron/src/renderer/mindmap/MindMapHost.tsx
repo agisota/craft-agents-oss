@@ -183,27 +183,35 @@ export function MindMapHost({
 
   const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
-  // Draft > fresh pin structure > live projection. Never write back to entity.
-  const displayGraph = enrichDraft ?? (pinFresh && pin ? pin.graph : graph)
+  // Draft > pin (fresh or Keep) > live. Never write back to entity.
+  const showPinnedStructure = Boolean(pin && (pinFresh || staleDismissed))
+  const displayGraph = enrichDraft ?? (showPinnedStructure && pin ? pin.graph : graph)
 
   const handleTogglePin = React.useCallback(() => {
     if (!graph) return
-    if (pin && !isStale(pin, graph.contentHash)) {
+    // Unpin when a pin exists and we're treating it as active (fresh or kept).
+    if (pin && ( !isStale(pin, graph.contentHash) || staleDismissed)) {
       clearPin(entity)
       setPin(null)
       setEnrichDraft(null)
       setStaleDismissed(false)
       return
     }
-    const next = createPinnedMap(graph, layoutFromCollapsed(collapsed))
+    const base = displayGraph ?? graph
+    const next = createPinnedMap(
+      base,
+      layoutFromCollapsed(collapsed),
+      Date.now(),
+      graph.contentHash, // track live source
+    )
     savePin(next)
     setPin(next)
     setStaleDismissed(false)
-  }, [collapsed, entity, graph, pin])
+  }, [collapsed, displayGraph, entity, graph, pin, staleDismissed])
 
   const handleRebuildPin = React.useCallback(() => {
     if (!graph) return
-    const next = createPinnedMap(graph, layoutFromCollapsed(collapsed))
+    const next = createPinnedMap(graph, layoutFromCollapsed(collapsed), Date.now(), graph.contentHash)
     savePin(next)
     setPin(next)
     setEnrichDraft(null)
@@ -228,10 +236,11 @@ export function MindMapHost({
         toast.error(t('mindmap.enrichUnavailable'))
         return
       }
+      const base = displayGraph ?? graph
       const result = await api({
         workspaceId,
         entity,
-        graph: enrichDraft ?? graph,
+        graph: base,
         sourceExcerpt,
       })
       if (result?.ok && result.graph) {
@@ -249,11 +258,16 @@ export function MindMapHost({
     } finally {
       setEnriching(false)
     }
-  }, [activeWorkspaceId, enrichDraft, enriching, entity, graph, sourceExcerpt, t, workspaceIdProp])
+  }, [activeWorkspaceId, displayGraph, enriching, entity, graph, sourceExcerpt, t, workspaceIdProp])
 
   const handleAcceptEnrich = React.useCallback(() => {
-    if (!enrichDraft) return
-    const next = createPinnedMap(enrichDraft, layoutFromCollapsed(collapsed))
+    if (!enrichDraft || !graph) return
+    const next = createPinnedMap(
+      enrichDraft,
+      layoutFromCollapsed(collapsed),
+      Date.now(),
+      graph.contentHash, // stay fresh vs live until source changes again
+    )
     savePin(next)
     setPin(next)
     setStaleDismissed(false)
@@ -261,7 +275,7 @@ export function MindMapHost({
     onGraphOverride?.(enrichDraft)
     setEnrichDraft(null)
     toast.success(t('mindmap.enrichAccepted'))
-  }, [collapsed, enrichDraft, onAcceptDraft, onGraphOverride, t])
+  }, [collapsed, enrichDraft, graph, onAcceptDraft, onGraphOverride, t])
 
   const handleDiscardEnrich = React.useCallback(() => {
     setEnrichDraft(null)
@@ -286,7 +300,12 @@ export function MindMapHost({
       )
       await window.electronAPI.saveNote(workspaceId, created.id, markdown)
       // Keep a pin of what we saved
-      const next = createPinnedMap(g, layoutFromCollapsed(collapsed))
+      const next = createPinnedMap(
+        g,
+        layoutFromCollapsed(collapsed),
+        Date.now(),
+        graph?.contentHash ?? g.contentHash,
+      )
       savePin(next)
       setPin(next)
       toast.success(t('mindmap.materializeDone'))
@@ -309,7 +328,10 @@ export function MindMapHost({
   React.useEffect(() => {
     if (!zen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setZen(false)
+      if (e.key === 'Escape') {
+        setZen(false)
+        window.dispatchEvent(new CustomEvent('craft-mindmap-zen', { detail: { zen: false } }))
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -395,7 +417,7 @@ export function MindMapHost({
             ? t('mindmap.enriching')
             : enrichDraft
               ? t('mindmap.enrichReady')
-              : pinFresh
+              : showPinnedStructure
                 ? t('mindmap.pinned')
                 : t('mindmap.live')}
         </span>
@@ -459,17 +481,17 @@ export function MindMapHost({
             type="button"
             className={cn(
               'h-7 inline-flex items-center gap-1 rounded-[6px] px-1.5 hover:bg-foreground/5',
-              pinFresh
+              showPinnedStructure
                 ? 'text-foreground bg-foreground/5'
                 : 'text-muted-foreground hover:text-foreground',
             )}
-            title={pinFresh ? t('mindmap.unpin') : t('mindmap.pin')}
-            aria-pressed={pinFresh}
+            title={showPinnedStructure ? t('mindmap.unpin') : t('mindmap.pin')}
+            aria-pressed={showPinnedStructure}
             onClick={handleTogglePin}
           >
-            {pinFresh ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+            {showPinnedStructure ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
             <span className="text-[11px] font-medium">
-              {pinFresh ? t('mindmap.pinned') : t('mindmap.pin')}
+              {showPinnedStructure ? t('mindmap.pinned') : t('mindmap.pin')}
             </span>
           </button>
 
@@ -483,7 +505,13 @@ export function MindMapHost({
             )}
             title={t('mindmap.zen')}
             aria-pressed={zen}
-            onClick={() => setZen((v) => !v)}
+            onClick={() => {
+              setZen((v) => {
+                const next = !v
+                window.dispatchEvent(new CustomEvent('craft-mindmap-zen', { detail: { zen: next } }))
+                return next
+              })
+            }}
           >
             {zen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             <span className="text-[11px] font-medium">{t('mindmap.zen')}</span>
@@ -625,7 +653,10 @@ export function MindMapHost({
             <button
               type="button"
               className="h-7 inline-flex items-center gap-1 rounded-[6px] px-2 text-[11px] font-medium text-foreground hover:bg-foreground/5"
-              onClick={() => setZen(false)}
+              onClick={() => {
+                setZen(false)
+                window.dispatchEvent(new CustomEvent('craft-mindmap-zen', { detail: { zen: false } }))
+              }}
             >
               <Minimize2 className="h-3.5 w-3.5" />
               {t('common.close')}

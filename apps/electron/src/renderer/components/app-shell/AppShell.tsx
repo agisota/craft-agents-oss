@@ -1893,6 +1893,18 @@ function AppShellContent({
     return cleanup
   }, [])
 
+  // Mind map zen: collapse sidebar+navigator chrome (same as focus mode).
+  React.useEffect(() => {
+    const onZen = (event: Event) => {
+      const detail = (event as CustomEvent<{ zen?: boolean }>).detail
+      if (typeof detail?.zen === 'boolean') {
+        setIsSidebarAndNavigatorHidden(detail.zen)
+      }
+    }
+    window.addEventListener('craft-mindmap-zen', onZen)
+    return () => window.removeEventListener('craft-mindmap-zen', onZen)
+  }, [])
+
   // Listen for sidebar toggle from menu (View → Toggle Sidebar)
   React.useEffect(() => {
     const cleanup = window.electronAPI.onMenuToggleSidebar?.(() => {

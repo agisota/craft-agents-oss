@@ -549,12 +549,18 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
   const handleMindMapNavigate = React.useCallback(
     (source: { kind: string; id: string }) => {
-      // P1: switch to standard chat for message/tool click-through.
+      // Switch to standard chat and scroll to the source message/turn.
       if (source.kind === 'message' || source.kind === 'tool') {
         setSessionView('standard')
+        // Defer until ChatDisplay is mounted for standard view.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            chatDisplayRef?.current?.scrollToMessage?.(source.id)
+          })
+        })
       }
     },
-    [setSessionView],
+    [chatDisplayRef, setSessionView],
   )
 
   const renderSessionViewBody = React.useCallback(
@@ -587,6 +593,12 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             error={messageLoadState.error}
             mode={sessionView}
             workspaceId={activeWorkspaceId || undefined}
+            sourceExcerpt={
+              session?.messages
+                ?.slice(-12)
+                .map((m) => `${m.role}: ${(m.content ?? '').slice(0, 240)}`)
+                .join('\n') || undefined
+            }
             onNavigate={handleMindMapNavigate}
           />
         )

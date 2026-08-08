@@ -86,13 +86,15 @@ export function createPinnedMap(
   graph: MindMapGraph,
   layout: MindMapLayout = { positions: {}, collapsed: [] },
   now = Date.now(),
+  /** Hash of the live source projection this pin tracks (defaults to graph.contentHash). */
+  sourceContentHash?: string,
 ): PinnedMap {
   return {
     id: `pin_${entityPinKey(graph.entity)}_${now}`,
     entity: graph.entity,
     graph: { ...graph, derivation: 'pinned' },
     layout,
-    sourceContentHash: graph.contentHash,
+    sourceContentHash: sourceContentHash ?? graph.contentHash,
     createdAt: now,
     updatedAt: now,
   };
