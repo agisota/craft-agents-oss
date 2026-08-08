@@ -134,6 +134,10 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`)
 
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(sourceSlug)) {
+      throw new Error(`Invalid source slug: ${sourceSlug}`)
+    }
+
     const existing = loadSourceConfig(workspace.rootPath, sourceSlug)
     if (!existing) throw new Error(`Source not found: ${sourceSlug}`)
 

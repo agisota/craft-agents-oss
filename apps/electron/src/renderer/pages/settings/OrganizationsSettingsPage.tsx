@@ -24,7 +24,7 @@ import {
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
   OrganizationWithMembers,
-  OrgInvite,
+  OrgInvitePublic,
   OrgMember,
   OrgRole,
 } from '@craft-agent/shared/orgs'
@@ -60,6 +60,7 @@ export default function OrganizationsSettingsPage() {
   const [inviteTarget, setInviteTarget] = useState('')
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
   const [inviting, setInviting] = useState(false)
+  const [lastInviteToken, setLastInviteToken] = useState<string | null>(null)
 
   const [acceptToken, setAcceptToken] = useState('')
   const [accepting, setAccepting] = useState(false)
@@ -131,6 +132,8 @@ export default function OrganizationsSettingsPage() {
         role: inviteRole,
       })
       setInviteTarget('')
+      setLastInviteToken(invite.token)
+      const { token: _token, ...publicInvite } = invite
       setOrgs((prev) =>
         prev.map((o) =>
           o.id === selected.id
@@ -138,7 +141,7 @@ export default function OrganizationsSettingsPage() {
                 ...o,
                 pendingInvites: [
                   ...o.pendingInvites.filter((i) => i.id !== invite.id),
-                  invite,
+                  publicInvite,
                 ],
               }
             : o,
@@ -334,7 +337,7 @@ export default function OrganizationsSettingsPage() {
                         }
                       />
                     ))}
-                    {selected.pendingInvites.map((inv: OrgInvite) => (
+                    {selected.pendingInvites.map((inv: OrgInvitePublic) => (
                       <SettingsRow
                         key={inv.id}
                         label={inv.emailOrUsername}
@@ -382,12 +385,10 @@ export default function OrganizationsSettingsPage() {
                         {inviting ? t('common.sending') : t('settings.orgs.sendInvite')}
                       </Button>
                     </div>
-                    {selected.pendingInvites.length > 0 && (
+                    {lastInviteToken && (
                       <p className="break-all text-[11px] text-muted-foreground">
                         {t('settings.orgs.lastToken')}:{' '}
-                        <code className="font-mono">
-                          {selected.pendingInvites[selected.pendingInvites.length - 1]?.token}
-                        </code>
+                        <code className="font-mono">{lastInviteToken}</code>
                       </p>
                     )}
                   </div>

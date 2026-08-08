@@ -517,6 +517,13 @@ export function KanbanBoardContainer() {
       const target: KanbanMoveTarget = typeof to === 'string' ? { columnId: to } : to
       const toColumn = target.columnId
 
+      // Capture prior column before optimistic writes so same-column project
+      // drops never re-trigger auto-run.
+      const priorMeta = metaMap.get(taskId)
+      const previousColumn: KanbanColumnId =
+        (priorMeta?.kanbanColumn as KanbanColumnId | undefined) ??
+        statusToColumn(priorMeta?.sessionStatus ?? 'todo')
+
       // Optimistic column placement.
       updateSessionMeta(taskId, { kanbanColumn: toColumn })
       void window.electronAPI.sessionCommand(taskId, { type: 'setKanbanColumn', column: toColumn })
@@ -540,9 +547,11 @@ export function KanbanBoardContainer() {
         handleChangeStatus(taskId, autoStatus)
       }
 
-      // P1.4 auto-run hook — in-progress always starts; other columns need prompt.
+      // P1.4 auto-run hook — only when the column actually changes.
+      // In-progress always starts; other columns need prompt.
       const destColumn = activeColumns.find(c => c.id === toColumn)
       if (!activeWorkspaceId) return
+      if (previousColumn === toColumn) return
       if (!shouldAutoRunOnDrop(toColumn, destColumn)) return
       const meta = metaMap.get(taskId)
       if (!meta || meta.isProcessing || processingRef.current.has(taskId)) return
@@ -571,6 +580,7 @@ export function KanbanBoardContainer() {
             },
             onError: (err, job) => {
               processingRef.current.delete(job.sessionId)
+              updateSessionMeta(job.sessionId, { isProcessing: false })
               toast.error(t('kanban.toastAutoRunFailed'), {
                 description: err instanceof Error ? err.message : String(err),
               })

@@ -2,10 +2,10 @@
  * Persist gamification state to `~/.craft-agent/gamification.json`.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { CONFIG_DIR } from '../config/paths.ts'
-import { readJsonFileSync } from '../utils/files.ts'
+import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts'
 import {
   getLevelForXp,
   getLevelProgress,
@@ -133,7 +133,7 @@ export function saveGamificationState(
     level: getLevelForXp(state.xp),
     updatedAt: Date.now(),
   }
-  writeFileSync(path, JSON.stringify(payload, null, 2), 'utf-8')
+  atomicWriteFileSync(path, JSON.stringify(payload, null, 2))
 }
 
 /**

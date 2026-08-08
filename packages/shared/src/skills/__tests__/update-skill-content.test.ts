@@ -41,4 +41,19 @@ describe('updateSkillContent', () => {
   it('returns null for missing skill', () => {
     expect(updateSkillContent(root, 'missing', { name: 'x', description: 'y' })).toBeNull();
   });
+
+  it('rejects path-traversal and invalid slugs', () => {
+    expect(() =>
+      updateSkillContent(root, '../outside', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, 'Demo', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, '', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+    expect(() =>
+      updateSkillContent(root, 'has/slash', { name: 'x', description: 'y' }),
+    ).toThrow(/Invalid skill slug/);
+  });
 });

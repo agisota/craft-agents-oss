@@ -38,6 +38,9 @@ export interface OrgInvite {
   acceptedByUserId?: string
 }
 
+/** List/get DTO invite — token is never exposed outside create/accept. */
+export type OrgInvitePublic = Omit<OrgInvite, 'token'> & { token?: never }
+
 export interface OrgsStoreFile {
   version: 1
   organizations: Organization[]
@@ -64,5 +67,6 @@ export interface AcceptInviteInput {
 
 export interface OrganizationWithMembers extends Organization {
   members: OrgMember[]
-  pendingInvites: OrgInvite[]
+  /** Pending invites without redeem tokens (use create/accept for tokens). */
+  pendingInvites: OrgInvitePublic[]
 }
