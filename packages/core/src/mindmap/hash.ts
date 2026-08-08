@@ -17,6 +17,7 @@ const SHA256_ROUND_CONSTANTS = new Uint32Array([
 ]);
 
 const UTF8_ENCODER = new TextEncoder();
+const UINT32_MODULUS = 4_294_967_296;
 
 function rotateRight(value: number, bits: number): number {
   return (value >>> bits) | (value << (32 - bits));
@@ -31,7 +32,7 @@ function portableSha256Hex(text: string): string {
 
   const bitLength = bytes.length * 8;
   const view = new DataView(data.buffer);
-  view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x1_0000_0000), false);
+  view.setUint32(paddedLength - 8, Math.floor(bitLength / UINT32_MODULUS), false);
   view.setUint32(paddedLength - 4, bitLength >>> 0, false);
 
   let h0 = 0x6a09e667;
