@@ -170,10 +170,10 @@ export function MindMapHost({
     if (prev.size === collapsed.size && [...collapsed].every((id) => prev.has(id))) {
       return
     }
+    // Preserve pinned structure; only layout/collapse updates.
     const next: PinnedMap = {
-      ...createPinnedMap(graph, layoutFromCollapsed(collapsed)),
-      id: pin.id,
-      createdAt: pin.createdAt,
+      ...pin,
+      layout: layoutFromCollapsed(collapsed),
       updatedAt: Date.now(),
     }
     savePin(next)
@@ -191,6 +191,7 @@ export function MindMapHost({
     if (pin && !isStale(pin, graph.contentHash)) {
       clearPin(entity)
       setPin(null)
+      setEnrichDraft(null)
       setStaleDismissed(false)
       return
     }
