@@ -29,6 +29,7 @@ import { useSession } from '@/hooks/useSession'
 import { useUpdateChecker } from '@/hooks/useUpdateChecker'
 import { NavigationProvider } from '@/contexts/NavigationContext'
 import * as storage from '@/lib/local-storage'
+import { markStatusUnseen } from '@/lib/sidebar-unseen-status'
 import { navigate, routes } from './lib/navigate'
 import { attachmentFromContentRef, toDraftRef } from './lib/drafts'
 import { stripMarkdown } from './utils/text'
@@ -1041,13 +1042,24 @@ export default function App() {
         handleBackgroundTaskEvent(store, sessionId, event, agentEvent)
 
         // For handoff events, update metadata map for list display
-        // NOTE: No sessionsAtom to sync - atom and metadata are the source of truth
         if (isHandoff) {
           // Update metadata map
           const metaMap = store.get(sessionMetaMapAtom)
+          const prevMeta = metaMap.get(sessionId)
           const newMetaMap = new Map(metaMap)
-          newMetaMap.set(sessionId, extractSessionMeta(updatedSession))
+          const nextMeta = extractSessionMeta(updatedSession)
+          newMetaMap.set(sessionId, nextMeta)
           store.set(sessionMetaMapAtom, newMetaMap)
+
+          // Agent/automation flipped status → light sidebar unseen accent.
+          if (
+            event.type === 'session_status_changed' &&
+            nextMeta.sessionStatus &&
+            nextMeta.sessionStatus !== prevMeta?.sessionStatus &&
+            nextMeta.workspaceId
+          ) {
+            markStatusUnseen(nextMeta.workspaceId, nextMeta.sessionStatus)
+          }
 
           // Show notification on complete (when window is not focused).
           // Skip hidden sessions (mini-agent sessions) - they shouldn't trigger notifications.
@@ -1302,9 +1314,15 @@ export default function App() {
   }, [updateSessionById])
 
   const handleSessionStatusChange = useCallback((sessionId: string, state: SessionStatus) => {
+    const prev = store.get(sessionMetaMapAtom).get(sessionId)
     updateSessionById(sessionId, { sessionStatus: state })
     window.electronAPI.sessionCommand(sessionId, { type: 'setSessionStatus', state })
-  }, [updateSessionById])
+    // Sidebar unseen dot when the session moves into a different status bucket.
+    // (updateSessionById → extractSessionMeta path does not go through updateSessionMetaAtom.)
+    if (prev?.workspaceId && prev.sessionStatus !== state) {
+      markStatusUnseen(prev.workspaceId, state)
+    }
+  }, [updateSessionById, store])
 
   const handleRenameSession = useCallback((sessionId: string, name: string) => {
     updateSessionById(sessionId, { name })

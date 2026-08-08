@@ -83,6 +83,8 @@ export interface LinkItem {
   sortable?: SortableConfig
   // Optional element rendered after the title (e.g., label type icon), revealed on hover
   afterTitle?: React.ReactNode
+  /** Accent unseen dot (same treatment as What's New badge) */
+  hasUnseen?: boolean
 }
 
 export interface SeparatorItem {
@@ -538,9 +540,19 @@ const SidebarButton = React.forwardRef<HTMLButtonElement, SidebarButtonProps & R
             {link.afterTitle}
           </span>
         )}
+        {/* Unseen accent — same treatment as What's New top-bar badge. */}
+        {link.hasUnseen && (
+          <span
+            className={cn(
+              'h-1.5 w-1.5 shrink-0 rounded-full bg-accent',
+              !link.afterTitle && !link.label && 'ml-auto'
+            )}
+            aria-hidden
+          />
+        )}
         {/* Label Badge: count/status always visible (muted) */}
         {link.label && (
-          <span data-touch-reveal="true" className={cn(link.afterTitle ? 'ml-0' : 'ml-auto', 'text-xs text-foreground/30 opacity-100')}>
+          <span data-touch-reveal="true" className={cn(link.afterTitle || link.hasUnseen ? 'ml-0' : 'ml-auto', 'text-xs text-foreground/30 opacity-100')}>
             {link.label}
           </span>
         )}
