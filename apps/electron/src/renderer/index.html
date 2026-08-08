@@ -12,11 +12,40 @@
 <body>
   <script>
     // React DevTools - only in development (when running via Vite dev server)
-    if (location.protocol === 'file:' || location.hostname === 'localhost') {
+    // Never on file:// (packaged app) — only Vite dev server.
+    if (location.protocol === 'http:' && location.hostname === 'localhost') {
       const s = document.createElement('script');
       s.src = 'http://localhost:8097';
       document.head.appendChild(s);
     }
+    // Node Buffer polyfill for packaged renderer (shared code paths expect it).
+    if (typeof globalThis.Buffer === 'undefined') {
+      globalThis.Buffer = {
+        from(data, enc) {
+          if (typeof data === 'string') {
+            const bytes = new TextEncoder().encode(data);
+            const arr = Uint8Array.from(bytes);
+            arr.toString = (e) => e === 'base64' ? btoa(String.fromCharCode(...arr)) : new TextDecoder().decode(arr);
+            return arr;
+          }
+          const arr = data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data || []);
+          arr.toString = (e) => e === 'base64' ? btoa(String.fromCharCode(...arr)) : new TextDecoder().decode(arr);
+          return arr;
+        },
+        alloc(n) { const a = new Uint8Array(n); a.toString = () => ''; return a; },
+        isBuffer(x) { return x instanceof Uint8Array; },
+        concat(list) {
+          const total = list.reduce((s, x) => s + x.length, 0);
+          const out = new Uint8Array(total);
+          let o = 0;
+          for (const x of list) { out.set(x, o); o += x.length; }
+          out.toString = (e) => e === 'base64' ? btoa(String.fromCharCode(...out)) : new TextDecoder().decode(out);
+          return out;
+        },
+      };
+    }
+    if (typeof globalThis.global === 'undefined') globalThis.global = globalThis;
+    if (typeof globalThis.process === 'undefined') globalThis.process = { env: {}, browser: true };
   </script>
   <div id="root">
     <!-- Initial loading state: visible until React mounts and replaces #root contents.

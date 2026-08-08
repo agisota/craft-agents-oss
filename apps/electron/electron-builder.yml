@@ -97,27 +97,22 @@ mac:
     - target: dmg
       arch:
         - arm64
-        - x64
-    - target: zip
-      arch:
-        - arm64
-        - x64
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extraResources:
     # Thin core SDK (sdk.mjs + types). ~4 MB — present on every platform.
-    - from: node_modules/@anthropic-ai/claude-agent-sdk
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk
       to: app/node_modules/@anthropic-ai/claude-agent-sdk
     # Stable alias pointing at the target-arch native binary package.
     # Populated by build-dmg.sh / build-linux.sh / build-win.ps1 before
     # electron-builder runs (`apps/electron/node_modules/@anthropic-ai/claude-agent-sdk-binary/`).
     # The runtime resolver (runtime-resolver.ts) looks here first.
-    - from: node_modules/@anthropic-ai/claude-agent-sdk-binary
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk-binary
       to: app/node_modules/@anthropic-ai/claude-agent-sdk-binary
     # ripgrep (used by packages/server-core/src/services/search.ts).
-    - from: node_modules/@vscode/ripgrep
+    - from: ../../node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
     # WhatsApp worker subprocess (self-contained; Baileys bundled in).
     - from: ../../packages/messaging-whatsapp-worker/dist/worker.cjs
@@ -177,11 +172,11 @@ win:
     - "!**/resources/bin/win32-x64/**"
   # Copy executables as extraResources to avoid EBUSY file locking (see comment above)
   extraResources:
-    - from: node_modules/@anthropic-ai/claude-agent-sdk
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk
       to: app/node_modules/@anthropic-ai/claude-agent-sdk
-    - from: node_modules/@anthropic-ai/claude-agent-sdk-binary
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk-binary
       to: app/node_modules/@anthropic-ai/claude-agent-sdk-binary
-    - from: node_modules/@vscode/ripgrep
+    - from: ../../node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
     - from: vendor/bun/bun.exe
       to: vendor/bun/bun.exe
@@ -211,11 +206,11 @@ linux:
         - x64
   artifactName: "Craft-Agents-${arch}.${ext}"
   extraResources:
-    - from: node_modules/@anthropic-ai/claude-agent-sdk
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk
       to: app/node_modules/@anthropic-ai/claude-agent-sdk
-    - from: node_modules/@anthropic-ai/claude-agent-sdk-binary
+    - from: ../../node_modules/@anthropic-ai/claude-agent-sdk-binary
       to: app/node_modules/@anthropic-ai/claude-agent-sdk-binary
-    - from: node_modules/@vscode/ripgrep
+    - from: ../../node_modules/@vscode/ripgrep
       to: app/node_modules/@vscode/ripgrep
     # WhatsApp worker subprocess (self-contained; Baileys bundled in).
     - from: ../../packages/messaging-whatsapp-worker/dist/worker.cjs
