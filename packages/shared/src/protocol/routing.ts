@@ -278,6 +278,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.extensionHost.RESTART,
   RPC_CHANNELS.extensionHost.LOAD,
   RPC_CHANNELS.extensionHost.CALL,
+  RPC_CHANNELS.extensionHost.LIST_COMMANDS,
   RPC_CHANNELS.extensionHost.MINT_CAPABILITY,
   RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY,
   RPC_CHANNELS.extensionHost.PROXY_FETCH,
