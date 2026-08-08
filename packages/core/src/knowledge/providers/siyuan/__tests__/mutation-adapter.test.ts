@@ -423,6 +423,8 @@ describe('plugin/petal soft endpoints (bridge feed)', () => {
     const methods = Object.getOwnPropertyNames(SiyuanKernelClient.prototype).filter((name) => name !== 'constructor');
     expect(methods).toContain('getInstalledPlugin');
     expect(methods).toContain('getBazaarPlugin');
+    expect(methods).toContain('installBazaarPlugin');
+    expect(methods).toContain('uninstallBazaarPlugin');
     expect(methods).toContain('loadPetals');
     expect(methods).toContain('setPetalEnabled');
     const destructive = methods.filter((name) => /delete|remove|rename|move/i.test(name));
@@ -459,5 +461,32 @@ describe('plugin/petal soft endpoints (bridge feed)', () => {
       });
       await expect(client.getBazaarPlugin()).resolves.toEqual([{ name: 'bare', version: '9' }]);
     }
+  });
+
+  test('installBazaarPlugin posts kernel install body (no Craft-side download)', async () => {
+    const { client, calls } = makeClient({
+      '/api/bazaar/installBazaarPlugin': () => ({ data: null }),
+    });
+    await client.installBazaarPlugin({
+      packageName: 'siyuan-plugin-sample',
+      repoURL: 'https://github.com/siyuan-note/plugin-sample',
+      repoHash: 'abc123def456',
+    });
+    expect(callsFor(calls, '/api/bazaar/installBazaarPlugin')[0]!.body).toEqual({
+      frontend: 'desktop',
+      repoURL: 'https://github.com/siyuan-note/plugin-sample',
+      repoHash: 'abc123def456',
+      packageName: 'siyuan-plugin-sample',
+    });
+  });
+
+  test('uninstallBazaarPlugin posts packageName', async () => {
+    const { client, calls } = makeClient({
+      '/api/bazaar/uninstallBazaarPlugin': () => ({ data: null }),
+    });
+    await client.uninstallBazaarPlugin({ packageName: 'siyuan-plugin-sample' });
+    expect(callsFor(calls, '/api/bazaar/uninstallBazaarPlugin')[0]!.body).toEqual({
+      packageName: 'siyuan-plugin-sample',
+    });
   });
 });

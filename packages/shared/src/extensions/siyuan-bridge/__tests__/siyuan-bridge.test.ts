@@ -188,7 +188,7 @@ describe('pluginJsonToExtensionRecord', () => {
     expect(rec.category).toBe('knowledge')
     expect(rec.providerId).toBe('siyuan-bazaar')
     expect(rec.status).toBe('enabled')
-    expect(rec.readOnly).toBe(true)
+    expect(rec.readOnly).toBe(false)
     expect(rec.worksIn).toEqual([
       'Knowledge surface',
       'Compatibility mode',
@@ -206,6 +206,30 @@ describe('pluginJsonToExtensionRecord', () => {
     const rec = pluginJsonToExtensionRecord(m, 1, true)
     expect(rec.tags).toContain('requiresFullChrome')
     expect(pluginJsonToCatalogEntry(m, 1).tags).toContain('requiresFullChrome')
+  })
+
+  it('pluginJsonToCatalogEntry attaches optional bazaar install coords', () => {
+    const entry = pluginJsonToCatalogEntry(
+      {
+        name: 'demo-plugin',
+        version: '1.2.3',
+      },
+      1,
+      {
+        bazaar: {
+          packageName: 'demo-plugin',
+          repoURL: 'https://github.com/ex/demo',
+          repoHash: 'deadbeef',
+        },
+      },
+    )
+    expect(entry.bazaar).toEqual({
+      packageName: 'demo-plugin',
+      repoURL: 'https://github.com/ex/demo',
+      repoHash: 'deadbeef',
+    })
+    expect(entry.providerId).toBe('siyuan-bazaar')
+    expect(entry.runtime).toBe('siyuan-plugin')
   })
 
   it('L3 worksIn includes Panels and Agent tools; disabled status', () => {

@@ -3,7 +3,8 @@
  *
  * Unified catalog + installed projections (skills/sources/automations/marketplace).
  * Install for curated marketplace entries delegates to marketplace.install.
- * Extension Host / contribution registration / live Bazaar → residual W6.
+ * Install for SiYuan Bazaar entries delegates to pluginBridge.installBazaar
+ * (kernel-only; Craft never downloads the plugin zip).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -461,6 +462,17 @@ export default function ExtensionsSettingsPage() {
     const tags = entry.tags ?? installedMatch?.tags
     const compatLevel = parseCompatLevelFromTags(tags)
     const requiresFullChrome = tagsRequireFullChrome(tags)
+    const bazaarCoords = entry.bazaar
+    const isSiyuanBazaar =
+      entry.providerId === 'siyuan-bazaar' || entry.runtime === 'siyuan-plugin'
+    const canInstallBazaar =
+      Boolean(bazaarCoords) && status === 'available' && isSiyuanBazaar
+    const canInstallMarketplace = Boolean(marketplaceId) && status === 'available'
+    const bareBazaarName = entry.id.startsWith('siyuan-plugin:')
+      ? entry.id.slice('siyuan-plugin:'.length)
+      : entry.id
+    const canUninstallBazaar =
+      isSiyuanBazaar && Boolean(installedMatch) && !installedMatch?.readOnly
     return (
       <ExtensionCard
         key={entry.id}
@@ -484,12 +496,21 @@ export default function ExtensionsSettingsPage() {
             : undefined
         }
         onInstall={
-          marketplaceId && status === 'available'
+          canInstallBazaar && bazaarCoords
             ? () =>
                 void runBusy(entry.id, async () => {
-                  await window.electronAPI.installMarketplaceEntry(marketplaceId)
+                  await window.electronAPI.pluginBridgeInstallBazaar({
+                    packageName: bazaarCoords.packageName,
+                    repoURL: bazaarCoords.repoURL,
+                    repoHash: bazaarCoords.repoHash,
+                  })
                 })
-            : undefined
+            : canInstallMarketplace
+              ? () =>
+                  void runBusy(entry.id, async () => {
+                    await window.electronAPI.installMarketplaceEntry(marketplaceId!)
+                  })
+              : undefined
         }
         onUpdate={
           curatedInstalled && status === 'update-available'
@@ -500,12 +521,19 @@ export default function ExtensionsSettingsPage() {
             : undefined
         }
         onUninstall={
-          curatedInstalled
+          canUninstallBazaar
             ? () =>
                 void runBusy(entry.id, async () => {
-                  await window.electronAPI.removeMarketplaceEntry(marketplaceId!)
+                  await window.electronAPI.pluginBridgeUninstallBazaar({
+                    packageName: bareBazaarName,
+                  })
                 })
-            : undefined
+            : curatedInstalled
+              ? () =>
+                  void runBusy(entry.id, async () => {
+                    await window.electronAPI.removeMarketplaceEntry(marketplaceId!)
+                  })
+              : undefined
         }
         onToggle={
           installedMatch
@@ -524,6 +552,12 @@ export default function ExtensionsSettingsPage() {
     const curated = Boolean(marketplaceId) && !rec.readOnly
     const compatLevel = parseCompatLevelFromTags(rec.tags)
     const requiresFullChrome = tagsRequireFullChrome(rec.tags)
+    const isSiyuanBazaar =
+      rec.providerId === 'siyuan-bazaar' || rec.manifest.runtime === 'siyuan-plugin'
+    const bareBazaarName = rec.id.startsWith('siyuan-plugin:')
+      ? rec.id.slice('siyuan-plugin:'.length)
+      : rec.id
+    const canUninstallBazaar = isSiyuanBazaar && !rec.readOnly
     return (
       <ExtensionCard
         key={rec.id}
@@ -552,12 +586,19 @@ export default function ExtensionsSettingsPage() {
             : undefined
         }
         onUninstall={
-          curated
+          canUninstallBazaar
             ? () =>
                 void runBusy(rec.id, async () => {
-                  await window.electronAPI.removeMarketplaceEntry(marketplaceId!)
+                  await window.electronAPI.pluginBridgeUninstallBazaar({
+                    packageName: bareBazaarName,
+                  })
                 })
-            : undefined
+            : curated
+              ? () =>
+                  void runBusy(rec.id, async () => {
+                    await window.electronAPI.removeMarketplaceEntry(marketplaceId!)
+                  })
+              : undefined
         }
         onToggle={(enabled) =>
           void runBusy(rec.id, async () => {

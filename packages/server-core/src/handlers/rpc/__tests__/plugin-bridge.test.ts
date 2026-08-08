@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import { resetExtensionStateStoreCache } from '@craft-agent/shared/extensions'
+import { getExtensionStateStore, resetExtensionStateStoreCache } from '@craft-agent/shared/extensions'
 import { SiyuanKernelClient } from '@craft-agent/core/knowledge/providers/siyuan'
 import {
   HANDLED_CHANNELS,
@@ -110,6 +110,8 @@ describe('pluginBridge handlers', () => {
       RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
       RPC_CHANNELS.pluginBridge.SET_ENABLED,
       RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
+      RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR,
+      RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR,
     ])
     for (const ch of HANDLED_CHANNELS) {
       expect(server.handlers.has(ch)).toBe(true)
@@ -493,7 +495,7 @@ describe('resolveKernelClient conf fallback + bazaar catalog merge', () => {
     await expect(loadBazaarRemoteManifests()).resolves.toEqual([])
   })
 
-  it('pluginBridgeBazaarCatalogListFn merges installed + remote; installed wins', async () => {
+  it('pluginBridgeBazaarCatalogListFn merges installed + remote; installed wins; remote keeps bazaar coords', async () => {
     setPluginBridgeFixture([
       {
         name: 'shared-plugin',
@@ -515,11 +517,15 @@ describe('resolveKernelClient conf fallback + bazaar catalog merge', () => {
               name: 'shared-plugin',
               version: '1.0.0',
               displayName: { en: 'Remote Shared' },
+              repoURL: 'https://github.com/ex/shared',
+              repoHash: 'hash-shared',
             },
             {
               name: 'remote-only',
               version: '2.0.0',
               author: 'bazaar',
+              repoURL: 'https://github.com/ex/remote',
+              repoHash: 'hash-remote',
             },
           ],
         },
@@ -531,15 +537,216 @@ describe('resolveKernelClient conf fallback + bazaar catalog merge', () => {
     expect(installed.map((m) => m.name).sort()).toEqual(['local-only', 'shared-plugin'])
 
     const merged = await pluginBridgeBazaarCatalogListFn()
-    expect(merged.map((m) => m.name).sort()).toEqual(['local-only', 'remote-only', 'shared-plugin'])
+    const names = merged
+      .map((e) => (e.id.startsWith('siyuan-plugin:') ? e.id.slice('siyuan-plugin:'.length) : e.id))
+      .sort()
+    expect(names).toEqual(['local-only', 'remote-only', 'shared-plugin'])
 
-    const shared = merged.find((m) => m.name === 'shared-plugin')
+    const shared = merged.find((e) => e.id === 'siyuan-plugin:shared-plugin')
     expect(shared?.version).toBe('9.9.9')
-    expect(shared?.craft?.level).toBe(2)
+    // installed overwrites remote — bazaar coords from remote are not kept on installed win
+    expect(shared?.bazaar).toBeUndefined()
 
-    const remoteOnly = merged.find((m) => m.name === 'remote-only')
+    const remoteOnly = merged.find((e) => e.id === 'siyuan-plugin:remote-only')
     expect(remoteOnly?.version).toBe('2.0.0')
-    expect(remoteOnly?.author).toBe('bazaar')
+    expect(remoteOnly?.bazaar).toEqual({
+      packageName: 'remote-only',
+      repoURL: 'https://github.com/ex/remote',
+      repoHash: 'hash-remote',
+    })
+  })
+
+  it('INSTALL_BAZAAR calls kernel install + setPetalEnabled; fails without kernel', async () => {
+    __setPluginBridgeKernelClientForTests(null)
+    {
+      const server = createMockServer()
+      registerPluginBridgeHandlers(server as never, {
+        platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+      } as never)
+      const install = server.handlers.get(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR)!
+      await expect(
+        install(
+          {},
+          {
+            packageName: 'p',
+            repoURL: 'https://github.com/ex/p',
+            repoHash: 'abc',
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'CONNECTION_UNAVAILABLE' })
+    }
+
+    const calls: Array<{ endpoint: string; body: Record<string, unknown> }> = []
+    const client = makeKernelClient({
+      '/api/bazaar/installBazaarPlugin': (body) => {
+        calls.push({ endpoint: '/api/bazaar/installBazaarPlugin', body })
+        return { data: null }
+      },
+      '/api/petal/setPetalEnabled': (body) => {
+        calls.push({ endpoint: '/api/petal/setPetalEnabled', body })
+        return { data: null }
+      },
+    })
+    __setPluginBridgeKernelClientForTests(client)
+
+    const server = createMockServer()
+    registerPluginBridgeHandlers(server as never, {
+      platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+    } as never)
+    const install = server.handlers.get(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR)!
+    const result = (await install(
+      {},
+      {
+        packageName: 'remote-only',
+        repoURL: 'https://github.com/ex/remote',
+        repoHash: 'hash-remote',
+      },
+    )) as { packageName: string; enabled?: boolean }
+    expect(result.packageName).toBe('remote-only')
+    expect(result.enabled).toBe(true)
+    expect(calls.map((c) => c.endpoint)).toEqual([
+      '/api/bazaar/installBazaarPlugin',
+      '/api/petal/setPetalEnabled',
+    ])
+    expect(calls[0]?.body).toEqual({
+      frontend: 'desktop',
+      repoURL: 'https://github.com/ex/remote',
+      repoHash: 'hash-remote',
+      packageName: 'remote-only',
+    })
+    expect(calls[1]?.body).toEqual({ packageName: 'remote-only', enabled: true })
+  })
+
+  it('INSTALL_BAZAAR strips siyuan-plugin: prefix before kernel + store id', async () => {
+    const store = getExtensionStateStore(configDir)
+    const calls: Array<{ endpoint: string; body: Record<string, unknown> }> = []
+    const client = makeKernelClient({
+      '/api/bazaar/installBazaarPlugin': (body) => {
+        calls.push({ endpoint: '/api/bazaar/installBazaarPlugin', body })
+        return { data: null }
+      },
+      '/api/petal/setPetalEnabled': (body) => {
+        calls.push({ endpoint: '/api/petal/setPetalEnabled', body })
+        return { data: null }
+      },
+    })
+    __setPluginBridgeKernelClientForTests(client)
+
+    const server = createMockServer()
+    registerPluginBridgeHandlers(server as never, {
+      platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+    } as never)
+    const install = server.handlers.get(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR)!
+    const result = (await install(
+      {},
+      {
+        packageName: 'siyuan-plugin:foo',
+        repoURL: 'https://github.com/ex/foo',
+        repoHash: 'hash-foo',
+      },
+    )) as { packageName: string; enabled?: boolean }
+
+    expect(result.packageName).toBe('foo')
+    expect(result.enabled).toBe(true)
+    expect(calls[0]?.body).toEqual({
+      frontend: 'desktop',
+      repoURL: 'https://github.com/ex/foo',
+      repoHash: 'hash-foo',
+      packageName: 'foo',
+    })
+    expect(calls[1]?.body).toEqual({ packageName: 'foo', enabled: true })
+    expect(store.getState().enabled['siyuan-plugin:foo']).toBe(true)
+  })
+
+  it('after INSTALL_BAZAAR, catalog listFn shows package as installed (kernel feed wins over remote)', async () => {
+    const installedPkgs: Array<Record<string, unknown>> = []
+    const client = makeKernelClient({
+      '/api/bazaar/installBazaarPlugin': (body) => {
+        installedPkgs.push({
+          name: body.packageName,
+          version: '1.2.3',
+          enabled: true,
+        })
+        return { data: null }
+      },
+      '/api/petal/setPetalEnabled': () => ({ data: null }),
+      '/api/bazaar/getInstalledPlugin': () => ({ data: installedPkgs }),
+      '/api/petal/loadPetals': () => ({
+        data: installedPkgs.map((p) => ({ name: p.name, enabled: true })),
+      }),
+      '/api/bazaar/getBazaarPlugin': () => ({
+        data: {
+          packages: [
+            {
+              name: 'fresh-plugin',
+              version: '0.9.0',
+              repoURL: 'https://github.com/ex/fresh',
+              repoHash: 'hash-fresh',
+            },
+          ],
+        },
+      }),
+    })
+    __setPluginBridgeKernelClientForTests(client)
+
+    // Before install: remote-only in catalog, not in installed kernel feed
+    const before = await pluginBridgeBazaarCatalogListFn()
+    const beforeEntry = before.find((e) => e.id === 'siyuan-plugin:fresh-plugin')
+    expect(beforeEntry?.version).toBe('0.9.0')
+    expect(beforeEntry?.bazaar).toEqual({
+      packageName: 'fresh-plugin',
+      repoURL: 'https://github.com/ex/fresh',
+      repoHash: 'hash-fresh',
+    })
+
+    const server = createMockServer()
+    registerPluginBridgeHandlers(server as never, {
+      platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+    } as never)
+    const install = server.handlers.get(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR)!
+    await install(
+      {},
+      {
+        packageName: 'fresh-plugin',
+        repoURL: 'https://github.com/ex/fresh',
+        repoHash: 'hash-fresh',
+      },
+    )
+
+    // After install: kernel installed feed wins — no bazaar coords (Install UI disappears)
+    const after = await pluginBridgeBazaarCatalogListFn()
+    const afterEntry = after.find((e) => e.id === 'siyuan-plugin:fresh-plugin')
+    expect(afterEntry).toBeTruthy()
+    expect(afterEntry?.version).toBe('1.2.3')
+    expect(afterEntry?.bazaar).toBeUndefined()
+  })
+
+  it('UNINSTALL_BAZAAR calls kernel uninstall and clears ExtensionStateStore', async () => {
+    const store = getExtensionStateStore(configDir)
+    store.setEnabled('siyuan-plugin:gone-plugin', true)
+    expect(store.getState().enabled['siyuan-plugin:gone-plugin']).toBe(true)
+
+    const calls: Array<{ endpoint: string; body: Record<string, unknown> }> = []
+    const client = makeKernelClient({
+      '/api/bazaar/uninstallBazaarPlugin': (body) => {
+        calls.push({ endpoint: '/api/bazaar/uninstallBazaarPlugin', body })
+        return { data: null }
+      },
+    })
+    __setPluginBridgeKernelClientForTests(client)
+
+    const server = createMockServer()
+    registerPluginBridgeHandlers(server as never, {
+      platform: { logger: { info() {}, error() {}, warn() {}, debug() {} } },
+    } as never)
+    const uninstall = server.handlers.get(RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR)!
+    const result = (await uninstall({}, { packageName: 'siyuan-plugin:gone-plugin' })) as {
+      packageName: string
+    }
+    expect(result.packageName).toBe('gone-plugin')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.body).toEqual({ packageName: 'gone-plugin' })
+    expect(store.getState().enabled['siyuan-plugin:gone-plugin']).toBeUndefined()
   })
 
   it('LIST_PLUGINS enriches thin kernel packages from filesystem plugin.json', async () => {

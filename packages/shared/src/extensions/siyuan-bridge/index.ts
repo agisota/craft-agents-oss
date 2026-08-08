@@ -16,7 +16,7 @@ export {
   defaultBridgeGrantedPermissions,
   type ProjectBridgeOptions,
 } from './project.ts'
-export { pluginJsonToExtensionRecord, pluginJsonToCatalogEntry } from './record.ts'
+export { pluginJsonToExtensionRecord, pluginJsonToCatalogEntry, type PluginJsonToCatalogEntryOptions } from './record.ts'
 export {
   SiyuanBazaarProvider,
   createSiyuanBazaarProvider,

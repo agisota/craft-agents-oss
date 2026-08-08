@@ -307,11 +307,14 @@ export const RPC_CHANNELS = {
 
   // pluginBridge — SiYuan plugin bridge projections (W6). LOCAL_ONLY.
   // Kernel plugin list is residual; handlers fail-soft / fixture-backed.
+  // install/uninstall delegate to kernel bazaar APIs (G2: no Craft-side zip).
   pluginBridge: {
     LIST_PLUGINS: 'pluginBridge:listPlugins',
     GET_PROJECTIONS: 'pluginBridge:getProjections',
     SET_ENABLED: 'pluginBridge:setEnabled',
     OPEN_COMPAT: 'pluginBridge:openCompat', // returns route descriptor only
+    INSTALL_BAZAAR: 'pluginBridge:installBazaar',
+    UNINSTALL_BAZAAR: 'pluginBridge:uninstallBazaar',
   },
 
   // extensionHost — Craft Extension Host lifecycle scaffold (W6).

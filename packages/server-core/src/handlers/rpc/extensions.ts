@@ -7,7 +7,8 @@
  * `{configDir}/extensions/state.json` and does NOT rewrite entity stores.
  *
  * Install/remove for marketplace ids remains on marketplace.* handlers.
- * Live kernel Bazaar install remains residual (catalog lists available only).
+ * Bazaar install/uninstall is on pluginBridge.installBazaar / uninstallBazaar
+ * (kernel-only; catalog entries carry bazaar coords when available).
  */
 
 import { existsSync } from 'node:fs'
@@ -46,8 +47,8 @@ import type { AutomationsConfig } from '@craft-agent/shared/automations'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
+  loadPluginBridgeManifests,
   pluginBridgeBazaarCatalogListFn,
-  pluginBridgeBazaarListFn,
 } from './plugin-bridge'
 
 export const HANDLED_CHANNELS = [
@@ -209,9 +210,10 @@ export function registerExtensionsHandlers(server: RpcServer, deps: HandlerDeps)
         }
       }
 
-      // SiYuan plugin bridge fixtures / residual feed (runtime siyuan-plugin).
+      // SiYuan plugin bridge — kernel-aware installed feed (same as LIST_PLUGINS).
       try {
-        for (const manifest of pluginBridgeBazaarListFn()) {
+        const loaded = await loadPluginBridgeManifests()
+        for (const manifest of loaded.manifests) {
           const id = `siyuan-plugin:${manifest.name}`
           const flag = enabledMap[id]
           const enabled = flag === undefined ? true : flag

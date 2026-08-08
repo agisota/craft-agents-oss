@@ -186,6 +186,30 @@ export interface PluginBridgeSetEnabledResult {
   residual?: string
 }
 
+/** Kernel Bazaar install args (pluginBridge:installBazaar). LOCAL_ONLY. */
+export interface PluginBridgeInstallBazaarArgs {
+  packageName: string
+  repoURL: string
+  repoHash: string
+}
+
+export interface PluginBridgeInstallBazaarResult {
+  packageName: string
+  /** Whether setPetalEnabled(true) succeeded after install. */
+  enabled?: boolean
+  residual?: string
+}
+
+/** Kernel Bazaar uninstall args (pluginBridge:uninstallBazaar). LOCAL_ONLY. */
+export interface PluginBridgeUninstallBazaarArgs {
+  packageName: string
+}
+
+export interface PluginBridgeUninstallBazaarResult {
+  packageName: string
+  residual?: string
+}
+
 export interface ExtensionHostStatus {
   status: 'stopped' | 'starting' | 'running' | 'degraded'
   pid?: number

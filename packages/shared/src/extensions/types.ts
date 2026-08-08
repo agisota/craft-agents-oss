@@ -161,6 +161,16 @@ export interface CatalogEntry {
   /** Raw marketplace entry id for install delegation. */
   marketplaceId?: string
   dependencies?: string[]
+  /**
+   * Kernel install coordinates for remote SiYuan Bazaar packages.
+   * Present on available remote catalog rows; installed rows may omit.
+   * Craft never downloads the zip — kernel installBazaarPlugin uses these.
+   */
+  bazaar?: {
+    packageName: string
+    repoURL: string
+    repoHash: string
+  }
 }
 
 export interface CatalogFilter {
