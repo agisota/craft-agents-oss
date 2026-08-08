@@ -674,4 +674,5 @@ export const CHANNEL_MAP = {
   getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
   setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
   onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
+  enrichMindMap: invoke(RPC_CHANNELS.mindmap.ENRICH),
 } satisfies ChannelMap

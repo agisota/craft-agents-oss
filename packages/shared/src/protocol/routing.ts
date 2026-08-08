@@ -285,6 +285,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.siyuan.STATE_CHANGED,
   RPC_CHANNELS.siyuan.REMOVED,
   RPC_CHANNELS.knowledge.ENGINE_START,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
+  RPC_CHANNELS.knowledge.METRICS_GET,
   RPC_CHANNELS.siyuan.EVALUATE,
   RPC_CHANNELS.gamification.GET,
   RPC_CHANNELS.gamification.AWARD,
@@ -297,6 +299,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.orgs.GET_IDENTITY,
   RPC_CHANNELS.orgs.UPDATE_IDENTITY,
   RPC_CHANNELS.orgs.SET_WORKSPACE_ORG,
+  RPC_CHANNELS.mindmap.ENRICH,
 ])
 
 // ---------------------------------------------------------------------------

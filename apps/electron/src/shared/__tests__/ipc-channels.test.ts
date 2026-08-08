@@ -295,6 +295,7 @@ const EXPECTED_CHANNELS: string[] = [
   'messaging:wechat:startConnect',
   'messaging:wechat:submitCode',
   'messaging:wechat:uiEvent',
+  'mindmap:enrich',
   'notes:changed',
   'notes:create',
   'notes:delete',

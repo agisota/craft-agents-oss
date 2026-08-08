@@ -576,6 +576,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             loading={sessionMindMapLoading}
             error={messageLoadState.error}
             mode={sessionView}
+            workspaceId={activeWorkspaceId || undefined}
             onNavigate={handleMindMapNavigate}
           />
         )
@@ -592,6 +593,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       sessionMindMapLoading,
       messageLoadState.error,
       handleMindMapNavigate,
+      activeWorkspaceId,
     ],
   )
 

@@ -22,6 +22,7 @@ import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
 export { cleanupNotesWatchForClient } from './notes'
 import { registerKnowledgeHandlers, cleanupKnowledgeWatchForClient } from './knowledge'
+import { registerMindmapHandlers } from './mindmap'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -105,5 +106,6 @@ export function registerCoreRpcHandlers(
   registerSkillsPendingHandlers(server, deps)
   registerNotesHandlers(server, deps)
   registerKnowledgeHandlers(server, deps)
+  registerMindmapHandlers(server, deps)
   if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)
 }

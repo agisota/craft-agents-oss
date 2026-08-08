@@ -1090,6 +1090,16 @@ export interface ElectronAPI {
   listInsights(workspaceId?: string): Promise<MemoryInsights>
   // Y4: stamp the one-shot onboarding marker ({configDir}/memory/.onboarded)
   markMemoryOnboarded(): Promise<void>
+  enrichMindMap(input: {
+    workspaceId: string
+    entity: import('@craft-agent/core/mindmap').MindMapEntityRef
+    graph: import('@craft-agent/core/mindmap').MindMapGraph
+    sourceExcerpt?: string
+    heuristicOnly?: boolean
+  }): Promise<
+    | { ok: true; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'llm' | 'heuristic' }
+    | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'passthrough' }
+  >
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
   // Statuses (workspace-scoped)
