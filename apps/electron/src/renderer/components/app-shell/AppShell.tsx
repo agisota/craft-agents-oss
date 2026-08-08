@@ -71,7 +71,7 @@ import {
 } from "@/components/ui/collapsible"
 import { SessionList, type ChatGroupingMode } from "./SessionList"
 import { MainContentPanel } from "./MainContentPanel"
-import { CollectionOpsBar } from "./collection/CollectionOpsBar"
+import { CollectionViewChrome } from "./collection/CollectionViewChrome"
 import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
@@ -2965,13 +2965,14 @@ function AppShellContent({
                 <>
                   {/* Collection ops: view toggle + Display (list mode only; board/table host own chrome). */}
                   {!isAutoCompact && isSessionsNavigation(navState) && navState.viewMode !== 'board' && navState.viewMode !== 'table' && (
-                    <CollectionOpsBar
+                    <CollectionViewChrome
                       workspaceId={activeWorkspaceId}
                       viewMode="list"
                       onViewModeChange={view => {
                         if (view === 'board') navigate(routes.view.board())
                         else if (view === 'table') navigate(routes.view.table())
                       }}
+                      compact
                     />
                   )}
                   {/* Filter dropdown - available in ALL chat views.
