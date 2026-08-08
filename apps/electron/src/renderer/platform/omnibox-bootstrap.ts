@@ -91,9 +91,18 @@ export function bootstrapOmnibox(options?: { t?: LabelResolver }): OmniboxPlatfo
   registerKnowledgeCommands(p.commands)
   registerResourceProviders(p.resources, options?.t)
   // Fail-soft: never block palette bootstrap if plugin bridge is missing.
-  void registerPluginBridgeCommands(p.commands).catch((err) => {
+  void refreshPluginBridgeCommands(p.commands).catch((err) => {
     console.debug('[omnibox] plugin bridge registration skipped', err)
   })
+  // Keep plugin contributions in sync with install/remove/enable/disable.
+  if (typeof window !== 'undefined' && typeof window.electronAPI?.onExtensionsChanged === 'function') {
+    const off = window.electronAPI.onExtensionsChanged(() => {
+      void refreshPluginBridgeCommands(p.commands).catch((err) => {
+        console.debug('[omnibox] plugin bridge refresh failed', err)
+      })
+    })
+    track({ dispose: off })
+  }
 
   return p
 }
@@ -107,6 +116,18 @@ export function __resetOmniboxBootstrapForTests(): void {
       /* ignore */
     }
   }
+  for (const list of pluginDisposables.values()) {
+    for (const d of list) {
+      try {
+        d.dispose()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  pluginDisposables.clear()
+  pluginRefreshInFlight.clear()
+  pluginRefreshQueued.clear()
   platform = null
   actionExecute = null
   bootstrapped = false
@@ -270,67 +291,105 @@ function defaultPluginBridgeGrants(level: number | undefined): string[] {
 
 /**
  * Soft-load enabled L2+ plugin projections into the command registry.
- * Missing ElectronAPI methods are a no-op (W6 domain may land later).
+ * Refreshable: disposes previously-registered plugin contributions and
+ * re-registers from the current plugin set so install/remove/enable/disable
+ * is reflected without an app restart. Serialized per-registry instance.
  */
-async function registerPluginBridgeCommands(commands: CommandRegistry): Promise<void> {
-  try {
-    if (typeof window === 'undefined') return
-    const api = window.electronAPI as PluginBridgeApi | undefined
-    if (!api?.pluginBridgeListPlugins || !api?.pluginBridgeGetProjections) return
+const pluginDisposables = new Map<CommandRegistry, Array<{ dispose(): void }>>()
+const pluginRefreshInFlight = new Map<CommandRegistry, Promise<void>>()
+/** Coalesce concurrent refresh requests into one trailing run. */
+const pluginRefreshQueued = new Set<CommandRegistry>()
 
-    const list = await api.pluginBridgeListPlugins()
-    const plugins = list?.plugins ?? []
-    for (const plugin of plugins) {
-      if (!plugin?.id || plugin.enabled === false) continue
-      if ((plugin.level ?? 0) < 2) continue
-
-      let projections: PluginBridgeProjections
-      try {
-        const grantedPermissions =
-          plugin.grantedPermissions ?? defaultPluginBridgeGrants(plugin.level)
-        projections = await api.pluginBridgeGetProjections({
-          pluginId: plugin.id,
-          grantedPermissions,
-        })
-      } catch (err) {
-        console.debug('[omnibox] getProjections failed', plugin.id, err)
-        continue
-      }
-      if ((projections?.level ?? plugin.level ?? 0) < 2) continue
-
-      for (const cmd of projections?.commands ?? []) {
-        if (!cmd?.id || !cmd.title) continue
-        const id = pluginCommandId(plugin.id, cmd.id)
-        const contribution: CommandContribution = {
-          id,
-          title: cmd.title,
-          category: 'SiYuan Plugin',
-          // Domain lands `siyuan-plugin` on the source union; cast keeps bootstrap green either way.
-          source: 'siyuan-plugin' as CommandContribution['source'],
-          when: cmd.when,
-          defaultHotkey: cmd.defaultHotkey,
-          keywords: ['siyuan', 'plugin', plugin.name ?? plugin.id],
-          async execute() {
-            try {
-              if (typeof api.pluginBridgeOpenCompat === 'function') {
-                await api.pluginBridgeOpenCompat({ pluginId: plugin.id })
-              }
-              openSiyuanCompatSurface()
-            } catch (err) {
-              console.debug('[omnibox] bridge invoke stub', id, err)
-            }
-          },
-        }
-        try {
-          track(commands.register(contribution))
-        } catch (err) {
-          console.debug('[omnibox] skip plugin command', id, err)
-        }
-      }
-    }
-  } catch (err) {
-    console.debug('[omnibox] plugin bridge soft-load failed', err)
+async function refreshPluginBridgeCommands(commands: CommandRegistry): Promise<void> {
+  const inFlight = pluginRefreshInFlight.get(commands)
+  if (inFlight) {
+    // A refresh is already running — queue one trailing pass and wait for it.
+    pluginRefreshQueued.add(commands)
+    return inFlight
   }
+
+  const run = (async () => {
+    try {
+      do {
+        pluginRefreshQueued.delete(commands)
+        if (typeof window === 'undefined') return
+        const api = window.electronAPI as PluginBridgeApi | undefined
+        if (!api?.pluginBridgeListPlugins || !api?.pluginBridgeGetProjections) return
+
+        const list = await api.pluginBridgeListPlugins()
+        const plugins = list?.plugins ?? []
+        const contributions: CommandContribution[] = []
+        for (const plugin of plugins) {
+          if (!plugin?.id || plugin.enabled === false) continue
+          if ((plugin.level ?? 0) < 2) continue
+
+          let projections: PluginBridgeProjections
+          try {
+            const grantedPermissions =
+              plugin.grantedPermissions ?? defaultPluginBridgeGrants(plugin.level)
+            projections = await api.pluginBridgeGetProjections({
+              pluginId: plugin.id,
+              grantedPermissions,
+            })
+          } catch (err) {
+            console.debug('[omnibox] getProjections failed', plugin.id, err)
+            continue
+          }
+          if ((projections?.level ?? plugin.level ?? 0) < 2) continue
+
+          for (const cmd of projections?.commands ?? []) {
+            if (!cmd?.id || !cmd.title) continue
+            const id = pluginCommandId(plugin.id, cmd.id)
+            contributions.push({
+              id,
+              title: cmd.title,
+              category: 'SiYuan Plugin',
+              // Domain lands `siyuan-plugin` on the source union; cast keeps bootstrap green either way.
+              source: 'siyuan-plugin' as CommandContribution['source'],
+              when: cmd.when,
+              defaultHotkey: cmd.defaultHotkey,
+              keywords: ['siyuan', 'plugin', plugin.name ?? plugin.id],
+              async execute() {
+                try {
+                  if (typeof api.pluginBridgeOpenCompat === 'function') {
+                    await api.pluginBridgeOpenCompat({ pluginId: plugin.id })
+                  }
+                  openSiyuanCompatSurface()
+                } catch (err) {
+                  console.debug('[omnibox] bridge invoke stub', id, err)
+                }
+              },
+            })
+          }
+        }
+
+        // Full swap: dispose stale plugin contributions, register the new set.
+        for (const d of pluginDisposables.get(commands) ?? []) {
+          try {
+            d.dispose()
+          } catch {
+            /* ignore */
+          }
+        }
+        const fresh: Array<{ dispose(): void }> = []
+        for (const contribution of contributions) {
+          try {
+            fresh.push(commands.register(contribution))
+          } catch (err) {
+            console.debug('[omnibox] skip plugin command', contribution.id, err)
+          }
+        }
+        pluginDisposables.set(commands, fresh)
+      } while (pluginRefreshQueued.has(commands))
+    } catch (err) {
+      console.debug('[omnibox] plugin bridge soft-load failed', err)
+    } finally {
+      pluginRefreshInFlight.delete(commands)
+      pluginRefreshQueued.delete(commands)
+    }
+  })()
+  pluginRefreshInFlight.set(commands, run)
+  return run
 }
 
 function registerResourceProviders(

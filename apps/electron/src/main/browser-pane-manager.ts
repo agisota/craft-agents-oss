@@ -351,8 +351,10 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   private stateChangeCallback: ((info: BrowserInstanceInfo) => void) | null = null
   private removedCallback: ((id: string) => void) | null = null
   private interactedCallback: ((id: string) => void) | null = null
-  private partitionPermissionsInitialized = false
-  private partitionObserversInitialized = false
+  /** Sessions that already have permission handlers attached. */
+  private partitionPermissionsInitialized = new WeakSet<ElectronSession>()
+  /** Sessions that already have network/download observers attached. */
+  private partitionObserversInitialized = new WeakSet<ElectronSession>()
   private inFlightRequestsByWebContentsId = new Map<number, number>()
   private lastNetworkActivityByWebContentsId = new Map<number, number>()
   private popupWindowsByParentInstanceId = new Map<string, Set<BrowserWindow>>()
@@ -3584,8 +3586,8 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   }
 
   private setupSessionObservers(ses: ElectronSession): void {
-    if (this.partitionObserversInitialized) return
-    this.partitionObserversInitialized = true
+    if (this.partitionObserversInitialized.has(ses)) return
+    this.partitionObserversInitialized.add(ses)
 
     ses.webRequest.onBeforeRequest((details, callback) => {
       const wcId = details.webContentsId
@@ -3699,8 +3701,8 @@ export class BrowserPaneManager implements IBrowserPaneManager {
   }
 
   private setupSessionPermissions(ses: ElectronSession): void {
-    if (this.partitionPermissionsInitialized) return
-    this.partitionPermissionsInitialized = true
+    if (this.partitionPermissionsInitialized.has(ses)) return
+    this.partitionPermissionsInitialized.add(ses)
 
     const allow = new Set([
       'fullscreen',
