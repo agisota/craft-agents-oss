@@ -12,12 +12,17 @@
  *           генерирует package-lock.json (`npm install --package-lock-only
  *           --omit=dev`) и выводит base64 для npm-locks.ts (fail-closed).
  *   git:    качает codeload-tarball по pinned commit, sha256/size для GIT_LOCKS.
+ *   pip:    `uv pip compile --generate-hashes` → фрагмент для pip-locks.ts.
  *
- * Запуск: bun scripts/toolchain-locks.ts [--only name1,name2] [--out <dir>]
+ * Запуск:
+ *   bun scripts/toolchain-locks.ts [--only name1,name2] [--out <dir>]
+ *   bun scripts/toolchain-locks.ts pip <name>@<version> <pypi-spec>
+ *     pypi-spec example: 'cli-anything-hub==0.4.1' or 'packaging==24.2'
  * По умолчанию пишет сгенерированные TS-фрагменты в /tmp/toolchain-locks-out/.
- * Фрагменты вставляются в manifest-data.ts / npm-locks.ts вручную (ревью глазами).
+ * Фрагменты вставляются в manifest-data.ts / npm-locks.ts / pip-locks.ts вручную.
  *
- * Зависимости: bun, npm (для npm-режима), tar. Сеть: api.github.com, registry.npmjs.org.
+ * Зависимости: bun, npm (npm-режим), uv (pip-режим), tar.
+ * Сеть: api.github.com, registry.npmjs.org, PyPI.
  */
 
 import { createHash } from 'node:crypto';
@@ -248,6 +253,78 @@ const GIT_TOOLS: Record<string, GitToolSpec> = {
 // helpers
 // ---------------------------------------------------------------------------
 
+function log(msg: string): void {
+  console.error(`>> ${msg}`);
+}
+
+/** Escape a requirements.txt body for a TS template-literal lock entry. */
+function escapePipLockBody(body: string): string {
+  return body.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+}
+
+/**
+ * pip mode: bun scripts/toolchain-locks.ts pip <name>@<version> <pypi-spec>
+ * Runs `uv pip compile --generate-hashes` and prints a pip-locks.ts fragment.
+ */
+async function runPipMode(argv: string[]): Promise<void> {
+  // argv = ['pip', 'cli-anything@0.4.1', 'cli-anything-hub==0.4.1', ...]
+  const key = argv[1];
+  const spec = argv[2];
+  if (!key || !spec || !key.includes('@')) {
+    console.error(
+      "usage: bun scripts/toolchain-locks.ts pip <name>@<version> <pypi-spec>\n" +
+        "  e.g. bun scripts/toolchain-locks.ts pip cli-anything@0.4.1 'cli-anything-hub==0.4.1'",
+    );
+    process.exit(2);
+  }
+  const at = key.lastIndexOf('@');
+  const name = key.slice(0, at);
+  const version = key.slice(at + 1);
+  if (!name || !version) {
+    console.error('invalid <name>@<version> key');
+    process.exit(2);
+  }
+
+  // Locate uv (PATH). Fail non-zero if missing.
+  const uvPath = Bun.which('uv');
+  if (!uvPath) {
+    console.error('uv not found on PATH — install uv to generate pip locks');
+    process.exit(1);
+  }
+  log(`uv: ${uvPath}`);
+  log(`compile ${spec} → ${name}@${version}`);
+
+  const proc = Bun.spawn(['uv', 'pip', 'compile', '--generate-hashes', '-'], {
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  proc.stdin.write(spec.endsWith('\n') ? spec : `${spec}\n`);
+  proc.stdin.end();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    console.error(stderr || `uv pip compile failed (exit ${exitCode})`);
+    process.exit(exitCode || 1);
+  }
+  const body = stdout.endsWith('\n') ? stdout : `${stdout}\n`;
+  const fragment =
+    `  // ${name} ${version} — ${spec}\n` +
+    `  // Lock body from \`uv pip compile --generate-hashes\`.\n` +
+    `  '${name}@${version}': \`${escapePipLockBody(body)}\`,\n`;
+  process.stdout.write(fragment);
+  log(`pip lock fragment for ${name}@${version} (${body.split('\n').length} lines)`);
+}
+
+// pip subcommand — early exit before bulk binary/npm/git path
+if (process.argv[2] === 'pip') {
+  await runPipMode(process.argv.slice(2));
+  process.exit(0);
+}
+
 const OUT_DIR = (() => {
   const i = process.argv.indexOf('--out');
   return i >= 0 ? process.argv[i + 1]! : '/tmp/toolchain-locks-out';
@@ -258,9 +335,6 @@ const ONLY = (() => {
 })();
 const wanted = (name: string) => !ONLY || ONLY.has(name);
 
-function log(msg: string): void {
-  console.error(`>> ${msg}`);
-}
 
 async function sha256File(file: string): Promise<string> {
   const hash = createHash('sha256');

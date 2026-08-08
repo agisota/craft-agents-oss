@@ -79,6 +79,7 @@ export const TOOL_PLATFORM_MATRIX: Record<ToolName, ToolchainPlatform[]> = {
 
   // pip opt-in: uv pip install --require-hashes (embedded lock in pip-locks.ts)
   'pip-packaging': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  'cli-anything': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
 };
 
 function uvPython(binPaths: string[]): ToolArtifact {
@@ -534,7 +535,6 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
   },
 
   // pip-packaging 24.2 — proof opt-in pip tool (PyPI packaging library).
-  // CLI-Anything deferred; this ships the real uv pip install path.
   // Lock: pip-locks.ts 'pip-packaging@24.2' (wheel+sdist hashes). ensureAll skips pip.
   'pip-packaging': {
     version: '24.2',
@@ -544,6 +544,20 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
     dependsOn: ['uv', 'python'],
     pipPackage: 'packaging',
     // library only — no console script; installer skips launcher when pipModule unset
+    artifacts: {},
+  },
+
+  // cli-anything 0.4.1 — CLI-Anything hub (PyPI cli-anything-hub).
+  // Lock: pip-locks.ts 'cli-anything@0.4.1'. Console entry cli-hub → cli_hub.cli.
+  'cli-anything': {
+    version: '0.4.1',
+    kind: 'pip',
+    tier: 'opt-in',
+    displayName: 'CLI-Anything',
+    dependsOn: ['uv', 'python'],
+    pipPackage: 'cli-anything-hub',
+    pipModule: 'cli_hub.cli',
+    systemBinary: 'cli-hub',
     artifacts: {},
   },
 

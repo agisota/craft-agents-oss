@@ -67,6 +67,11 @@ export interface ManagerOptions {
   /** DI для тестов: установка brew-формулы (заменяет `brew install <formula>`). */
   brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
   /**
+   * DI for tests: uninstall brew formula after pin mismatch
+   * (default `brew uninstall --force <formula>`).
+   */
+  brewUninstallImpl?: (ctx: { brewBin: string; formula: string }) => Promise<void>;
+  /**
    * DI для тестов: `brew list --versions <formula>` → строка версий.
    * После успешного install при pinVersion сверяем token equality (не substring).
    */
@@ -143,6 +148,11 @@ export function brewVersionMatchesPin(stdout: string, pin: string, formula?: str
   }
   const rev = new RegExp(`^${escapeRegex(pin)}(_\\d+)?$`);
   return tokens.some((token) => token === pin || rev.test(token));
+}
+
+/** Default argv for `brew install` (quiet). */
+export function brewInstallArgs(formula: string): string[] {
+  return ['install', '--quiet', formula];
 }
 
 /**
@@ -600,7 +610,8 @@ export function createManager(
     setStatus({ name: entry.name, phase: 'installing' });
     try {
       const install =
-        opts.brewInstallImpl ?? ((ctx: BrewInstallContext) => runCommand([ctx.brewBin, 'install', ctx.formula]));
+        opts.brewInstallImpl ??
+        ((ctx: BrewInstallContext) => runCommand([ctx.brewBin, ...brewInstallArgs(ctx.formula)]));
       await install({ brewBin, formula, entry, pinVersion });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -611,6 +622,15 @@ export function createManager(
       const verFn = opts.brewVersionImpl ?? defaultBrewVersion;
       const ver = await verFn({ brewBin, formula, entry });
       if (!brewVersionMatchesPin(ver, pinVersion, formula)) {
+        const uninstall =
+          opts.brewUninstallImpl ??
+          ((ctx: { brewBin: string; formula: string }) =>
+            runCommand([ctx.brewBin, 'uninstall', '--force', ctx.formula]));
+        try {
+          await uninstall({ brewBin, formula });
+        } catch {
+          // best-effort cleanup after pin mismatch
+        }
         return setStatus({
           name: entry.name,
           phase: 'error',

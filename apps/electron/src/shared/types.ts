@@ -1180,6 +1180,7 @@ export interface ElectronAPI {
   listContextDocs(): Promise<ContextDocInfo[]>
   readContextDoc(filename: string): Promise<ContextDocContent>
   writeContextDoc(filename: string, content: string): Promise<ContextDocInfo>
+  deleteContextDoc(filename: string): Promise<void>
   readContextDocTemplate(filename: string): Promise<string | null>
   acceptContextDocTemplate(filename: string): Promise<ContextDocInfo>
   keepMineContextDocTemplate(filename: string): Promise<ContextDocInfo>

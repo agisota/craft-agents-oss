@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, FileText, Plus } from 'lucide-react'
+import { ChevronRight, FileText, Plus, Trash2 } from 'lucide-react'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
@@ -17,11 +17,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { navigate, routes } from '@/lib/navigate'
-import { useAppShellContext } from '@/context/AppShellContext'
+import { useAppShellContext, useActiveWorkspace } from '@/context/AppShellContext'
 import { Spinner } from '@craft-agent/ui'
 import { SettingsSection, SettingsCard, SettingsRow, SettingsToggle } from '@/components/settings'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type { BundledSkillPackStatus, ContextDocContent, ContextDocInfo, Lesson } from '../../../shared/types'
+
+const BUILTIN_CONTEXT_DOCS = new Set(['soul.md', 'rules.md'])
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -43,16 +45,20 @@ function normalizeNewDocFilename(raw: string): string {
 export default function ContextSettingsPage() {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useAppShellContext()
+  const activeWorkspace = useActiveWorkspace()
+  const workspaceRoot = activeWorkspace?.rootPath ?? null
   const [docs, setDocs] = useState<ContextDocInfo[]>([])
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const [currentDoc, setCurrentDoc] = useState<ContextDocContent | null>(null)
   const [draft, setDraft] = useState('')
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [templateBusy, setTemplateBusy] = useState(false)
   const [adding, setAdding] = useState(false)
   const [newDocName, setNewDocName] = useState('')
   const [pageError, setPageError] = useState<string | null>(null)
+  const [projectOverrides, setProjectOverrides] = useState<Record<string, boolean>>({})
 
   const [packs, setPacks] = useState<BundledSkillPackStatus[] | null>(null)
   const [packsBusy, setPacksBusy] = useState(false)
@@ -96,6 +102,36 @@ export default function ContextSettingsPage() {
     }
   }, [loadDocs, loadPacks])
 
+  // C3: surface active project-level soul.md/rules.md overrides when workspace root exists.
+  useEffect(() => {
+    let cancelled = false
+    if (!workspaceRoot) {
+      setProjectOverrides({})
+      return () => {
+        cancelled = true
+      }
+    }
+    const next: Record<string, boolean> = {}
+    void (async () => {
+      for (const filename of BUILTIN_CONTEXT_DOCS) {
+        const sep = workspaceRoot.includes('\\') && !workspaceRoot.includes('/') ? '\\' : '/'
+        const candidate = workspaceRoot.endsWith('/') || workspaceRoot.endsWith('\\')
+          ? `${workspaceRoot}${filename}`
+          : `${workspaceRoot}${sep}${filename}`
+        try {
+          await window.electronAPI.readFile(candidate)
+          if (!cancelled) next[filename] = true
+        } catch {
+          if (!cancelled) next[filename] = false
+        }
+      }
+      if (!cancelled) setProjectOverrides({ ...next })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceRoot])
+
   useEffect(() => {
     let cancelled = false
     setLessons(null)
@@ -123,7 +159,7 @@ export default function ContextSettingsPage() {
     }
   }, [activeWorkspaceId])
 
-  const openDoc = useCallback((filename: string) => {
+  const loadDocContent = useCallback((filename: string) => {
     setSelectedFilename(filename)
     setCurrentDoc(null)
     setDraft('')
@@ -150,6 +186,45 @@ export default function ContextSettingsPage() {
         setPageError(error instanceof Error ? error.message : String(error))
       })
   }, [])
+
+  const openDoc = useCallback(
+    (filename: string) => {
+      // C2: confirm discard before switching away from a dirty editor.
+      if (currentDoc !== null && draft !== currentDoc.content && filename !== selectedFilename) {
+        if (!window.confirm(t('settings.context.discardUnsaved'))) {
+          return
+        }
+      }
+      loadDocContent(filename)
+    },
+    [currentDoc, draft, loadDocContent, selectedFilename, t],
+  )
+
+  const deleteDoc = useCallback(
+    async (filename: string) => {
+      if (BUILTIN_CONTEXT_DOCS.has(filename)) return
+      if (!window.confirm(t('settings.context.deleteConfirm'))) return
+      setDeleting(true)
+      setPageError(null)
+      try {
+        await window.electronAPI.deleteContextDoc(filename)
+        setDocs((prev) => prev.filter((d) => d.filename !== filename))
+        if (selectedFilename === filename) {
+          setSelectedFilename(null)
+          setCurrentDoc(null)
+          setDraft('')
+          setTemplatePreview(null)
+          setShowTemplateDiff(false)
+        }
+      } catch (error) {
+        console.error('Failed to delete context doc:', error)
+        setPageError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setDeleting(false)
+      }
+    },
+    [selectedFilename, t],
+  )
 
   const saveDoc = useCallback(async () => {
     if (!currentDoc) return
@@ -288,29 +363,60 @@ export default function ContextSettingsPage() {
                     <p className="text-sm text-muted-foreground px-1">{t('settings.context.emptyDocs')}</p>
                   ) : (
                     <SettingsCard>
-                      {docs.map((doc) => (
-                        <SettingsRow
-                          key={doc.filename}
-                          label={doc.filename}
-                          description={
-                            doc.templateVersion !== null
-                              ? `${t('settings.context.templateVersion', { version: doc.templateVersion })} · ${formatSize(doc.size)}`
-                              : formatSize(doc.size)
-                          }
-                          onClick={() => openDoc(doc.filename)}
-                          action={
-                            <span className="flex items-center gap-2">
-                              {doc.templateStale && (
-                                <Badge variant="secondary">{t('settings.context.templateStale')}</Badge>
-                              )}
-                              {doc.locallyEdited && (
-                                <Badge variant="outline">{t('settings.context.locallyEdited')}</Badge>
-                              )}
-                              <FileText className="w-4 h-4 text-muted-foreground" />
-                            </span>
-                          }
-                        />
-                      ))}
+                      {docs.map((doc) => {
+                        const isBuiltin = BUILTIN_CONTEXT_DOCS.has(doc.filename)
+                        const overrideActive = Boolean(projectOverrides[doc.filename])
+                        return (
+                          <SettingsRow
+                            key={doc.filename}
+                            label={doc.filename}
+                            description={
+                              [
+                                doc.templateVersion !== null
+                                  ? t('settings.context.templateVersion', { version: doc.templateVersion })
+                                  : null,
+                                formatSize(doc.size),
+                                overrideActive
+                                  ? t('settings.context.projectOverrideActive', { filename: doc.filename })
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')
+                            }
+                            onClick={() => openDoc(doc.filename)}
+                            action={
+                              <span className="flex items-center gap-2">
+                                {doc.templateStale && (
+                                  <Badge variant="secondary">{t('settings.context.templateStale')}</Badge>
+                                )}
+                                {doc.locallyEdited && (
+                                  <Badge variant="outline">{t('settings.context.locallyEdited')}</Badge>
+                                )}
+                                {overrideActive && (
+                                  <Badge variant="outline">
+                                    {t('settings.context.projectOverrideActive', { filename: doc.filename })}
+                                  </Badge>
+                                )}
+                                {!isBuiltin && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={deleting}
+                                    aria-label={t('settings.context.delete')}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      void deleteDoc(doc.filename)
+                                    }}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </Button>
+                                )}
+                                <FileText className="w-4 h-4 text-muted-foreground" />
+                              </span>
+                            }
+                          />
+                        )
+                      })}
                     </SettingsCard>
                   )}
 
@@ -367,6 +473,16 @@ export default function ContextSettingsPage() {
                                 {t('settings.context.keepMine')}
                               </Button>
                             </>
+                          )}
+                          {!BUILTIN_CONTEXT_DOCS.has(currentDoc.filename) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={deleting}
+                              onClick={() => void deleteDoc(currentDoc.filename)}
+                            >
+                              {deleting ? <Spinner className="w-3 h-3" /> : t('settings.context.delete')}
+                            </Button>
                           )}
                           <Button size="sm" onClick={() => void saveDoc()} disabled={!isDirty || saving}>
                             {saving ? <Spinner className="w-3 h-3" /> : t('settings.context.save')}
@@ -434,6 +550,13 @@ export default function ContextSettingsPage() {
               description={t('settings.context.overridesDesc')}
             >
               <p className="text-sm text-muted-foreground px-1">{t('settings.context.overridesBody')}</p>
+              {(['soul.md', 'rules.md'] as const)
+                .filter((filename) => projectOverrides[filename])
+                .map((filename) => (
+                  <p key={filename} className="text-sm text-amber-600 dark:text-amber-400 px-1 pt-2">
+                    {t('settings.context.projectOverrideActive', { filename })}
+                  </p>
+                ))}
             </SettingsSection>
 
             <SettingsSection

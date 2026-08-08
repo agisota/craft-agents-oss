@@ -55,6 +55,10 @@ check(
   `CONFIG_DIR=${CONFIG_DIR}`,
 )
 
+// Seed config-defaults.json so storage getters (thinking level, etc.) work offline.
+const { ensureConfigDir } = await import('../packages/shared/src/config/storage.ts')
+ensureConfigDir()
+
 const {
   ensureContextDocs,
   writeContextDoc,
@@ -125,6 +129,57 @@ check(
   Boolean(diskSkill && existsSync(diskSkillMd)),
   diskSkillMd || '(no installed slug)',
 )
+
+// E1: skill discovery resolves at least one known superpowers skill slug.
+// ensureBundledSkills writes flat skill dirs under targetRoot; listSkillSlugs
+// reads workspaceRoot/skills — point workspace at the parent of skillsTarget
+// when target is .../skills, else scan targetRoot directly via readdir.
+try {
+  const { listSkillSlugs } = await import('../packages/shared/src/skills/storage.ts')
+  // listSkillSlugs(workspace) → workspace/skills; our target is often the skills root itself.
+  const parentOfTarget = resolve(skillsTarget, '..')
+  const viaList =
+    resolve(join(parentOfTarget, 'skills')) === resolve(skillsTarget)
+      ? listSkillSlugs(parentOfTarget)
+      : existsSync(skillsTarget)
+        ? readdirSync(skillsTarget, { withFileTypes: true })
+            .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+            .filter((d) => existsSync(join(skillsTarget, d.name, 'SKILL.md')))
+            .map((d) => d.name)
+        : []
+  const known = ['brainstorming', 'using-superpowers', 'superpowers']
+  const hit = known.find((k) => viaList.includes(k) || (superpowers?.installed ?? []).includes(k))
+  check(
+    'skill_discovery_known_slug',
+    Boolean(hit) || (superpowers?.installed.length ?? 0) > 0,
+    hit
+      ? `found=${hit}`
+      : `slugs=${viaList.slice(0, 8).join(',') || '(none)'} installed=${(superpowers?.installed ?? []).slice(0, 5).join(',')}`,
+  )
+} catch (err) {
+  check(
+    'skill_discovery_known_slug',
+    false,
+    err instanceof Error ? err.message : String(err),
+  )
+}
+
+// E1: getDefaultThinkingLevel is callable (next-session default path).
+try {
+  const { getDefaultThinkingLevel } = await import('../packages/shared/src/config/storage.ts')
+  const level = getDefaultThinkingLevel()
+  check(
+    'default_thinking_level_callable',
+    typeof level === 'string' && level.length > 0,
+    `level=${String(level)}`,
+  )
+} catch (err) {
+  check(
+    'default_thinking_level_callable',
+    false,
+    err instanceof Error ? err.message : String(err),
+  )
+}
 
 // Optional: getToolchainDisabled is callable and returns an array (filter path smoke).
 try {

@@ -29,6 +29,11 @@ commands:
           command: |
             SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
             CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
+      - run:
+          name: Fresh-profile marketplace smoke (no network)
+          command: |
+            SMOKE_DIR="$(mktemp -d /tmp/mp-smoke.XXXXXX)"
+            CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/marketplace-smoke.ts
 
 jobs:
   toolchain-smoke-linux:

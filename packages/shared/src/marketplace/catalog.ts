@@ -7,6 +7,7 @@
  * ETag + 24h TTL; on any failure the last cache or the bundled copy wins.
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -64,9 +65,10 @@ export interface MarketplaceEntry {
   /** stats: npm package used for weekly-download metrics. */
   npm?: { package: string }
   /**
-   * Optional content integrity pins (PRD fail-closed).
-   * key = skill basename (skillpack) or context targetName (context-doc);
+   * Content integrity pins — REQUIRED for skillpack and context-doc entries.
+   * key = skill basename / entry.id (skillpack) or context targetName (context-doc);
    * value = 64-hex sha256 of installed content (dir tree or file body).
+   * Tools do not require pins.
    */
   expectedContentSha256?: Record<string, string>
 }
@@ -94,6 +96,26 @@ export class CatalogValidationError extends Error {
     super(`Invalid marketplace catalog: ${issues.join('; ')}`)
     this.name = 'CatalogValidationError'
     this.issues = issues
+  }
+}
+
+/** SHA-256 hex digest of a UTF-8 string (catalog body / sidecar compare). */
+export function sha256HexOfString(body: string): string {
+  return createHash('sha256').update(body, 'utf8').digest('hex')
+}
+
+/**
+ * Verify `body` against a GNU sha256 sidecar payload (`<hex>  catalog.json`).
+ * Throws on missing/invalid token or digest mismatch.
+ */
+function assertCatalogBodyMatchesSidecar(body: string, sidecarBody: string, label: string): void {
+  const token = (sidecarBody.trim().split(/\s+/)[0] ?? '').toLowerCase()
+  if (!CONTENT_SHA256_RE.test(token)) {
+    throw new Error(`${label}: catalog digest sidecar must start with a 64-hex sha256`)
+  }
+  const actual = sha256HexOfString(body)
+  if (actual !== token) {
+    throw new Error(`${label}: catalog sha256 mismatch (expected ${token}, got ${actual})`)
   }
 }
 
@@ -186,7 +208,58 @@ export function parseCatalog(raw: unknown): MarketplaceCatalog {
       }
     }
 
-    if (rec.expectedContentSha256 !== undefined) {
+    // Content pins: required for skillpack/context-doc; optional for tools.
+    if (kind === 'skillpack' || kind === 'context-doc') {
+      const pins = rec.expectedContentSha256
+      if (typeof pins !== 'object' || pins === null || Array.isArray(pins)) {
+        issues.push(`${where}.expectedContentSha256 must be a non-empty object`)
+      } else {
+        const pinEntries = Object.entries(pins as Record<string, unknown>)
+        if (pinEntries.length === 0) {
+          issues.push(`${where}.expectedContentSha256 must be a non-empty object`)
+        } else {
+          const normalized: Record<string, string> = {}
+          for (const [key, value] of pinEntries) {
+            if (typeof key !== 'string' || key.length === 0 || key.includes('..')) {
+              issues.push(`${where}.expectedContentSha256 key must be a non-empty string without '..'`)
+              continue
+            }
+            if (typeof value !== 'string' || !CONTENT_SHA256_RE.test(value)) {
+              issues.push(`${where}.expectedContentSha256['${key}'] must be a 64-hex sha256`)
+              continue
+            }
+            normalized[key] = value.toLowerCase()
+          }
+          // Normalize in place so returned catalog stores lowercase digests.
+          rec.expectedContentSha256 = normalized
+
+          if (kind === 'context-doc' && Array.isArray(rec.documents)) {
+            for (const [j, d] of (rec.documents as unknown[]).entries()) {
+              const doc = d as Record<string, unknown>
+              const targetName = typeof doc?.targetName === 'string' ? doc.targetName : ''
+              if (targetName && !(targetName in normalized)) {
+                issues.push(
+                  `${where}.expectedContentSha256 must include pin for documents[${j}].targetName '${targetName}'`,
+                )
+              }
+            }
+          }
+
+          if (kind === 'skillpack') {
+            if (rec.installMode === 'directory') {
+              const id = typeof rec.id === 'string' ? rec.id : ''
+              if (id && !(id in normalized)) {
+                issues.push(`${where}.expectedContentSha256 must include pin key for entry.id '${id}'`)
+              }
+            } else if (Object.keys(normalized).length === 0) {
+              // Defensive: pinEntries.length already guards emptiness above.
+              issues.push(`${where}.expectedContentSha256 must include at least one pin key`)
+            }
+          }
+        }
+      }
+    } else if (rec.expectedContentSha256 !== undefined) {
+      // Tools: pins optional but must be well-formed when present.
       const pins = rec.expectedContentSha256
       if (typeof pins !== 'object' || pins === null || Array.isArray(pins)) {
         issues.push(`${where}.expectedContentSha256 must be an object when present`)
@@ -203,7 +276,6 @@ export function parseCatalog(raw: unknown): MarketplaceCatalog {
           }
           normalized[key] = value.toLowerCase()
         }
-        // Normalize in place so returned catalog stores lowercase digests.
         rec.expectedContentSha256 = normalized
       }
     }
@@ -365,7 +437,12 @@ function loadBundled(bundledCatalogPath?: string): MarketplaceCatalog | null {
   const file = bundledCatalogPath ?? defaultBundledCatalogPath()
   if (!file || !existsSync(file)) return null
   try {
-    return parseCatalog(JSON.parse(readFileSync(file, 'utf8')))
+    const body = readFileSync(file, 'utf8')
+    const sidecarPath = `${file}.sha256`
+    if (existsSync(sidecarPath)) {
+      assertCatalogBodyMatchesSidecar(body, readFileSync(sidecarPath, 'utf8'), 'bundled catalog')
+    }
+    return parseCatalog(JSON.parse(body))
   } catch {
     return null
   }
@@ -424,6 +501,17 @@ async function refreshCatalogInternal(options: GetCatalogOptions & { allowFreshC
       const MAX_CATALOG_BYTES = 4 * 1024 * 1024
       if (Buffer.byteLength(body) > MAX_CATALOG_BYTES) {
         throw new Error(`catalog exceeds 4MB cap (${Buffer.byteLength(body)} bytes)`)
+      }
+      // Integrity: when the remote URL points at catalog.json, require a matching
+      // sibling catalog.json.sha256 (GNU shasum format) before parseCatalog.
+      if (remoteUrl.endsWith('catalog.json')) {
+        const digestUrl = remoteUrl.replace(/catalog\.json$/, 'catalog.json.sha256')
+        const digestRes = await fetchFn(digestUrl, {
+          headers: { 'user-agent': 'craft-agents-marketplace' },
+          signal: AbortSignal.timeout(30_000),
+        })
+        if (!digestRes.ok) throw new Error(`catalog digest HTTP ${digestRes.status}`)
+        assertCatalogBodyMatchesSidecar(body, await digestRes.text(), 'remote catalog')
       }
       const catalog = parseCatalog(JSON.parse(body)) // throws CatalogValidationError
       // Version monotonicity: never replace a newer cache with an older catalog.

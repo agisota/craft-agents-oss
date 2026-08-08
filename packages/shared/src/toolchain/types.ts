@@ -47,8 +47,9 @@ export type ToolName =
   // detect opt-in: только детект системного исполняемого, установки нет
   | 'docker'
   | 'brew'
-  // pip opt-in: uv pip install --require-hashes into toolchain layout (CLI-Anything deferred)
-  | 'pip-packaging';
+  // pip opt-in: uv pip install --require-hashes into toolchain layout
+  | 'pip-packaging'
+  | 'cli-anything';
 
 
 /** Every known ToolName — used to filter persisted toolchain.disabled and UI toggles. */
@@ -85,6 +86,7 @@ export const ALL_TOOL_NAMES = [
   'docker',
   'brew',
   'pip-packaging',
+  'cli-anything',
 ] as const satisfies readonly ToolName[];
 
 const TOOL_NAME_SET: ReadonlySet<string> = new Set(ALL_TOOL_NAMES);

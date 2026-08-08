@@ -3,10 +3,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseCatalog } from '../catalog.ts'
+import { parseCatalog, sha256HexOfString } from '../catalog.ts'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../')
 const CATALOG_PATH = join(REPO_ROOT, 'apps/electron/resources/marketplace/catalog.json')
+const SIDECAR_PATH = `${CATALOG_PATH}.sha256`
 const SHA256_RE = /^[0-9a-f]{64}$/
 
 describe('bundled catalog content pins', () => {
@@ -18,29 +19,42 @@ describe('bundled catalog content pins', () => {
     expect(catalog.entries.length).toBeGreaterThan(0)
   })
 
-  it('every present expectedContentSha256 pin is a 64-hex digest', () => {
+  it('every skillpack and context-doc has non-empty expectedContentSha256 pins', () => {
     const catalog = parseCatalog(JSON.parse(readFileSync(CATALOG_PATH, 'utf8')))
     let pinCount = 0
     for (const entry of catalog.entries) {
       if (entry.kind !== 'skillpack' && entry.kind !== 'context-doc') continue
       const pins = entry.expectedContentSha256
-      if (!pins) continue
-      for (const [key, value] of Object.entries(pins)) {
+      expect(pins).toBeDefined()
+      expect(typeof pins).toBe('object')
+      expect(Object.keys(pins!).length).toBeGreaterThan(0)
+      for (const [key, value] of Object.entries(pins!)) {
         expect(key.length).toBeGreaterThan(0)
         expect(key.includes('..')).toBe(false)
         expect(value).toMatch(SHA256_RE)
         pinCount++
       }
-    }
-    // Soft floor: script may partially pin; when pins exist they must be well-formed.
-    // Prefer at least the next-skills context-doc pins when the pin script ran successfully.
-    const nextSkills = catalog.entries.find((e) => e.id === 'next-skills')
-    if (nextSkills?.expectedContentSha256) {
-      expect(Object.keys(nextSkills.expectedContentSha256).length).toBeGreaterThan(0)
-      for (const v of Object.values(nextSkills.expectedContentSha256)) {
-        expect(v).toMatch(SHA256_RE)
+      if (entry.kind === 'skillpack' && entry.installMode === 'directory') {
+        expect(pins![entry.id]).toMatch(SHA256_RE)
+      }
+      if (entry.kind === 'context-doc') {
+        for (const doc of entry.documents ?? []) {
+          // Use bracket access — toHaveProperty treats '.' as a path separator.
+          expect(pins![doc.targetName]).toMatch(SHA256_RE)
+        }
       }
     }
-    expect(pinCount).toBeGreaterThanOrEqual(0)
+    expect(pinCount).toBeGreaterThan(0)
+  })
+
+  it('catalog.json.sha256 sidecar matches catalog.json body (GNU format)', () => {
+    expect(existsSync(SIDECAR_PATH)).toBe(true)
+    const body = readFileSync(CATALOG_PATH, 'utf8')
+    const sidecar = readFileSync(SIDECAR_PATH, 'utf8')
+    const token = sidecar.trim().split(/\s+/)[0] ?? ''
+    expect(token).toMatch(SHA256_RE)
+    expect(token).toBe(sha256HexOfString(body))
+    // GNU shasum format: "<hex>  catalog.json"
+    expect(sidecar.trim().split(/\s+/).slice(1).join(' ')).toBe('catalog.json')
   })
 })

@@ -15,6 +15,10 @@
  *
  * Failures are logged and skipped (partial pin is OK). Tools are ignored.
  *
+ * After rewriting catalog.json, also writes catalog.json.sha256 beside it
+ * (GNU `shasum -a 256` format: `<hex>  catalog.json\n`) so remote/bundled
+ * loaders can verify the catalog body digest.
+ *
  * Usage:
  *   bun scripts/marketplace-content-sha.ts
  *   bun scripts/marketplace-content-sha.ts --only next-skills,superpowers
@@ -32,7 +36,7 @@ import {
   sha256Directory,
   sha256FileContent,
 } from '../packages/shared/src/marketplace/installer.ts'
-import { parseCatalog, type MarketplaceCatalog, type MarketplaceEntry } from '../packages/shared/src/marketplace/catalog.ts'
+import { parseCatalog, sha256HexOfString, type MarketplaceCatalog, type MarketplaceEntry } from '../packages/shared/src/marketplace/catalog.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(SCRIPT_DIR, '..')
@@ -170,7 +174,11 @@ async function main(): Promise<void> {
   }
 
   writeFileSync(catalogPath, out, 'utf8')
+  // GNU shasum -a 256 sidecar used by catalog remote/bundled digest verify.
+  const sidecarPath = `${catalogPath}.sha256`
+  writeFileSync(sidecarPath, `${sha256HexOfString(out)}  catalog.json\n`, 'utf8')
   log(`\nwrote ${catalogPath}`)
+  log(`wrote ${sidecarPath}`)
   log(`summary: pinned=${pinned} failed=${failed} total=${targets.length}`)
 }
 

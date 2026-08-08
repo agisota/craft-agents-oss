@@ -16,6 +16,7 @@ import {
   listContextDocs,
   readContextDoc,
   writeContextDoc,
+  deleteContextDoc,
   readContextDocTemplate,
   acceptContextDocTemplate,
   keepMineContextDocTemplate,
@@ -165,6 +166,27 @@ describe('contextDocs CRUD', () => {
       expect(() => writeContextDoc('../evil.md', 'x')).toThrow('Invalid context document name');
       expect(() => readContextDoc('nested/evil.md')).toThrow('Invalid context document name');
       expect(() => writeContextDoc('evil.txt', 'x')).toThrow('Invalid context document name');
+    } finally {
+      teardownDirs(dirs);
+    }
+  });
+
+  it('deleteContextDoc removes user docs and refuses built-ins', () => {
+    const dirs = setupDirs();
+    try {
+      ensureContextDocs();
+      writeContextDoc('user-temp.md', '# temp\n');
+      expect(listContextDocs().some((d) => d.filename === 'user-temp.md')).toBe(true);
+
+      deleteContextDoc('user-temp.md');
+      expect(listContextDocs().some((d) => d.filename === 'user-temp.md')).toBe(false);
+      // Missing user doc is a no-op (rmSync force)
+      expect(() => deleteContextDoc('user-temp.md')).not.toThrow();
+
+      expect(() => deleteContextDoc('rules.md')).toThrow('cannot delete built-in context document');
+      expect(() => deleteContextDoc('soul.md')).toThrow('cannot delete built-in context document');
+      // Built-ins still present after refused delete
+      expect(listContextDocs().map((d) => d.filename)).toEqual(expect.arrayContaining(['soul.md', 'rules.md']));
     } finally {
       teardownDirs(dirs);
     }

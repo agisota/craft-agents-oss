@@ -102,6 +102,7 @@ const EXPECTED_CHANNELS: string[] = [
   'cloudRuns:submit',
   'contextDocs:CHANGED',
   'contextDocs:acceptTemplate',
+  'contextDocs:delete',
   'contextDocs:keepMineTemplate',
   'contextDocs:list',
   'contextDocs:read',

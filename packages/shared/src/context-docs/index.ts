@@ -22,7 +22,7 @@
  * same-named global documents (see CONTEXT_FILE_PATTERNS in prompts/system.ts).
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
 import { dirname, join, basename } from 'path';
 import { homedir } from 'os';
 import { getBundledAssetsDir } from '../utils/paths.ts';
@@ -300,6 +300,20 @@ export function writeContextDoc(filename: string, content: string): ContextDocIn
   atomicWriteFileSync(path, content);
   debug('[context-docs] Wrote', filename, `(${content.length} chars)`);
   return buildDocInfo(filename, content, statMtimeMs(path));
+}
+
+/**
+ * Delete a user-added context document. Built-in templates (soul.md / rules.md)
+ * cannot be removed — callers must throw rather than silently no-op.
+ */
+export function deleteContextDoc(filename: string): void {
+  assertValidDocFilename(filename);
+  if ((TEMPLATE_DOC_FILENAMES as readonly string[]).includes(filename as (typeof TEMPLATE_DOC_FILENAMES)[number])) {
+    throw new Error('cannot delete built-in context document');
+  }
+  const path = join(getContextDocsDir(), filename);
+  rmSync(path, { force: true });
+  debug('[context-docs] Deleted', filename);
 }
 
 /**

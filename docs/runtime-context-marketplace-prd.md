@@ -338,3 +338,10 @@ tradeoff и предложи скучно-безопасный вариант.
 - **Catalog packs:** gstack / hermes marketplace entries present; openagent excluded (unpublished transitive deps).
 - **Runtime LLM compact:** Runtime settings shows default connection summary (name, provider, model, base URL, auth) with switcher + link to full AI settings (`settings.runtime.llm*`).
 - **Toolchain disabled filter:** `setToolchainDisabled` / known `ToolName` set (`ALL_TOOL_NAMES`) fail-closed — unknown names dropped on persist.
+- **Content pins:** `expectedContentSha256` required for `skillpack` / `context-doc` at `parseCatalog`; tools remain unpinned by design.
+- **Catalog remote integrity:** remote fetch verifies `catalog.json.sha256` sidecar when the catalog URL ends with `catalog.json` (GNU `sha256sum` format); bundled sidecar verified when present.
+- **Brew:** install uses `brew install --quiet <formula>`; on pin mismatch uninstall uses `brew uninstall --force` then errors; no `formula@version` pin form for mole.
+- **CLI-Anything:** shipped as toolchain opt-in pip tool `cli-anything` / lock `cli-anything@0.4.1` (hub entry `cli-hub` / `cli_hub.cli`).
+- **Marketplace card copy:** entry descriptions remain curated Russian (`descriptionRu`); machine translation of upstream READMEs is not used.
+- **Catalog signing:** ed25519 signing of the catalog is explicitly deferred (content pins + HTTPS raw URL + sidecar sha256 are the current trust chain).
+- **Model switch from Runtime:** applies to the **next** session via the default LLM connection only — no live `set_model` RPC from the Runtime tab (would need new session plumbing; skipped as B4).

@@ -12,6 +12,7 @@ on:
       - 'scripts/toolchain-smoke.ts'
       - 'scripts/toolchain-new-smoke.ts'
       - 'scripts/runtime-context-smoke.ts'
+      - 'scripts/marketplace-smoke.ts'
       - '.github/workflows/toolchain-smoke.yml'
   workflow_dispatch:
 
@@ -61,6 +62,13 @@ jobs:
         env:
           CI: "1"
 
+      - name: Fresh-profile marketplace smoke (no network)
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/mp-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/marketplace-smoke.ts
+        env:
+          CI: "1"
+
   toolchain-smoke-selfhosted-macos:
     # macOS-arm64 leg на self-hosted Mac (craft-agents-mac-01) — GHA-hosted
     # macos заблокирован биллингом, CCI-план без macos-экзекуторов. Это единство
@@ -106,6 +114,13 @@ jobs:
         env:
           CI: "1"
 
+      - name: Fresh-profile marketplace smoke (no network)
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/mp-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/marketplace-smoke.ts
+        env:
+          CI: "1"
+
   toolchain-smoke:
     # macos/ubuntu/windows — заблокированы GitHub billing lock (см.
     # run 31126113869); оставлены для разблокировки по биллингу.
@@ -148,12 +163,19 @@ jobs:
           CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/toolchain-new-smoke.ts
         env:
           CI: "1"
-
       - name: Fresh-profile runtime-context smoke (mac/linux, no network)
         if: runner.os != 'Windows'
         run: |
           SMOKE_DIR="$(mktemp -d /tmp/rc-smoke.XXXXXX)"
           CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/runtime-context-smoke.ts
+        env:
+          CI: "1"
+
+      - name: Fresh-profile marketplace smoke (mac/linux, no network)
+        if: runner.os != 'Windows'
+        run: |
+          SMOKE_DIR="$(mktemp -d /tmp/mp-smoke.XXXXXX)"
+          CRAFT_CONFIG_DIR="$SMOKE_DIR" bun scripts/marketplace-smoke.ts
         env:
           CI: "1"
 

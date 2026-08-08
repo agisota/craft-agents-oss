@@ -602,6 +602,7 @@ export const CHANNEL_MAP = {
   listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
   readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
   writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
+  deleteContextDoc: invoke(RPC_CHANNELS.contextDocs.DELETE),
   readContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.READ_TEMPLATE),
   acceptContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE),
   keepMineContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE),

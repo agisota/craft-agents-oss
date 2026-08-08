@@ -3,6 +3,7 @@ import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
   acceptContextDocTemplate,
+  deleteContextDoc,
   ensureContextDocs,
   keepMineContextDocTemplate,
   listContextDocs,
@@ -15,6 +16,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.contextDocs.LIST,
   RPC_CHANNELS.contextDocs.READ,
   RPC_CHANNELS.contextDocs.WRITE,
+  RPC_CHANNELS.contextDocs.DELETE,
   RPC_CHANNELS.contextDocs.READ_TEMPLATE,
   RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE,
   RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE,
@@ -47,6 +49,11 @@ export function registerContextDocsHandlers(server: RpcServer, _deps: HandlerDep
     const info = writeContextDoc(filename, content)
     pushTyped(server, RPC_CHANNELS.contextDocs.CHANGED, { to: 'all' })
     return info
+  })
+
+  server.handle(RPC_CHANNELS.contextDocs.DELETE, async (_ctx, filename: string) => {
+    deleteContextDoc(filename)
+    pushTyped(server, RPC_CHANNELS.contextDocs.CHANGED, { to: 'all' })
   })
 
   server.handle(RPC_CHANNELS.contextDocs.READ_TEMPLATE, async (_ctx, filename: string) => {

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { createManager } from '../manager';
+import { brewInstallArgs, createManager } from '../manager';
 import type { BrewInstallContext, GitNpmInstallContext, PipInstallContext } from '../manager';
 import { currentPlatform, toolchainPaths } from '../manifest';
 import type { ToolArtifact, ToolEntry, ToolName } from '../types';
@@ -59,6 +59,7 @@ function makeManager(
     disabledTools?: ToolName[];
     pathEnv?: string;
     brewInstallImpl?: (ctx: BrewInstallContext) => Promise<void>;
+    brewUninstallImpl?: (ctx: { brewBin: string; formula: string }) => Promise<void>;
     brewVersionImpl?: (ctx: {
       brewBin: string;
       formula: string;
@@ -84,6 +85,7 @@ function makeManager(
     pathEnv: opts.pathEnv,
     brewInstallImpl: opts.brewInstallImpl,
     brewVersionImpl: opts.brewVersionImpl,
+    brewUninstallImpl: opts.brewUninstallImpl,
     gitNpmInstallImpl: opts.gitNpmInstallImpl,
     pipInstallImpl: opts.pipInstallImpl,
   });
@@ -259,13 +261,21 @@ describe('kinds: brew pin verify', () => {
     expect(brewCalls).toBe(1);
   });
 
-  it('pin mismatch → error; brewInstall was called', async () => {
+  it('brewInstallArgs(mole) → install --quiet mole', () => {
+    expect(brewInstallArgs('mole')).toEqual(['install', '--quiet', 'mole']);
+  });
+
+  it('pin mismatch → error; brewInstall was called; uninstall DI called', async () => {
     let brewCalls = 0;
+    let uninstallCalls = 0;
     const pin = '1.49.2';
     const { manager } = makeManager([moleBrewEntry(pin)], {
       pathEnv: stubBrewPathEnv(),
       brewInstallImpl: async () => {
         brewCalls++;
+      },
+      brewUninstallImpl: async () => {
+        uninstallCalls++;
       },
       brewVersionImpl: async () => 'mole 9.9.9',
     });
@@ -275,6 +285,7 @@ describe('kinds: brew pin verify', () => {
     expect(st.error).toContain('brew version mismatch');
     expect(st.error).toContain(pin);
     expect(brewCalls).toBe(1);
+    expect(uninstallCalls).toBeGreaterThanOrEqual(1);
   });
 
   it("pin '1.4' must NOT match stdout 'mole 1.49.2' (no substring)", async () => {
@@ -456,3 +467,62 @@ describe('kinds: pip fail-closed', () => {
     expect(calls).toBe(0);
   });
 });
+
+describe('kinds: cli-anything pip', () => {
+  it('update with lock + pipInstallImpl → ready; ensureAll skips', async () => {
+    const binDir = path.join(tmpDir, `pip-bins-${counter++}`);
+    fs.mkdirSync(binDir, { recursive: true });
+    for (const name of ['uv', 'python3']) {
+      const p = path.join(binDir, name);
+      fs.writeFileSync(p, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    }
+
+    const pipEntry: ToolEntry = {
+      name: 'cli-anything',
+      version: '0.4.1',
+      kind: 'pip',
+      tier: 'opt-in',
+      displayName: 'CLI-Anything',
+      dependsOn: ['uv', 'python'],
+      pipPackage: 'cli-anything-hub',
+      pipModule: 'cli_hub.cli',
+      systemBinary: 'cli-hub',
+      artifacts: {},
+    };
+
+    let installCalls = 0;
+    const captured: PipInstallContext[] = [];
+    const { manager, paths } = makeManager([pipEntry], {
+      pathEnv: binDir,
+      pipInstallImpl: async (ctx) => {
+        installCalls++;
+        captured.push(ctx);
+        fs.mkdirSync(path.join(ctx.targetDir, 'cli_hub'), { recursive: true });
+        fs.writeFileSync(path.join(ctx.targetDir, 'cli_hub', '__init__.py'), '');
+      },
+    });
+
+    await manager.ensureAll({ background: false });
+    expect((await manager.status()).find((s) => s.name === 'cli-anything')?.phase).toBe('missing');
+    expect(installCalls).toBe(0);
+
+    const st = await manager.update('cli-anything');
+    expect(st.phase).toBe('ready');
+    expect(st.installedVersion).toBe('0.4.1');
+    expect(installCalls).toBe(1);
+
+    const ctx = captured[0]!;
+    expect(ctx.requirements).toContain('cli-anything-hub==0.4.1');
+    expect(ctx.requirements).toContain('--hash=sha256:');
+    expect(ctx.targetDir).toBe(path.join(ctx.versionDir, 'py_packages'));
+    expect(st.installedPath).toBe(path.join(paths.toolchainDir, 'cli-anything', '0.4.1'));
+    expect(fs.existsSync(path.join(paths.toolchainDir, 'cli-anything', 'current'))).toBe(true);
+
+    const launcher = path.join(paths.toolchainDir, 'cli-anything', '0.4.1', 'bin', 'cli-hub');
+    expect(fs.existsSync(launcher)).toBe(true);
+    const body = fs.readFileSync(launcher, 'utf8');
+    expect(body).toContain('PYTHONPATH=');
+    expect(body).toContain('cli_hub.cli');
+  });
+});
+

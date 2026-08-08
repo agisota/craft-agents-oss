@@ -77,6 +77,7 @@ const TOOL_ORDER: readonly ToolchainToolName[] = [
   'docker',
   'brew',
   'pip-packaging',
+  'cli-anything',
 ]
 
 const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
@@ -112,9 +113,10 @@ const TOOL_LABELS: Partial<Record<ToolchainToolName, string>> = {
   docker: 'Docker',
   brew: 'Homebrew',
   'pip-packaging': 'packaging (pip)',
+  'cli-anything': 'CLI-Anything',
 }
 
-/** Detect/system tools: install-guide copy when missing / no brew. */
+/** Detect/system tools: install-guide copy when missing / no brew (no auto-install). */
 const INSTALL_GUIDES: Partial<Record<ToolchainToolName, { command: string; url?: string }>> = {
   docker: {
     command: 'https://docs.docker.com/get-docker/',
@@ -124,11 +126,10 @@ const INSTALL_GUIDES: Partial<Record<ToolchainToolName, { command: string; url?:
     command: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
     url: 'https://brew.sh',
   },
-  mole: {
-    command: 'brew install mole',
-    url: 'https://github.com/tw93/Mole',
-  },
 }
+
+/** Detect-only tools stay guide/copy UX — never call update() to "install". */
+const DETECT_ONLY_TOOLS: Record<string, true> = { docker: true, brew: true }
 
 /** Extract a displayable message from an unknown caught value. */
 function errorMessage(error: unknown): string {
@@ -202,6 +203,20 @@ function ToolRow({ tool, isUpdating, onUpdate }: ToolRowProps) {
   }
 
   const action = (() => {
+    // Opt-in installable tools (mole, cli-anything, pip, npm opt-in…): Install when missing.
+    // Detect-only (docker/brew) keep guide/copy UX below — never call onUpdate to install.
+    if (
+      tool.phase === 'missing' &&
+      tool.tier === 'opt-in' &&
+      !DETECT_ONLY_TOOLS[tool.name]
+    ) {
+      return (
+        <Button variant="outline" size="sm" disabled={isUpdating} onClick={() => onUpdate(tool.name)}>
+          {isUpdating ? <Spinner className="mr-1.5" /> : null}
+          {t('settings.toolchain.install')}
+        </Button>
+      )
+    }
     if (tool.phase === 'outdated') {
       return (
         <Button variant="outline" size="sm" disabled={isUpdating} onClick={() => onUpdate(tool.name)}>
@@ -324,7 +339,9 @@ export default function RuntimeSettingsPage() {
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL)
   const [permissionMode, setPermissionMode] = useState<PermissionMode | null>(null)
   const [envEntries, setEnvEntries] = useState<Array<{ key: string; value: string }> | null>(null)
+  const [savedEnvSnapshot, setSavedEnvSnapshot] = useState<string | null>(null)
   const [envSaving, setEnvSaving] = useState(false)
+  const [envSavedFlash, setEnvSavedFlash] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const [llmSwitching, setLlmSwitching] = useState(false)
 
@@ -342,13 +359,16 @@ export default function RuntimeSettingsPage() {
     [llmConnections],
   )
   const orderedTools = useMemo(() => {
+    // E3: hide pip-packaging from Runtime UI; users only see cli-anything among pip tools.
+    // Manifest/tests still know pip-packaging.
+    const visible = tools.filter((tool) => tool.name !== 'pip-packaging')
     const byName: Partial<Record<ToolchainToolName, ToolchainToolStatus>> = {}
-    for (const tool of tools) byName[tool.name] = tool
+    for (const tool of visible) byName[tool.name] = tool
     const preferred = TOOL_ORDER.map((name) => byName[name]).filter(
       (tool): tool is ToolchainToolStatus => tool !== undefined,
     )
     const preferredSet = new Set(TOOL_ORDER)
-    const extras = tools
+    const extras = visible
       .filter((tool) => !preferredSet.has(tool.name))
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -372,11 +392,16 @@ export default function RuntimeSettingsPage() {
       })
     window.electronAPI
       .getEnvOverrides()
-      .then((env) => setEnvEntries(Object.entries(env).map(([key, value]) => ({ key, value }))))
+      .then((env) => {
+        const entries = Object.entries(env).map(([key, value]) => ({ key, value }))
+        setEnvEntries(entries)
+        setSavedEnvSnapshot(JSON.stringify(entries))
+      })
       .catch((error) => {
         console.error('Failed to load session env overrides:', error)
         setPageError(errorMessage(error))
         setEnvEntries([])
+        setSavedEnvSnapshot(JSON.stringify([]))
       })
   }, [])
 
@@ -469,24 +494,37 @@ export default function RuntimeSettingsPage() {
     setEnvEntries((entries) => [...(entries ?? []), { key: '', value: '' }])
   }, [])
 
+  const envDirty = useMemo(() => {
+    if (envEntries === null || savedEnvSnapshot === null) return false
+    return JSON.stringify(envEntries) !== savedEnvSnapshot
+  }, [envEntries, savedEnvSnapshot])
+
   const saveEnvOverrides = useCallback(async () => {
-    if (!envEntries) return
+    if (!envEntries || !envDirty) return
     setEnvSaving(true)
     setPageError(null)
+    setEnvSavedFlash(false)
     try {
       const env: Record<string, string> = {}
+      const normalized: Array<{ key: string; value: string }> = []
       for (const { key, value } of envEntries) {
         const trimmedKey = key.trim()
-        if (trimmedKey) env[trimmedKey] = value
+        if (!trimmedKey) continue
+        env[trimmedKey] = value
+        normalized.push({ key: trimmedKey, value })
       }
       await window.electronAPI.setEnvOverrides(env)
+      setEnvEntries(normalized)
+      setSavedEnvSnapshot(JSON.stringify(normalized))
+      setEnvSavedFlash(true)
+      window.setTimeout(() => setEnvSavedFlash(false), 2000)
     } catch (error) {
       console.error('Failed to save session env overrides:', error)
       setPageError(errorMessage(error))
     } finally {
       setEnvSaving(false)
     }
-  }, [envEntries])
+  }, [envEntries, envDirty])
 
   return (
     <div className="h-full flex flex-col">
@@ -674,11 +712,11 @@ export default function RuntimeSettingsPage() {
                         (no toggle) fail-safe.
                       */}
                       {tools
-                        .filter((t) => t.tier === 'default-on')
+                        .filter((tool) => tool.tier === 'default-on')
                         .map((tool) => (
                           <SettingsToggle
                             key={tool.name}
-                            label={tool.name}
+                            label={TOOL_LABELS[tool.name] ?? tool.name}
                             checked={!disabledTools.includes(tool.name)}
                             onCheckedChange={(enabled) => toggleTool(tool.name, enabled)}
                           />
@@ -728,14 +766,19 @@ export default function RuntimeSettingsPage() {
                           </Button>
                         </div>
                       ))}
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center justify-between pt-1 gap-2">
                         <Button variant="ghost" size="sm" onClick={addEnvEntry}>
                           <Plus className="w-3 h-3 mr-1" />
                           {t('settings.runtime.envAdd')}
                         </Button>
-                        <Button size="sm" onClick={saveEnvOverrides} disabled={envSaving}>
-                          {envSaving ? <Spinner className="w-3 h-3" /> : t('settings.runtime.envSave')}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {envSavedFlash ? (
+                            <span className="text-xs text-muted-foreground">{t('settings.runtime.envSaved')}</span>
+                          ) : null}
+                          <Button size="sm" onClick={() => void saveEnvOverrides()} disabled={envSaving || !envDirty}>
+                            {envSaving ? <Spinner className="w-3 h-3" /> : t('settings.runtime.envSave')}
+                          </Button>
+                        </div>
                       </div>
                     </>
                   )}

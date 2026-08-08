@@ -66,21 +66,39 @@ export default function MarketplaceSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Short-lived success banner after install/update/remove. */
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   /** Live install phase text per entry id (from marketplace:progress). */
   const [progressById, setProgressById] = useState<Record<string, string>>({})
 
+  const formatProgress = useCallback(
+    (phase: string, detail?: string): string => {
+      const known = ['clone', 'verify', 'install', 'fetch', 'collision'] as const
+      const label = (known as readonly string[]).includes(phase)
+        ? t(`marketplace.progress.${phase}`, { defaultValue: phase })
+        : phase
+      return detail ? `${label}: ${detail}` : label
+    },
+    [t],
+  )
+
   const load = useCallback(async () => {
     try {
-      const [cat, st] = await Promise.all([
-        window.electronAPI.getMarketplaceCatalog(),
-        window.electronAPI.getMarketplaceStats(),
-      ])
+      // Progressive: paint catalog first, then fill stats when ready.
+      const catPromise = window.electronAPI.getMarketplaceCatalog()
+      const statsPromise = window.electronAPI.getMarketplaceStats()
+      const cat = await catPromise
       setView(cat)
-      setStatsMap(st)
       setError(null)
+      setLoading(false)
+      try {
+        const st = await statsPromise
+        setStatsMap(st)
+      } catch {
+        // Stats are best-effort; catalog already rendered.
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-    } finally {
       setLoading(false)
     }
   }, [])
@@ -91,18 +109,21 @@ export default function MarketplaceSettingsPage() {
       void load()
     })
     const offProgress = window.electronAPI.onMarketplaceProgress((payload) => {
-      const label = payload.detail ? `${payload.phase}: ${payload.detail}` : payload.phase
-      setProgressById((prev) => ({ ...prev, [payload.id]: label }))
+      setProgressById((prev) => ({
+        ...prev,
+        [payload.id]: formatProgress(payload.phase, payload.detail),
+      }))
     })
     return () => {
       offChanged()
       offProgress()
     }
-  }, [load])
+  }, [load, formatProgress])
 
   const run = useCallback(
     async (id: string, fn: () => Promise<unknown>, successKey: string) => {
       setBusy((b) => ({ ...b, [id]: 'busy' }))
+      setError(null)
       setProgressById((p) => {
         const next = { ...p }
         delete next[id]
@@ -111,6 +132,13 @@ export default function MarketplaceSettingsPage() {
       try {
         await fn()
         await load()
+        const message = t(`marketplace.actionSuccess.${successKey}`, {
+          defaultValue: t('marketplace.actionSuccess', { defaultValue: successKey }),
+        })
+        setActionSuccess(message)
+        window.setTimeout(() => {
+          setActionSuccess((cur) => (cur === message ? null : cur))
+        }, 3000)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -125,9 +153,8 @@ export default function MarketplaceSettingsPage() {
           return next
         })
       }
-      void successKey
     },
-    [load],
+    [load, t],
   )
 
   const allTags = useMemo(() => {
@@ -246,7 +273,16 @@ export default function MarketplaceSettingsPage() {
               setRefreshing(true)
               window.electronAPI
                 .refreshMarketplaceCatalog()
-                .then((cat) => setView(cat))
+                .then(async (cat) => {
+                  setView(cat)
+                  setError(null)
+                  try {
+                    const st = await window.electronAPI.getMarketplaceStats()
+                    setStatsMap(st)
+                  } catch {
+                    // stats best-effort after refresh
+                  }
+                })
                 .catch((err) => setError(err instanceof Error ? err.message : String(err)))
                 .finally(() => setRefreshing(false))
             }}
@@ -261,6 +297,11 @@ export default function MarketplaceSettingsPage() {
         {error ? (
           <div className="mb-4 border border-destructive/40 bg-destructive/10 text-destructive text-sm rounded-lg px-4 py-2">
             {error}
+          </div>
+        ) : null}
+        {actionSuccess ? (
+          <div className="mb-4 border border-border bg-muted/40 text-muted-foreground text-sm rounded-lg px-4 py-2">
+            {actionSuccess}
           </div>
         ) : null}
 
@@ -430,6 +471,12 @@ export default function MarketplaceSettingsPage() {
                             <>
                               <span className="text-xs py-1 px-3 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 flex items-center gap-1">
                                 {t('marketplace.deferred')}
+                              </span>
+                              <span
+                                className="text-[11px] text-muted-foreground max-w-[14rem] truncate"
+                                title={t('marketplace.deferredHint')}
+                              >
+                                {t('marketplace.deferredHint')}
                               </span>
                               <button
                                 type="button"
