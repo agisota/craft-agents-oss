@@ -4,6 +4,7 @@ import type { HandlerDeps } from '../handler-deps'
 import { registerAuthHandlers } from './auth'
 import { registerCloudRunsHandlers } from './cloud-runs'
 import { registerIdentityHandlers } from './identity'
+import { registerExtensionsHandlers } from './extensions'
 import { registerAutomationsHandlers } from './automations'
 import { registerContextDocsHandlers } from './context-docs'
 import { registerBundledSkillsHandlers } from './bundled-skills'
@@ -64,6 +65,7 @@ export function registerCoreRpcHandlers(
   registerAuthHandlers(server, deps)
   registerCloudRunsHandlers(server, deps)
   registerIdentityHandlers(server, deps)
+  registerExtensionsHandlers(server, deps)
   registerAutomationsHandlers(server, deps)
   registerContextDocsHandlers(server, deps)
   registerMarketplaceHandlers(server, deps)

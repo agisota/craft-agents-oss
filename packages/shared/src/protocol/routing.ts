@@ -255,6 +255,14 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
+  // extensions — Extension Center catalog/state (local config dir + projections; same host as marketplace)
+  RPC_CHANNELS.extensions.LIST_CATALOG,
+  RPC_CHANNELS.extensions.LIST_INSTALLED,
+  RPC_CHANNELS.extensions.SET_ENABLED,
+  RPC_CHANNELS.extensions.GET_STATE,
+  RPC_CHANNELS.extensions.CHANGED,
+
+
   // knowledge — engine status + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
   RPC_CHANNELS.knowledge.DETECT_ENGINE,
@@ -454,6 +462,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.identity.DISCONNECT,
   RPC_CHANNELS.identity.REFRESH_STATUS,
   RPC_CHANNELS.identity.CHANGED,
+
+
 
 
   // llmConnections — LLM config lives on server running workspace

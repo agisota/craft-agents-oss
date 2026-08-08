@@ -38,7 +38,7 @@ export const SETTINGS_PAGES = [
   { id: 'runtime' as const, labelKey: 'settings.runtime.title', descriptionKey: 'settings.runtime.description' },
   { id: 'context' as const, labelKey: 'settings.context.title', descriptionKey: 'settings.context.description' },
   { id: 'knowledge' as const, labelKey: 'settings.knowledge.title', descriptionKey: 'settings.knowledge.description' },
-  { id: 'marketplace' as const, labelKey: 'settings.marketplace.title', descriptionKey: 'settings.marketplace.description' },
+  { id: 'extensions' as const, labelKey: 'settings.extensions.title', descriptionKey: 'settings.extensions.description' },
   { id: 'app' as const, labelKey: 'settings.app.title', descriptionKey: 'settings.app.description' },
   { id: 'ai' as const, labelKey: 'settings.ai.title', descriptionKey: 'settings.ai.description' },
   { id: 'appearance' as const, labelKey: 'settings.appearance.title', descriptionKey: 'settings.appearance.description' },

@@ -20,6 +20,7 @@ import type {
   KnowledgeChangedPayload,
   SiyuanSurfaceState,
 } from './dto'
+import type { ExtensionsChangedPayload } from '../extensions/types'
 
 /** Payload of marketplace:CHANGED — pushed after an install/update/remove completes. */
 export interface MarketplaceChangedPayload {
@@ -58,6 +59,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.knowledge.CHANGED]: [payload: KnowledgeChangedPayload]
   [RPC_CHANNELS.llmConnections.CHANGED]: []
   [RPC_CHANNELS.identity.CHANGED]: []
+  [RPC_CHANNELS.extensions.CHANGED]: [payload: ExtensionsChangedPayload]
   [RPC_CHANNELS.permissions.DEFAULTS_CHANGED]: [value: null]
 
   // Theme broadcasts (global)

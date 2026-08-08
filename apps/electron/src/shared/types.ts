@@ -110,6 +110,30 @@ import type {
 } from '@craft-agent/core/platform';
 export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
 
+// Extension Center (S-05)
+import type {
+  CatalogEntry,
+  CatalogFilter,
+  ExtensionRecord,
+  ExtensionsChangedPayload,
+  ExtensionsGetStateResult,
+  ExtensionsListCatalogResult,
+  ExtensionsListInstalledResult,
+  ExtensionsSetEnabledResult,
+  ExtensionStateFile,
+} from '@craft-agent/shared/extensions'
+export type {
+  CatalogEntry,
+  CatalogFilter,
+  ExtensionRecord,
+  ExtensionsChangedPayload,
+  ExtensionsGetStateResult,
+  ExtensionsListCatalogResult,
+  ExtensionsListInstalledResult,
+  ExtensionsSetEnabledResult,
+  ExtensionStateFile,
+}
+
 // Source types for session source selection
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
@@ -790,6 +814,16 @@ export interface ElectronAPI {
   identityDisconnect(args: { connectionId: string }): Promise<IdentityState>
   identityRefreshStatus(args?: { workspaceId?: string }): Promise<IdentityState>
   onIdentityChanged(callback: () => void): () => void
+
+  // Extension Center (S-05)
+  extensionsListCatalog(args?: { filter?: CatalogFilter }): Promise<ExtensionsListCatalogResult>
+  extensionsListInstalled(args?: {
+    workspaceId?: string
+    workingDirectory?: string
+  }): Promise<ExtensionsListInstalledResult>
+  extensionsSetEnabled(args: { id: string; enabled: boolean }): Promise<ExtensionsSetEnabledResult>
+  extensionsGetState(): Promise<ExtensionsGetStateResult>
+  onExtensionsChanged(callback: (payload: ExtensionsChangedPayload) => void): () => void
 
   // Onboarding
   getAuthState(): Promise<AuthState>
