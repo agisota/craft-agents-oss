@@ -1081,8 +1081,9 @@ export interface SiyuanSurfaceState {
 
 /**
  * State of one sandboxed extension UI surface hosted in an embedded browser
- * pane. Durable key is `ext:${extensionId}:${viewId}`; session partition is
- * `persist:ext-${extensionId}` (isolated from browser-pane and other extensions).
+ * pane. Durable key is `ext:${ws||'_default'}:${extensionId}:${viewId}`; session
+ * partition is `persist:ext-${ws||'default'}-${extensionId}` (isolated per
+ * workspace and from browser-pane / other extensions).
  */
 export interface ExtensionSurfaceState {
   instanceId: string

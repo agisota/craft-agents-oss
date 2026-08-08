@@ -140,6 +140,10 @@ export function startWorker(options: WorkerOptions = {}): {
   }
 
   const loaded = new Map<string, LoadedExtension>()
+  /** Extension id for the in-flight `call` (mint/fetch authorization). */
+  let currentCallExtensionId: string | null = null
+  /** Last successfully loaded extension (informational only; mint uses call ALS). */
+  let lastLoadedExtensionId: string | null = null
   const importFn =
     options.importFn ??
     ((url: string) => import(url))
@@ -177,8 +181,14 @@ export function startWorker(options: WorkerOptions = {}): {
   // Inject capability surface for loaded modules (never returns raw secrets).
   const craftCapability: CraftCapabilityApi = {
     async mint(permission, opts = {}) {
+      // Authorization identity is the in-flight call extension only.
+      // Do NOT trust opts.extensionId (peer steal / anonymous forge).
+      const extensionId = currentCallExtensionId
+      if (!extensionId) {
+        throw new Error('Capability mint only allowed during extension call')
+      }
+      void opts.extensionId // deliberately ignored for authorization
       const id = nextBrokerId()
-      const extensionId = opts.extensionId ?? '__anonymous__'
       // Main uses only load-time stored grants for this extensionId.
       const result = await rpcToMain({
         type: 'broker-request',
@@ -192,8 +202,10 @@ export function startWorker(options: WorkerOptions = {}): {
       return result as { token: string; expiresAt: number; permission: string }
     },
     async fetch(capabilityToken, url, init = {}) {
+      // Bind fetch identity the same way; main still validates token↔extension.
+      const extensionId = currentCallExtensionId ?? lastLoadedExtensionId ?? '__anonymous__'
+      void init.extensionId
       const id = nextBrokerId()
-      const extensionId = init.extensionId ?? '__anonymous__'
       const result = await rpcToMain({
         type: 'broker-request',
         id,
@@ -248,11 +260,13 @@ export function startWorker(options: WorkerOptions = {}): {
             entryPath: resolved,
             module: mod && typeof mod === 'object' ? mod : { default: mod },
           })
+          lastLoadedExtensionId = msg.extensionId
           send(port, { id: msg.id, type: 'ok' })
           return
         }
         case 'unload': {
           loaded.delete(msg.extensionId)
+          if (lastLoadedExtensionId === msg.extensionId) lastLoadedExtensionId = null
           send(port, { id: msg.id, type: 'ok' })
           return
         }
@@ -287,8 +301,14 @@ export function startWorker(options: WorkerOptions = {}): {
             return
           }
           const args = Array.isArray(msg.args) ? msg.args : []
-          const result = await Promise.resolve(fn.apply(ext.module, args))
-          send(port, { id: msg.id, type: 'ok', result })
+          const prevCallId = currentCallExtensionId
+          currentCallExtensionId = msg.extensionId
+          try {
+            const result = await Promise.resolve(fn.apply(ext.module, args))
+            send(port, { id: msg.id, type: 'ok', result })
+          } finally {
+            currentCallExtensionId = prevCallId
+          }
           return
         }
         default: {
@@ -315,6 +335,8 @@ export function startWorker(options: WorkerOptions = {}): {
     loaded,
     dispose: () => {
       loaded.clear()
+      currentCallExtensionId = null
+      lastLoadedExtensionId = null
       for (const [, p] of pendingBroker) {
         p.reject(new Error('Worker disposed'))
       }

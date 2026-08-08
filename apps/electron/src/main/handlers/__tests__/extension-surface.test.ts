@@ -1,11 +1,11 @@
 /**
  * Tests for the extension UI surface handlers (durable-key registry over
- * BrowserPaneManager with per-extension session partition).
+ * BrowserPaneManager with per-extension×workspace session partition).
  *
  * Harness shape mirrors siyuan.test.ts: recorder RpcServer + HandlerDeps with
  * a stubbed browserPaneManager. Contract under test: partition
- * `persist:ext-${extensionId}`, durableKey dedup, STATE_CHANGED / REMOVED
- * broadcast semantics, owner refcount, workspace-aware LIST.
+ * `persist:ext-${ws||'default'}-${extensionId}`, workspace-scoped durableKey
+ * (spoof rejected), dedup, STATE_CHANGED / REMOVED, owner refcount, LIST.
  */
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
@@ -137,12 +137,12 @@ describe('extension surface handlers', () => {
     expect(recorder.handlers.size).toBe(0)
   })
 
-  it('createEmbedded passes partition persist:ext-${extensionId} and broadcasts STATE_CHANGED', () => {
+  it('createEmbedded passes workspace-scoped partition and broadcasts STATE_CHANGED', () => {
     register(recorder.server, makeDeps(calls))
     const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
 
     const instanceId = handler(CTX, {
-      durableKey: 'ext:hello:main',
+      durableKey: 'ext:ws-1:hello:main',
       url: 'https://ext.example/ui',
       extensionId: 'hello',
       viewId: 'main',
@@ -154,7 +154,7 @@ describe('extension surface handlers', () => {
       {
         url: 'https://ext.example/ui',
         workspaceId: 'ws-1',
-        partition: 'persist:ext-hello',
+        partition: 'persist:ext-ws-1-hello',
       },
     ])
 
@@ -163,7 +163,7 @@ describe('extension surface handlers', () => {
     expect(pushes[0].target).toEqual({ to: 'all' })
     expect(pushes[0].args[0]).toEqual({
       instanceId: 'browser-embedded-1',
-      durableKey: 'ext:hello:main',
+      durableKey: 'ext:ws-1:hello:main',
       extensionId: 'hello',
       viewId: 'main',
       url: 'https://ext.example/ui',
@@ -171,7 +171,7 @@ describe('extension surface handlers', () => {
     } satisfies ExtensionSurfaceState)
   })
 
-  it('createEmbedded builds durableKey when omitted', () => {
+  it('createEmbedded builds workspace-scoped durableKey when omitted', () => {
     register(recorder.server, makeDeps(calls))
     const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
     const list = recorder.handlers.get(RPC_CHANNELS.extensionSurface.LIST)!
@@ -185,8 +185,40 @@ describe('extension surface handlers', () => {
 
     const states = list(CTX) as ExtensionSurfaceState[]
     expect(states).toHaveLength(1)
-    expect(states[0].durableKey).toBe('ext:pack:panel-a')
-    expect(calls.created[0].partition).toBe('persist:ext-pack')
+    expect(states[0].durableKey).toBe('ext:ws-1:pack:panel-a')
+    expect(calls.created[0].partition).toBe('persist:ext-ws-1-pack')
+  })
+
+  it('createEmbedded uses _default / default when workspaceId absent', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
+    const list = recorder.handlers.get(RPC_CHANNELS.extensionSurface.LIST)!
+
+    handler(CTX, {
+      url: 'about:blank',
+      extensionId: 'solo',
+      viewId: 'main',
+    })
+
+    const states = list(CTX) as ExtensionSurfaceState[]
+    expect(states[0].durableKey).toBe('ext:_default:solo:main')
+    expect(calls.created[0].partition).toBe('persist:ext-default-solo')
+  })
+
+  it('createEmbedded rejects durableKey spoof that mismatches extension/view/workspace', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
+
+    expect(() =>
+      handler(CTX, {
+        durableKey: 'ext:other-ws:evil:panel',
+        url: 'u://x',
+        extensionId: 'hello',
+        viewId: 'main',
+        workspaceId: 'ws-1',
+      }),
+    ).toThrow(/durableKey does not match/i)
+    expect(calls.created).toHaveLength(0)
   })
 
   it('createEmbedded rejects empty extensionId / viewId', () => {
@@ -207,14 +239,14 @@ describe('extension surface handlers', () => {
     const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
 
     const first = handler(CTX, {
-      durableKey: 'ext:hello:main',
+      durableKey: 'ext:ws-1:hello:main',
       url: 'https://ext.example/ui',
       extensionId: 'hello',
       viewId: 'main',
       workspaceId: 'ws-1',
     }) as string
     const second = handler(CTX, {
-      durableKey: 'ext:hello:main',
+      durableKey: 'ext:ws-1:hello:main',
       url: 'https://ext.example/ui',
       extensionId: 'hello',
       viewId: 'main',
@@ -229,7 +261,30 @@ describe('extension surface handlers', () => {
     ).toHaveLength(2)
   })
 
-  it('createEmbedded with distinct durable keys creates distinct surfaces', () => {
+  it('same extension in two workspaces creates two surfaces and partitions', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
+
+    const a = handler(CTX, {
+      extensionId: 'shared',
+      viewId: 'main',
+      url: 'u://a',
+      workspaceId: 'ws-1',
+    })
+    const b = handler(CTX, {
+      extensionId: 'shared',
+      viewId: 'main',
+      url: 'u://b',
+      workspaceId: 'ws-2',
+    })
+
+    expect(a).not.toBe(b)
+    expect(calls.created).toHaveLength(2)
+    expect(calls.created[0].partition).toBe('persist:ext-ws-1-shared')
+    expect(calls.created[1].partition).toBe('persist:ext-ws-2-shared')
+  })
+
+  it('createEmbedded with distinct extension ids creates distinct surfaces', () => {
     register(recorder.server, makeDeps(calls))
     const handler = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
 
@@ -248,8 +303,8 @@ describe('extension surface handlers', () => {
 
     expect(a).not.toBe(b)
     expect(calls.created).toHaveLength(2)
-    expect(calls.created[0].partition).toBe('persist:ext-a')
-    expect(calls.created[1].partition).toBe('persist:ext-b')
+    expect(calls.created[0].partition).toBe('persist:ext-ws-1-a')
+    expect(calls.created[1].partition).toBe('persist:ext-ws-2-b')
   })
 
   it('list returns all surfaces, workspace-scopes on request, and always passes unbound surfaces', () => {
@@ -262,12 +317,17 @@ describe('extension surface handlers', () => {
     create(CTX, { extensionId: 'c', viewId: 'v', url: 'u://c' })
 
     const all = list(CTX) as ExtensionSurfaceState[]
-    expect(all.map((s) => s.durableKey).sort()).toEqual(['ext:a:v', 'ext:b:v', 'ext:c:v'])
-    expect(all.find((s) => s.durableKey === 'ext:c:v')?.workspaceId).toBeNull()
+    expect(all.map((s) => s.durableKey).sort()).toEqual([
+      'ext:_default:c:v',
+      'ext:ws-1:a:v',
+      'ext:ws-2:b:v',
+    ])
+    expect(all.find((s) => s.durableKey === 'ext:_default:c:v')?.workspaceId).toBeNull()
 
     const ws1 = list(CTX, { workspaceId: 'ws-1' }) as ExtensionSurfaceState[]
-    expect(ws1.map((s) => s.durableKey).sort()).toEqual(['ext:a:v', 'ext:c:v'])
+    expect(ws1.map((s) => s.durableKey).sort()).toEqual(['ext:_default:c:v', 'ext:ws-1:a:v'])
   })
+
 
   it('syncBounds forwards the rect verbatim and tolerates unknown instances', () => {
     register(recorder.server, makeDeps(calls))
@@ -372,26 +432,6 @@ describe('extension surface handlers', () => {
     })
     expect(reopened).not.toBe(first)
     expect(calls.created).toHaveLength(2)
-  })
-
-  it('dedup re-open refreshes the workspace binding when provided, keeps it when omitted', () => {
-    register(recorder.server, makeDeps(calls))
-    const create = recorder.handlers.get(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED)!
-    const list = recorder.handlers.get(RPC_CHANNELS.extensionSurface.LIST)!
-
-    create(CTX, { extensionId: 'hello', viewId: 'main', url: 'u://x', workspaceId: 'ws-1' })
-    create(CTX, { extensionId: 'hello', viewId: 'main', url: 'u://x', workspaceId: 'ws-2' })
-
-    expect(list(CTX, { workspaceId: 'ws-1' })).toEqual([])
-    const ws2 = list(CTX, { workspaceId: 'ws-2' }) as ExtensionSurfaceState[]
-    expect(ws2).toHaveLength(1)
-    expect(ws2[0].workspaceId).toBe('ws-2')
-
-    create(CTX, { extensionId: 'hello', viewId: 'main', url: 'u://x' })
-    const after = list(CTX, { workspaceId: 'ws-2' }) as ExtensionSurfaceState[]
-    expect(after).toHaveLength(1)
-    expect(after[0].workspaceId).toBe('ws-2')
-    expect(calls.created).toHaveLength(1)
   })
 
   it('focus forwards to the browser pane manager', () => {

@@ -7,6 +7,9 @@
  *
  * Per-workspace hosts: optional workspaceId on args selects the manager key.
  * URL allowlist is durable per extensionId under configDir/extensions/.
+ *
+ * LOAD grants are resolved solely from workspace permissions.json — renderer
+ * cannot self-supply grantedPermissions.
  */
 
 import { RPC_CHANNELS } from '../../shared/types'
@@ -21,7 +24,8 @@ import {
   setUrlAllowlist,
 } from '../extension-host/extension-url-allowlist'
 import type { ExtensionHostStatus } from '@craft-agent/shared/extensions'
-import { CONFIG_DIR } from '@craft-agent/shared/config'
+import { CONFIG_DIR, getWorkspaceByNameOrId } from '@craft-agent/shared/config'
+import { loadRawWorkspacePermissions } from '@craft-agent/shared/agent'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensionHost.STATUS,
@@ -39,6 +43,32 @@ export const HANDLED_CHANNELS = [
 ] as const
 
 type WorkspaceArgs = { workspaceId?: string | null }
+
+/**
+ * Resolve effective extension grants from workspace permissions.json.
+ * grants = entry.granted filtered by not-in entry.revoked.
+ * Missing workspace / missing entry → [].
+ */
+export function resolveExtensionGrantsFromPermissions(
+  workspaceId: string | null | undefined,
+  extensionId: string,
+): string[] {
+  const id = typeof extensionId === 'string' ? extensionId.trim() : ''
+  if (!id) return []
+  if (typeof workspaceId !== 'string' || !workspaceId.trim()) return []
+  try {
+    const workspace = getWorkspaceByNameOrId(workspaceId.trim())
+    if (!workspace?.rootPath) return []
+    const raw = loadRawWorkspacePermissions(workspace.rootPath)
+    const entry = raw?.extensions?.[id]
+    if (!entry) return []
+    const revoked = new Set(entry.revoked ?? [])
+    return (entry.granted ?? []).filter((g) => typeof g === 'string' && !revoked.has(g))
+  } catch {
+    return []
+  }
+}
+
 
 export function registerExtensionHostHandlers(
   server: RpcServer,
@@ -86,6 +116,7 @@ export function registerExtensionHostHandlers(
       args: {
         extensionId: string
         entryPath: string
+        /** Ignored — grants come from workspace permissions.json only. */
         grantedPermissions?: string[]
         workspaceId?: string | null
       },
@@ -93,14 +124,17 @@ export function registerExtensionHostHandlers(
       if (!args || typeof args.extensionId !== 'string' || typeof args.entryPath !== 'string') {
         throw new Error('extensionHost.load requires { extensionId, entryPath }')
       }
+      // Never trust renderer-supplied grantedPermissions.
+      const grants = resolveExtensionGrantsFromPermissions(args.workspaceId, args.extensionId)
       await getExtensionHostManager(args.workspaceId).loadExtension(
         args.extensionId,
         args.entryPath,
-        args.grantedPermissions,
+        grants,
       )
       return { ok: true }
     },
   )
+
 
   server.handle(
     RPC_CHANNELS.extensionHost.CALL,
