@@ -447,6 +447,11 @@ export function KanbanBoardContainer() {
     return tasks.filter(task => task.projectId !== undefined && allow.has(task.projectId))
   }, [tasks, projectFilter])
 
+  const visibleColumns = React.useMemo(() => {
+    if (collectionDisplay.showEmptyGroups) return activeColumns
+    return activeColumns.filter(column => visibleTasks.some(task => task.column === column.id))
+  }, [activeColumns, collectionDisplay.showEmptyGroups, visibleTasks])
+
   // B6: honor Display.orderBy when ranking cards within each column.
   const displayDrivenSort = React.useCallback(
     (a: KanbanTask, b: KanbanTask): number => {
@@ -570,6 +575,7 @@ export function KanbanBoardContainer() {
         const destSiblings = visibleTasks
           .filter((t) => t.column === toColumn)
           .filter((t) => t.id !== taskId)
+          .sort(displayDrivenSort)
         const last = destSiblings[destSiblings.length - 1]
         void window.electronAPI.sessionCommand(taskId, {
           type: 'reorderRank',
@@ -654,13 +660,16 @@ export function KanbanBoardContainer() {
     [
       updateSessionMeta,
       activeColumns,
+      collectionDisplay.orderBy,
       columnStatus,
+      displayDrivenSort,
       statusesById,
       handleChangeStatus,
       activeWorkspaceId,
       metaMap,
       onSendMessage,
       t,
+      visibleTasks,
     ],
   )
 
@@ -945,7 +954,7 @@ export function KanbanBoardContainer() {
       </div>
       <div className="min-h-0 flex-1">
         <KanbanBoard
-          columns={activeColumns}
+          columns={visibleColumns}
           tasks={visibleTasks}
           sortTasks={displayDrivenSort}
           projectsById={projectsById}

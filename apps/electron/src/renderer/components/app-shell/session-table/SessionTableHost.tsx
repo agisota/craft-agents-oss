@@ -6,6 +6,7 @@ import {
   compareSessions,
   dueBucket,
   filterSessionMeta,
+  lexorankBetween,
   type CollectionDisplay,
   type CollectionFilters,
   type SessionPriority,
@@ -243,11 +244,10 @@ export function SessionTableHost() {
       const insertAt = before ? targetIdx : targetIdx + 1
       const prevSib = insertAt > 0 ? withoutDrag[insertAt - 1] : undefined
       const nextSib = insertAt < withoutDrag.length ? withoutDrag[insertAt] : undefined
+      const previousRank = metaMap.get(dragId)?.rank
 
       // Optimistically move rank between siblings so UI updates before event.
-      if (prevSib && nextSib) {
-        updateMeta(dragId, { rank: `${prevSib.rank ?? 'A'}~` })
-      }
+      updateMeta(dragId, { rank: lexorankBetween(prevSib?.rank, nextSib?.rank) })
 
       try {
         await window.electronAPI.sessionCommand(dragId, {
@@ -257,10 +257,10 @@ export function SessionTableHost() {
         })
       } catch (err) {
         console.error(err)
-        // Server will push authoritative rank through metadata event.
+        updateMeta(dragId, { rank: previousRank })
       }
     },
-    [rows, showGrip, updateMeta],
+    [metaMap, rows, showGrip, updateMeta],
   )
 
   const handleTableDrop = React.useCallback(
@@ -430,4 +430,3 @@ export function SessionTableHost() {
     </div>
   )
 }
-

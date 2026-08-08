@@ -798,9 +798,9 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
   server.handle(RPC_CHANNELS.cloudRuns.GET_EVENTS, async (_ctx, args: { runId: string }) => {
     const settings = requireEnabled();
     return (providerForRun(settings, args.runId) as CloudRunProvider & {
-      getEvents?: () => Promise<{ t: number; message: string }[]>;
+      getEvents?: (id: string) => Promise<{ t: number; message: string }[]>;
     }).getEvents
-      ? await (providerForRun(settings, args.runId) as CloudRunProvider & { getEvents: () => Promise<{ t: number; message: string }[]> }).getEvents()
+      ? await (providerForRun(settings, args.runId) as CloudRunProvider & { getEvents: (id: string) => Promise<{ t: number; message: string }[]> }).getEvents(args.runId)
       : [];
   });
 
