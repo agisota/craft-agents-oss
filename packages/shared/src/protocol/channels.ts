@@ -153,8 +153,8 @@ export const RPC_CHANNELS = {
   },
   // knowledge — P1 read-only knowledge provider (spec 03) plus P3 write-back
   // mutation-proposal channels (spec 05) plus P4 Session→Knowledge publication
-  // pipeline (spec 06). Engine lifecycle (engineStart/engineStop) remains P7
-  // and MUST NOT be added here.
+  // pipeline (spec 06). ENGINE_START is local bootstrap (detect/open/spawn);
+  // full managed lifecycle (stop/pin) remains out of scope.
   knowledge: {
     LIST_CONNECTIONS: 'knowledge:listConnections',
     CAPABILITIES: 'knowledge:capabilities',
@@ -167,6 +167,8 @@ export const RPC_CHANNELS = {
     SNAPSHOT_CREATE: 'knowledge:snapshotCreate',
     SNAPSHOT_GET: 'knowledge:snapshotGet',
     ENGINE_STATUS: 'knowledge:engineStatus',
+    /** LOCAL_ONLY: ensure default connection + start local SiYuan if installed. */
+    ENGINE_START: 'knowledge:engineStart',
     CHANGED: 'knowledge:changed',
     // P3 write-back, spec 05 — safe mutation-proposal lifecycle. All seven are
     // REMOTE_ELIGIBLE (workspace data lives on the workspace-owning server);
@@ -374,6 +376,8 @@ export const RPC_CHANNELS = {
     CHANGED: 'sources:changed',
     GET_PERMISSIONS: 'sources:getPermissions',
     GET_MCP_TOOLS: 'sources:getMcpTools',
+    REINDEX: 'sources:reindex',
+    SEARCH: 'sources:search',
   },
   oauth: {
     START: 'oauth:start',

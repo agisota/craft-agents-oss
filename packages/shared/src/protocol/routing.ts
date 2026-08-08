@@ -254,8 +254,9 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
-  // knowledge — engine status reflects local engine process state, never proxied
+  // knowledge — engine status/start reflect local process state, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.ENGINE_START,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -528,6 +529,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sources.CHANGED,
   RPC_CHANNELS.sources.GET_PERMISSIONS,
   RPC_CHANNELS.sources.GET_MCP_TOOLS,
+  RPC_CHANNELS.sources.REINDEX,
+  RPC_CHANNELS.sources.SEARCH,
 
   // oauth — OAuth state management
   RPC_CHANNELS.oauth.START,
