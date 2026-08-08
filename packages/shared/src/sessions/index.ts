@@ -128,4 +128,12 @@ export {
   MAX_BUNDLE_SIZE_BYTES,
 } from './bundle.ts';
 
+// LexoRank helpers (manual session ordering)
+export {
+  lexorankValidate,
+  lexorankBetween,
+  lexorankN,
+  backfillRanks,
+} from './lexorank.ts';
+
 
