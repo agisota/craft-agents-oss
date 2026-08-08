@@ -44,7 +44,7 @@ const DEFAULT_ICONS: Record<EntityViewId, LucideIcon> = {
 export function defaultSessionEntityCapabilities(opts?: {
   siyuanConnected?: boolean
 }): EntityViewCapability[] {
-  const siyuan = opts?.siyuanConnected ?? true
+  const siyuan = opts?.siyuanConnected ?? false
   return [
     { id: 'standard', available: true, labelKey: 'entityView.standard', icon: DEFAULT_ICONS.standard },
     { id: 'map', available: true, labelKey: 'entityView.map', icon: DEFAULT_ICONS.map },
@@ -71,7 +71,7 @@ export function defaultNoteEntityCapabilities(): EntityViewCapability[] {
 export function defaultKnowledgeEntityCapabilities(opts?: {
   siyuanConnected?: boolean
 }): EntityViewCapability[] {
-  const siyuan = opts?.siyuanConnected ?? true
+  const siyuan = opts?.siyuanConnected ?? false
   return [
     { id: 'standard', available: true, labelKey: 'entityView.standard', icon: DEFAULT_ICONS.standard },
     { id: 'map', available: true, labelKey: 'entityView.map', icon: DEFAULT_ICONS.map },

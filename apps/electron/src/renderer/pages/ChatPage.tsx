@@ -43,16 +43,17 @@ import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
 import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 import { MindMapHost } from '@/mindmap/MindMapHost'
 import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindmap'
+import { useSiyuanConnected } from '@/hooks/useSiyuanConnected'
 
-const SESSION_ENTITY_VIEW_CAPABILITIES: EntityViewCapability[] = defaultSessionEntityCapabilities({
-  siyuanConnected: true,
-}).map((cap) => {
-  // teamchat remains placeholder; legacy SiYuan mindmap stays available with distinct label.
-  if (cap.id === 'teamchat') {
-    return { ...cap, available: false }
-  }
-  return cap
-})
+function buildSessionEntityCapabilities(siyuanConnected: boolean): EntityViewCapability[] {
+  return defaultSessionEntityCapabilities({ siyuanConnected }).map((cap) => {
+    // teamchat remains placeholder; legacy SiYuan mindmap stays available with distinct label.
+    if (cap.id === 'teamchat') {
+      return { ...cap, available: false }
+    }
+    return cap
+  })
+}
 
 export interface ChatPageProps {
   sessionId: string
@@ -65,9 +66,15 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     rendererPerf.markSessionSwitch(sessionId, 'panel.mounted')
   }, [sessionId])
 
+  const siyuanConnected = useSiyuanConnected()
+  const sessionEntityCapabilities = React.useMemo(
+    () => buildSessionEntityCapabilities(siyuanConnected ?? false),
+    [siyuanConnected],
+  )
+
   const [sessionView, setSessionView] = useEntityView(
     `session:${sessionId}`,
-    SESSION_ENTITY_VIEW_CAPABILITIES,
+    sessionEntityCapabilities,
     'standard',
   )
 
@@ -970,7 +977,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             <EntityViewTabs
               value={sessionView}
               onChange={setSessionView}
-              capabilities={SESSION_ENTITY_VIEW_CAPABILITIES}
+              capabilities={sessionEntityCapabilities}
             />
             <div className="flex-1 flex flex-col min-h-0">
               {renderSessionViewBody(
@@ -1050,7 +1057,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         <EntityViewTabs
           value={sessionView}
           onChange={setSessionView}
-          capabilities={SESSION_ENTITY_VIEW_CAPABILITIES}
+          capabilities={sessionEntityCapabilities}
         />
         <div className="flex-1 flex flex-col min-h-0">
           {renderSessionViewBody(

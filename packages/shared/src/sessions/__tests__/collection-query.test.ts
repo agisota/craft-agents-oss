@@ -59,13 +59,34 @@ describe('filterSessionMeta', () => {
     expect(filterSessionMeta(done, { status: ['todo'] }, false)).toBe(false)
   })
 
-  it('statusById category=closed treats custom status as terminal when showCompleted=false', () => {
+  it('custom status with category=closed is terminal when statusById provided', () => {
     const shipped = meta({ id: 's', sessionStatus: 'shipped' })
-    const statusById = new Map([['shipped', { category: 'closed' as const }]])
+    const statusById = new Map([['shipped', { category: 'closed' }], ['todo', { category: 'open' }]])
     expect(filterSessionMeta(shipped, {}, { showCompleted: false, statusById })).toBe(false)
-    expect(filterSessionMeta(shipped, { status: ['shipped'] }, { showCompleted: false, statusById })).toBe(true)
-    expect(filterSessionMeta(shipped, {}, { showCompleted: false })).toBe(true)
+    expect(filterSessionMeta(shipped, {}, { showCompleted: true, statusById })).toBe(true)
+    expect(
+      filterSessionMeta(shipped, { status: ['shipped'] }, { showCompleted: false, statusById }),
+    ).toBe(true)
+    // Without statusById, custom id is not terminal
+    expect(filterSessionMeta(shipped, {}, false)).toBe(true)
   })
+
+  it('querySessionMetas forwards statusById for terminal filtering', () => {
+    const metas = [
+      meta({ id: 'a', sessionStatus: 'todo' }),
+      meta({ id: 'b', sessionStatus: 'closed' }),
+    ]
+    const statusById = new Map([['closed', { category: 'closed' }]])
+    const out = querySessionMetas(
+      metas,
+      {},
+      { orderBy: 'rank', orderDir: 'asc', showCompleted: false },
+      Date.now(),
+      statusById,
+    )
+    expect(out.map((m) => m.id)).toEqual(['a'])
+  })
+
 
   it('label chip matches any label', () => {
     const s = meta({ id: '1', labels: ['a', 'b'] })
