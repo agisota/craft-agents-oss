@@ -31,12 +31,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerGamificationHandlers } from './gamification'
 import { registerProjectsHandlers } from './projects'
 import { registerKanbanHandlers } from './kanban'
-<<<<<<< HEAD
 import { registerCollectionHandlers } from './collection'
-||||||| parent of c9621d57c (fix(sessions): post-rebase dedup — channels, mindmap register, pin-io types)
-import { registerMindmapHandlers } from './mindmap'
-=======
->>>>>>> c9621d57c (fix(sessions): post-rebase dedup — channels, mindmap register, pin-io types)
 
 import { registerSkillsHandlers } from './skills'
 import { registerSourcesHandlers } from './sources'
