@@ -35,7 +35,9 @@ export type CredentialType =
   // Messaging gateway credentials (keyed by workspaceId + platform)
   | 'messaging_bearer'   // Platform tokens (e.g., Telegram bot token)
   // SSH host credentials (keyed by host id)
-  | 'ssh_managed_token'; // Auth token for the app-managed remote craft-agent server
+  | 'ssh_managed_token' // Auth token for the app-managed remote craft-agent server
+  // Identity Center service OAuth (SiYuan Cloud, etc.) — key service_oauth::{workspaceId}::{name}
+  | 'service_oauth';
 
 /** Valid credential types for validation */
 const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
@@ -52,6 +54,7 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'source_basic',
   'messaging_bearer',
   'ssh_managed_token',
+  'service_oauth',
 ] as const;
 
 /** Check if a string is a valid CredentialType */
@@ -216,6 +219,14 @@ export function credentialIdToAccount(id: CredentialId): string {
     return parts.join(CREDENTIAL_DELIMITER);
   }
 
+  // Identity Center service OAuth:
+  // service_oauth::{workspaceId}::{name}
+  if (id.type === 'service_oauth' && id.workspaceId && id.name) {
+    parts.push(id.workspaceId);
+    parts.push(id.name);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
+
   parts.push('global');
   return parts.join(CREDENTIAL_DELIMITER);
 }
@@ -287,6 +298,12 @@ export function accountToCredentialId(account: string): CredentialId | null {
   // Messaging-scoped format:
   // messaging_bearer::{workspaceId}::{platform}
   if (isMessagingCredential(type) && parts.length === 3) {
+    return { type, workspaceId: parts[1], name: parts[2] };
+  }
+
+  // Identity Center service OAuth:
+  // service_oauth::{workspaceId}::{name}
+  if (type === 'service_oauth' && parts.length === 3) {
     return { type, workspaceId: parts[1], name: parts[2] };
   }
 

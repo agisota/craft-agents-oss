@@ -22,6 +22,7 @@ import {
   Tag,
   ToggleRight,
   UserCircle,
+  Users,
 } from 'lucide-react'
 import type { SettingsSubpage } from '../../../shared/types'
 
@@ -33,6 +34,7 @@ export const CloudRunsIcon = ({ className }: IconProps) => <Cloud className={cla
 export const AppearanceIcon = ({ className }: IconProps) => <Palette className={className} />
 export const InputIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className={className} />
+export const AccountsIcon = ({ className }: IconProps) => <Users className={className} />
 export const PermissionsIcon = ({ className }: IconProps) => <ShieldCheck className={className} />
 export const LabelsIcon = ({ className }: IconProps) => <Tag className={className} />
 export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquare className={className} />
@@ -58,6 +60,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   appearance: AppearanceIcon,
   input: InputIcon,
   workspace: WorkspaceIcon,
+  accounts: AccountsIcon,
   permissions: PermissionsIcon,
   labels: LabelsIcon,
   messaging: MessagingSettingsIcon,

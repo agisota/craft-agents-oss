@@ -289,6 +289,14 @@ export const RPC_CHANNELS = {
   credentials: {
     HEALTH_CHECK: 'credentials:healthCheck',
   },
+  identity: {
+    GET_STATE: 'identity:getState',
+    UPDATE_PROFILE: 'identity:updateProfile',
+    CONNECT: 'identity:connect',
+    DISCONNECT: 'identity:disconnect',
+    REFRESH_STATUS: 'identity:refreshStatus',
+    CHANGED: 'identity:changed',
+  },
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',
