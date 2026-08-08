@@ -919,6 +919,19 @@ export interface ElectronAPI {
     permissions?: string[]
     workspaceId?: string | null
   }): Promise<unknown>
+  /** List commands declared by a loaded extension (module `commands` export). */
+  extensionHostListCommands(args: {
+    extensionId: string
+    workspaceId?: string | null
+  }): Promise<
+    Array<{
+      id: string
+      title: string
+      when?: string
+      defaultHotkey?: string
+      keywords?: string[]
+    }>
+  >
   /** Mint scoped capability token — never returns raw secret. Grants from load only. */
   extensionHostMintCapability(args: {
     extensionId: string

@@ -35,6 +35,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensionHost.RESTART,
   RPC_CHANNELS.extensionHost.LOAD,
   RPC_CHANNELS.extensionHost.CALL,
+  RPC_CHANNELS.extensionHost.LIST_COMMANDS,
   RPC_CHANNELS.extensionHost.MINT_CAPABILITY,
   RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY,
   RPC_CHANNELS.extensionHost.PROXY_FETCH,
@@ -157,6 +158,27 @@ export function registerExtensionHostHandlers(
         args.args,
         args.permissions,
       )
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.extensionHost.LIST_COMMANDS,
+    async (
+      _ctx,
+      args: { extensionId: string; workspaceId?: string | null },
+    ): Promise<
+      Array<{
+        id: string
+        title: string
+        when?: string
+        defaultHotkey?: string
+        keywords?: string[]
+      }>
+    > => {
+      if (!args || typeof args.extensionId !== 'string') {
+        throw new Error('extensionHost.listCommands requires { extensionId }')
+      }
+      return getExtensionHostManager(args.workspaceId).listExtensionCommands(args.extensionId)
     },
   )
 

@@ -312,6 +312,45 @@ export class ExtensionHostManager {
   }
 
   /**
+   * Describe commands exported by a loaded extension module (`module.commands`).
+   * Returns [] for extensions without a commands export; throws when unloaded.
+   */
+  async listExtensionCommands(extensionId: string): Promise<Array<{
+    id: string
+    title: string
+    when?: string
+    defaultHotkey?: string
+    keywords?: string[]
+  }>> {
+    if (!extensionId) throw new Error('extensionId is required')
+    await this.ensureRunning()
+    const result = await this.request({
+      id: nextId(),
+      type: 'list-commands',
+      extensionId,
+    })
+    if (
+      result &&
+      typeof result === 'object' &&
+      'commands' in result &&
+      Array.isArray((result as { commands: unknown }).commands)
+    ) {
+      return (
+        result as {
+          commands: Array<{
+            id: string
+            title: string
+            when?: string
+            defaultHotkey?: string
+            keywords?: string[]
+          }>
+        }
+      ).commands
+    }
+    return []
+  }
+
+  /**
    * Call a method on a loaded extension module inside the worker.
    * Basic permission gate: rejects empty permissions arrays when provided.
    */

@@ -337,6 +337,7 @@ export const RPC_CHANNELS = {
     STOP: 'extensionHost:stop',
     RESTART: 'extensionHost:restart',
     LOAD: 'extensionHost:load',
+    LIST_COMMANDS: 'extensionHost:listCommands',
     CALL: 'extensionHost:call',
     MINT_CAPABILITY: 'extensionHost:mintCapability',
     REVOKE_CAPABILITY: 'extensionHost:revokeCapability',

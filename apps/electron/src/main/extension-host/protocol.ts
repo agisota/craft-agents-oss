@@ -22,6 +22,8 @@ export type MainToWorkerMessage =
       permissions?: string[]
     }
   | { id: string; type: 'unload'; extensionId: string }
+  /** Ask worker to describe commands declared by a loaded extension module. */
+  | { id: string; type: 'list-commands'; extensionId: string }
   /** Main → Worker response to a broker-request. */
   | {
       id: string
