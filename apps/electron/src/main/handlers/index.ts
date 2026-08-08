@@ -10,6 +10,7 @@ import { registerBrowserHandlers } from './browser'
 import { registerSettingsGuiHandlers } from './settings'
 import { registerSiyuanHandlers } from './siyuan'
 import { registerExtensionHostHandlers } from './extension-host'
+import { registerExtensionSurfaceHandlers } from './extension-surface'
 
 export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): void {
   registerSystemGuiHandlers(server, deps)
@@ -18,6 +19,7 @@ export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): vo
   registerSettingsGuiHandlers(server, deps)
   registerSiyuanHandlers(server, deps)
   registerExtensionHostHandlers(server, deps)
+  registerExtensionSurfaceHandlers(server, deps)
 }
 
 export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps, serverCtx?: ServerHandlerContext): void {

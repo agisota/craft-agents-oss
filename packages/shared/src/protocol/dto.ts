@@ -1058,5 +1058,19 @@ export interface SiyuanSurfaceState {
   workspaceId: string | null
 }
 
+/**
+ * State of one sandboxed extension UI surface hosted in an embedded browser
+ * pane. Durable key is `ext:${extensionId}:${viewId}`; session partition is
+ * `persist:ext-${extensionId}` (isolated from browser-pane and other extensions).
+ */
+export interface ExtensionSurfaceState {
+  instanceId: string
+  durableKey: string
+  extensionId: string
+  viewId: string
+  url: string
+  workspaceId: string | null
+}
+
 // Toolchain wire types (re-export for RPC payloads; source of truth: toolchain module)
 export type { ToolName, ToolPhase, ToolStatus } from '../toolchain/types'

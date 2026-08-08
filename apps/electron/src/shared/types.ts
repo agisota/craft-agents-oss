@@ -381,6 +381,7 @@ import type {
   PublishDraft,
   PublishPrepareResult,
   SiyuanSurfaceState,
+  ExtensionSurfaceState,
 } from '@craft-agent/shared/protocol'
 
 export interface ElectronAPI {
@@ -859,20 +860,23 @@ export interface ElectronAPI {
   pluginBridgeUninstallBazaar(args: PluginBridgeUninstallBazaarArgs): Promise<PluginBridgeUninstallBazaarResult>
 
   // Extension Host lifecycle (S-05 §3.5) — craft-sandbox only; does not execute SiYuan plugins
-  extensionHostStatus(): Promise<ExtensionHostStatus>
-  extensionHostStart(): Promise<ExtensionHostStatus>
-  extensionHostStop(): Promise<ExtensionHostStatus>
-  extensionHostRestart(): Promise<ExtensionHostStatus>
+  extensionHostStatus(args?: { workspaceId?: string | null }): Promise<ExtensionHostStatus>
+  extensionHostStatusAll(): Promise<Array<{ workspaceId: string } & ExtensionHostStatus>>
+  extensionHostStart(args?: { workspaceId?: string | null }): Promise<ExtensionHostStatus>
+  extensionHostStop(args?: { workspaceId?: string | null }): Promise<ExtensionHostStatus>
+  extensionHostRestart(args?: { workspaceId?: string | null }): Promise<ExtensionHostStatus>
   extensionHostLoad(args: {
     extensionId: string
     entryPath: string
     grantedPermissions?: string[]
+    workspaceId?: string | null
   }): Promise<{ ok: true }>
   extensionHostCall(args: {
     extensionId: string
     method: string
     args?: unknown[]
     permissions?: string[]
+    workspaceId?: string | null
   }): Promise<unknown>
   /** Mint scoped capability token — never returns raw secret. Grants from load only. */
   extensionHostMintCapability(args: {
@@ -880,10 +884,12 @@ export interface ElectronAPI {
     permission: string
     ttlMs?: number
     singleUse?: boolean
+    workspaceId?: string | null
   }): Promise<{ token: string; expiresAt: number; permission: string }>
   extensionHostRevokeCapability(args: {
     token?: string
     extensionId?: string
+    workspaceId?: string | null
   }): Promise<{ ok: true }>
   /** Main-side authenticated fetch via capability token. */
   extensionHostProxyFetch(args: {
@@ -893,7 +899,36 @@ export interface ElectronAPI {
     headers?: Record<string, string>
     body?: string
     allowedUrlPrefixes?: string[]
+    workspaceId?: string | null
   }): Promise<{ status: number; body: string; headers: Record<string, string> }>
+  extensionHostGetUrlAllowlist(args: { extensionId: string }): Promise<{ prefixes: string[] }>
+  extensionHostSetUrlAllowlist(args: {
+    extensionId: string
+    prefixes: string[]
+  }): Promise<{ prefixes: string[] }>
+
+  /**
+   * Sandboxed extension UI surface (partition persist:ext-${extensionId}).
+   * All channels are LOCAL_ONLY.
+   */
+  extensionSurface: {
+    createEmbedded(args: {
+      durableKey: string
+      url: string
+      extensionId: string
+      viewId: string
+      workspaceId?: string | null
+    }): Promise<string>
+    destroy(args: { instanceId: string }): Promise<void>
+    list(args?: { workspaceId?: string | null }): Promise<ExtensionSurfaceState[]>
+    syncBounds(args: {
+      instanceId: string
+      rect: { x: number; y: number; width: number; height: number } | null
+    }): Promise<void>
+    focus(args: { instanceId: string }): Promise<void>
+    onStateChanged(callback: (state: ExtensionSurfaceState) => void): () => void
+    onRemoved(callback: (id: string) => void): () => void
+  }
 
   // Onboarding
   getAuthState(): Promise<AuthState>

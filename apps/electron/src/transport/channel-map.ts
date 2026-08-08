@@ -193,6 +193,7 @@ export const CHANNEL_MAP = {
 
   // Extension Host lifecycle (S-05 §3.5) — craft-sandbox only; does not execute SiYuan plugins
   extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),
+  extensionHostStatusAll: invoke(RPC_CHANNELS.extensionHost.STATUS_ALL),
   extensionHostStart: invoke(RPC_CHANNELS.extensionHost.START),
   extensionHostStop: invoke(RPC_CHANNELS.extensionHost.STOP),
   extensionHostRestart: invoke(RPC_CHANNELS.extensionHost.RESTART),
@@ -201,6 +202,8 @@ export const CHANNEL_MAP = {
   extensionHostMintCapability: invoke(RPC_CHANNELS.extensionHost.MINT_CAPABILITY),
   extensionHostRevokeCapability: invoke(RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY),
   extensionHostProxyFetch: invoke(RPC_CHANNELS.extensionHost.PROXY_FETCH),
+  extensionHostGetUrlAllowlist: invoke(RPC_CHANNELS.extensionHost.GET_URL_ALLOWLIST),
+  extensionHostSetUrlAllowlist: invoke(RPC_CHANNELS.extensionHost.SET_URL_ALLOWLIST),
 
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
@@ -338,6 +341,15 @@ export const CHANNEL_MAP = {
   'siyuanEngine.focus': invoke(RPC_CHANNELS.siyuan.FOCUS),
   'siyuanEngine.onStateChanged': listener(RPC_CHANNELS.siyuan.STATE_CHANGED),
   'siyuanEngine.onRemoved': listener(RPC_CHANNELS.siyuan.REMOVED),
+
+  // Extension UI surfaces (S-05) — sandboxed BrowserView partition persist:ext-*
+  'extensionSurface.createEmbedded': invoke(RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED),
+  'extensionSurface.destroy': invoke(RPC_CHANNELS.extensionSurface.DESTROY),
+  'extensionSurface.list': invoke(RPC_CHANNELS.extensionSurface.LIST),
+  'extensionSurface.syncBounds': invoke(RPC_CHANNELS.extensionSurface.SYNC_BOUNDS),
+  'extensionSurface.focus': invoke(RPC_CHANNELS.extensionSurface.FOCUS),
+  'extensionSurface.onStateChanged': listener(RPC_CHANNELS.extensionSurface.STATE_CHANGED),
+  'extensionSurface.onRemoved': listener(RPC_CHANNELS.extensionSurface.REMOVED),
 
   // Debug logging
   debugLog: invoke(RPC_CHANNELS.debug.LOG),

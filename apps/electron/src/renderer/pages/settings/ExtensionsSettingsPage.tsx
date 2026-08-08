@@ -350,6 +350,31 @@ export default function ExtensionsSettingsPage() {
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [hostStatus, setHostStatus] = useState<ExtensionHostStatus | null>(null)
+  const [allHosts, setAllHosts] = useState<Array<{ workspaceId: string } & ExtensionHostStatus>>([])
+  const [allowlistExtId, setAllowlistExtId] = useState('')
+  const [allowlistPrefixes, setAllowlistPrefixes] = useState<string[]>([])
+  const [newPrefix, setNewPrefix] = useState('')
+
+  type ExtensionHostDevApi = typeof window.electronAPI & {
+    extensionHostStatus?: (args?: { workspaceId?: string | null }) => Promise<ExtensionHostStatus>
+    extensionHostStatusAll?: () => Promise<Array<{ workspaceId: string } & ExtensionHostStatus>>
+    extensionHostStart?: (args?: { workspaceId?: string | null }) => Promise<ExtensionHostStatus>
+    extensionHostStop?: (args?: { workspaceId?: string | null }) => Promise<ExtensionHostStatus>
+    extensionHostRestart?: (args?: { workspaceId?: string | null }) => Promise<ExtensionHostStatus>
+    extensionHostGetUrlAllowlist?: (args: {
+      extensionId: string
+    }) => Promise<{ prefixes: string[] }>
+    extensionHostSetUrlAllowlist?: (args: {
+      extensionId: string
+      prefixes: string[]
+    }) => Promise<{ prefixes: string[] }>
+  }
+
+  const prefixesFrom = (value: { prefixes: string[] } | string[] | null | undefined): string[] | null => {
+    if (!value) return null
+    if (Array.isArray(value)) return value
+    return Array.isArray(value.prefixes) ? value.prefixes : null
+  }
 
   const load = useCallback(async () => {
     try {
@@ -360,23 +385,44 @@ export default function ExtensionsSettingsPage() {
               category: category === 'all' ? undefined : category,
               query: query.trim() || undefined,
             }
-      const [cat, inst, host] = await Promise.all([
+      const api = window.electronAPI as ExtensionHostDevApi
+      const statusCall = api.extensionHostStatus
+        ? api.extensionHostStatus({ workspaceId: workspaceId ?? undefined }).catch(() => null)
+        : Promise.resolve(null)
+      const statusAllCall = api.extensionHostStatusAll
+        ? api.extensionHostStatusAll().catch(() => [] as Array<{ workspaceId: string } & ExtensionHostStatus>)
+        : Promise.resolve([] as Array<{ workspaceId: string } & ExtensionHostStatus>)
+      const allowlistCall =
+        allowlistExtId.trim() && api.extensionHostGetUrlAllowlist
+          ? api
+              .extensionHostGetUrlAllowlist({ extensionId: allowlistExtId.trim() })
+              .catch(() => null as { prefixes: string[] } | null)
+          : Promise.resolve(null as { prefixes: string[] } | null)
+
+      const [cat, inst, host, hosts, prefixes] = await Promise.all([
         window.electronAPI.extensionsListCatalog({ filter }),
         window.electronAPI.extensionsListInstalled({
           workspaceId: workspaceId ?? undefined,
         }),
-        window.electronAPI.extensionHostStatus().catch(() => null),
+        statusCall,
+        statusAllCall,
+        allowlistCall,
       ])
       setCatalog(cat)
       setInstalled(inst)
       setHostStatus(host)
+      setAllHosts(hosts ?? [])
+      if (prefixes) {
+        const list = prefixesFrom(prefixes)
+        if (list) setAllowlistPrefixes(list)
+      }
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [category, query, workspaceId])
+  }, [category, query, workspaceId, allowlistExtId])
 
   useEffect(() => {
     void load()
@@ -451,6 +497,74 @@ export default function ExtensionsSettingsPage() {
       catalog?.providers.find((p) => p.id === providerId)?.label ?? providerId,
     [catalog],
   )
+
+  const hostLifecycle = useCallback(
+    async (action: 'start' | 'stop' | 'restart') => {
+      const api = window.electronAPI as ExtensionHostDevApi
+      const fn =
+        action === 'start'
+          ? api.extensionHostStart
+          : action === 'stop'
+            ? api.extensionHostStop
+            : api.extensionHostRestart
+      if (!fn) {
+        setError(`extensionHost${action[0]!.toUpperCase()}${action.slice(1)} unavailable`)
+        return
+      }
+      await runBusy(`host-${action}`, async () => {
+        await fn({ workspaceId: workspaceId ?? undefined })
+      })
+    },
+    [runBusy, workspaceId],
+  )
+
+  const loadAllowlist = useCallback(async () => {
+    const id = allowlistExtId.trim()
+    if (!id) {
+      setAllowlistPrefixes([])
+      return
+    }
+    const api = window.electronAPI as ExtensionHostDevApi
+    if (!api.extensionHostGetUrlAllowlist) {
+      setError('extensionHostGetUrlAllowlist unavailable')
+      return
+    }
+    try {
+      const result = await api.extensionHostGetUrlAllowlist({ extensionId: id })
+      setAllowlistPrefixes(prefixesFrom(result) ?? [])
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }, [allowlistExtId])
+
+  const saveAllowlist = useCallback(async () => {
+    const id = allowlistExtId.trim()
+    if (!id) return
+    const api = window.electronAPI as ExtensionHostDevApi
+    if (!api.extensionHostSetUrlAllowlist) {
+      setError('extensionHostSetUrlAllowlist unavailable')
+      return
+    }
+    await runBusy('allowlist-save', async () => {
+      const next = await api.extensionHostSetUrlAllowlist!({
+        extensionId: id,
+        prefixes: allowlistPrefixes,
+      })
+      setAllowlistPrefixes(prefixesFrom(next) ?? allowlistPrefixes)
+    })
+  }, [allowlistExtId, allowlistPrefixes, runBusy])
+
+  const addAllowlistPrefix = useCallback(() => {
+    const prefix = newPrefix.trim()
+    if (!prefix) return
+    setAllowlistPrefixes((prev) => (prev.includes(prefix) ? prev : [...prev, prefix]))
+    setNewPrefix('')
+  }, [newPrefix])
+
+  const removeAllowlistPrefix = useCallback((prefix: string) => {
+    setAllowlistPrefixes((prev) => prev.filter((p) => p !== prefix))
+  }, [])
 
 
   const openSiyuanCompat = useCallback(() => {
@@ -789,33 +903,203 @@ export default function ExtensionsSettingsPage() {
           ) : null}
 
           {!loading && section === 'developer' ? (
-            <div className="border rounded-lg p-4 space-y-2 text-sm">
-              <div className="flex items-center gap-2 font-medium">
-                <Wrench className="w-4 h-4" />
-                {t('extensions.developer.title', { defaultValue: 'Developer mode' })}
-              </div>
-              <p className="opacity-70 text-xs leading-relaxed">
-                {t('extensions.developer.body', {
-                  defaultValue:
-                    'Extension Host runs craft-sandbox modules in a utilityProcess. SiYuan plugins are never executed here.',
-                })}
-              </p>
-              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1 font-mono">
-                <div>
-                  {t('extensions.developer.hostStatus', { defaultValue: 'Host status' })}:{' '}
-                  <span className="font-semibold">{hostStatus?.status ?? 'unknown'}</span>
-                  {hostStatus?.pid != null ? ` · pid ${hostStatus.pid}` : null}
+            <div className="border rounded-lg p-4 space-y-4 text-sm">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 font-medium">
+                  <Wrench className="w-4 h-4" />
+                  {t('extensions.developer.title', { defaultValue: 'Developer mode' })}
                 </div>
-                <div className="opacity-70">
-                  executesSiyuanPlugins: {String(hostStatus?.executesSiyuanPlugins ?? false)}
-                </div>
-                {hostStatus?.message ? (
-                  <div className="opacity-60 break-words whitespace-pre-wrap">{hostStatus.message}</div>
-                ) : null}
-                {hostStatus?.loadedExtensions?.length ? (
-                  <div className="opacity-60">loaded: {hostStatus.loadedExtensions.join(', ')}</div>
-                ) : null}
+                <p className="opacity-70 text-xs leading-relaxed">
+                  {t('extensions.developer.body', {
+                    defaultValue:
+                      'Per-workspace Extension Hosts run craft-sandbox modules in a utilityProcess. Configure network.request URL allowlists here. SiYuan plugins are never executed in the host.',
+                  })}
+                </p>
               </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-medium opacity-80">
+                  {t('extensions.developer.hostStatus', { defaultValue: 'Host status' })}
+                </div>
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1 font-mono">
+                  <div>
+                    {t('extensions.developer.workspaceId', { defaultValue: 'Workspace' })}:{' '}
+                    <span className="font-semibold">{workspaceId ?? '—'}</span>
+                  </div>
+                  <div>
+                    {t('extensions.developer.hostStatus', { defaultValue: 'Host status' })}:{' '}
+                    <span className="font-semibold">{hostStatus?.status ?? 'unknown'}</span>
+                    {hostStatus?.pid != null ? ` · pid ${hostStatus.pid}` : null}
+                  </div>
+                  <div className="opacity-70">
+                    executesSiyuanPlugins: {String(hostStatus?.executesSiyuanPlugins ?? false)}
+                  </div>
+                  {hostStatus?.message ? (
+                    <div className="opacity-60 break-words whitespace-pre-wrap">{hostStatus.message}</div>
+                  ) : null}
+                  {hostStatus?.loadedExtensions?.length ? (
+                    <div className="opacity-60">loaded: {hostStatus.loadedExtensions.join(', ')}</div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50 disabled:opacity-50"
+                    disabled={Boolean(busy['host-start'])}
+                    onClick={() => void hostLifecycle('start')}
+                  >
+                    {t('extensions.developer.hostStart', { defaultValue: 'Start host' })}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50 disabled:opacity-50"
+                    disabled={Boolean(busy['host-stop'])}
+                    onClick={() => void hostLifecycle('stop')}
+                  >
+                    {t('extensions.developer.hostStop', { defaultValue: 'Stop host' })}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50 disabled:opacity-50"
+                    disabled={Boolean(busy['host-restart'])}
+                    onClick={() => void hostLifecycle('restart')}
+                  >
+                    {t('extensions.developer.hostRestart', { defaultValue: 'Restart host' })}
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xs font-medium opacity-80">
+                    {t('extensions.developer.allHosts', { defaultValue: 'All hosts' })}
+                  </div>
+                  {allHosts.length === 0 ? (
+                    <p className="text-xs opacity-60">
+                      {t('extensions.developer.noHosts', {
+                        defaultValue: 'No extension hosts started',
+                      })}
+                    </p>
+                  ) : (
+                    <ul className="rounded-md border divide-y text-xs font-mono">
+                      {allHosts.map((h) => (
+                        <li
+                          key={h.workspaceId}
+                          className="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1"
+                        >
+                          <span>
+                            {t('extensions.developer.workspaceId', { defaultValue: 'Workspace' })}:{' '}
+                            <span className="font-semibold">{h.workspaceId}</span>
+                          </span>
+                          <span>
+                            status: <span className="font-semibold">{h.status}</span>
+                          </span>
+                          <span className="opacity-70">
+                            pid: {h.pid != null ? h.pid : '—'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t pt-3">
+                <div className="text-xs font-medium opacity-80">
+                  {t('extensions.developer.urlAllowlistTitle', { defaultValue: 'URL allowlist' })}
+                </div>
+                <p className="text-xs opacity-60 leading-relaxed">
+                  {t('extensions.developer.urlAllowlistHint', {
+                    defaultValue:
+                      'Allowed URL prefixes for network.request / proxyFetch. Empty allowlist allows all URLs (dev default).',
+                  })}
+                </p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <label className="text-xs opacity-70 shrink-0">
+                    {t('extensions.developer.urlAllowlistExtensionId', {
+                      defaultValue: 'Extension id',
+                    })}
+                  </label>
+                  <input
+                    type="text"
+                    value={allowlistExtId}
+                    onChange={(e) => setAllowlistExtId(e.target.value)}
+                    className="flex-1 min-w-[12rem] text-xs px-2 py-1 rounded border bg-background font-mono"
+                    placeholder="my-extension"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50"
+                    onClick={() => void loadAllowlist()}
+                  >
+                    {t('extensions.developer.urlAllowlistLoad', { defaultValue: 'Load' })}
+                  </button>
+                </div>
+
+                {allowlistPrefixes.length === 0 ? (
+                  <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      {t('extensions.developer.urlAllowlistEmpty', {
+                        defaultValue: 'Warning: no URL allowlist — all URLs allowed',
+                      })}
+                    </span>
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {allowlistPrefixes.map((prefix) => (
+                      <li
+                        key={prefix}
+                        className="flex items-center gap-2 text-xs font-mono rounded border px-2 py-1"
+                      >
+                        <span className="flex-1 break-all">{prefix}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs px-1.5 py-0.5 rounded border hover:bg-muted/50"
+                          onClick={() => removeAllowlistPrefix(prefix)}
+                        >
+                          {t('extensions.developer.urlAllowlistRemove', {
+                            defaultValue: 'Remove',
+                          })}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="text"
+                    value={newPrefix}
+                    onChange={(e) => setNewPrefix(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addAllowlistPrefix()
+                      }
+                    }}
+                    className="flex-1 min-w-[12rem] text-xs px-2 py-1 rounded border bg-background font-mono"
+                    placeholder="https://api.example.com/"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50"
+                    onClick={addAllowlistPrefix}
+                  >
+                    {t('extensions.developer.urlAllowlistAdd', { defaultValue: 'Add prefix' })}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 rounded border hover:bg-muted/50 disabled:opacity-50"
+                    disabled={!allowlistExtId.trim() || Boolean(busy['allowlist-save'])}
+                    onClick={() => void saveAllowlist()}
+                  >
+                    {t('extensions.developer.urlAllowlistSave', {
+                      defaultValue: 'Save allowlist',
+                    })}
+                  </button>
+                </div>
+              </div>
+
               <div className="text-xs font-mono opacity-60 break-all">
                 state keys: {Object.keys(installed?.state.enabled ?? {}).length}
               </div>

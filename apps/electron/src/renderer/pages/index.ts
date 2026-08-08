@@ -8,6 +8,7 @@ export { default as ChatPage } from './ChatPage'
 export { default as SourceInfoPage } from './SourceInfoPage'
 export { default as BrowserPanelPage } from './BrowserPanelPage'
 export { default as KnowledgeSurfacePage } from './KnowledgeSurfacePage'
+export { default as ExtensionSurfacePage } from './ExtensionSurfacePage'
 // Settings pages
 export {
   SettingsNavigator,

@@ -37,12 +37,13 @@ import {
   isBrowserNavigation,
   isKnowledgeNavigation,
   isDiffNavigation,
+  isExtensionNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
 import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
-import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage } from '@/pages'
+import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage, ExtensionSurfacePage } from '@/pages'
 import NotesPage from '@/pages/NotesPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
@@ -451,6 +452,33 @@ export function MainContentPanel({
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <KnowledgeHome />
+      </Panel>
+    )
+  }
+
+  // Extension navigator - sandboxed extension UI surface (S-05)
+  if (isExtensionNavigation(navState)) {
+    const details = navState.details?.type === 'extension' ? navState.details : null
+    if (details?.extensionId && details.viewId) {
+      return wrapWithStoplight(
+        <Panel variant="grow" className={className}>
+          <ExtensionSurfacePage
+            extensionId={details.extensionId}
+            viewId={details.viewId}
+            panelId={panelId}
+          />
+        </Panel>
+      )
+    }
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">
+            {t('extensions.surface.noViewSelected', {
+              defaultValue: 'Select an extension view to open',
+            })}
+          </p>
+        </div>
       </Panel>
     )
   }

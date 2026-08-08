@@ -19,6 +19,7 @@ import type {
   NoteChangedPayload,
   KnowledgeChangedPayload,
   SiyuanSurfaceState,
+  ExtensionSurfaceState,
 } from './dto'
 import type { ExtensionsChangedPayload } from '../extensions/types'
 
@@ -88,6 +89,10 @@ export interface BroadcastEventMap {
   // SiYuan engine surface events (global; workspace isolation renderer-side)
   [RPC_CHANNELS.siyuan.STATE_CHANGED]: [state: SiyuanSurfaceState]
   [RPC_CHANNELS.siyuan.REMOVED]: [id: string]
+
+  // Extension UI surface events (global; workspace isolation renderer-side)
+  [RPC_CHANNELS.extensionSurface.STATE_CHANGED]: [state: ExtensionSurfaceState]
+  [RPC_CHANNELS.extensionSurface.REMOVED]: [id: string]
 
   // Navigation events (per-window)
   [RPC_CHANNELS.notification.NAVIGATE]: [data: { workspaceId: string; sessionId: string }]
