@@ -9,6 +9,46 @@ import { resolve } from 'path'
 // import { sentryVitePlugin } from '@sentry/vite-plugin'
 
 
+
+function bufferPolyfillBannerPlugin() {
+  return {
+    name: 'buffer-polyfill-banner',
+    transformIndexHtml(html: string) {
+      // Ensure Buffer exists before module scripts run (packaged file://).
+      const snip = `<script>
+        if (typeof globalThis.Buffer === 'undefined') {
+          globalThis.Buffer = {
+            from(data, enc) {
+              if (typeof data === 'string') {
+                const bytes = new TextEncoder().encode(data);
+                const arr = Uint8Array.from(bytes);
+                arr.toString = (e) => e === 'base64' ? btoa(String.fromCharCode.apply(null, Array.from(arr))) : new TextDecoder().decode(arr);
+                return arr;
+              }
+              const arr = data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data || []);
+              arr.toString = (e) => e === 'base64' ? btoa(String.fromCharCode.apply(null, Array.from(arr))) : new TextDecoder().decode(arr);
+              return arr;
+            },
+            alloc(n) { const a = new Uint8Array(n|0); a.toString = () => ''; return a; },
+            isBuffer(x) { return x instanceof Uint8Array; },
+            concat(list) {
+              const total = list.reduce((s, x) => s + (x?.length||0), 0);
+              const out = new Uint8Array(total);
+              let o = 0;
+              for (const x of list) { out.set(x, o); o += x.length; }
+              out.toString = (e) => e === 'base64' ? btoa(String.fromCharCode.apply(null, Array.from(out))) : new TextDecoder().decode(out);
+              return out;
+            },
+          };
+        }
+        if (typeof globalThis.global === 'undefined') globalThis.global = globalThis;
+        if (typeof globalThis.process === 'undefined') globalThis.process = { env: {}, browser: true };
+      </script>`
+      return html.replace('<head>', '<head>' + snip)
+    },
+  }
+}
+
 function nodeBuiltinStubPlugin() {
   const stub = resolve(__dirname, 'src/renderer/shims/node-stub.ts')
   const names = new Set([
@@ -51,6 +91,7 @@ export default defineConfig({
     }),
     tailwindcss(),
     nodeBuiltinStubPlugin(),
+    bufferPolyfillBannerPlugin(),
     // Sentry source map upload — intentionally disabled. See CLAUDE.md for re-enabling instructions.
     // sentryVitePlugin({
     //   org: process.env.SENTRY_ORG,
@@ -64,6 +105,9 @@ export default defineConfig({
   ],
   root: resolve(__dirname, 'src/renderer'),
   base: './',
+  define: {
+    'global': 'globalThis',
+  },
   build: {
     outDir: resolve(__dirname, 'dist/renderer'),
     emptyDirBeforeWrite: true,
