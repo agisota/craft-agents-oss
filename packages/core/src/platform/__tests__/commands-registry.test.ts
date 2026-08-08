@@ -95,6 +95,15 @@ describe('CommandRegistry', () => {
     expect(registry.query({ source: 'skill' }, {}).map((c) => c.id)).toEqual(['skill.command'])
   })
 
+  it('accepts source siyuan-plugin', () => {
+    const registry = createCommandRegistry()
+    registry.register(command('plugin.command', { source: 'siyuan-plugin' }))
+    expect(registry.query({ source: 'siyuan-plugin' }, {}).map((c) => c.id)).toEqual([
+      'plugin.command',
+    ])
+    expect(registry.get('plugin.command')?.source).toBe('siyuan-plugin')
+  })
+
   it('passes a CommandContext with the keys snapshot to execute()', async () => {
     const registry = createCommandRegistry()
     const contexts: CommandContext[] = []

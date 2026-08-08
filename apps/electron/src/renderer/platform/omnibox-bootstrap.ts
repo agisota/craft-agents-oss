@@ -4,7 +4,8 @@
  * - CommandRegistry + ResourceProviderRegistry + ContextKeyService
  * - Bridges existing `actions` definitions as craft CommandContributions
  * - Registers minimal resource providers (sessions/settings/skills/sources/knowledge/automations)
- * - knowledge.search / knowledge.openHome commands
+ * - knowledge.search / knowledge.openHome / knowledge.openCompat (+ siyuan.openCompat)
+ * - Soft-load enabled L2+ SiYuan plugin bridge commands (fail-soft if API absent)
  *
  * Called once from OmniboxHost on mount. Safe to call multiple times (idempotent).
  */
@@ -41,6 +42,7 @@ import {
   createSkillsProvider,
   createSourcesProvider,
 } from './omnibox-providers'
+import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 
 export interface OmniboxPlatform {
   commands: CommandRegistry
@@ -88,6 +90,10 @@ export function bootstrapOmnibox(options?: { t?: LabelResolver }): OmniboxPlatfo
   registerActionCommands(p.commands)
   registerKnowledgeCommands(p.commands)
   registerResourceProviders(p.resources, options?.t)
+  // Fail-soft: never block palette bootstrap if plugin bridge is missing.
+  void registerPluginBridgeCommands(p.commands).catch((err) => {
+    console.debug('[omnibox] plugin bridge registration skipped', err)
+  })
 
   return p
 }
@@ -153,6 +159,10 @@ function registerActionCommands(commands: CommandRegistry): void {
   }
 }
 
+function openSiyuanCompatSurface(): void {
+  navigate(routes.view.siyuan({ kind: 'notebook', id: SIYUAN_FULL_SURFACE_ID }))
+}
+
 function registerKnowledgeCommands(commands: CommandRegistry): void {
   const openHome: CommandContribution = {
     id: 'knowledge.openHome',
@@ -174,11 +184,152 @@ function registerKnowledgeCommands(commands: CommandRegistry): void {
       navigate(routes.view.knowledge())
     },
   }
+  const openCompat: CommandContribution = {
+    id: 'knowledge.openCompat',
+    title: 'Open SiYuan compatibility view',
+    category: 'Knowledge',
+    source: 'craft',
+    keywords: ['knowledge', 'siyuan', 'compat', 'full', 'interface', 'plugin'],
+    async execute() {
+      openSiyuanCompatSurface()
+    },
+  }
+  const openCompatAlias: CommandContribution = {
+    id: 'siyuan.openCompat',
+    title: 'Open SiYuan compatibility view',
+    category: 'Knowledge',
+    source: 'craft',
+    keywords: ['siyuan', 'compat', 'full', 'interface', 'plugin'],
+    async execute() {
+      openSiyuanCompatSurface()
+    },
+  }
   try {
     track(commands.register(openHome))
     track(commands.register(search))
+    track(commands.register(openCompat))
+    track(commands.register(openCompatAlias))
   } catch (err) {
     console.error('[omnibox] failed to register knowledge commands', err)
+  }
+}
+
+type PluginBridgeListItem = {
+  id: string
+  enabled?: boolean
+  level?: number
+  name?: string
+  grantedPermissions?: string[]
+}
+
+type PluginBridgeCommand = {
+  id: string
+  title: string
+  titleRu?: string
+  when?: string
+  defaultHotkey?: string
+  pluginId?: string
+}
+
+type PluginBridgeProjections = {
+  commands?: PluginBridgeCommand[]
+  level?: number
+  pluginId?: string
+}
+
+type PluginBridgeApi = {
+  pluginBridgeListPlugins?: () => Promise<{ plugins?: PluginBridgeListItem[] }>
+  pluginBridgeGetProjections?: (args: {
+    pluginId: string
+    grantedPermissions?: string[]
+  }) => Promise<PluginBridgeProjections>
+  pluginBridgeOpenCompat?: (args?: { pluginId?: string }) => Promise<unknown>
+}
+
+/**
+ * Stable command id: always `siyuan-plugin:${barePluginName}:${contributeId}`.
+ * Strips one leading `siyuan-plugin:` from plugin id; never double-prefixes;
+ * never returns a bare dotted contribute id without the namespace.
+ */
+export function pluginCommandId(pluginId: string, contributeId: string): string {
+  const barePlugin = pluginId.startsWith('siyuan-plugin:')
+    ? pluginId.slice('siyuan-plugin:'.length)
+    : pluginId
+  const bareContribute = contributeId.startsWith(`siyuan-plugin:${barePlugin}:`)
+    ? contributeId.slice(`siyuan-plugin:${barePlugin}:`.length)
+    : contributeId.startsWith('siyuan-plugin:')
+      ? contributeId.slice('siyuan-plugin:'.length)
+      : contributeId
+  return `siyuan-plugin:${barePlugin}:${bareContribute}`
+}
+
+/** Default install-time grants for enabled L2/L3 plugins until user revoke. */
+function defaultPluginBridgeGrants(level: number | undefined): string[] {
+  return (level ?? 0) >= 2 ? ['ui.command', 'ui.panel'] : []
+}
+
+/**
+ * Soft-load enabled L2+ plugin projections into the command registry.
+ * Missing ElectronAPI methods are a no-op (W6 domain may land later).
+ */
+async function registerPluginBridgeCommands(commands: CommandRegistry): Promise<void> {
+  try {
+    if (typeof window === 'undefined') return
+    const api = window.electronAPI as PluginBridgeApi | undefined
+    if (!api?.pluginBridgeListPlugins || !api?.pluginBridgeGetProjections) return
+
+    const list = await api.pluginBridgeListPlugins()
+    const plugins = list?.plugins ?? []
+    for (const plugin of plugins) {
+      if (!plugin?.id || plugin.enabled === false) continue
+      if ((plugin.level ?? 0) < 2) continue
+
+      let projections: PluginBridgeProjections
+      try {
+        const grantedPermissions =
+          plugin.grantedPermissions ?? defaultPluginBridgeGrants(plugin.level)
+        projections = await api.pluginBridgeGetProjections({
+          pluginId: plugin.id,
+          grantedPermissions,
+        })
+      } catch (err) {
+        console.debug('[omnibox] getProjections failed', plugin.id, err)
+        continue
+      }
+      if ((projections?.level ?? plugin.level ?? 0) < 2) continue
+
+      for (const cmd of projections?.commands ?? []) {
+        if (!cmd?.id || !cmd.title) continue
+        const id = pluginCommandId(plugin.id, cmd.id)
+        const contribution: CommandContribution = {
+          id,
+          title: cmd.title,
+          category: 'SiYuan Plugin',
+          // Domain lands `siyuan-plugin` on the source union; cast keeps bootstrap green either way.
+          source: 'siyuan-plugin' as CommandContribution['source'],
+          when: cmd.when,
+          defaultHotkey: cmd.defaultHotkey,
+          keywords: ['siyuan', 'plugin', plugin.name ?? plugin.id],
+          async execute() {
+            try {
+              if (typeof api.pluginBridgeOpenCompat === 'function') {
+                await api.pluginBridgeOpenCompat({ pluginId: plugin.id })
+              }
+              openSiyuanCompatSurface()
+            } catch (err) {
+              console.debug('[omnibox] bridge invoke stub', id, err)
+            }
+          },
+        }
+        try {
+          track(commands.register(contribution))
+        } catch (err) {
+          console.debug('[omnibox] skip plugin command', id, err)
+        }
+      }
+    }
+  } catch (err) {
+    console.debug('[omnibox] plugin bridge soft-load failed', err)
   }
 }
 

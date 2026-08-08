@@ -4,8 +4,8 @@
  * internally, so AppShell can mount it directly in the navigator slot
  * (W2-NAV wires it behind `isKnowledgeNavigation`).
  *
- * Contents: the section tree (notebooks + static S-01 sections) and a hint
- * pointing at the full SiYuan desktop interface rendered by the surface slice
+ * Contents: the section tree (notebooks + static S-01 sections) and a button
+ * that opens the full SiYuan desktop interface rendered by the surface slice
  * (W2-SURF owns the embedded surface itself).
  */
 import { useSetAtom } from 'jotai'
@@ -16,6 +16,7 @@ import { routes } from '@/lib/navigate'
 import { cn } from '@/lib/utils'
 import { knowledgeHomeViewAtom } from './KnowledgeHome'
 import { KnowledgeNotebookTree } from './KnowledgeNotebookTree'
+import { SIYUAN_FULL_SURFACE_ID } from './siyuan-url'
 
 export function KnowledgeNavigator() {
   const { t } = useTranslation()
@@ -51,9 +52,18 @@ export function KnowledgeNavigator() {
         </button>
       </div>
       <footer className="border-t border-border px-3 py-2">
-        <p className="text-[11px] leading-snug text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => {
+            navigate(routes.view.siyuan({ kind: 'notebook', id: SIYUAN_FULL_SURFACE_ID }))
+          }}
+          className={cn(
+            'w-full rounded-md px-2 py-1.5 text-left text-[11px] leading-snug text-muted-foreground',
+            'hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          )}
+        >
           {t('knowledge.openFullInterface')}
-        </p>
+        </button>
       </footer>
     </div>
   )

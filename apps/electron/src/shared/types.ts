@@ -110,10 +110,12 @@ import type {
 } from '@craft-agent/core/platform';
 export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
 
-// Extension Center (S-05)
+// Extension Center (S-05) + SiYuan plugin bridge / Extension Host (W6)
 import type {
+  BridgeProjectedContributions,
   CatalogEntry,
   CatalogFilter,
+  ExtensionHostStatus,
   ExtensionRecord,
   ExtensionsChangedPayload,
   ExtensionsGetStateResult,
@@ -121,10 +123,16 @@ import type {
   ExtensionsListInstalledResult,
   ExtensionsSetEnabledResult,
   ExtensionStateFile,
+  PluginBridgeGetProjectionsArgs,
+  PluginBridgeListResult,
+  PluginBridgeSetEnabledArgs,
+  PluginBridgeSetEnabledResult,
 } from '@craft-agent/shared/extensions'
 export type {
+  BridgeProjectedContributions,
   CatalogEntry,
   CatalogFilter,
+  ExtensionHostStatus,
   ExtensionRecord,
   ExtensionsChangedPayload,
   ExtensionsGetStateResult,
@@ -132,6 +140,10 @@ export type {
   ExtensionsListInstalledResult,
   ExtensionsSetEnabledResult,
   ExtensionStateFile,
+  PluginBridgeGetProjectionsArgs,
+  PluginBridgeListResult,
+  PluginBridgeSetEnabledArgs,
+  PluginBridgeSetEnabledResult,
 }
 
 // Source types for session source selection
@@ -824,6 +836,19 @@ export interface ElectronAPI {
   extensionsSetEnabled(args: { id: string; enabled: boolean }): Promise<ExtensionsSetEnabledResult>
   extensionsGetState(): Promise<ExtensionsGetStateResult>
   onExtensionsChanged(callback: (payload: ExtensionsChangedPayload) => void): () => void
+
+  // SiYuan plugin bridge (W6)
+  pluginBridgeListPlugins(): Promise<PluginBridgeListResult>
+  pluginBridgeGetProjections(args: PluginBridgeGetProjectionsArgs): Promise<BridgeProjectedContributions>
+  pluginBridgeSetEnabled(args: PluginBridgeSetEnabledArgs): Promise<PluginBridgeSetEnabledResult>
+  pluginBridgeOpenCompat(args?: { pluginId?: string }): Promise<{
+    route: string
+    ref: { kind: 'notebook'; id: string }
+  }>
+
+  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  extensionHostStatus(): Promise<ExtensionHostStatus>
+  extensionHostRestart(): Promise<ExtensionHostStatus>
 
   // Onboarding
   getAuthState(): Promise<AuthState>

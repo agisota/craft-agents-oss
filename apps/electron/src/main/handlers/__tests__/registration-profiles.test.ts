@@ -94,6 +94,7 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     cloudRuns,
     identity,
     extensions,
+    pluginBridge,
     contextDocs,
     bundledSkills,
     marketplace,
@@ -127,6 +128,7 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/cloud-runs'),
     import('@craft-agent/server-core/handlers/rpc/identity'),
     import('@craft-agent/server-core/handlers/rpc/extensions'),
+    import('@craft-agent/server-core/handlers/rpc/plugin-bridge'),
     import('@craft-agent/server-core/handlers/rpc/context-docs'),
     import('@craft-agent/server-core/handlers/rpc/bundled-skills'),
     import('@craft-agent/server-core/handlers/rpc/marketplace'),
@@ -162,6 +164,7 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     ...cloudRuns.HANDLED_CHANNELS,
     ...identity.HANDLED_CHANNELS,
     ...extensions.HANDLED_CHANNELS,
+    ...pluginBridge.HANDLED_CHANNELS,
     ...contextDocs.HANDLED_CHANNELS,
     ...bundledSkills.HANDLED_CHANNELS,
     ...marketplace.HANDLED_CHANNELS,
@@ -192,12 +195,13 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
 }
 
 async function getExpectedGuiChannels(): Promise<Set<string>> {
-  const [browser, system, workspace, settings, siyuan] = await Promise.all([
+  const [browser, system, workspace, settings, siyuan, extensionHost] = await Promise.all([
     import('../browser'),
     import('../system'),
     import('../workspace'),
     import('../settings'),
     import('../siyuan'),
+    import('../extension-host'),
   ])
 
   return new Set([
@@ -206,6 +210,7 @@ async function getExpectedGuiChannels(): Promise<Set<string>> {
     ...workspace.GUI_HANDLED_CHANNELS,
     ...settings.GUI_HANDLED_CHANNELS,
     ...siyuan.HANDLED_CHANNELS,
+    ...extensionHost.HANDLED_CHANNELS,
   ])
 }
 

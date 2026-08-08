@@ -1,12 +1,13 @@
 /**
- * Extension Center RPC handlers (S-05 / W5).
+ * Extension Center RPC handlers (S-05 / W5 + W6 bazaar fixture feed).
  *
  * Federated list of craft-curated catalog + installed projections
- * (skills/sources/automations/marketplace lock). Enable/disable is stored in
+ * (skills/sources/automations/marketplace lock + optional SiYuan bridge
+ * fixtures). Enable/disable is stored in
  * `{configDir}/extensions/state.json` and does NOT rewrite entity stores.
  *
  * Install/remove for marketplace ids remains on marketplace.* handlers.
- * Extension Host / live Bazaar / contribution registration → residual W6.
+ * Live kernel Bazaar / contribution host execution remain residual.
  */
 
 import { existsSync } from 'node:fs'
@@ -17,8 +18,10 @@ import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import {
   automationsToExtensionRecords,
   createDefaultCatalogRegistry,
+  detectCompatLevel,
   getExtensionStateStore,
   marketplaceEntryToRecord,
+  pluginJsonToExtensionRecord,
   resetExtensionStateStoreCache,
   skillsToExtensionRecords,
   sourcesToExtensionRecords,
@@ -42,6 +45,7 @@ import { resolveAutomationsConfigPath } from '@craft-agent/shared/automations/re
 import type { AutomationsConfig } from '@craft-agent/shared/automations'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
+import { pluginBridgeBazaarListFn } from './plugin-bridge'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensions.LIST_CATALOG,
@@ -109,7 +113,9 @@ export function registerExtensionsHandlers(server: RpcServer, deps: HandlerDeps)
   server.handle(
     RPC_CHANNELS.extensions.LIST_CATALOG,
     async (_ctx, args?: ExtensionsListCatalogArgs): Promise<ExtensionsListCatalogResult> => {
-      const registry = createDefaultCatalogRegistry(() => loadMarketplaceCatalog())
+      const registry = createDefaultCatalogRegistry(() => loadMarketplaceCatalog(), {
+        bazaarListFn: pluginBridgeBazaarListFn,
+      })
       const entries = await registry.listAll(args?.filter)
       return {
         entries,
@@ -198,6 +204,23 @@ export function registerExtensionsHandlers(server: RpcServer, deps: HandlerDeps)
         } else {
           log?.error?.(`EXTENSIONS_LIST_INSTALLED: Workspace not found: ${workspaceId}`)
         }
+      }
+
+      // SiYuan plugin bridge fixtures / residual feed (runtime siyuan-plugin).
+      try {
+        for (const manifest of pluginBridgeBazaarListFn()) {
+          const id = `siyuan-plugin:${manifest.name}`
+          const flag = enabledMap[id]
+          const enabled = flag === undefined ? true : flag
+          const level = detectCompatLevel(manifest)
+          records.push(pluginJsonToExtensionRecord(manifest, level, enabled))
+        }
+      } catch (err) {
+        log?.warn?.(
+          `EXTENSIONS_LIST_INSTALLED: siyuan-plugin projection failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        )
       }
 
       return { records, state }
