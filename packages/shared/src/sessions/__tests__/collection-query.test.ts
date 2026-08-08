@@ -59,6 +59,14 @@ describe('filterSessionMeta', () => {
     expect(filterSessionMeta(done, { status: ['todo'] }, false)).toBe(false)
   })
 
+  it('statusById category=closed treats custom status as terminal when showCompleted=false', () => {
+    const shipped = meta({ id: 's', sessionStatus: 'shipped' })
+    const statusById = new Map([['shipped', { category: 'closed' as const }]])
+    expect(filterSessionMeta(shipped, {}, { showCompleted: false, statusById })).toBe(false)
+    expect(filterSessionMeta(shipped, { status: ['shipped'] }, { showCompleted: false, statusById })).toBe(true)
+    expect(filterSessionMeta(shipped, {}, { showCompleted: false })).toBe(true)
+  })
+
   it('label chip matches any label', () => {
     const s = meta({ id: '1', labels: ['a', 'b'] })
     expect(filterSessionMeta(s, { labels: ['b'] }, true)).toBe(true)

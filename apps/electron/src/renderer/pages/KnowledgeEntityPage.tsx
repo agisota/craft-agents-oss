@@ -27,9 +27,42 @@ export interface KnowledgeEntityPageProps {
 export default function KnowledgeEntityPage({ kind, id, panelId }: KnowledgeEntityPageProps) {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useAppShellContext()
+  const [siyuanConnected, setSiyuanConnected] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    let cancelled = false
+    const probe = async () => {
+      const api = window.electronAPI?.knowledge
+      if (!api?.engineStatus || !api?.listConnections) {
+        if (!cancelled) setSiyuanConnected(false)
+        return
+      }
+      try {
+        const connections = await api.listConnections()
+        const connectionId =
+          connections.find((c) => c.id === 'siyuan-local')?.id ??
+          connections.find((c) => (c.label ?? '').toLowerCase().includes('local'))?.id ??
+          connections[0]?.id
+        if (!connectionId) {
+          if (!cancelled) setSiyuanConnected(false)
+          return
+        }
+        const status = await api.engineStatus({
+          ...(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {}),
+          connectionId,
+        })
+        if (!cancelled) setSiyuanConnected(!!status.running)
+      } catch {
+        if (!cancelled) setSiyuanConnected(false)
+      }
+    }
+    void probe()
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspaceId])
   const capabilities = React.useMemo(
-    () => defaultKnowledgeEntityCapabilities({ siyuanConnected: true }),
-    [],
+    () => defaultKnowledgeEntityCapabilities({ siyuanConnected: siyuanConnected ?? false }),
+    [siyuanConnected],
   )
   const [view, setView] = useEntityView(`knowledge:${kind}:${id}`, capabilities, 'standard')
 
