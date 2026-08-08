@@ -249,7 +249,6 @@ const EXPECTED_CHANNELS: string[] = [
   'menu:zoomIn',
   'menu:zoomOut',
   'menu:zoomReset',
-  'mindmap:enrich',
   'messaging:access:allowPending',
   'messaging:access:dismissPending',
   'messaging:access:getMode',
