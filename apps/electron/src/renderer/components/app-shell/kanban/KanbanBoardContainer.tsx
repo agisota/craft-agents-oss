@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useRef } from 'react'
 import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
@@ -190,6 +191,17 @@ export function KanbanBoardContainer() {
   // Workspace board config (columns + groupBy).
   const [boardConfig, setBoardConfig] = React.useState<KanbanBoardConfig | null>(null)
   const boardConfigRef = React.useRef<KanbanBoardConfig | null>(null)
+  // Sync-safe loop-guard: metaMap updates are async/batched, so a second drop
+  // in the same tick can still see isProcessing=false. Keep an immediate Set.
+  const processingRef = useRef(new Set<string>())
+
+  // Drop loop-guard entries once session meta reports idle again.
+  React.useEffect(() => {
+    for (const id of [...processingRef.current]) {
+      if (!metaMap.get(id)?.isProcessing) processingRef.current.delete(id)
+    }
+  }, [metaMap])
+
   boardConfigRef.current = boardConfig
 
   React.useEffect(() => {
@@ -208,9 +220,18 @@ export function KanbanBoardContainer() {
           const overrides = JSON.parse(raw) as Record<string, string>
           const keys = Object.keys(overrides)
           if (keys.length > 0) {
-            const nextCols = cfg.columns.map(c =>
-              overrides[c.id] && !c.color ? { ...c, color: overrides[c.id] } : c,
-            )
+            const nextCols = cfg.columns.map(c => {
+              const override = overrides[c.id]
+              if (!override) return c
+              // Prefer localStorage override when file color is missing OR still
+              // the stock default — user overrides always win once, then clear.
+              const stock =
+                DEFAULT_KANBAN_COLUMN_COLORS[c.id as BuiltInKanbanColumnId]
+              if (!c.color || (stock && c.color === stock)) {
+                return { ...c, color: override }
+              }
+              return c
+            })
             const changed = nextCols.some((c, i) => c.color !== cfg.columns[i]?.color)
             if (changed) {
               const next = { ...cfg, columns: nextCols }
@@ -218,8 +239,10 @@ export function KanbanBoardContainer() {
                 if (!cancelled) setBoardConfig(saved)
               })
               setColumnColors({})
-              localStorage.removeItem('craft-kanban-column-colors')
             }
+            // One-shot: drop localStorage whether or not file colors changed
+            // (overrides for stock defaults already applied above).
+            localStorage.removeItem('craft-kanban-column-colors')
           }
         }
       } catch {
@@ -521,7 +544,7 @@ export function KanbanBoardContainer() {
       if (!activeWorkspaceId) return
       if (!shouldAutoRunOnDrop(toColumn, destColumn)) return
       const meta = metaMap.get(taskId)
-      if (!meta || meta.isProcessing) return
+      if (!meta || meta.isProcessing || processingRef.current.has(taskId)) return
 
       const title = getSessionTitle(meta) || meta.name?.trim() || ''
       const kick = (goalText: string) => {
@@ -539,9 +562,14 @@ export function KanbanBoardContainer() {
           {
             sendMessage: onSendMessage,
             runTask: (wsId, args) => window.electronAPI.runTask(wsId, args),
-            isProcessing: id => !!metaMap.get(id)?.isProcessing,
-            markProcessing: id => updateSessionMeta(id, { isProcessing: true }),
-            onError: err => {
+            isProcessing: id =>
+              processingRef.current.has(id) || !!metaMap.get(id)?.isProcessing,
+            markProcessing: id => {
+              processingRef.current.add(id)
+              updateSessionMeta(id, { isProcessing: true })
+            },
+            onError: (err, job) => {
+              processingRef.current.delete(job.sessionId)
               toast.error(t('kanban.toastAutoRunFailed'), {
                 description: err instanceof Error ? err.message : String(err),
               })

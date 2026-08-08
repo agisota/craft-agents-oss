@@ -82,6 +82,64 @@ describe('kanban-column-queue', () => {
     expect(sent).toEqual([{ id: 's1', msg: 'T\n\nG' }])
   })
 
+  it('production-shaped handlers: useRef Set + metaMap OR isProcessing', async () => {
+    // Mirrors KanbanBoardContainer: processingRef is immediate; metaMap lags.
+    const processingRef = { current: new Set<string>() }
+    const metaMap = new Map<string, { isProcessing?: boolean }>()
+    const sent: string[] = []
+    const { promise, resolve } = Promise.withResolvers<void>()
+
+    const handlers = {
+      sendMessage: (id: string) => {
+        sent.push(id)
+        resolve()
+      },
+      runTask: async () => {
+        throw new Error('runTask should not be used')
+      },
+      isProcessing: (id: string) =>
+        processingRef.current.has(id) || !!metaMap.get(id)?.isProcessing,
+      markProcessing: (id: string) => {
+        processingRef.current.add(id)
+        // metaMap intentionally NOT updated yet — simulates React batch lag
+      },
+      onError: (_err: unknown, job: { sessionId: string }) => {
+        processingRef.current.delete(job.sessionId)
+      },
+    }
+
+    enqueueKanbanColumnRun(
+      {
+        workspaceId: 'ws',
+        sessionId: 's-lag',
+        columnId: 'in-progress',
+        columnPrompt: '',
+        title: 'T',
+        goalText: 'G',
+        enqueuedAt: 1,
+      },
+      handlers,
+    )
+    enqueueKanbanColumnRun(
+      {
+        workspaceId: 'ws',
+        sessionId: 's-lag',
+        columnId: 'in-progress',
+        columnPrompt: '',
+        title: 'T',
+        goalText: 'G2',
+        enqueuedAt: 2,
+      },
+      handlers,
+    )
+
+    await promise
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(sent).toEqual(['s-lag'])
+    expect(processingRef.current.has('s-lag')).toBe(true)
+  })
+
   it('enqueue uses runTask for spec-backed tiles', async () => {
     const runs: Array<{ slug: string; sessionId: string }> = []
     const { promise, resolve } = Promise.withResolvers<void>()

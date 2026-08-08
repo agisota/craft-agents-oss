@@ -47,6 +47,7 @@ interface EmbeddedCalls {
   created: Array<{ url?: string; workspaceId?: string | null }>
   destroyed: string[]
   focused: string[]
+  navigated: Array<{ id: string; url: string }>
   bounds: Array<{ id: string; rect: unknown }>
   evaluated: Array<{ id: string; expression: string }>
   nextInstanceId: number
@@ -82,6 +83,10 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
       focus: (id: string) => {
         calls.focused.push(id)
       },
+      navigate: async (id: string, url: string) => {
+        calls.navigated.push({ id, url })
+        return { url, title: '' }
+      },
       evaluate: async (id: string, expression: string) => {
         calls.evaluated.push({ id, expression })
         return 'ok'
@@ -95,7 +100,7 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
 }
 
 function makeCalls(): EmbeddedCalls {
-  return { created: [], destroyed: [], focused: [], bounds: [], evaluated: [], nextInstanceId: 0 }
+  return { created: [], destroyed: [], focused: [], navigated: [], bounds: [], evaluated: [], nextInstanceId: 0 }
 }
 
 const CTX = {} as never
@@ -182,6 +187,43 @@ describe('siyuan surface handlers', () => {
     expect(calls.focused).toEqual([first])
     // One push for creation, one for the dedup re-open.
     expect(recorder.pushes.filter((p) => p.channel === RPC_CHANNELS.siyuan.STATE_CHANGED)).toHaveLength(2)
+  })
+
+  it('createEmbedded re-open navigates when URL differs and updates stored url', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+    const list = recorder.handlers.get(RPC_CHANNELS.siyuan.LIST)!
+
+    const first = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: 'http://h/desktop/?id=x',
+      workspaceId: 'ws-1',
+    }) as string
+    const second = handler(CTX, {
+      durableKey: 'siyuan:doc:x:editor',
+      url: 'http://h/desktop/?id=x&craftSurface=graph',
+      workspaceId: 'ws-1',
+    })
+
+    expect(second).toBe(first)
+    expect(calls.created).toHaveLength(1)
+    expect(calls.navigated).toEqual([
+      { id: first, url: 'http://h/desktop/?id=x&craftSurface=graph' },
+    ])
+    const states = list(CTX) as SiyuanSurfaceState[]
+    expect(states.find((s) => s.instanceId === first)?.url).toBe(
+      'http://h/desktop/?id=x&craftSurface=graph',
+    )
+  })
+
+  it('createEmbedded re-open with same URL does not navigate', () => {
+    register(recorder.server, makeDeps(calls))
+    const handler = recorder.handlers.get(RPC_CHANNELS.siyuan.CREATE_EMBEDDED)!
+
+    handler(CTX, { durableKey: 'siyuan:doc:y:editor', url: 'http://h/y', workspaceId: 'ws-1' })
+    handler(CTX, { durableKey: 'siyuan:doc:y:editor', url: 'http://h/y', workspaceId: 'ws-1' })
+
+    expect(calls.navigated).toEqual([])
   })
 
   it('createEmbedded with distinct durable keys creates distinct surfaces', () => {

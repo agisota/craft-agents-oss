@@ -92,9 +92,12 @@ export function buildSiyuanSurfaceUrl(
   return qs ? `${root}?${qs}` : root
 }
 
-/** Stable per-document durable key (restores across restart, dedups re-open). */
-export function buildSiyuanDurableKey(ref: SiyuanSurfaceRef): string {
-  return `siyuan:${ref.kind}:${ref.id}`
+/** Stable surface key — kind+id+mode so graph/editor don't share a BrowserView. */
+export function buildSiyuanDurableKey(
+  ref: SiyuanSurfaceRef,
+  mode: SiyuanSurfaceMode = 'editor',
+): string {
+  return `siyuan:${ref.kind}:${ref.id}:${mode}`
 }
 
 /** True when the route targets the compat full-interface surface. */
