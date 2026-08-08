@@ -82,9 +82,18 @@ export function pluginJsonToExtensionRecord(
     status: enabled ? 'enabled' : 'disabled',
     worksIn: worksInForLevel(level),
     description,
-    readOnly: true,
+    // Bazaar-managed: uninstall via kernel is allowed (not a read-only projection).
+    readOnly: false,
     tags: tagsFor(level, { requiresFullChrome: manifest.craft?.requiresFullChrome }),
     sourceEnabled: enabled,
+  }
+}
+
+export interface PluginJsonToCatalogEntryOptions {
+  bazaar?: {
+    packageName: string
+    repoURL: string
+    repoHash: string
   }
 }
 
@@ -92,6 +101,7 @@ export function pluginJsonToExtensionRecord(
 export function pluginJsonToCatalogEntry(
   manifest: SiYuanBridgeManifest,
   level: CompatLevel,
+  opts?: PluginJsonToCatalogEntryOptions,
 ): CatalogEntry {
   const id = extensionId(manifest.name)
   const description = localizedText(manifest.description)
@@ -115,5 +125,6 @@ export function pluginJsonToCatalogEntry(
     permissions: [...permissions],
     worksIn: worksInForLevel(level),
     tags: tagsFor(level, { requiresFullChrome: manifest.craft?.requiresFullChrome }),
+    ...(opts?.bazaar ? { bazaar: opts.bazaar } : {}),
   }
 }

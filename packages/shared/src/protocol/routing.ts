@@ -267,6 +267,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
   RPC_CHANNELS.pluginBridge.SET_ENABLED,
   RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
+  RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR,
+  RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR,
 
   // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
   RPC_CHANNELS.extensionHost.STATUS,

@@ -7,10 +7,11 @@
  * connections with token → conf.json api.token fallback (G2-safe, never spawn).
  * Never spawns/downloads SiYuan (G2). Does not execute third-party plugin code.
  * Does not rewrite petals.json on disk — kernel owns petal state.
+ * install/uninstall Bazaar plugins via kernel APIs only (no Craft-side zip).
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
+import { CodedError, RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import {
@@ -18,13 +19,19 @@ import {
   getExtensionStateStore,
   localizedText,
   parseSiYuanPluginManifest,
+  pluginJsonToCatalogEntry,
   projectBridgeContributions,
   type BridgeProjectedContributions,
+  type CatalogEntry,
   type PluginBridgeGetProjectionsArgs,
+  type PluginBridgeInstallBazaarArgs,
+  type PluginBridgeInstallBazaarResult,
   type PluginBridgeListItem,
   type PluginBridgeListResult,
   type PluginBridgeSetEnabledArgs,
   type PluginBridgeSetEnabledResult,
+  type PluginBridgeUninstallBazaarArgs,
+  type PluginBridgeUninstallBazaarResult,
   type SiYuanBridgeManifest,
 } from '@craft-agent/shared/extensions'
 import {
@@ -33,7 +40,7 @@ import {
   type SiyuanInstalledPluginPackage,
   type SiyuanPetalInfo,
 } from '@craft-agent/core/knowledge/providers/siyuan'
-import type { RpcServer } from '@craft-agent/server-core/transport'
+import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import {
   credentialIdFromRef,
@@ -51,6 +58,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
   RPC_CHANNELS.pluginBridge.SET_ENABLED,
   RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
+  RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR,
+  RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR,
 ] as const
 
 export type PluginBridgeFeedSource = 'fixture' | 'kernel' | 'filesystem'
@@ -418,9 +427,44 @@ export function bazaarPackageToManifest(
   })
 }
 
+function bazaarCoordsFromPackage(
+  pkg: SiyuanBazaarPluginPackage,
+): { packageName: string; repoURL: string; repoHash: string } | undefined {
+  const repoURL = typeof pkg.repoURL === 'string' ? pkg.repoURL.trim() : ''
+  const repoHash = typeof pkg.repoHash === 'string' ? pkg.repoHash.trim() : ''
+  if (!repoURL || !repoHash) return undefined
+  return { packageName: pkg.name, repoURL, repoHash }
+}
+
 /**
  * Soft-fail remote Bazaar catalog via kernel. Empty when kernel down / no token.
- * Does NOT auto-install.
+ * Does NOT auto-install. Entries carry bazaar install coords when kernel provides them.
+ */
+export async function loadBazaarRemoteCatalogEntries(
+  keyword = '',
+): Promise<CatalogEntry[]> {
+  try {
+    const client = await resolveKernelClient()
+    if (!client) return []
+    const packages = await client.getBazaarPlugin('desktop', keyword)
+    const out: CatalogEntry[] = []
+    for (const pkg of packages) {
+      const m = bazaarPackageToManifest(pkg)
+      if (!m) continue
+      const level = detectCompatLevel(m)
+      const bazaar = bazaarCoordsFromPackage(pkg)
+      out.push(pluginJsonToCatalogEntry(m, level, bazaar ? { bazaar } : undefined))
+    }
+    out.sort((a, b) => a.id.localeCompare(b.id))
+    return out
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Soft-fail remote Bazaar manifests (no coords). Prefer
+ * {@link loadBazaarRemoteCatalogEntries} when install coordinates are needed.
  */
 export async function loadBazaarRemoteManifests(
   keyword = '',
@@ -442,19 +486,29 @@ export async function loadBazaarRemoteManifests(
 }
 
 /**
- * Async catalog listFn: installed (sync fixture/fs) + optional remote Bazaar.
+ * Async catalog listFn: installed (kernel-aware feed) + optional remote Bazaar.
  * Installed wins on name collision. Soft-fail empty remote when kernel down.
+ * Returns CatalogEntry[] so remote rows keep bazaar install coordinates.
  */
-export async function pluginBridgeBazaarCatalogListFn(): Promise<SiYuanBridgeManifest[]> {
-  const installed = pluginBridgeBazaarListFn()
-  const remote = await loadBazaarRemoteManifests()
-  if (remote.length === 0) return installed
+export async function pluginBridgeBazaarCatalogListFn(): Promise<CatalogEntry[]> {
+  const loaded = await loadPluginBridgeManifests()
+  const installedEntries = loaded.manifests.map((m) =>
+    pluginJsonToCatalogEntry(m, detectCompatLevel(m)),
+  )
+  const remote = await loadBazaarRemoteCatalogEntries()
+  if (remote.length === 0) return installedEntries
 
-  const byName = new Map<string, SiYuanBridgeManifest>()
+  const byName = new Map<string, CatalogEntry>()
   // Remote first, then installed overwrites — installed wins
-  for (const m of remote) byName.set(m.name, m)
-  for (const m of installed) byName.set(m.name, m)
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  for (const e of remote) {
+    const bare = e.id.startsWith('siyuan-plugin:') ? e.id.slice('siyuan-plugin:'.length) : e.id
+    byName.set(bare, e)
+  }
+  for (const e of installedEntries) {
+    const bare = e.id.startsWith('siyuan-plugin:') ? e.id.slice('siyuan-plugin:'.length) : e.id
+    byName.set(bare, e)
+  }
+  return [...byName.values()].sort((a, b) => a.id.localeCompare(b.id))
 }
 
 function findManifest(
@@ -508,6 +562,17 @@ export interface PluginBridgeOpenCompatArgs {
 export interface PluginBridgeOpenCompatResult {
   route: string
   ref: { kind: 'notebook'; id: string }
+}
+
+function broadcastExtensionsChanged(
+  server: RpcServer,
+  reason: 'install' | 'remove' | 'state' | 'refresh' | 'projection',
+): void {
+  try {
+    pushTyped(server, RPC_CHANNELS.extensions.CHANGED, { to: 'all' }, { reason })
+  } catch {
+    /* push optional */
+  }
 }
 
 export function registerPluginBridgeHandlers(
@@ -640,6 +705,99 @@ export function registerPluginBridgeHandlers(
       return {
         route: 'knowledge/notebook/__full__',
         ref: { kind: 'notebook', id: '__full__' },
+      }
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR,
+    async (
+      _ctx,
+      args?: PluginBridgeInstallBazaarArgs,
+    ): Promise<PluginBridgeInstallBazaarResult> => {
+      const packageNameRaw = typeof args?.packageName === 'string' ? args.packageName.trim() : ''
+      const repoURL = typeof args?.repoURL === 'string' ? args.repoURL.trim() : ''
+      const repoHash = typeof args?.repoHash === 'string' ? args.repoHash.trim() : ''
+      if (!packageNameRaw || !repoURL || !repoHash) {
+        throw new CodedError(
+          'INVALID_REF',
+          'pluginBridge.installBazaar: packageName, repoURL, and repoHash are required',
+        )
+      }
+      const packageName = barePluginId(packageNameRaw)
+      const id = extensionIdFor(packageName)
+
+      const client = await resolveKernelClient()
+      if (!client) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          'pluginBridge.installBazaar: SiYuan kernel required (no healthy connection or conf token)',
+        )
+      }
+
+      // Kernel performs the download/install — Craft never fetches the plugin zip (G2).
+      await client.installBazaarPlugin({ packageName, repoURL, repoHash })
+
+      let enabled: boolean | undefined
+      let residual: string | undefined
+      try {
+        await client.setPetalEnabled(packageName, true)
+        enabled = true
+        try {
+          getExtensionStateStore(configDir()).setEnabled(id, true)
+        } catch {
+          residual = 'installed and enabled in kernel; local ExtensionStateStore write failed'
+        }
+      } catch {
+        residual = 'installed via kernel; setPetalEnabled failed'
+      }
+
+      broadcastExtensionsChanged(server, 'install')
+      return {
+        packageName,
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(residual ? { residual } : {}),
+      }
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR,
+    async (
+      _ctx,
+      args?: PluginBridgeUninstallBazaarArgs,
+    ): Promise<PluginBridgeUninstallBazaarResult> => {
+      const packageName = typeof args?.packageName === 'string' ? args.packageName.trim() : ''
+      if (!packageName) {
+        throw new CodedError(
+          'INVALID_REF',
+          'pluginBridge.uninstallBazaar: packageName is required',
+        )
+      }
+      const bare = barePluginId(packageName)
+      const id = extensionIdFor(bare)
+
+      const client = await resolveKernelClient()
+      if (!client) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          'pluginBridge.uninstallBazaar: SiYuan kernel required (no healthy connection or conf token)',
+        )
+      }
+
+      await client.uninstallBazaarPlugin({ packageName: bare })
+
+      let residual: string | undefined
+      try {
+        getExtensionStateStore(configDir()).clearEnabled(id)
+      } catch {
+        residual = 'uninstalled via kernel; local ExtensionStateStore clear failed'
+      }
+
+      broadcastExtensionsChanged(server, 'remove')
+      return {
+        packageName: bare,
+        ...(residual ? { residual } : {}),
       }
     },
   )

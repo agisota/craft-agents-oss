@@ -188,6 +188,8 @@ export const CHANNEL_MAP = {
   pluginBridgeGetProjections: invoke(RPC_CHANNELS.pluginBridge.GET_PROJECTIONS),
   pluginBridgeSetEnabled: invoke(RPC_CHANNELS.pluginBridge.SET_ENABLED),
   pluginBridgeOpenCompat: invoke(RPC_CHANNELS.pluginBridge.OPEN_COMPAT),
+  pluginBridgeInstallBazaar: invoke(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR),
+  pluginBridgeUninstallBazaar: invoke(RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR),
 
   // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
   extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),

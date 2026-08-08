@@ -3,6 +3,8 @@
  *
  * Accepts an optional listFn for fixtures / in-memory catalogs. Default is
  * empty — live kernel Bazaar listing is residual and fail-soft.
+ * listFn may return CatalogEntry[] (already mapped with bazaar coords),
+ * SiYuanBridgeManifest[], or PluginBridgeListItem[].
  */
 
 import type { CatalogProvider, ExtensionPackage } from '../catalog.ts'
@@ -15,7 +17,8 @@ import type {
 } from './types.ts'
 
 export type SiyuanBazaarListFn = () =>
-  | Promise<SiYuanBridgeManifest[] | PluginBridgeListItem[]>
+  | Promise<CatalogEntry[] | SiYuanBridgeManifest[] | PluginBridgeListItem[]>
+  | CatalogEntry[]
   | SiYuanBridgeManifest[]
   | PluginBridgeListItem[]
 
@@ -80,10 +83,25 @@ function matchesFilter(entry: CatalogEntry, filter?: CatalogFilter): boolean {
   return true
 }
 
+function isCatalogEntry(value: unknown): value is CatalogEntry {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.id === 'string' &&
+    typeof v.name === 'string' &&
+    typeof v.version === 'string' &&
+    typeof v.runtime === 'string' &&
+    typeof v.providerId === 'string' &&
+    Array.isArray(v.permissions) &&
+    Array.isArray(v.worksIn)
+  )
+}
+
 function toCatalogEntries(
-  items: SiYuanBridgeManifest[] | PluginBridgeListItem[],
+  items: CatalogEntry[] | SiYuanBridgeManifest[] | PluginBridgeListItem[],
 ): CatalogEntry[] {
   return items.map((item) => {
+    if (isCatalogEntry(item)) return item
     // Prefer full manifests when present.
     if (
       typeof item === 'object' &&

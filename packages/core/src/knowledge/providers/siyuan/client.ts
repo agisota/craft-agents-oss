@@ -28,6 +28,8 @@
  * Soft plugin/petal endpoints (plugin bridge feed — optional enrichment; callers soft-fail):
  *   POST /api/bazaar/getInstalledPlugin      args { frontend: 'desktop' } → installed plugin packages
  *   POST /api/bazaar/getBazaarPlugin         args { frontend, keyword? } → remote Bazaar catalog packages
+ *   POST /api/bazaar/installBazaarPlugin     args { frontend, repoURL, repoHash, packageName, keyword? } → kernel installs (G2: no Craft-side zip download)
+ *   POST /api/bazaar/uninstallBazaarPlugin   args { packageName, frontend?, keyword? } → kernel uninstalls
  *   POST /api/petal/loadPetals               args { frontend: 'desktop' } → petal enable state
  *   POST /api/petal/setPetalEnabled          args { packageName, enabled } → enable/disable petal
  *
@@ -54,7 +56,7 @@
  * /api/filetree/renameDoc, no notebook-level writes. §3.8 rollback is SOFT: tombstone updateBlock +
  * craft-rolled-back attribute. query/sql is SELECT-only, enforced client-side by assertSelectOnly
  * (../../mutations.ts, throw before any network I/O) on top of server-side mode: 'readonly'.
- * setPetalEnabled is a soft plugin-lifecycle call for the bridge feed — not a knowledge mutation.
+ * setPetalEnabled / installBazaarPlugin / uninstallBazaarPlugin are soft plugin-lifecycle calls for the bridge — not knowledge mutations.
  */
 
 import { KnowledgeError } from '../..';
@@ -567,6 +569,41 @@ export class SiyuanKernelClient {
   /** Enable/disable a petal package in the running kernel (soft; does not rewrite disk from Craft). */
   async setPetalEnabled(packageName: string, enabled: boolean): Promise<void> {
     await this.post<unknown>('/api/petal/setPetalEnabled', { packageName, enabled });
+  }
+
+  /**
+   * Install a Bazaar plugin via the kernel (kernel downloads/installs the package).
+   * Craft never downloads the plugin zip itself (G2).
+   */
+  async installBazaarPlugin(input: {
+    packageName: string
+    repoURL: string
+    repoHash: string
+    frontend?: string
+    keyword?: string
+  }): Promise<void> {
+    await this.post<unknown>('/api/bazaar/installBazaarPlugin', {
+      frontend: input.frontend ?? 'desktop',
+      repoURL: input.repoURL,
+      repoHash: input.repoHash,
+      packageName: input.packageName,
+      ...(input.keyword !== undefined ? { keyword: input.keyword } : {}),
+    })
+  }
+
+  /**
+   * Uninstall a Bazaar plugin via the kernel. Does not rewrite petals.json from Craft.
+   */
+  async uninstallBazaarPlugin(input: {
+    packageName: string
+    frontend?: string
+    keyword?: string
+  }): Promise<void> {
+    await this.post<unknown>('/api/bazaar/uninstallBazaarPlugin', {
+      packageName: input.packageName,
+      ...(input.frontend !== undefined ? { frontend: input.frontend } : {}),
+      ...(input.keyword !== undefined ? { keyword: input.keyword } : {}),
+    })
   }
 }
 

@@ -124,9 +124,13 @@ import type {
   ExtensionsSetEnabledResult,
   ExtensionStateFile,
   PluginBridgeGetProjectionsArgs,
+  PluginBridgeInstallBazaarArgs,
+  PluginBridgeInstallBazaarResult,
   PluginBridgeListResult,
   PluginBridgeSetEnabledArgs,
   PluginBridgeSetEnabledResult,
+  PluginBridgeUninstallBazaarArgs,
+  PluginBridgeUninstallBazaarResult,
 } from '@craft-agent/shared/extensions'
 export type {
   BridgeProjectedContributions,
@@ -141,9 +145,13 @@ export type {
   ExtensionsSetEnabledResult,
   ExtensionStateFile,
   PluginBridgeGetProjectionsArgs,
+  PluginBridgeInstallBazaarArgs,
+  PluginBridgeInstallBazaarResult,
   PluginBridgeListResult,
   PluginBridgeSetEnabledArgs,
   PluginBridgeSetEnabledResult,
+  PluginBridgeUninstallBazaarArgs,
+  PluginBridgeUninstallBazaarResult,
 }
 
 // Source types for session source selection
@@ -847,6 +855,8 @@ export interface ElectronAPI {
     route: string
     ref: { kind: 'notebook'; id: string }
   }>
+  pluginBridgeInstallBazaar(args: PluginBridgeInstallBazaarArgs): Promise<PluginBridgeInstallBazaarResult>
+  pluginBridgeUninstallBazaar(args: PluginBridgeUninstallBazaarArgs): Promise<PluginBridgeUninstallBazaarResult>
 
   // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
   extensionHostStatus(): Promise<ExtensionHostStatus>
