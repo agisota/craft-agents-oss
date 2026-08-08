@@ -1,4 +1,4 @@
-name: Validate
+name: CI Validate Alias
 on:
   push:
     branches: [main]
