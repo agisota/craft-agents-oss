@@ -88,6 +88,12 @@ interface KanbanColumnProps {
    * Dropping onto a section assigns that projectId.
    */
   projectGroups?: KanbanProjectGroup[]
+  /**
+   * B6 priority subsections: pseudo project groups with `__priority_<p>` ids.
+   * Dropping inside a subsection assigns priority (handled container-side).
+   * Takes precedence over projectGroups when present.
+   */
+  priorityGroups?: KanbanProjectGroup[]
   /** Collapsed project group keys (`projectId` or `__none__`). */
   collapsedGroupKeys?: Set<string>
   onToggleProjectGroup?: (groupKey: string) => void
@@ -120,6 +126,7 @@ export function KanbanColumn({
   onToggleCollapsed,
   onSetPrompt,
   projectGroups,
+  priorityGroups,
   collapsedGroupKeys,
   onToggleProjectGroup,
 }: KanbanColumnProps) {
@@ -240,22 +247,24 @@ export function KanbanColumn({
       >
         {onCreateTask && <NewTaskComposer onCreate={onCreateTask} />}
 
-        {projectGroups ? (
-          projectGroups.map(group => {
-            const groupKey = group.projectId ?? '__none__'
-            const isGroupCollapsed = collapsedGroupKeys?.has(groupKey) ?? false
-            return (
-              <ProjectGroupSection
-                key={groupKey}
-                columnId={column.id}
-                group={group}
-                collapsed={isGroupCollapsed}
-                onToggle={() => onToggleProjectGroup?.(groupKey)}
-                tileProps={tileProps}
-              />
-            )
-          })
-        ) : (
+        {(() => {
+          const sections = priorityGroups ?? projectGroups
+          return sections ? (
+            sections.map(group => {
+              const groupKey = group.projectId ?? '__none__'
+              const isGroupCollapsed = collapsedGroupKeys?.has(groupKey) ?? false
+              return (
+                <ProjectGroupSection
+                  key={groupKey}
+                  columnId={column.id}
+                  group={group}
+                  collapsed={isGroupCollapsed}
+                  onToggle={() => onToggleProjectGroup?.(groupKey)}
+                  tileProps={tileProps}
+                />
+              )
+            })
+          ) : (
           tasks.map(task => (
             <DraggableTile key={task.id} taskId={task.id}>
               <TaskTile
@@ -278,7 +287,8 @@ export function KanbanColumn({
               />
             </DraggableTile>
           ))
-        )}
+          )
+        })()}
       </div>
     </div>
   )
