@@ -97,6 +97,7 @@ describe('buildScrubbedWorkerEnv', () => {
       OPENAI_API_KEY: 'sk-secret',
       ANTHROPIC_API_KEY: 'sk-ant',
       MY_API_KEY: 'x',
+      SERVICE_ROLE_KEY: 'sk-supabase-role',
       RANDOM_TOKEN: 't',
       CRAFT_CONFIG_DIR: '/tmp/cfg',
       CRAFT_EXTENSION_SANDBOX_ROOT: '/tmp/sandbox',
@@ -109,6 +110,7 @@ describe('buildScrubbedWorkerEnv', () => {
     expect(env.OPENAI_API_KEY).toBeUndefined()
     expect(env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(env.MY_API_KEY).toBeUndefined()
+    expect(env.SERVICE_ROLE_KEY).toBeUndefined()
     expect(env.RANDOM_TOKEN).toBeUndefined()
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(env.NODE_OPTIONS).toBeUndefined()
