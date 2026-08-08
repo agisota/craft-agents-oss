@@ -21,6 +21,8 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workspace.GET_PERMISSIONS,
   RPC_CHANNELS.permissions.GET_DEFAULTS,
   RPC_CHANNELS.sources.GET_MCP_TOOLS,
+  RPC_CHANNELS.sources.REINDEX,
+  RPC_CHANNELS.sources.SEARCH,
 ] as const
 
 const NOTES_SOURCE_SLUG = 'notes'
@@ -397,4 +399,40 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
       return { success: false, error: errorMessage }
     }
   })
+
+  // Rebuild local FTS/keyword index under {workspace}/.craft/source-index.sqlite
+  server.handle(RPC_CHANNELS.sources.REINDEX, async (_ctx, workspaceId: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`)
+
+    const sources = loadWorkspaceSources(workspace.rootPath)
+    const roots: Array<{ slug: string; path: string }> = []
+    for (const src of sources) {
+      if (src.config.type !== 'local') continue
+      const p = src.config.local?.path
+      if (!p) continue
+      roots.push({ slug: src.config.slug, path: p })
+    }
+
+    const { reindexWorkspaceSources, countIndexedFiles } = await import('../../sources/source-index')
+    const result = reindexWorkspaceSources(workspace.rootPath, roots)
+    return {
+      ...result,
+      fileCount: countIndexedFiles(workspace.rootPath),
+      rootCount: roots.length,
+    }
+  })
+
+  // Keyword search over the local source index (FTS5 or LIKE)
+  server.handle(
+    RPC_CHANNELS.sources.SEARCH,
+    async (_ctx, workspaceId: string, query: string, limit?: number) => {
+      const workspace = getWorkspaceByNameOrId(workspaceId)
+      if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`)
+      const { searchSourceIndex } = await import('../../sources/source-index')
+      return searchSourceIndex(workspace.rootPath, typeof query === 'string' ? query : '', {
+        limit: typeof limit === 'number' ? limit : 20,
+      })
+    },
+  )
 }

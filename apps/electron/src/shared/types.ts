@@ -1021,6 +1021,32 @@ export interface ElectronAPI {
   getWorkspacePermissionsConfig(workspaceId: string): Promise<import('@craft-agent/shared/agent').PermissionsConfigFile | null>
   getDefaultPermissionsConfig(): Promise<{ config: import('@craft-agent/shared/agent').PermissionsConfigFile | null; path: string }>
   getMcpTools(workspaceId: string, sourceSlug: string): Promise<McpToolsResult>
+  reindexSources(workspaceId: string): Promise<{
+    indexed: number
+    skipped: number
+    truncated: boolean
+    dbPath: string
+    fts: boolean
+    fileCount: number
+    rootCount: number
+  }>
+  searchSourcesIndex(
+    workspaceId: string,
+    query: string,
+    limit?: number,
+  ): Promise<{
+    hits: Array<{
+      path: string
+      chars: number
+      tokens: number
+      mtime: number
+      snippet: string
+      rank: number
+    }>
+    total: number
+    fts: boolean
+    query: string
+  }>
 
   // OAuth (server-owned credentials, client-orchestrated flow)
   performOAuth(args: { sourceSlug: string; sessionId?: string; authRequestId?: string }): Promise<{ success: boolean; error?: string; email?: string }>
