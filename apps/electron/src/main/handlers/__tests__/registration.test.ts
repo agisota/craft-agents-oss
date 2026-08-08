@@ -97,6 +97,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     pluginBridge,
     files,
     labels,
+    orgs,
     llm,
     memory,
     memoryIo,
@@ -121,6 +122,8 @@ async function getExpectedChannels(): Promise<Set<string>> {
     tasks,
     toolchain,
     projects,
+    kanban,
+    gamification,
   ] = await Promise.all([
     import('@craft-agent/server-core/handlers/rpc/auth'),
     import('@craft-agent/server-core/handlers/rpc/automations'),
@@ -130,6 +133,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/plugin-bridge'),
     import('@craft-agent/server-core/handlers/rpc/files'),
     import('@craft-agent/server-core/handlers/rpc/labels'),
+    import('@craft-agent/server-core/handlers/rpc/orgs'),
     import('@craft-agent/server-core/handlers/rpc/llm-connections'),
     import('@craft-agent/server-core/handlers/rpc/memory'),
     import('@craft-agent/server-core/handlers/rpc/memory-io'),
@@ -154,6 +158,8 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/tasks'),
     import('@craft-agent/server-core/handlers/rpc/toolchain'),
     import('@craft-agent/server-core/handlers/rpc/projects'),
+    import('@craft-agent/server-core/handlers/rpc/kanban'),
+    import('@craft-agent/server-core/handlers/rpc/gamification'),
   ])
 
   const [browser, guiSystem, guiWorkspace, guiSettings, siyuan, extensionHost, extensionSurface] = await Promise.all([
@@ -175,6 +181,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...pluginBridge.HANDLED_CHANNELS,
     ...files.HANDLED_CHANNELS,
     ...labels.HANDLED_CHANNELS,
+    ...orgs.HANDLED_CHANNELS,
     ...llm.HANDLED_CHANNELS,
     ...memory.HANDLED_CHANNELS,
     ...memoryIo.HANDLED_CHANNELS,
@@ -199,6 +206,8 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...tasks.HANDLED_CHANNELS,
     ...toolchain.HANDLED_CHANNELS,
     ...projects.HANDLED_CHANNELS,
+    ...kanban.HANDLED_CHANNELS,
+    ...gamification.HANDLED_CHANNELS,
     ...browser.HANDLED_CHANNELS,
     ...guiSystem.GUI_HANDLED_CHANNELS,
     ...guiWorkspace.GUI_HANDLED_CHANNELS,

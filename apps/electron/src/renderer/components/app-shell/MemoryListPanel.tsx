@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAtomValue } from 'jotai'
-import { Brain, Pencil, Trash2, Check, Plus, Link2 } from 'lucide-react'
+import { Brain, Pencil, Trash2, Check, Plus, Link2, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Lesson, LessonCategory, LessonConflictVerdict, LessonScope, MemoryInsights, ProjectMemoryDto, PromotionCandidate } from '@craft-agent/shared/memory/types'
 import { useNavigation, routes } from '@/contexts/NavigationContext'
@@ -12,7 +12,11 @@ export interface MemoryListPanelProps {
   className?: string
 }
 
-const CATEGORIES: LessonCategory[] = ['preference', 'workflow', 'knowledge', 'correction']
+const BUILTIN_CATEGORIES: LessonCategory[] = ['correction', 'preference', 'workflow', 'knowledge']
+
+function formatTokenEstimate(text: string): number {
+  return Math.ceil((text ?? '').length / 4)
+}
 
 function scopeChipClass(scope: LessonScope): string {
   return scope === 'global'
@@ -60,6 +64,17 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   const [formCategory, setFormCategory] = React.useState<LessonCategory>('workflow')
   const [formScope, setFormScope] = React.useState<LessonScope>('workspace')
   const [formNegative, setFormNegative] = React.useState(false)
+  const [categoryTab, setCategoryTab] = React.useState<string | 'all'>('all')
+  const [customCategory, setCustomCategory] = React.useState('')
+  const [collapsedSections, setCollapsedSections] = React.useState<Record<string, boolean>>({
+    context: false,
+    history: true,
+    project: false,
+  })
+  const toggleSection = (key: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
 
   const [editingRule, setEditingRule] = React.useState<string | null>(null)
   const [editDraft, setEditDraft] = React.useState('')
@@ -149,12 +164,14 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
     try {
       // L2: ADD_LESSON returns the stored lesson plus a best-effort conflict
       // list ([] when the check was unavailable) — the write stands either way.
+      const category = (customCategory.trim() || formCategory) as LessonCategory
       const result = await window.electronAPI.addMemoryLesson(targetWorkspaceId, {
         rule,
-        category: formCategory,
+        category,
         scope: formScope,
         ...(formNegative ? { negative: true } : {}),
       })
+      setCustomCategory('')
       setFormRule('')
       setFormNegative(false)
       toast.success(t('memory.lessonAdded'))
@@ -287,6 +304,7 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
     const key = `${lesson.scope}:${lesson.rule}`
     const isEditing = editingRule === key
     const isConfirming = confirmDeleteRule === key
+    const tokenEstimate = formatTokenEstimate(lesson.rule)
     return (
       <li key={key} className="rounded-[8px] px-2 py-1.5 hover:bg-foreground/[0.03]">
         {isEditing ? (
@@ -318,9 +336,9 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
         ) : (
           <span className="block text-sm whitespace-pre-wrap">{lesson.rule}</span>
         )}
-        {/* L1: usage/violation meta — only when at least one counter is non-zero */}
-        {!isEditing && ((lesson.usageCount ?? 0) > 0 || (lesson.conflicts?.length ?? 0) > 0) && (
+        {!isEditing && (
           <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span title={t('memory.tokenEstimateHint')}>{t('memory.tokenEstimate', { count: tokenEstimate })}</span>
             {(lesson.usageCount ?? 0) > 0 && (
               <span>{t('memory.usedCount', { count: lesson.usageCount })}</span>
             )}
@@ -340,7 +358,9 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
         {!isEditing && (
           <span className="mt-1 flex items-center gap-1.5 flex-wrap">
             <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-muted-foreground">
-              {t(`memory.category.${lesson.category}`)}
+              {BUILTIN_CATEGORIES.includes(lesson.category)
+                ? t(`memory.category.${lesson.category}`)
+                : lesson.category}
             </span>
             {lesson.negative && (
               <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive">
@@ -383,7 +403,6 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
                 >
                   <Trash2 className="size-3" />
                 </button>
-                {/* L4: deep-link to the session the lesson was learned from */}
                 {lesson.source.sessionId && (
                   <button
                     type="button"
@@ -429,33 +448,97 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
   )
   const insightCategories = insights ? Object.entries(insights.categories).sort(([a], [b]) => a.localeCompare(b)) : []
 
+  // Category tabs = builtins ∪ custom categories present on lessons
+  const categoryCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const c of BUILTIN_CATEGORIES) counts[c] = 0
+    for (const lesson of sortedLessons) {
+      const key = lesson.category || 'workflow'
+      counts[key] = (counts[key] ?? 0) + 1
+    }
+    return counts
+  }, [sortedLessons])
+
+  const categoryTabs = React.useMemo(() => {
+    const custom = Object.keys(categoryCounts)
+      .filter((c) => !BUILTIN_CATEGORIES.includes(c as LessonCategory) && categoryCounts[c] > 0)
+      .sort((a, b) => a.localeCompare(b))
+    return [...BUILTIN_CATEGORIES, ...custom]
+  }, [categoryCounts])
+
+  const filterByTab = (items: Lesson[]) => {
+    if (categoryTab === 'all') return items
+    return items.filter((l) => l.category === categoryTab)
+  }
+
+  const filteredGlobal = filterByTab(globalLessons)
+  const filteredWorkspace = filterByTab(workspaceLessons)
+
+  const sectionHeader = (key: string, title: string, extra?: React.ReactNode) => (
+    <button
+      type="button"
+      onClick={() => toggleSection(key)}
+      className={`${sectionTitleClass()} flex w-full items-center gap-1.5 text-left hover:text-foreground`}
+    >
+      {collapsedSections[key] ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+      <span className="flex-1">{title}</span>
+      {extra}
+    </button>
+  )
+
   return (
     <div className={`flex flex-col gap-2 px-1 pb-4 overflow-y-auto ${className ?? ''}`} data-list-role="memory">
-      {/* Y1: insights card — 7-day counters + per-category chips */}
-      {!insightsQuiet && insights && (
-        <div className="mx-1 space-y-1 rounded-[8px] border border-foreground/10 bg-foreground/[0.03] p-2" data-list-role="memory-insights">
-          <div className="px-0.5 text-[11px] leading-snug text-muted-foreground">
-            {t('memory.insightsLine', {
-              lessonsAdded7d: insights.lessonsAdded7d,
-              conflicts7d: insights.conflicts7d,
-              pendingCount: insights.pendingCount,
-              approved7d: insights.approved7d,
-            })}
-          </div>
-          {insightCategories.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1">
-              {insightCategories.map(([category, count]) => (
-                <span
-                  key={category}
-                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-muted-foreground"
-                >
-                  {t('memory.insightsChip', { label: t(`memory.category.${category}`), count })}
-                </span>
-              ))}
-            </div>
-          )}
+      {/* Title row: Global left, Remember right */}
+      <div className="mx-1 flex items-center gap-2 pt-1">
+        <div className="min-w-0 flex-1 text-sm font-medium text-foreground">
+          {t('memory.globalLessons')}
         </div>
-      )}
+        {!formOpen && (
+          <button
+            type="button"
+            onClick={() => setFormOpen(true)}
+            className="shrink-0 inline-flex items-center gap-1 h-7 px-2.5 text-xs font-medium rounded-[8px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+          >
+            <Plus className="size-3.5" />
+            {t('memory.remember')}
+          </button>
+        )}
+      </div>
+
+      {/* Category tabs with counters */}
+      <div className="mx-1 flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setCategoryTab('all')}
+          className={`h-6 rounded-full px-2 text-[11px] font-medium transition-colors ${
+            categoryTab === 'all'
+              ? 'bg-foreground/10 text-foreground'
+              : 'text-muted-foreground hover:bg-foreground/5'
+          }`}
+        >
+          {t('memory.tabAll', { count: sortedLessons.length })}
+        </button>
+        {categoryTabs.map((cat) => {
+          const label = BUILTIN_CATEGORIES.includes(cat as LessonCategory)
+            ? t(`memory.category.${cat}`)
+            : cat
+          const count = categoryCounts[cat] ?? 0
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategoryTab(cat)}
+              className={`h-6 rounded-full px-2 text-[11px] font-medium transition-colors ${
+                categoryTab === cat
+                  ? 'bg-foreground/10 text-foreground'
+                  : 'text-muted-foreground hover:bg-foreground/5'
+              }`}
+            >
+              {label} ({count})
+            </button>
+          )
+        })}
+      </div>
 
       {/* L3: rules repeated across workspaces → promote to global */}
       {visibleCandidates.length > 0 && (
@@ -485,202 +568,213 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
         </div>
       )}
 
-      {/* Add lesson */}
-      <div>
-        {formOpen ? (
-          <div className="mx-1 space-y-1.5 rounded-[8px] bg-foreground/[0.03] p-2">
-            <textarea
-              value={formRule}
-              onChange={(e) => setFormRule(e.target.value)}
-              rows={3}
-              placeholder={t('memory.rulePlaceholder')}
-              className="w-full resize-y rounded-[8px] bg-background/60 p-2 text-sm outline-none"
-            />
-            <div className="flex items-center gap-1.5">
-              <select
-                value={formCategory}
-                onChange={(e) => setFormCategory(e.target.value as LessonCategory)}
-                className="h-6 flex-1 rounded-[6px] bg-background/60 px-1.5 text-[11px] text-foreground outline-none"
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{t(`memory.category.${c}`)}</option>
-                ))}
-              </select>
-              <select
-                value={formScope}
-                onChange={(e) => setFormScope(e.target.value as LessonScope)}
-                className="h-6 flex-1 rounded-[6px] bg-background/60 px-1.5 text-[11px] text-foreground outline-none"
-              >
-                <option value="workspace">{t('memory.scope.workspace')}</option>
-                <option value="global">{t('memory.scope.global')}</option>
-              </select>
-            </div>
-            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={formNegative}
-                onChange={(e) => setFormNegative(e.target.checked)}
-              />
-              {t('memory.negativeLabel')}
-            </label>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={!formRule.trim()}
-                onClick={() => void handleAdd()}
-                className="inline-flex items-center gap-1 h-6 px-2 text-[11px] font-medium rounded-[6px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-50"
-              >
-                <Check className="size-3" />
-                {t('memory.addLessonSubmit')}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setFormOpen(false); setAddConflicts(null) }}
-                className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
-              >
-                {t('memory.cancel')}
-              </button>
-            </div>
-            {/* L2: post-write conflict verdicts — the lesson is stored either way */}
-            {addConflicts && addConflicts.conflicts.length > 0 && (
-              <div className="space-y-1.5 rounded-[8px] border border-destructive/25 bg-destructive/10 p-2">
-                <ul className="space-y-0.5">
-                  {addConflicts.conflicts.map((c, i) => (
-                    <li key={`${c.existingRule}:${i}`} className="text-[11px] leading-snug text-destructive">
-                      {t('memory.conflictWarning', { newRule: addConflicts.rule, existingRule: c.existingRule })}
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleResolveAddConflicts(true)}
-                    className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
-                  >
-                    {t('memory.replaceNew')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleResolveAddConflicts(false)}
-                    className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
-                  >
-                    {t('memory.keepBoth')}
-                  </button>
-                </div>
-              </div>
-            )}
+      {/* Remember form */}
+      {formOpen && (
+        <div className="mx-1 space-y-1.5 rounded-[8px] bg-foreground/[0.03] p-2">
+          <textarea
+            value={formRule}
+            onChange={(e) => setFormRule(e.target.value)}
+            rows={3}
+            placeholder={t('memory.rulePlaceholder')}
+            className="w-full resize-y rounded-[8px] bg-background/60 p-2 text-sm outline-none"
+          />
+          <div className="flex items-center justify-end text-[10px] text-muted-foreground">
+            {t('memory.tokenEstimate', { count: formatTokenEstimate(formRule) })}
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setFormOpen(true)}
-            className="mx-1 inline-flex items-center gap-1 h-7 px-2 text-xs font-medium rounded-[8px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
-          >
-            <Plus className="size-3.5" />
-            {t('memory.addLesson')}
-          </button>
-        )}
-      </div>
-
-      {/* Lessons grouped by scope */}
-      {renderScopeGroup(t('memory.globalLessons'), globalLessons)}
-      {renderScopeGroup(t('memory.workspaceLessons'), workspaceLessons)}
-
-      {/* Context */}
-      <div className="border-t border-foreground/5 pt-1.5">
-        <div className={sectionTitleClass()}>{t('memory.contextSection')}</div>
-        <div className="mx-1 space-y-2">
-          <div>
-            <div className="mb-0.5 text-[11px] text-muted-foreground">{t('memory.preferencesGlobal')}</div>
-            <textarea
-              value={preferences}
-              onChange={(e) => setPreferences(e.target.value)}
-              rows={3}
-              className="w-full resize-y rounded-[8px] bg-foreground/[0.03] p-2 text-xs outline-none focus:bg-foreground/[0.05]"
+          <div className="flex items-center gap-1.5">
+            <select
+              value={formCategory}
+              onChange={(e) => setFormCategory(e.target.value as LessonCategory)}
+              className="h-6 flex-1 rounded-[6px] bg-background/60 px-1.5 text-[11px] text-foreground outline-none"
+            >
+              {BUILTIN_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{t(`memory.category.${c}`)}</option>
+              ))}
+            </select>
+            <select
+              value={formScope}
+              onChange={(e) => setFormScope(e.target.value as LessonScope)}
+              className="h-6 flex-1 rounded-[6px] bg-background/60 px-1.5 text-[11px] text-foreground outline-none"
+            >
+              <option value="workspace">{t('memory.scope.workspace')}</option>
+              <option value="global">{t('memory.scope.global')}</option>
+            </select>
+          </div>
+          <input
+            value={customCategory}
+            onChange={(e) => setCustomCategory(e.target.value)}
+            placeholder={t('memory.customCategoryPlaceholder')}
+            className="h-6 w-full rounded-[6px] bg-background/60 px-1.5 text-[11px] text-foreground outline-none"
+          />
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={formNegative}
+              onChange={(e) => setFormNegative(e.target.checked)}
             />
+            {t('memory.negativeLabel')}
+          </label>
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void handleSaveContext('global')}
-              className="mt-0.5 inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+              disabled={!formRule.trim()}
+              onClick={() => void handleAdd()}
+              className="inline-flex items-center gap-1 h-6 px-2 text-[11px] font-medium rounded-[6px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-50"
             >
-              {t('memory.saveContext')}
+              <Check className="size-3" />
+              {t('memory.addLessonSubmit')}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFormOpen(false); setAddConflicts(null); setCustomCategory('') }}
+              className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
+            >
+              {t('memory.cancel')}
             </button>
           </div>
-          {workspaceId && (
+          {addConflicts && addConflicts.conflicts.length > 0 && (
+            <div className="space-y-1.5 rounded-[8px] border border-destructive/25 bg-destructive/10 p-2">
+              <ul className="space-y-0.5">
+                {addConflicts.conflicts.map((c, i) => (
+                  <li key={`${c.existingRule}:${i}`} className="text-[11px] leading-snug text-destructive">
+                    {t('memory.conflictWarning', { newRule: addConflicts.rule, existingRule: c.existingRule })}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleResolveAddConflicts(true)}
+                  className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
+                >
+                  {t('memory.replaceNew')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResolveAddConflicts(false)}
+                  className="inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 transition-colors"
+                >
+                  {t('memory.keepBoth')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Lessons grouped by scope */}
+      {renderScopeGroup(t('memory.globalLessons'), filteredGlobal)}
+      {renderScopeGroup(t('memory.workspaceLessons'), filteredWorkspace)}
+
+      {/* Context — collapsible */}
+      <div className="border-t border-foreground/5 pt-1.5">
+        {sectionHeader('context', t('memory.contextSection'))}
+        {!collapsedSections.context && (
+          <div className="mx-1 space-y-2">
             <div>
-              <div className="mb-0.5 text-[11px] text-muted-foreground">{t('memory.contextWorkspace')}</div>
+              <div className="mb-0.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{t('memory.preferencesGlobal')}</span>
+                <span>{t('memory.tokenEstimate', { count: formatTokenEstimate(preferences) })}</span>
+              </div>
               <textarea
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
+                value={preferences}
+                onChange={(e) => setPreferences(e.target.value)}
                 rows={3}
                 className="w-full resize-y rounded-[8px] bg-foreground/[0.03] p-2 text-xs outline-none focus:bg-foreground/[0.05]"
               />
               <button
                 type="button"
-                onClick={() => void handleSaveContext('workspace')}
+                onClick={() => void handleSaveContext('global')}
                 className="mt-0.5 inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
               >
                 {t('memory.saveContext')}
               </button>
             </div>
-          )}
-        </div>
+            {workspaceId && (
+              <div>
+                <div className="mb-0.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span>{t('memory.contextWorkspace')}</span>
+                  <span>{t('memory.tokenEstimate', { count: formatTokenEstimate(context) })}</span>
+                </div>
+                <textarea
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  rows={3}
+                  className="w-full resize-y rounded-[8px] bg-foreground/[0.03] p-2 text-xs outline-none focus:bg-foreground/[0.05]"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSaveContext('workspace')}
+                  className="mt-0.5 inline-flex items-center h-6 px-2 text-[11px] font-medium rounded-[6px] bg-foreground/5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                >
+                  {t('memory.saveContext')}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Project (M5): read-only view of the project MEMORY.md the active
-          session is bound to. Agents already inject this into their prompts;
-          this section only surfaces it. */}
+      {/* Project */}
       {workspaceId && activeProjectId && projectMemory && (
         <div className="border-t border-foreground/5 pt-1.5">
-          <div className={sectionTitleClass()}>{t('memory.projectSection')}</div>
-          <div className="mx-1 mb-0.5 px-1">
-            <button
-              type="button"
-              onClick={() => navigate(routes.view.projects(projectMemory.slug))}
-              title={t('memory.projectOpen')}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
-            >
-              <Link2 className="size-3" />
-              {projectMemory.name}
-            </button>
-          </div>
-          {projectMemory.memoryContent ? (
-            <pre className="mx-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
-              {projectMemory.memoryContent}
-            </pre>
-          ) : (
-            <div className="px-2 pb-1 text-xs text-muted-foreground/70">{t('memory.projectEmpty')}</div>
+          {sectionHeader('project', t('memory.projectSection'))}
+          {!collapsedSections.project && (
+            <>
+              <div className="mx-1 mb-0.5 px-1">
+                <button
+                  type="button"
+                  onClick={() => navigate(routes.view.projects(projectMemory.slug))}
+                  title={t('memory.projectOpen')}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+                >
+                  <Link2 className="size-3" />
+                  {projectMemory.name}
+                </button>
+              </div>
+              {projectMemory.memoryContent ? (
+                <pre className="mx-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
+                  {projectMemory.memoryContent}
+                </pre>
+              ) : (
+                <div className="px-2 pb-1 text-xs text-muted-foreground/70">{t('memory.projectEmpty')}</div>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* History */}
+      {/* History — collapsible */}
       {workspaceId && (
         <div className="border-t border-foreground/5 pt-1.5">
-          <div className={sectionTitleClass()}>{t('memory.historySection')}</div>
-          {historyDates.length === 0 ? (
-            <div className="px-2 pb-1 text-xs text-muted-foreground/70">{t('memory.historyEmpty')}</div>
-          ) : (
-            <ul>
-              {historyDates.map((date) => (
-                <li key={date}>
-                  <button
-                    type="button"
-                    onClick={() => openDate(date)}
-                    className={`w-full rounded-[8px] px-2 py-1 text-left text-sm transition-colors ${
-                      historyDate === date ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
-                    }`}
-                  >
-                    {date}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {historyDate && (
-            <pre className="mx-1 mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
-              {historyContent || t('memory.historyEmptyEntry')}
-            </pre>
+          {sectionHeader('history', t('memory.historySection'))}
+          {!collapsedSections.history && (
+            <>
+              {historyDates.length === 0 ? (
+                <div className="px-2 pb-1 text-xs text-muted-foreground/70">{t('memory.historyEmpty')}</div>
+              ) : (
+                <ul>
+                  {historyDates.map((date) => (
+                    <li key={date}>
+                      <button
+                        type="button"
+                        onClick={() => openDate(date)}
+                        className={`w-full rounded-[8px] px-2 py-1 text-left text-sm transition-colors ${
+                          historyDate === date ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground'
+                        }`}
+                      >
+                        {date}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {historyDate && (
+                <pre className="mx-1 mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-[8px] bg-foreground/[0.03] p-2 text-[11px] leading-snug text-foreground/80">
+                  {historyContent || t('memory.historyEmptyEntry')}
+                </pre>
+              )}
+            </>
           )}
         </div>
       )}
@@ -689,6 +783,37 @@ export function MemoryListPanel({ workspaceId, className }: MemoryListPanelProps
         <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-muted-foreground">
           <Brain className="size-6 opacity-40" />
           <span className="text-sm">{t('memory.emptyHint')}</span>
+        </div>
+      )}
+
+      {/* Insights / stats at bottom */}
+      {!insightsQuiet && insights && (
+        <div className="mx-1 mt-2 space-y-1 rounded-[8px] border border-foreground/10 bg-foreground/[0.03] p-2" data-list-role="memory-insights">
+          <div className="px-0.5 text-[11px] leading-snug text-muted-foreground">
+            {t('memory.insightsLine', {
+              lessonsAdded7d: insights.lessonsAdded7d,
+              conflicts7d: insights.conflicts7d,
+              pendingCount: insights.pendingCount,
+              approved7d: insights.approved7d,
+            })}
+          </div>
+          {insightCategories.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {insightCategories.map(([category, count]) => (
+                <span
+                  key={category}
+                  className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/5 text-muted-foreground"
+                >
+                  {t('memory.insightsChip', {
+                    label: BUILTIN_CATEGORIES.includes(category as LessonCategory)
+                      ? t(`memory.category.${category}`)
+                      : category,
+                    count,
+                  })}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

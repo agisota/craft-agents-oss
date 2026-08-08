@@ -14,11 +14,13 @@ export {
   getDisabledBundledSkillSlugsFromDisk,
   loadSkillBySlug,
   getSkillIconPath,
+  updateSkillContent,
   deleteSkill,
   skillExists,
   listSkillSlugs,
   skillNeedsIconDownload,
   downloadSkillIcon,
+  type UpdateSkillContentInput,
 } from './storage.ts';
 export {
   OMP_GLOBAL_SKILLS_DIR,

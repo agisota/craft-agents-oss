@@ -3,6 +3,7 @@ import { join } from 'path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import { appendAutomationHistoryEntry } from '@craft-agent/shared/automations/history-store'
+import { awardXpSafe } from '@craft-agent/shared/gamification'
 import { AUTOMATION_HISTORY_MAX_RUNS_PER_MATCHER } from '@craft-agent/shared/automations/constants'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
@@ -78,6 +79,9 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
     }
     try {
       const { resolveAutomationsConfigPath } = await import('@craft-agent/shared/automations/resolve-config-path')
+      const { ensureDefaultAutomations } = await import('@craft-agent/shared/automations/default-seeds')
+      // Seed defaults when missing/empty legacy — no-op if user already has matchers.
+      ensureDefaultAutomations(workspace.rootPath)
       const configPath = resolveAutomationsConfigPath(workspace.rootPath)
       log.info(`AUTOMATIONS_GET: Reading config from: ${configPath}`)
       const content = await readFile(configPath, 'utf-8')
@@ -130,6 +134,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
           })
           try {
             await appendAutomationHistoryEntry(workspace.rootPath, entry)
+            awardXpSafe('automation_ran')
           } catch (e) {
             log.warn('[Automations] Failed to write history:', e)
           }
@@ -171,6 +176,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
           const entry = createPromptHistoryEntry({ matcherId: payload.automationId, ok: true, sessionId, prompt: action.prompt })
           try {
             await appendAutomationHistoryEntry(workspace.rootPath, entry)
+            awardXpSafe('automation_ran')
           } catch (e) {
             log.warn('[Automations] Failed to write history:', e)
           }
@@ -188,6 +194,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
           const entry = createPromptHistoryEntry({ matcherId: payload.automationId, ok: false, error: (err as Error).message, prompt: action.prompt })
           try {
             await appendAutomationHistoryEntry(workspace.rootPath, entry)
+            awardXpSafe('automation_ran')
           } catch (e) {
             log.warn('[Automations] Failed to write history:', e)
           }
@@ -288,6 +295,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
       })
       try {
         await appendAutomationHistoryEntry(workspace.rootPath, entry)
+            awardXpSafe('automation_ran')
       } catch (e) {
         log.warn('[Automations] Failed to write replay history:', e)
       }

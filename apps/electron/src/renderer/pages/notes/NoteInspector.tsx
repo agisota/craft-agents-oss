@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Check, CheckSquare2, ChevronLeft, ChevronRight, FileText, Link2, ListChecks, Paperclip, Plus, Tag, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NoteAsset, NoteDocument, NoteSummary } from '../../../shared/types'
@@ -79,9 +80,11 @@ export interface NoteInspectorProps {
   uncreatedLinks: string[]
   activeNoteTasks: NoteTask[]
   openTasks: NoteTask[]
+  presetTags?: string[]
   onTagDraftChange(v: string): void
   onApplyTags(): void
   onTagClick(tag: string): void
+  onAddTag?(tag: string): void
   onUpdateProperty(key: string, value: unknown | undefined): void
   onNewPropertyKeyChange(v: string): void
   onNewPropertyValueChange(v: string): void
@@ -111,7 +114,7 @@ function inputToProperty(value: string): unknown {
 
 export function NoteInspector({
   activeNote,
-  allAssets,
+  allAssets: _allAssets,
   selectedTag,
   tagDraft,
   propertyEntries,
@@ -121,7 +124,9 @@ export function NoteInspector({
   uncreatedLinks,
   activeNoteTasks,
   openTasks,
+  presetTags = [],
   onTagDraftChange,
+  onAddTag,
   onApplyTags,
   onTagClick,
   onUpdateProperty,
@@ -136,13 +141,16 @@ export function NoteInspector({
   collapsed = false,
   onToggleCollapsed,
 }: NoteInspectorProps) {
+  const { t } = useTranslation()
+  void _allAssets
+
   if (collapsed) {
     return (
       <aside className="w-8 shrink-0 border-l border-border/60 bg-muted/[0.12] flex flex-col items-center pt-2">
         <button
           className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center text-muted-foreground"
           onClick={onToggleCollapsed}
-          title="Expand inspector"
+          title={t('notes.inspector.expand')}
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -157,18 +165,22 @@ export function NoteInspector({
           <button
             className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center text-muted-foreground"
             onClick={onToggleCollapsed}
-            title="Collapse inspector"
+            title={t('notes.inspector.collapse')}
           >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
         <div className="rounded-[8px] border border-dashed border-border/70 bg-background/50 p-4 text-center">
-          <div className="text-sm font-medium">Note inspector</div>
-          <div className="mt-1 text-xs text-muted-foreground">Tags, properties, assets, unresolved links, and backlinks appear here.</div>
+          <div className="text-sm font-medium">{t('notes.inspector.title')}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{t('notes.inspector.emptyHint')}</div>
         </div>
       </aside>
     )
   }
+
+  const suggestedPresets = presetTags.filter(
+    tag => !activeNote.tags.some(existing => existing.toLowerCase() === tag.toLowerCase()),
+  ).slice(0, 12)
 
   return (
     <aside className="w-[320px] shrink-0 border-l border-border/60 overflow-y-auto bg-muted/[0.12] p-3">
@@ -176,7 +188,7 @@ export function NoteInspector({
         <button
           className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center text-muted-foreground"
           onClick={onToggleCollapsed}
-          title="Collapse inspector"
+          title={t('notes.inspector.collapse')}
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -185,7 +197,7 @@ export function NoteInspector({
       <section className="mb-5">
         <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Tag className="h-3.5 w-3.5" />
-          Tags
+          {t('notes.inspector.tags')}
         </div>
         <div className="mb-2 flex gap-1.5">
           <input
@@ -193,11 +205,11 @@ export function NoteInspector({
             onChange={(e) => onTagDraftChange(e.target.value)}
             onBlur={onApplyTags}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); onApplyTags() } }}
-            placeholder="tag-a, tag-b"
+            placeholder={t('notes.inspector.tagsPlaceholder')}
             className="h-7 min-w-0 flex-1 rounded-[6px] border border-border/60 bg-background px-2 text-xs outline-none focus:border-foreground/30"
           />
           <button className="h-7 rounded-[5px] px-2 text-xs hover:bg-foreground/[0.06]" onClick={onApplyTags}>
-            Apply
+            {t('notes.inspector.apply')}
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -206,14 +218,33 @@ export function NoteInspector({
               key={tag}
               className={cn(
                 'rounded-[5px] bg-foreground/[0.06] px-2 py-1 text-[11px] hover:bg-foreground/[0.1]',
-                selectedTag === tag && 'bg-foreground/[0.12]'
+                selectedTag === tag && 'bg-accent/15 text-accent',
               )}
               onClick={() => onTagClick(tag)}
             >
               #{tag}
             </button>
-          )) : <span className="text-xs text-muted-foreground">None</span>}
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.none')}</span>}
         </div>
+        {suggestedPresets.length > 0 && (
+          <div className="mt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              {t('notes.inspector.suggestedTags')}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {suggestedPresets.map(tag => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="rounded-[5px] border border-dashed border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/[0.06]"
+                  onClick={() => onAddTag?.(tag)}
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Tasks */}
@@ -221,9 +252,11 @@ export function NoteInspector({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <CheckSquare2 className="h-3.5 w-3.5" />
-            Tasks
+            {t('notes.inspector.tasks')}
           </div>
-          <span className="text-[11px] text-muted-foreground">{openTasks.length} open</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t('notes.inspector.openCount', { count: openTasks.length })}
+          </span>
         </div>
         <div className="space-y-1">
           {(activeNoteTasks.length ? activeNoteTasks : openTasks.slice(0, 8)).map(task => (
@@ -245,7 +278,7 @@ export function NoteInspector({
             </button>
           ))}
           {activeNoteTasks.length === 0 && openTasks.length === 0 && (
-            <span className="text-xs text-muted-foreground">No markdown tasks</span>
+            <span className="text-xs text-muted-foreground">{t('notes.inspector.noTasks')}</span>
           )}
         </div>
       </section>
@@ -253,8 +286,8 @@ export function NoteInspector({
       {/* Properties */}
       <section className="mb-5">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-xs font-medium text-muted-foreground">Properties</div>
-          <span className="text-[11px] text-muted-foreground">frontmatter</span>
+          <div className="text-xs font-medium text-muted-foreground">{t('notes.inspector.properties')}</div>
+          <span className="text-[11px] text-muted-foreground">{t('notes.inspector.frontmatter')}</span>
         </div>
         <div className="space-y-1.5">
           {propertyEntries.length > 0 ? propertyEntries.map(([key, value]) => (
@@ -264,7 +297,7 @@ export function NoteInspector({
                 <button
                   className="grid h-5 w-5 place-items-center rounded-[4px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={() => onUpdateProperty(key, undefined)}
-                  title={`Remove ${key}`}
+                  title={t('notes.inspector.removeProperty', { key })}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -277,28 +310,28 @@ export function NoteInspector({
                 className="h-7 w-full rounded-[5px] border border-border/50 bg-background px-2 text-xs outline-none focus:border-foreground/30"
               />
             </div>
-          )) : <span className="text-xs text-muted-foreground">None</span>}
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.none')}</span>}
         </div>
         <div className="mt-2 rounded-[6px] border border-dashed border-border/70 bg-background/50 p-2">
           <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Plus className="h-3 w-3" />
-            Add property
+            {t('notes.inspector.addProperty')}
           </div>
           <div className="flex gap-1.5">
             <input
               value={newPropertyKey}
               onChange={(e) => onNewPropertyKeyChange(e.target.value)}
-              placeholder="key"
+              placeholder={t('notes.inspector.propertyKey')}
               className="h-7 min-w-0 flex-1 rounded-[5px] border border-border/50 bg-background px-2 text-xs outline-none focus:border-foreground/30"
             />
             <input
               value={newPropertyValue}
               onChange={(e) => onNewPropertyValueChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') onAddProperty() }}
-              placeholder="value"
+              placeholder={t('notes.inspector.propertyValue')}
               className="h-7 min-w-0 flex-1 rounded-[5px] border border-border/50 bg-background px-2 text-xs outline-none focus:border-foreground/30"
             />
-            <button className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center" onClick={onAddProperty} title="Add property">
+            <button className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center" onClick={onAddProperty} title={t('notes.inspector.addProperty')}>
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -310,13 +343,13 @@ export function NoteInspector({
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Paperclip className="h-3.5 w-3.5" />
-            Assets
+            {t('notes.inspector.assets')}
           </div>
           <button
             className="h-6 rounded-[5px] px-2 text-[11px] hover:bg-foreground/[0.06]"
             onClick={onOpenAssetDialog}
           >
-            Manage
+            {t('notes.inspector.manage')}
           </button>
         </div>
         <div className="space-y-1">
@@ -339,7 +372,7 @@ export function NoteInspector({
               <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-xs">{ref}</span>
             </button>
-          )) : <span className="text-xs text-muted-foreground">No assets</span>}
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.noAssets')}</span>}
         </div>
       </section>
 
@@ -347,7 +380,7 @@ export function NoteInspector({
       <section className="mb-5">
         <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <ListChecks className="h-3.5 w-3.5" />
-          Uncreated links
+          {t('notes.inspector.uncreatedLinks')}
         </div>
         <div className="space-y-1">
           {uncreatedLinks.length ? uncreatedLinks.map(target => (
@@ -359,15 +392,15 @@ export function NoteInspector({
               <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-xs">{target}</span>
             </button>
-          )) : <span className="text-xs text-muted-foreground">All wiki links resolve</span>}
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.allLinksResolve')}</span>}
         </div>
       </section>
 
       {/* Backlinks */}
-      <section>
+      <section className="mb-5">
         <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Link2 className="h-3.5 w-3.5" />
-          Backlinks
+          {t('notes.inspector.backlinks')}
         </div>
         <div className="space-y-1">
           {activeNote.backlinks.length ? activeNote.backlinks.map((backlink, index) => (
@@ -379,7 +412,29 @@ export function NoteInspector({
               <div className="truncate text-xs font-medium">{backlink.title}</div>
               <div className="line-clamp-2 text-[11px] text-muted-foreground">{backlink.preview}</div>
             </button>
-          )) : <span className="text-xs text-muted-foreground">No backlinks</span>}
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.noBacklinks')}</span>}
+        </div>
+      </section>
+
+      {/* Outgoing links */}
+      <section>
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Link2 className="h-3.5 w-3.5" />
+          {t('notes.inspector.outgoingLinks')}
+        </div>
+        <div className="space-y-1">
+          {activeNote.links.length ? activeNote.links.map((link, index) => (
+            <button
+              key={`${link.target}-${index}`}
+              onClick={() => {
+                // Prefer open by resolved note if caller has it; otherwise missing-link flow
+                onMissingLink(link.target)
+              }}
+              className="w-full rounded-[6px] px-2 py-1.5 text-left hover:bg-foreground/[0.06]"
+            >
+              <div className="truncate text-xs font-medium">[[{link.target}]]</div>
+            </button>
+          )) : <span className="text-xs text-muted-foreground">{t('notes.inspector.noOutgoingLinks')}</span>}
         </div>
       </section>
     </aside>

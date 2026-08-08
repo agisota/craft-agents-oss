@@ -13,6 +13,8 @@ import type { Getter, Setter } from 'jotai/vanilla'
 import { atomFamily } from 'jotai-family'
 import type { Session, Message } from '../../shared/types'
 
+import { markStatusUnseen } from '@/lib/sidebar-unseen-status'
+
 /**
  * Session metadata for list display (lightweight, no messages)
  * Used by SessionList to avoid re-rendering on message changes
@@ -218,8 +220,18 @@ export const updateSessionMetaAtom = atom(
     const existing = metaMap.get(sessionId)
     if (existing) {
       const newMetaMap = new Map(metaMap)
-      newMetaMap.set(sessionId, { ...existing, ...updates })
+      const next = { ...existing, ...updates }
+      newMetaMap.set(sessionId, next)
       set(sessionMetaMapAtom, newMetaMap)
+
+      // Sidebar unseen accent: session landed in a different status bucket.
+      if (
+        updates.sessionStatus !== undefined &&
+        updates.sessionStatus !== existing.sessionStatus &&
+        existing.workspaceId
+      ) {
+        markStatusUnseen(existing.workspaceId, updates.sessionStatus)
+      }
     }
   }
 )

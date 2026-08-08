@@ -17,13 +17,14 @@ import type { EntityColor } from './types.ts'
 /**
  * Default colors for built-in statuses.
  * Uses system colors with opacity modifiers for muted states.
+ * Coherent with kanban column hex palette (slate/blue/amber/violet/emerald).
  */
 export const DEFAULT_STATUS_COLORS: Record<string, EntityColor> = {
-  'backlog': 'foreground/50',       // Muted — not yet planned
-  'todo': 'foreground/50',          // Muted — ready to work on
-  'in-progress': 'success',         // Green — active work
-  'needs-review': 'info',           // Amber — attention needed
-  'done': 'accent',                 // Purple — completed
+  'backlog': 'foreground/50',       // Muted slate — not yet planned
+  'todo': 'info',                   // Blue — ready to work on
+  'in-progress': { light: '#f59e0b', dark: '#fbbf24' }, // Amber — active work
+  'needs-review': { light: '#8b5cf6', dark: '#a78bfa' }, // Violet — attention needed
+  'done': 'success',                // Emerald — completed
   'cancelled': 'foreground/50',     // Muted — inactive
 }
 

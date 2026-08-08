@@ -804,21 +804,17 @@ export function SessionList({
     sessionOptions, contentSearchResults, activeChatMatchInfo, hasPendingPrompt,
   ])
 
-  // --- Empty state (non-search) — render before EntityList ---
+  // --- Empty state (non-search) — keep search bar pinned above empty UI ---
   // Don't show empty state when there are collapsed groups with content
   if (flatRows.length === 0 && rowData.groups.length === 0 && !searchActive) {
-    if (currentFilter?.kind === 'archived') {
-      return (
-        <EntityListEmptyScreen
-          icon={<Archive />}
-          title={t("session.noArchivedSessions")}
-          description={t("session.noArchivedSessionsDesc")}
-          className="h-full"
-        />
-      )
-    }
-
-    return (
+    const emptyBody = currentFilter?.kind === 'archived' ? (
+      <EntityListEmptyScreen
+        icon={<Archive />}
+        title={t("session.noArchivedSessions")}
+        description={t("session.noArchivedSessionsDesc")}
+        className="h-full"
+      />
+    ) : (
       <EntityListEmptyScreen
         icon={<Inbox />}
         title={t("session.noSessionsYet")}
@@ -837,6 +833,27 @@ export function SessionList({
           {t("session.newSession")}
         </button>
       </EntityListEmptyScreen>
+    )
+    return (
+      <div className="flex flex-col flex-1 min-h-0">
+        <SessionSearchHeader
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
+          onSearchClose={() => {
+            onSearchChange?.('')
+            onSearchClose?.()
+          }}
+          onKeyDown={handleSearchKeyDown}
+          onFocus={() => setIsSearchInputFocused(true)}
+          onBlur={() => setIsSearchInputFocused(false)}
+          isSearching={isSearchingContent}
+          isUnavailable={isSearchUnavailable}
+          resultCount={0}
+          exceededLimit={false}
+          inputRef={searchInputRef}
+        />
+        <div className="flex-1 min-h-0">{emptyBody}</div>
+      </div>
     )
   }
 
@@ -906,21 +923,22 @@ export function SessionList({
         }}
         header={
           <>
-            {searchActive && (
-              <SessionSearchHeader
-                searchQuery={searchQuery}
-                onSearchChange={onSearchChange}
-                onSearchClose={onSearchClose}
-                onKeyDown={handleSearchKeyDown}
-                onFocus={() => setIsSearchInputFocused(true)}
-                onBlur={() => setIsSearchInputFocused(false)}
-                isSearching={isSearchingContent}
-                isUnavailable={isSearchUnavailable}
-                resultCount={matchingFilterItems.length + otherResultItems.length}
-                exceededLimit={exceededSearchLimit}
-                inputRef={searchInputRef}
-              />
-            )}
+            <SessionSearchHeader
+              searchQuery={searchQuery}
+              onSearchChange={onSearchChange}
+              onSearchClose={() => {
+                onSearchChange?.('')
+                onSearchClose?.()
+              }}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => setIsSearchInputFocused(true)}
+              onBlur={() => setIsSearchInputFocused(false)}
+              isSearching={isSearchingContent}
+              isUnavailable={isSearchUnavailable}
+              resultCount={matchingFilterItems.length + otherResultItems.length}
+              exceededLimit={exceededSearchLimit}
+              inputRef={searchInputRef}
+            />
             {isSearchMode && matchingFilterItems.length === 0 && otherResultItems.length > 0 && (
               <div className="px-4 py-3 text-sm text-muted-foreground">
                 {t("session.noResultsInFilter")}

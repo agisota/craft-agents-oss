@@ -78,6 +78,10 @@ export interface AppShellContextType {
   labels?: import('@craft-agent/shared/labels').LabelConfig[]
   /** Callback when session labels change */
   onSessionLabelsChange?: (sessionId: string, labels: string[]) => void
+  /** Workspace projects for session project picker */
+  projects?: Array<{ id: string; slug: string; name: string; color?: string }>
+  /** Bind/unbind a session to a project (null clears) */
+  onSetProjectId?: (sessionId: string, projectId: string | null) => void
   /**
    * Open All Sessions scoped to a task: replaces the view's label filter (and project
    * filter when given) with the task's scope — the same user-clearable header-chip

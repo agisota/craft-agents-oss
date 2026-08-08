@@ -12,6 +12,7 @@ import { registerBundledSkillsHandlers } from './bundled-skills'
 import { registerMarketplaceHandlers } from './marketplace'
 import { registerFilesHandlers } from './files'
 import { registerLabelsHandlers } from './labels'
+import { registerOrgsHandlers } from './orgs'
 import { registerLlmConnectionsHandlers } from './llm-connections'
 import { registerOAuthHandlers } from './oauth'
 import { registerResourcesHandlers } from './resources'
@@ -26,7 +27,10 @@ import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export { getHealthCheck } from './server'
 import { registerSettingsHandlers } from './settings'
+import { registerGamificationHandlers } from './gamification'
 import { registerProjectsHandlers } from './projects'
+import { registerKanbanHandlers } from './kanban'
+
 import { registerSkillsHandlers } from './skills'
 import { registerSourcesHandlers } from './sources'
 import { registerStatusesHandlers } from './statuses'
@@ -74,6 +78,7 @@ export function registerCoreRpcHandlers(
   registerBundledSkillsHandlers(server, deps)
   registerFilesHandlers(server, deps)
   registerLabelsHandlers(server, deps)
+  registerOrgsHandlers(server, deps)
   registerLlmConnectionsHandlers(server, deps)
   registerOAuthHandlers(server, deps)
   registerOnboardingHandlers(server, deps)
@@ -81,7 +86,10 @@ export function registerCoreRpcHandlers(
   registerSessionsHandlers(server, deps)
   if (serverCtx) registerServerHandlers(server, deps, serverCtx)
   registerSettingsHandlers(server, deps)
+  registerGamificationHandlers(server, deps)
   registerProjectsHandlers(server, deps)
+  registerKanbanHandlers(server, deps)
+
   registerSkillsHandlers(server, deps)
   registerSourcesHandlers(server, deps)
   registerStatusesHandlers(server, deps)

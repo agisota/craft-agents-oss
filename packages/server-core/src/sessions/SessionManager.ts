@@ -103,6 +103,7 @@ import { extractLabelId, resolveSessionLabels, findTaskItemLabelId } from '@craf
 import { ensureLabelsExist, ensureTaskItemLabel } from '@craft-agent/shared/labels/crud'
 import { loadStatusConfig } from '@craft-agent/shared/statuses/storage'
 import { AutomationSystem, createPromptHistoryEntry, appendAutomationHistoryEntry, type AutomationSystemMetadataSnapshot, type KnowledgeActionExecutor, type CloudRunSubmitExecutor, type KnowledgeActionExecutorContext, type KnowledgeAutomationAction, type CloudRunSubmitAction, type CloudRunSubmitExecutorContext } from '@craft-agent/shared/automations'
+import { awardXpSafe } from '@craft-agent/shared/gamification'
 import { ServerKnowledgeActionExecutor } from '../knowledge/automation-actions'
 import { KnowledgeBridgeService } from '../knowledge/bridge-service'
 import { KnowledgeMutationProposalsStore } from '../knowledge/proposals-store'
@@ -1848,6 +1849,7 @@ export class SessionManager implements ISessionManager {
             })
 
             appendAutomationHistoryEntry(workspaceRootPath, entry).catch(e => sessionLog.warn('[Automations] Failed to write history:', e))
+            awardXpSafe('automation_ran')
 
             if (result.status === 'rejected') {
               sessionLog.error(`[Automations] Failed to execute prompt action ${idx + 1}:`, result.reason)
@@ -7313,6 +7315,8 @@ export class SessionManager implements ISessionManager {
   }
 
   private emitSessionComplete(evt: SessionCompletionEvent): void {
+    // Best-effort profile XP — never block completion fan-out.
+    awardXpSafe('session_completed')
     if (this.sessionCompletionListeners.size === 0) return
     for (const listener of this.sessionCompletionListeners) {
       try {

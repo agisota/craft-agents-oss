@@ -26,6 +26,7 @@ import WorkspaceSettingsPage from './WorkspaceSettingsPage'
 import AccountsSettingsPage from './AccountsSettingsPage'
 import PermissionsSettingsPage from './PermissionsSettingsPage'
 import LabelsSettingsPage from './LabelsSettingsPage'
+import OrganizationsSettingsPage from './OrganizationsSettingsPage'
 import MessagingSettingsPage from './MessagingSettingsPage'
 import ServerSettingsPage from './ServerSettingsPage'
 import CloudRunsSettingsPage from './CloudRunsSettingsPage'
@@ -49,6 +50,7 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   accounts: AccountsSettingsPage,
   permissions: PermissionsSettingsPage,
   labels: LabelsSettingsPage,
+  organizations: OrganizationsSettingsPage,
   messaging: MessagingSettingsPage,
   server: ServerSettingsPage,
   cloudRuns: CloudRunsSettingsPage,

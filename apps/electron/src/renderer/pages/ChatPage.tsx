@@ -30,6 +30,11 @@ import { kanbanEditorTargetAtom } from '@/atoms/kanban'
 import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
 import { resolveEffectiveConnectionSlug, isSessionConnectionUnavailable } from '@config/llm-connections'
+import {
+  SessionViewPlaceholder,
+  SessionViewTabs,
+  useSessionView,
+} from '@/components/app-shell/SessionViewTabs'
 
 export interface ChatPageProps {
   sessionId: string
@@ -41,6 +46,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   React.useLayoutEffect(() => {
     rendererPerf.markSessionSwitch(sessionId, 'panel.mounted')
   }, [sessionId])
+
+  const [sessionView, setSessionView] = useSessionView(sessionId)
 
   const {
     activeWorkspaceId,
@@ -63,6 +70,8 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     skills,
     labels,
     onSessionLabelsChange,
+    projects,
+    onSetProjectId,
     enabledModes,
     sessionStatuses,
     onSessionSourcesChange,
@@ -815,12 +824,15 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         workingDirectory: sessionMeta.workingDirectory,
         enabledSourceSlugs: sessionMeta.enabledSourceSlugs,
       }
-
       return (
         <>
           <div className="h-full flex flex-col">
             <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
+            <SessionViewTabs value={sessionView} onChange={setSessionView} />
             <div className="flex-1 flex flex-col min-h-0">
+              {sessionView !== 'standard' ? (
+                <SessionViewPlaceholder view={sessionView} />
+              ) : (
               <ChatDisplay
                 ref={chatDisplayRef}
                 session={skeletonSession}
@@ -862,6 +874,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                 compactMode={!!isCompactMode}
                 enableCompactModelPicker={!!isCompactMode}
               />
+              )}
             </div>
           </div>
           <RenameDialog
@@ -893,55 +906,62 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     <>
       <div className="h-full flex flex-col">
         <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
+        <SessionViewTabs value={sessionView} onChange={setSessionView} />
         <div className="flex-1 flex flex-col min-h-0">
-          <ChatDisplay
-            ref={chatDisplayRef}
-            session={session}
-            onSendMessage={(message, attachments, skillSlugs) => {
-              if (session) {
-                onSendMessage(session.id, message, attachments, skillSlugs)
-              }
-            }}
-            onOpenFile={handleOpenFile}
-            onOpenUrl={handleOpenUrl}
-            currentModel={effectiveModel}
-            onModelChange={handleModelChange}
-            onConnectionChange={handleConnectionChange}
-            pendingPermission={pendingPermission}
-            onRespondToPermission={onRespondToPermission}
-            pendingCredential={pendingCredential}
-            onRespondToCredential={onRespondToCredential}
-            thinkingLevel={sessionOpts.thinkingLevel}
-            onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
-            permissionMode={sessionOpts.permissionMode}
-            onPermissionModeChange={setPermissionMode}
-            enabledModes={enabledModes}
-            inputValue={inputValue}
-            onInputChange={handleInputChange}
-            attachmentsValue={attachmentsValue}
-            onAttachmentsChange={handleAttachmentsChange}
-            sources={enabledSources}
-            skills={skills}
-            labels={labels}
-            onLabelsChange={(newLabels) => onSessionLabelsChange?.(sessionId, newLabels)}
-            sessionStatuses={sessionStatuses}
-            onSessionStatusChange={handleSessionStatusChange}
-            workspaceId={activeWorkspaceId || undefined}
-            onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
-            workingDirectory={workingDirectory}
-            onWorkingDirectoryChange={handleWorkingDirectoryChange}
-            sessionFolderPath={session?.sessionFolderPath}
-            messagesLoading={messageLoadState.messagesLoading || (messagesRetrying && !messageLoadState.messagesReady)}
-            messagesLoadError={messageLoadState.error}
-            messagesRetrying={messagesRetrying}
-            onRetryMessagesLoad={handleRetryMessagesLoad}
-            searchQuery={sessionListSearchQuery}
-            isSearchModeActive={isSearchModeActive}
-            onMatchInfoChange={onChatMatchInfoChange}
-            connectionUnavailable={connectionUnavailable}
-            compactMode={!!isCompactMode}
-            enableCompactModelPicker={!!isCompactMode}
-          />
+          {sessionView !== 'standard' ? (
+            <SessionViewPlaceholder view={sessionView} />
+          ) : (
+            <ChatDisplay
+              ref={chatDisplayRef}
+              session={session}
+              onSendMessage={(message, attachments, skillSlugs) => {
+                if (session) {
+                  onSendMessage(session.id, message, attachments, skillSlugs)
+                }
+              }}
+              onOpenFile={handleOpenFile}
+              onOpenUrl={handleOpenUrl}
+              currentModel={effectiveModel}
+              onModelChange={handleModelChange}
+              onConnectionChange={handleConnectionChange}
+              pendingPermission={pendingPermission}
+              onRespondToPermission={onRespondToPermission}
+              pendingCredential={pendingCredential}
+              onRespondToCredential={onRespondToCredential}
+              thinkingLevel={sessionOpts.thinkingLevel}
+              onThinkingLevelChange={(level) => setOption('thinkingLevel', level)}
+              permissionMode={sessionOpts.permissionMode}
+              onPermissionModeChange={setPermissionMode}
+              enabledModes={enabledModes}
+              inputValue={inputValue}
+              onInputChange={handleInputChange}
+              attachmentsValue={attachmentsValue}
+              onAttachmentsChange={handleAttachmentsChange}
+              sources={enabledSources}
+              skills={skills}
+              labels={labels}
+              onLabelsChange={(newLabels) => onSessionLabelsChange?.(sessionId, newLabels)}
+              sessionStatuses={sessionStatuses}
+              onSessionStatusChange={handleSessionStatusChange}
+              projects={projects}
+              onSetProjectId={(projectId) => onSetProjectId?.(sessionId, projectId)}
+              workspaceId={activeWorkspaceId || undefined}
+              onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
+              workingDirectory={workingDirectory}
+              onWorkingDirectoryChange={handleWorkingDirectoryChange}
+              sessionFolderPath={session?.sessionFolderPath}
+              messagesLoading={messageLoadState.messagesLoading || (messagesRetrying && !messageLoadState.messagesReady)}
+              messagesLoadError={messageLoadState.error}
+              messagesRetrying={messagesRetrying}
+              onRetryMessagesLoad={handleRetryMessagesLoad}
+              searchQuery={sessionListSearchQuery}
+              isSearchModeActive={isSearchModeActive}
+              onMatchInfoChange={onChatMatchInfoChange}
+              connectionUnavailable={connectionUnavailable}
+              compactMode={!!isCompactMode}
+              enableCompactModelPicker={!!isCompactMode}
+            />
+          )}
         </div>
       </div>
       <RenameDialog

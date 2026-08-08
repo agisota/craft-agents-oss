@@ -13,9 +13,10 @@
  * is user-managed, 0600). Provider factory is per-call — config edits
  * take effect immediately, no server restart.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol';
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths';
 import { getWorkspaceDataPath, loadStoredConfig, saveConfig } from '@craft-agent/shared/config/storage';
@@ -31,6 +32,7 @@ import {
   type RunHandle,
   type RunStatus,
 } from '@craft-agent/cloud-runner';
+import { awardXpSafe } from '@craft-agent/shared/gamification';
 import type { RpcServer } from '@craft-agent/server-core/transport';
 import type { HandlerDeps } from '../handler-deps';
 
@@ -50,6 +52,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.cloudRuns.SHARE,
   RPC_CHANNELS.cloudRuns.REVOKE_SHARE,
   RPC_CHANNELS.cloudRuns.GET_EVENTS,
+  RPC_CHANNELS.cloudRuns.LIST_SCHEDULES,
+  RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE,
+  RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE,
 ] as const;
 
 // ---------------------------------------------------------------
@@ -63,18 +68,41 @@ export interface CloudRunsSettings {
   defaults: { maxWallClockSec: number; maxLlmTokens: number; maxArtifactsBytes: number };
 }
 
+const DEFAULT_GATEWAY_URL =
+  process.env.CRAFT_CLOUD_RUNS_GATEWAY_URL
+  ?? 'https://craft-cloud-gateway.scharlesky-192.workers.dev';
+
 const SETTINGS_DEFAULTS: CloudRunsSettings = {
-  enabled: false,
-  provider: 'local',
+  enabled: true,
+  provider: 'cloudflare',
+  gatewayUrl: DEFAULT_GATEWAY_URL,
   defaults: { maxWallClockSec: 5400, maxLlmTokens: 2_000_000, maxArtifactsBytes: 25 * 1024 * 1024 },
 };
 
+/** Persist SETTINGS_DEFAULTS into config.json when cloudRuns section is absent. Never overwrites an existing object (including enabled:false). */
+function ensureCloudRunsDefaults(): void {
+  const stored = loadStoredConfig();
+  if (!stored || stored.cloudRuns !== undefined) return;
+  saveConfig({
+    ...stored,
+    cloudRuns: {
+      enabled: SETTINGS_DEFAULTS.enabled,
+      provider: SETTINGS_DEFAULTS.provider,
+      gatewayUrl: SETTINGS_DEFAULTS.gatewayUrl,
+      defaultMaxWallClockSec: SETTINGS_DEFAULTS.defaults.maxWallClockSec,
+      defaultMaxLlmTokens: SETTINGS_DEFAULTS.defaults.maxLlmTokens,
+      defaultMaxArtifactsBytes: SETTINGS_DEFAULTS.defaults.maxArtifactsBytes,
+    },
+  });
+}
+
 function readSettings(): CloudRunsSettings {
+  ensureCloudRunsDefaults();
   const cfg = loadStoredConfig()?.cloudRuns;
   return {
-    enabled: cfg?.enabled ?? false,
-    provider: cfg?.provider ?? 'local',
-    gatewayUrl: cfg?.gatewayUrl,
+    enabled: cfg?.enabled ?? SETTINGS_DEFAULTS.enabled,
+    provider: cfg?.provider ?? SETTINGS_DEFAULTS.provider,
+    gatewayUrl: cfg?.gatewayUrl ?? SETTINGS_DEFAULTS.gatewayUrl,
     defaults: {
       maxWallClockSec: cfg?.defaultMaxWallClockSec ?? SETTINGS_DEFAULTS.defaults.maxWallClockSec,
       maxLlmTokens: cfg?.defaultMaxLlmTokens ?? SETTINGS_DEFAULTS.defaults.maxLlmTokens,
@@ -83,8 +111,54 @@ function readSettings(): CloudRunsSettings {
   };
 }
 
+/**
+ * Bootstrap <configDir>/cloud-runs.env when missing:
+ * 1) copy packaged resources/cloud-runs.env if present
+ * 2) else write CLOUD_RUNS_TOKEN from process.env
+ * Never commits secrets; ops place the token via package resource or env.
+ */
+function ensureSecretsEnvFile(): void {
+  const dest = join(CONFIG_DIR, 'cloud-runs.env');
+  if (existsSync(dest)) return;
+
+  const candidates: string[] = [];
+  const bundledRoot = process.env.CRAFT_BUNDLED_ASSETS_ROOT;
+  if (bundledRoot) {
+    candidates.push(join(bundledRoot, 'resources', 'cloud-runs.env'));
+    candidates.push(join(bundledRoot, 'cloud-runs.env'));
+  }
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (typeof resourcesPath === 'string' && resourcesPath.length > 0) {
+    candidates.push(join(resourcesPath, 'cloud-runs.env'));
+    candidates.push(join(resourcesPath, 'resources', 'cloud-runs.env'));
+    candidates.push(join(resourcesPath, 'app', 'resources', 'cloud-runs.env'));
+  }
+
+  for (const src of candidates) {
+    if (!existsSync(src)) continue;
+    try {
+      copyFileSync(src, dest);
+      chmodSync(dest, 0o600);
+      return;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  const token = process.env.CLOUD_RUNS_TOKEN;
+  if (token && token.trim()) {
+    try {
+      writeFileSync(dest, `CLOUD_RUNS_TOKEN=${token.trim()}\n`, { encoding: 'utf8', mode: 0o600 });
+      chmodSync(dest, 0o600);
+    } catch {
+      // leave tokenMissing; GET_CONFIG reports tokenConfigured:false
+    }
+  }
+}
+
 /** cloud-runs.env: user-managed secrets for cloud providers (0600). */
 function readSecretsEnv(): Record<string, string> {
+  ensureSecretsEnvFile();
   const path = join(CONFIG_DIR, 'cloud-runs.env');
   if (!existsSync(path)) return {};
   const out: Record<string, string> = {};
@@ -532,6 +606,48 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
     },
   );
 
+  server.handle(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES, async () => {
+    return readSchedules();
+  });
+
+  server.handle(
+    RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE,
+    async (_ctx, args: { schedule: Partial<CloudRunSchedule> & { topic?: string; everyHours?: number; sessionId?: string } }) => {
+      const incoming = args?.schedule;
+      if (!incoming || typeof incoming !== 'object') {
+        throw new CloudRunnerError('schedule is required', 'invalid_spec');
+      }
+      const schedule: CloudRunSchedule = {
+        id: typeof incoming.id === 'string' && incoming.id.trim() ? incoming.id : randomUUID(),
+        topic: String(incoming.topic ?? '').trim(),
+        everyHours: Number(incoming.everyHours) > 0 ? Number(incoming.everyHours) : 24,
+        sessionId: String(incoming.sessionId ?? ''),
+        kind: incoming.kind,
+        enabled: incoming.enabled !== false,
+        lastFireAt: incoming.lastFireAt,
+      };
+      if (!schedule.topic) throw new CloudRunnerError('schedule.topic is required', 'invalid_spec');
+      const schedules = readSchedules();
+      const idx = schedules.findIndex((s) => s.id === schedule.id);
+      if (idx >= 0) {
+        schedules[idx] = { ...schedules[idx]!, ...schedule };
+      } else {
+        schedules.push(schedule);
+      }
+      await writeSchedules(schedules);
+      return { ok: true, schedule: idx >= 0 ? schedules[idx]! : schedule };
+    },
+  );
+
+  server.handle(RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE, async (_ctx, args: { id: string }) => {
+    const id = args?.id;
+    if (!id) throw new CloudRunnerError('id is required', 'invalid_spec');
+    const next = readSchedules().filter((s) => s.id !== id);
+    await writeSchedules(next);
+    return { ok: true };
+  });
+
+
   server.handle(
     RPC_CHANNELS.cloudRuns.SUBMIT,
     async (_ctx, args: { topic: string; sessionId?: string; language?: 'en' | 'ru'; kind?: ResearchPackKind; personas?: boolean; fromRunId?: string; model?: { connectionSlug?: string; modelId?: string } }) => {
@@ -744,6 +860,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
       await writeFile(target, bytes);
       written.push(artifact.path);
     }
+    awardXpSafe('cloud_run_imported');
     return { root, files: written, warnings };
   });
 

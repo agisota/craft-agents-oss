@@ -979,6 +979,42 @@ export interface ElectronAPI {
   readPreferences(): Promise<{ content: string; exists: boolean; path: string }>
   writePreferences(content: string): Promise<{ success: boolean; error?: string }>
 
+  // Gamification profile (XP/level/balance)
+  getGamificationProfile(): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+  }>
+  awardGamificationXp(event: 'session_completed' | 'automation_ran' | 'cloud_run_imported' | 'note_linked'): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+    awarded: number
+    event: string
+    leveledUp: boolean
+    previousLevel: number
+  }>
+  onGamificationChanged(callback: (payload: {
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold?: number
+  }) => void): () => void
+
   // Session Drafts (persisted composer state — text + attachment refs)
   getDraft(sessionId: string): Promise<import('@craft-agent/shared/config').SessionDraft | null>
   setDraft(sessionId: string, draft: import('@craft-agent/shared/config').SessionDraft): Promise<void>
@@ -996,6 +1032,17 @@ export interface ElectronAPI {
   // Sources
   getSources(workspaceId: string): Promise<LoadedSource[]>
   createSource(workspaceId: string, config: Partial<FolderSourceConfig>): Promise<FolderSourceConfig>
+  updateSource(
+    workspaceId: string,
+    sourceSlug: string,
+    updates: {
+      name?: string
+      enabled?: boolean
+      tagline?: string
+      url?: string
+      guide?: string
+    },
+  ): Promise<LoadedSource>
   deleteSource(workspaceId: string, sourceSlug: string): Promise<void>
   startSourceOAuth(workspaceId: string, sourceSlug: string): Promise<{ success: boolean; error?: string }>
   saveSourceCredentials(workspaceId: string, sourceSlug: string, credential: string): Promise<void>
@@ -1020,6 +1067,11 @@ export interface ElectronAPI {
   // Skills
   getSkills(workspaceId: string, workingDirectory?: string): Promise<LoadedSkill[]>
   getSkillFiles?(workspaceId: string, skillSlug: string): Promise<SkillFile[]>
+  updateSkill(
+    workspaceId: string,
+    skillSlug: string,
+    updates: import('@craft-agent/shared/skills').UpdateSkillContentInput,
+  ): Promise<LoadedSkill>
   deleteSkill(workspaceId: string, skillSlug: string): Promise<void>
   /** Import an OMP skill into workspace craft skills. Returns the materialized slug (may get a `-omp` suffix on conflict). */
   importOmpSkill(workspaceId: string, skillSlug: string): Promise<{ slug: string; path: string; renamed: boolean }>
@@ -1073,8 +1125,27 @@ export interface ElectronAPI {
   // Labels (workspace-scoped)
   listLabels(workspaceId: string): Promise<import('@craft-agent/shared/labels').LabelConfig[]>
   createLabel(workspaceId: string, input: import('@craft-agent/shared/labels').CreateLabelInput): Promise<import('@craft-agent/shared/labels').LabelConfig>
+  updateLabel(
+    workspaceId: string,
+    labelId: string,
+    updates: import('@craft-agent/shared/labels').UpdateLabelInput,
+  ): Promise<import('@craft-agent/shared/labels').LabelConfig>
   deleteLabel(workspaceId: string, labelId: string): Promise<{ stripped: number }>
   onLabelsChanged(callback: (workspaceId: string) => void): () => void
+
+  // Organizations (P3.1 team workspaces)
+  listOrganizations(): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers[]>
+  createOrganization(input: import('@craft-agent/shared/orgs').CreateOrganizationInput): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers>
+  inviteToOrganization(input: import('@craft-agent/shared/orgs').InviteToOrgInput): Promise<import('@craft-agent/shared/orgs').OrgInvite>
+  acceptOrganizationInvite(input: import('@craft-agent/shared/orgs').AcceptInviteInput): Promise<{
+    org: import('@craft-agent/shared/orgs').OrganizationWithMembers
+    member: import('@craft-agent/shared/orgs').OrgMember
+    invite: import('@craft-agent/shared/orgs').OrgInvite
+  }>
+  listOrganizationMembers(orgId: string): Promise<import('@craft-agent/shared/orgs').OrgMember[]>
+  getOrgIdentity(): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  updateOrgIdentity(updates: { username?: string; email?: string; name?: string }): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  setWorkspaceOrganization(workspaceId: string, orgId: string | null): Promise<Workspace>
 
   // LLM connections change listener
   onLlmConnectionsChanged(callback: () => void): () => void
@@ -1263,6 +1334,12 @@ export interface ElectronAPI {
   uploadProjectAsset(workspaceId: string, projectSlug: string, input: { filename: string; base64?: string; text?: string; sourcePath?: string }): Promise<import('@craft-agent/shared/projects/types').ProjectAsset>
   deleteProjectAsset(workspaceId: string, projectSlug: string, filename: string): Promise<void>
   onProjectsChanged(callback: (workspaceId: string, projects: unknown) => void): () => void
+
+  // Kanban board config (workspace-scoped)
+  getKanbanConfig(workspaceId: string): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
+
 
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>

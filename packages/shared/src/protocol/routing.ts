@@ -306,6 +306,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.siyuan.FOCUS,
   RPC_CHANNELS.siyuan.STATE_CHANGED,
   RPC_CHANNELS.siyuan.REMOVED,
+
+  // gamification — user XP lives in local CONFIG_DIR
+  RPC_CHANNELS.gamification.GET,
+  RPC_CHANNELS.gamification.AWARD,
+  RPC_CHANNELS.gamification.CHANGED,
 ])
 
 // ---------------------------------------------------------------------------
@@ -547,6 +552,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.preferences.READ,
   RPC_CHANNELS.preferences.WRITE,
 
+
   // drafts — workspace content
   RPC_CHANNELS.drafts.GET,
   RPC_CHANNELS.drafts.SET,
@@ -556,6 +562,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // sources — source config per-workspace
   RPC_CHANNELS.sources.GET,
   RPC_CHANNELS.sources.CREATE,
+  RPC_CHANNELS.sources.UPDATE,
   RPC_CHANNELS.sources.DELETE,
   RPC_CHANNELS.sources.START_OAUTH,
   RPC_CHANNELS.sources.SAVE_CREDENTIALS,
@@ -583,6 +590,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // skills — skill content per-workspace (not openEditor/openFinder which are local OS)
   RPC_CHANNELS.skills.GET,
   RPC_CHANNELS.skills.GET_FILES,
+  RPC_CHANNELS.skills.UPDATE,
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.IMPORT_OMP,
   RPC_CHANNELS.skills.GET_USAGE,
@@ -598,6 +606,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // labels — workspace metadata
   RPC_CHANNELS.labels.LIST,
   RPC_CHANNELS.labels.CREATE,
+  RPC_CHANNELS.labels.UPDATE,
   RPC_CHANNELS.labels.DELETE,
   RPC_CHANNELS.labels.CHANGED,
 
@@ -632,6 +641,11 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.projects.UPLOAD_ASSET,
   RPC_CHANNELS.projects.DELETE_ASSET,
   RPC_CHANNELS.projects.CHANGED,
+
+  // kanban — workspace board config
+  RPC_CHANNELS.kanban.GET_CONFIG,
+  RPC_CHANNELS.kanban.SET_CONFIG,
+  RPC_CHANNELS.kanban.CHANGED,
 
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,

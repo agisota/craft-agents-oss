@@ -32,6 +32,7 @@ import { ModelChip } from './ModelChip'
 import { SubtaskRow } from './SubtaskRow'
 import { SubtaskProgress } from './SubtaskProgress'
 import type { KanbanModelProviderGroup, KanbanProject, KanbanTask } from './types'
+import { ProjectIcon } from '@/components/projects/ProjectIcon'
 
 /**
  * Brand icon for a provider key. Providers with a bundled SVG (anthropic,
@@ -73,6 +74,8 @@ interface TaskTileProps {
   subtaskModelGroups?: KanbanModelProviderGroup[]
   /** Model id pre-selected in the composer (defaults to the first catalog model). */
   defaultSubtaskModel?: string
+  /** Column accent from boardConfig (preferred over localStorage atom). */
+  columnAccent?: string
 }
 
 /**
@@ -99,11 +102,12 @@ export function TaskTile({
   onRunSubtasks,
   subtaskModelGroups,
   defaultSubtaskModel,
+  columnAccent,
 }: TaskTileProps) {
   const { t } = useTranslation()
   const livePulseEnabled = useAtomValue(kanbanLivePulseAtom)
   const columnColors = useKanbanColumnColors()
-  const accent = columnColors.get(task.column)?.solid ?? 'var(--primary)'
+  const accent = columnAccent ?? columnColors.get(task.column)?.solid ?? 'var(--primary)'
 
   const color = project?.color ?? null
   const showStripe = !!color
@@ -186,17 +190,28 @@ export function TaskTile({
         </button>
       )}
 
-      <div className="relative p-3 pl-3.5">
+      <div className="relative p-2 pl-2.5">
         {(project || task.isFlagged) && (
           // Right padding keeps the flag clear of the hover-revealed corner pencil.
           <div className={cn('mb-1.5 flex items-center justify-between gap-2', onEdit && task.isFlagged && 'pr-7')}>
             {project ? (
               <span className="inline-flex min-w-0 items-center gap-1 text-[11px] font-medium text-foreground/55">
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: project.color }}
-                  aria-hidden
-                />
+                {project.icon ? (
+                  <ProjectIcon
+                    workspaceId={project.workspaceId}
+                    projectSlug={project.slug}
+                    iconFilename={project.icon}
+                    color={project.color}
+                    className="h-3 w-3"
+                    iconClassName="h-3 w-3 text-foreground/50"
+                  />
+                ) : (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: project.color }}
+                    aria-hidden
+                  />
+                )}
                 <span className="truncate">{project.name}</span>
               </span>
             ) : (
@@ -301,10 +316,9 @@ export function TaskTile({
           </div>
         )}
 
-        <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-border/40 pt-2">
-          <ModelChip model={task.model} />
+        <div className="mt-2 flex items-center gap-2 border-t border-border/40 pt-1.5">
           {(relativeTime || hasMessages) && (
-            <div className="flex shrink-0 items-center gap-2 text-[11px] text-foreground/45">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-foreground/45">
               {relativeTime && (
                 <span className="inline-flex items-center gap-0.5 tabular-nums">
                   <Clock className="h-3 w-3" strokeWidth={2} />
@@ -319,6 +333,8 @@ export function TaskTile({
               )}
             </div>
           )}
+          {/* Model chip stays far right of the footer. */}
+          <ModelChip model={task.model} className="ml-auto shrink-0" />
         </div>
       </div>
     </div>

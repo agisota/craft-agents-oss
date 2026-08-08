@@ -410,6 +410,11 @@ export const RPC_CHANNELS = {
     READ: 'preferences:read',
     WRITE: 'preferences:write',
   },
+  gamification: {
+    GET: 'gamification:get',
+    AWARD: 'gamification:award',
+    CHANGED: 'gamification:changed',
+  },
   drafts: {
     GET: 'drafts:get',
     SET: 'drafts:set',
@@ -419,6 +424,7 @@ export const RPC_CHANNELS = {
   sources: {
     GET: 'sources:get',
     CREATE: 'sources:create',
+    UPDATE: 'sources:update',
     DELETE: 'sources:delete',
     START_OAUTH: 'sources:startOAuth',
     SAVE_CREDENTIALS: 'sources:saveCredentials',
@@ -446,6 +452,7 @@ export const RPC_CHANNELS = {
   skills: {
     GET: 'skills:get',
     GET_FILES: 'skills:getFiles',
+    UPDATE: 'skills:update',
     DELETE: 'skills:delete',
     OPEN_EDITOR: 'skills:openEditor',
     OPEN_FINDER: 'skills:openFinder',
@@ -498,8 +505,19 @@ export const RPC_CHANNELS = {
   labels: {
     LIST: 'labels:list',
     CREATE: 'labels:create',
+    UPDATE: 'labels:update',
     DELETE: 'labels:delete',
     CHANGED: 'labels:changed',
+  },
+  orgs: {
+    LIST: 'orgs:list',
+    CREATE: 'orgs:create',
+    INVITE: 'orgs:invite',
+    ACCEPT: 'orgs:accept',
+    LIST_MEMBERS: 'orgs:listMembers',
+    GET_IDENTITY: 'orgs:getIdentity',
+    UPDATE_IDENTITY: 'orgs:updateIdentity',
+    SET_WORKSPACE_ORG: 'orgs:setWorkspaceOrg',
   },
   views: {
     LIST: 'views:list',
@@ -623,6 +641,12 @@ export const RPC_CHANNELS = {
     DELETE_ASSET: 'projects:deleteAsset',
     CHANGED: 'projects:changed',
   },
+  kanban: {
+    GET_CONFIG: 'kanban:getConfig',
+    SET_CONFIG: 'kanban:setConfig',
+    CHANGED: 'kanban:changed',
+  },
+
   messaging: {
     // WhatsApp subprocess → Gateway (subprocess invokes on server)
     WA_REGISTER: 'messaging:wa:register',

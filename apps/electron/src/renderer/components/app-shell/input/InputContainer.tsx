@@ -19,6 +19,11 @@ interface InputContainerProps extends Omit<FreeFormInputProps, 'inputRef'> {
   textareaRef?: React.RefObject<RichTextInputHandle>
   /** Per-frame callback during height animation (for scroll sync) */
   onAnimatedHeightChange?: (delta: number) => void
+  /**
+   * Show the cloud-runs chip in freeform mode. Defaults to true.
+   * Forced off when compactMode is true (EditPopover / inline chats).
+   */
+  showCloudRunsChip?: boolean
 }
 
 // Animation timing - synced across height and opacity
@@ -50,6 +55,7 @@ export function InputContainer({
   compactMode,
   isProcessing,
   onAnimatedHeightChange,
+  showCloudRunsChip = true,
   ...freeFormProps
 }: InputContainerProps) {
   const appShellContext = useOptionalAppShellContext()
@@ -295,9 +301,10 @@ export function InputContainer({
       {mode === 'freeform' && freeFormProps.sessionId && (
         <BackgroundFinishedChip sessionId={freeFormProps.sessionId} />
       )}
-      {/* Cloud research runs entry point — same float position pattern;
-       * self-contained, renders nothing when the feature is disabled. */}
-      {mode === 'freeform' && freeFormProps.sessionId && (
+      {/* Cloud runs entry point — same float position pattern;
+       * self-contained, renders nothing when the feature is disabled.
+       * Hidden in compactMode (EditPopover) even if showCloudRunsChip is true. */}
+      {showCloudRunsChip && !compactMode && mode === 'freeform' && freeFormProps.sessionId && (
         <CloudRunsChip sessionId={freeFormProps.sessionId} />
       )}
     </div>

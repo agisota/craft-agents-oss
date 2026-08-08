@@ -17,6 +17,7 @@ import { looksLikeMermaidSource } from './mermaid-source'
 import { LatexBlock } from './extensions/LatexBlock'
 import { RichBlockInteractions } from './extensions/RichBlockInteractions'
 import { WikiLink } from './extensions/WikiLink'
+import { HashTag } from './extensions/HashTag'
 import { cn } from '../../lib/utils'
 import 'katex/dist/katex.min.css'
 import './tiptap-editor.css'
@@ -209,6 +210,8 @@ export interface TiptapMarkdownEditorProps {
   onEditorReady?: (editor: TiptapEditorHandle | null) => void
   /** Called when the user clicks a [[wiki link]] in the editor. */
   onWikiLinkClick?: (target: string) => void
+  /** Called when the user clicks a #tag in the editor. */
+  onTagClick?: (tag: string) => void
   /**
    * Migration flag for markdown engine foundations.
    * - `legacy`: tiptap-markdown (default for safe rollout)
@@ -225,6 +228,7 @@ export function TiptapMarkdownEditor({
   editable = true,
   onEditorReady,
   onWikiLinkClick,
+  onTagClick,
   markdownEngine = 'legacy',
 }: TiptapMarkdownEditorProps) {
   const onUpdateRef = React.useRef(onUpdate)
@@ -232,6 +236,9 @@ export function TiptapMarkdownEditor({
 
   const onWikiLinkClickRef = React.useRef(onWikiLinkClick)
   onWikiLinkClickRef.current = onWikiLinkClick
+
+  const onTagClickRef = React.useRef(onTagClick)
+  onTagClickRef.current = onTagClick
 
   // Ref for the editor instance — used by the Mathematics onClick callback
   // which is created at extension-configure time (before useEditor returns).
@@ -272,6 +279,9 @@ export function TiptapMarkdownEditor({
       RichBlockInteractions,
       WikiLink.configure({
         onWikiLinkClick: (target) => onWikiLinkClickRef.current?.(target),
+      }),
+      HashTag.configure({
+        onTagClick: (tag) => onTagClickRef.current?.(tag),
       }),
       ...(editable ? [TiptapSlashMenu] : []),
     ]

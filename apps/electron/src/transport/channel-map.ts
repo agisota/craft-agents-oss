@@ -358,6 +358,11 @@ export const CHANNEL_MAP = {
   readPreferences: invoke(RPC_CHANNELS.preferences.READ),
   writePreferences: invoke(RPC_CHANNELS.preferences.WRITE),
 
+  // Gamification profile
+  getGamificationProfile: invoke(RPC_CHANNELS.gamification.GET),
+  awardGamificationXp: invoke(RPC_CHANNELS.gamification.AWARD),
+  onGamificationChanged: listener(RPC_CHANNELS.gamification.CHANGED),
+
   // Session Drafts
   getDraft: invoke(RPC_CHANNELS.drafts.GET),
   setDraft: invoke(RPC_CHANNELS.drafts.SET),
@@ -375,6 +380,7 @@ export const CHANNEL_MAP = {
   // Sources
   getSources: invoke(RPC_CHANNELS.sources.GET),
   createSource: invoke(RPC_CHANNELS.sources.CREATE),
+  updateSource: invoke(RPC_CHANNELS.sources.UPDATE),
   deleteSource: invoke(RPC_CHANNELS.sources.DELETE),
   startSourceOAuth: invoke(RPC_CHANNELS.sources.START_OAUTH),
   saveSourceCredentials: invoke(RPC_CHANNELS.sources.SAVE_CREDENTIALS),
@@ -396,6 +402,7 @@ export const CHANNEL_MAP = {
   // Skills
   getSkills: invoke(RPC_CHANNELS.skills.GET),
   getSkillFiles: invoke(RPC_CHANNELS.skills.GET_FILES),
+  updateSkill: invoke(RPC_CHANNELS.skills.UPDATE),
   deleteSkill: invoke(RPC_CHANNELS.skills.DELETE),
   importOmpSkill: invoke(RPC_CHANNELS.skills.IMPORT_OMP),
   getSkillUsage: invoke(RPC_CHANNELS.skills.GET_USAGE),
@@ -435,8 +442,19 @@ export const CHANNEL_MAP = {
   // Labels
   listLabels: invoke(RPC_CHANNELS.labels.LIST),
   createLabel: invoke(RPC_CHANNELS.labels.CREATE),
+  updateLabel: invoke(RPC_CHANNELS.labels.UPDATE),
   deleteLabel: invoke(RPC_CHANNELS.labels.DELETE),
   onLabelsChanged: listener(RPC_CHANNELS.labels.CHANGED),
+
+  // Organizations (P3.1)
+  listOrganizations: invoke(RPC_CHANNELS.orgs.LIST),
+  createOrganization: invoke(RPC_CHANNELS.orgs.CREATE),
+  inviteToOrganization: invoke(RPC_CHANNELS.orgs.INVITE),
+  acceptOrganizationInvite: invoke(RPC_CHANNELS.orgs.ACCEPT),
+  listOrganizationMembers: invoke(RPC_CHANNELS.orgs.LIST_MEMBERS),
+  getOrgIdentity: invoke(RPC_CHANNELS.orgs.GET_IDENTITY),
+  updateOrgIdentity: invoke(RPC_CHANNELS.orgs.UPDATE_IDENTITY),
+  setWorkspaceOrganization: invoke(RPC_CHANNELS.orgs.SET_WORKSPACE_ORG),
 
   // LLM connections change listener
   onLlmConnectionsChanged: listener(RPC_CHANNELS.llmConnections.CHANGED),
@@ -589,6 +607,12 @@ export const CHANNEL_MAP = {
   uploadProjectAsset: invoke(RPC_CHANNELS.projects.UPLOAD_ASSET),
   deleteProjectAsset: invoke(RPC_CHANNELS.projects.DELETE_ASSET),
   onProjectsChanged: listener(RPC_CHANNELS.projects.CHANGED),
+
+  // Kanban board config
+  getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
+  setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
+  onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
+
 
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),

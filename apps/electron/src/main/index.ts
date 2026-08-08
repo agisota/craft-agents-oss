@@ -82,7 +82,7 @@ const machineId = createHash('sha256').update(hostname() + homedir()).digest('he
 Sentry.setUser({ id: machineId })
 
 import { join, delimiter } from 'path'
-import { existsSync, readFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@craft-agent/server-core/sessions'
 import { registerAllRpcHandlers } from './handlers/index'
@@ -101,6 +101,7 @@ import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces, getWorkspaceByNameOrId, loadStoredConfig, addWorkspace, saveConfig } from '@craft-agent/shared/config'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
+import { resolveUserDisplayName } from '@craft-agent/shared/os/user-display-name'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { ensureBundledSkills } from '@craft-agent/shared/skills'
 import { initializeReleaseNotes } from '@craft-agent/shared/release-notes'
@@ -336,16 +337,32 @@ async function createInitialWindows(): Promise<void> {
   const savedState = loadWindowState()
   let workspaces = getWorkspaces()
 
-  // If no workspaces exist, create default "My Workspace" on first run
+  // If no workspaces exist, create a default workspace named after the OS user
   if (workspaces.length === 0) {
     // Ensure config file exists (addWorkspace requires it)
     if (!loadStoredConfig()) {
       saveConfig({ workspaces: [], activeWorkspaceId: null, activeSessionId: null })
     }
     const defaultPath = join(getDefaultWorkspacesDir(), 'my-workspace')
-    addWorkspace({ rootPath: defaultPath, name: 'My Workspace' })
+    const displayName = resolveUserDisplayName()
+    // Seed workspace icon from the app mark when available (discovered via icon.png)
+    const appIconPath = [
+      join(__dirname, 'resources/icon.png'),
+      join(__dirname, '../resources/icon.png'),
+      join(process.resourcesPath ?? '', 'app/resources/icon.png'),
+      join(process.resourcesPath ?? '', 'icon.png'),
+    ].find((p) => p && existsSync(p))
+    if (appIconPath) {
+      try {
+        mkdirSync(defaultPath, { recursive: true })
+        copyFileSync(appIconPath, join(defaultPath, 'icon.png'))
+      } catch (err) {
+        mainLog.warn('Failed to seed default workspace icon', err)
+      }
+    }
+    addWorkspace({ rootPath: defaultPath, name: displayName })
     workspaces = getWorkspaces() // Refresh after creation
-    mainLog.info('Created default workspace on first run')
+    mainLog.info(`Created default workspace on first run (name=${displayName})`)
   }
 
   const validWorkspaceIds = workspaces.map(ws => ws.id)

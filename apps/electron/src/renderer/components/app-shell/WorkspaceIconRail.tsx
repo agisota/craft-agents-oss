@@ -1,6 +1,17 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { Cloud, CloudOff, FolderPlus } from "lucide-react";
+import {
+	BookOpen,
+	Cloud,
+	CloudOff,
+	ExternalLink,
+	FolderPlus,
+	Link2,
+	Plus,
+	StickyNote,
+	Trash2,
+	X,
+} from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
@@ -13,6 +24,18 @@ import { WorkspaceCreationScreen } from "@/components/workspace";
 import { waitForTransportConnected } from "@/lib/transport-wait";
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState";
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon";
+import {
+	TRAFFIC_LIGHT_SAFE_TOP,
+	WORKSPACE_ICON_RAIL_WIDTH,
+} from "@/components/app-shell/workspace-rail";
+import {
+	createRailLink,
+	loadRailLinks,
+	saveRailLinks,
+	type RailLink,
+	type RailLinkKind,
+} from "@/lib/rail-links";
+import { navigate, routes } from "@/lib/navigate";
 import type { Workspace } from "../../../shared/types";
 
 interface WorkspaceIconRailProps {
@@ -33,6 +56,7 @@ interface WorkspaceIconRailProps {
  *
  * Renders one icon per workspace on the far left of the app, with a tooltip
  * for the workspace name and a selected background for the active workspace.
+ * Below workspaces: user-configurable custom nav links (knowledge / notes / URL).
  */
 export function WorkspaceIconRail({
 	workspaces,
@@ -55,6 +79,27 @@ export function WorkspaceIconRail({
 		Map<string, "ok" | "error" | "checking">
 	>(new Map());
 	const healthCheckAbort = React.useRef<AbortController | null>(null);
+
+	const [railLinks, setRailLinks] = React.useState<RailLink[]>(() =>
+		loadRailLinks(activeWorkspaceId),
+	);
+	const [showAddLink, setShowAddLink] = React.useState(false);
+	const [draftLabel, setDraftLabel] = React.useState("");
+	const [draftKind, setDraftKind] = React.useState<RailLinkKind>("knowledge");
+	const [draftTarget, setDraftTarget] = React.useState("");
+
+	React.useEffect(() => {
+		setRailLinks(loadRailLinks(activeWorkspaceId));
+		setShowAddLink(false);
+	}, [activeWorkspaceId]);
+
+	const persistLinks = React.useCallback(
+		(next: RailLink[]) => {
+			setRailLinks(next);
+			if (activeWorkspaceId) saveRailLinks(activeWorkspaceId, next);
+		},
+		[activeWorkspaceId],
+	);
 
 	const isRemoteDisconnected = React.useCallback(
 		(workspaceId: string) => {
@@ -201,6 +246,73 @@ export function WorkspaceIconRail({
 		],
 	);
 
+	const handleRailLinkClick = React.useCallback(
+		(link: RailLink) => {
+			if (link.kind === "knowledge") {
+				navigate(routes.view.knowledge());
+				return;
+			}
+			if (link.kind === "notes") {
+				// Optional folder path can be a note id; otherwise open notes root
+				const noteId = link.target?.trim();
+				navigate(noteId ? routes.view.notes(noteId) : routes.view.notes());
+				return;
+			}
+			const url = link.target?.trim();
+			if (!url) {
+				toast.error(t("workspaceRail.linkMissingUrl"));
+				return;
+			}
+			const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+			void window.electronAPI.openUrl(href);
+		},
+		[t],
+	);
+
+	const handleAddLink = React.useCallback(() => {
+		if (!activeWorkspaceId) return;
+		const label = draftLabel.trim();
+		if (!label) {
+			toast.error(t("workspaceRail.linkLabelRequired"));
+			return;
+		}
+		if (draftKind === "external" && !draftTarget.trim()) {
+			toast.error(t("workspaceRail.linkMissingUrl"));
+			return;
+		}
+		const link = createRailLink({
+			label,
+			kind: draftKind,
+			target: draftTarget.trim() || undefined,
+		});
+		persistLinks([...railLinks, link]);
+		setDraftLabel("");
+		setDraftTarget("");
+		setDraftKind("knowledge");
+		setShowAddLink(false);
+	}, [
+		activeWorkspaceId,
+		draftKind,
+		draftLabel,
+		draftTarget,
+		persistLinks,
+		railLinks,
+		t,
+	]);
+
+	const handleRemoveLink = React.useCallback(
+		(id: string) => {
+			persistLinks(railLinks.filter((l) => l.id !== id));
+		},
+		[persistLinks, railLinks],
+	);
+
+	const linkIcon = (kind: RailLinkKind) => {
+		if (kind === "knowledge") return BookOpen;
+		if (kind === "notes") return StickyNote;
+		return ExternalLink;
+	};
+
 	return (
 		<>
 			<AnimatePresence>
@@ -216,13 +328,17 @@ export function WorkspaceIconRail({
 
 			<aside
 				className={cn(
-					"h-full w-[58px] shrink-0 border-r border-border/40 bg-background/40 titlebar-no-drag",
+					"h-full shrink-0 border-r border-border/40 bg-background/40 titlebar-no-drag",
 					"flex flex-col items-center overflow-y-auto overflow-x-hidden px-2 pb-2",
 					className,
 				)}
+				style={{ width: WORKSPACE_ICON_RAIL_WIDTH }}
 				aria-label={t("settings.appearance.workspaceIconRail")}
 			>
-				<div className="flex w-full flex-col items-center gap-2 pt-2">
+				<div
+					className="flex w-full flex-col items-center gap-2"
+					style={{ paddingTop: TRAFFIC_LIGHT_SAFE_TOP }}
+				>
 					{workspaces.map((workspace) => {
 						const selected = workspace.id === activeWorkspaceId;
 						const disconnected = isRemoteDisconnected(workspace.id);
@@ -292,6 +408,122 @@ export function WorkspaceIconRail({
 						);
 					})}
 				</div>
+
+				<div className="mt-1 h-px w-8 shrink-0 bg-border/60" />
+
+				{/* Custom rail links */}
+				{activeWorkspaceId && (
+					<div className="mt-1 flex w-full flex-col items-center gap-1.5">
+						{railLinks.map((link) => {
+							const Icon = linkIcon(link.kind);
+							return (
+								<Tooltip key={link.id}>
+									<TooltipTrigger asChild>
+										<div className="group relative">
+											<button
+												type="button"
+												aria-label={link.label}
+												onClick={() => handleRailLinkClick(link)}
+												className="flex h-10 w-10 items-center justify-center rounded-[12px] text-muted-foreground transition-colors duration-150 hover:bg-foreground/7 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+											>
+												<Icon className="h-4.5 w-4.5 h-[18px] w-[18px]" />
+											</button>
+											<button
+												type="button"
+												aria-label={t("workspaceRail.removeLink")}
+												onClick={(e) => {
+													e.stopPropagation();
+													handleRemoveLink(link.id);
+												}}
+												className="absolute -right-0.5 -top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-background text-muted-foreground shadow-minimal ring-1 ring-border/60 group-hover:flex hover:text-destructive"
+											>
+												<Trash2 className="h-2.5 w-2.5" />
+											</button>
+										</div>
+									</TooltipTrigger>
+									<TooltipContent side="right" sideOffset={8}>
+										{link.label}
+									</TooltipContent>
+								</Tooltip>
+							);
+						})}
+
+						{showAddLink ? (
+							<div className="w-full rounded-xl border border-border/50 bg-background/90 p-2 shadow-minimal">
+								<div className="mb-1.5 flex items-center justify-between gap-1">
+									<span className="text-[10px] font-medium text-muted-foreground">
+										{t("workspaceRail.addLink")}
+									</span>
+									<button
+										type="button"
+										onClick={() => setShowAddLink(false)}
+										className="rounded p-0.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+										aria-label={t("common.cancel")}
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+								<input
+									value={draftLabel}
+									onChange={(e) => setDraftLabel(e.target.value)}
+									placeholder={t("workspaceRail.linkLabelPlaceholder")}
+									className="mb-1.5 w-full rounded-md border border-border/50 bg-background px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
+								/>
+								<select
+									value={draftKind}
+									onChange={(e) =>
+										setDraftKind(e.target.value as RailLinkKind)
+									}
+									className="mb-1.5 w-full rounded-md border border-border/50 bg-background px-1.5 py-1 text-[11px] outline-none"
+								>
+									<option value="knowledge">
+										{t("workspaceRail.kindKnowledge")}
+									</option>
+									<option value="notes">{t("workspaceRail.kindNotes")}</option>
+									<option value="external">
+										{t("workspaceRail.kindExternal")}
+									</option>
+								</select>
+								{(draftKind === "external" || draftKind === "notes") && (
+									<input
+										value={draftTarget}
+										onChange={(e) => setDraftTarget(e.target.value)}
+										placeholder={
+											draftKind === "external"
+												? t("workspaceRail.linkUrlPlaceholder")
+												: t("workspaceRail.notesPathPlaceholder")
+										}
+										className="mb-1.5 w-full rounded-md border border-border/50 bg-background px-1.5 py-1 text-[11px] outline-none focus:border-accent/50"
+									/>
+								)}
+								<button
+									type="button"
+									onClick={handleAddLink}
+									className="flex w-full items-center justify-center gap-1 rounded-md bg-accent/15 px-1.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/25"
+								>
+									<Link2 className="h-3 w-3" />
+									{t("common.save")}
+								</button>
+							</div>
+						) : (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										type="button"
+										aria-label={t("workspaceRail.addLink")}
+										onClick={() => setShowAddLink(true)}
+										className="flex h-10 w-10 items-center justify-center rounded-[12px] text-muted-foreground transition-colors duration-150 hover:bg-foreground/7 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									>
+										<Plus className="h-4 w-4" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent side="right" sideOffset={8}>
+									{t("workspaceRail.addLink")}
+								</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
+				)}
 
 				<div className="mt-1 h-px w-8 shrink-0 bg-border/60" />
 

@@ -21,7 +21,6 @@ import {
   Inbox,
   Globe,
   FolderOpen,
-  Cake,
   Calendar,
   Layers,
   Clock,
@@ -43,7 +42,8 @@ import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { resolveInheritedFilterParams, type FilterMode } from "./inherited-filter-params"
 import { HeaderMenu } from "@/components/ui/HeaderMenu"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay } from "@craft-agent/ui"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@craft-agent/ui"
+import { WhatsNewTimeline, parseCombinedReleaseNotes, type WhatsNewNote } from "./WhatsNewTimeline"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -76,6 +76,14 @@ import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
+import { ProfileStrip, type ProfileStripData } from "./ProfileStrip"
+import {
+  clearStatusUnseen,
+  getUnseenStatuses,
+  subscribeUnseenStatuses,
+  type UnseenStatusMap,
+} from '@/lib/sidebar-unseen-status'
+
 import { APP_NAV_DESTINATIONS_BY_ID } from "./nav-destinations"
 import {
   UnifiedShellLayout,
@@ -613,17 +621,86 @@ function AppShellContent({
 
   const effectiveSidebarAndNavigatorHidden = isSidebarAndNavigatorHidden || isAutoCompact
 
-  // What's New overlay
+  // What's New timeline
   const [showWhatsNew, setShowWhatsNew] = React.useState(false)
-  const [releaseNotesContent, setReleaseNotesContent] = React.useState('')
+  const [whatsNewNotes, setWhatsNewNotes] = React.useState<WhatsNewNote[]>([])
   const [hasUnseenReleaseNotes, setHasUnseenReleaseNotes] = React.useState(false)
+
+  // Profile strip (gamification footer)
+  const [profileStrip, setProfileStrip] = React.useState<ProfileStripData>({
+    displayName: 'User',
+    level: 1,
+    xp: 0,
+    progress: 0,
+    xpIntoLevel: 0,
+    xpForNext: 100,
+    nextThreshold: 100,
+    balance: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    const applyProfile = async () => {
+      try {
+        const [prefsResult, gamification] = await Promise.all([
+          window.electronAPI.readPreferences(),
+          window.electronAPI.getGamificationProfile(),
+        ])
+        if (cancelled) return
+        let displayName = ''
+        try {
+          const prefs = JSON.parse(prefsResult.content || '{}') as { name?: string }
+          if (typeof prefs.name === 'string' && prefs.name.trim()) {
+            displayName = prefs.name.trim()
+          }
+        } catch {
+          // ignore bad prefs JSON
+        }
+        if (!displayName) displayName = t('profile.defaultName')
+        setProfileStrip({
+          displayName,
+          level: gamification.level,
+          xp: gamification.xp,
+          progress: gamification.progress,
+          xpIntoLevel: gamification.xpIntoLevel,
+          xpForNext: gamification.xpForNext,
+          nextThreshold: gamification.nextThreshold,
+          balance: gamification.balance,
+        })
+      } catch (err) {
+        console.error('Failed to load profile strip:', err)
+      }
+    }
+
+    void applyProfile()
+    const off = window.electronAPI.onGamificationChanged((payload) => {
+      setProfileStrip((prev) => ({
+        ...prev,
+        level: payload.level,
+        xp: payload.xp,
+        progress: payload.progress,
+        xpIntoLevel: payload.xpIntoLevel,
+        xpForNext: payload.xpForNext,
+        nextThreshold: payload.nextThreshold,
+        balance: payload.balance,
+      }))
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [t])
+
 
   // Check for unseen release notes on mount
   useEffect(() => {
     window.electronAPI.getLatestReleaseVersion().then((latestVersion) => {
       if (!latestVersion) return
       const lastSeen = storage.get(storage.KEYS.whatsNewLastSeenVersion, '')
-      setHasUnseenReleaseNotes(lastSeen !== latestVersion)
+      const seenVersions = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
+      const seenSet = new Set(Array.isArray(seenVersions) ? seenVersions : [])
+      setHasUnseenReleaseNotes(lastSeen !== latestVersion && !seenSet.has(latestVersion))
     })
   }, [])
 
@@ -1572,6 +1649,18 @@ function AppShellContent({
     return counts
   }, [activeSessionMetas, effectiveSessionStatuses])
 
+  // Per-status unseen accent dots (localStorage map, multi-window via storage event).
+  const [unseenStatuses, setUnseenStatusesState] = useState<UnseenStatusMap>({})
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setUnseenStatusesState({})
+      return
+    }
+    setUnseenStatusesState(getUnseenStatuses(activeWorkspaceId))
+    return subscribeUnseenStatuses(activeWorkspaceId, setUnseenStatusesState)
+  }, [activeWorkspaceId])
+
+
   // Count sources by type for the Sources dropdown subcategories
   const sourceTypeCounts = useMemo(() => {
     const counts = { api: 0, mcp: 0, local: 0 }
@@ -1759,6 +1848,8 @@ function AppShellContent({
     activeSessionWorkingDirectory,
     labels: displayLabelConfigs,
     onSessionLabelsChange: handleSessionLabelsChange,
+    projects: projectMenuOptions,
+    onSetProjectId: handleSessionProjectChange,
     enabledModes,
     sessionStatuses: effectiveSessionStatuses,
     onSessionSourcesChange: handleSessionSourcesChange,
@@ -1777,8 +1868,7 @@ function AppShellContent({
     automationTestResults,
     getAutomationHistory,
     onReplayAutomation: handleReplayAutomation,
-  }), [contextValue, registerCompactHeader, unregisterCompactHeader, compactHeaderRenderer, isAutoCompact, navState, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
-
+  }), [contextValue, registerCompactHeader, unregisterCompactHeader, compactHeaderRenderer, isAutoCompact, navState, handleDeleteSession, sources, skills, activeSessionWorkingDirectory, displayLabelConfigs, handleSessionLabelsChange, projectMenuOptions, handleSessionProjectChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, handleJumpToTaskSessions, searchActive, searchQuery, handleChatMatchInfoChange, handleTestAutomation, handleToggleAutomation, handleDuplicateAutomation, handleDeleteAutomation, automationTestResults, getAutomationHistory, handleReplayAutomation])
   // Persist expanded folders to localStorage (workspace-scoped)
   React.useEffect(() => {
     if (!activeWorkspaceId) return
@@ -1837,8 +1927,9 @@ function AppShellContent({
 
   // Handler for individual todo state views
   const handleSessionStatusClick = useCallback((stateId: SessionStatusId) => {
+    if (activeWorkspaceId) clearStatusUnseen(activeWorkspaceId, stateId)
     navigate(routes.view.state(stateId))
-  }, [])
+  }, [activeWorkspaceId])
 
   // Handler for label filter views (hierarchical — includes descendant labels)
   const handleLabelClick = useCallback((labelId: string) => {
@@ -1923,16 +2014,18 @@ function AppShellContent({
     navigate(routes.view.settings(subpage))
   }, [])
 
-  // Handler for What's New overlay
+  // Handler for What's New timeline
   const handleWhatsNewClick = useCallback(async () => {
     const content = await window.electronAPI.getReleaseNotes()
-    setReleaseNotesContent(content)
+    setWhatsNewNotes(parseCombinedReleaseNotes(content ?? ''))
     setShowWhatsNew(true)
     setHasUnseenReleaseNotes(false)
-    // Update last seen version
     const latestVersion = await window.electronAPI.getLatestReleaseVersion()
     if (latestVersion) {
       storage.set(storage.KEYS.whatsNewLastSeenVersion, latestVersion)
+      const prev = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
+      const next = Array.from(new Set([...(Array.isArray(prev) ? prev : []), latestVersion]))
+      storage.set(storage.KEYS.whatsNewSeenVersions, next)
     }
   }, [])
 
@@ -2202,18 +2295,18 @@ function AppShellContent({
     }
     flattenTree(labelTree)
 
-    // 3. Knowledge, Sources, Skills, Settings
-    result.push({ id: 'nav:knowledge', type: 'nav', action: handleKnowledgeClick })
+    // 3. Destinations (matches APP_NAV_DESTINATIONS / sidebar order)
+    result.push({ id: 'nav:projects', type: 'nav', action: handleProjectsClick })
+    result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
-    result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
     result.push({ id: 'nav:notes', type: 'nav', action: handleNotesClick })
+    result.push({ id: 'nav:knowledge', type: 'nav', action: handleKnowledgeClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
-    result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleKnowledgeClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleAutomationsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleKnowledgeClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleProjectsClick, handleAutomationsClick, handleSettingsClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -2466,6 +2559,8 @@ function AppShellContent({
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
+          onWhatsNew={handleWhatsNewClick}
+          hasUnseenWhatsNew={hasUnseenReleaseNotes}
           compactHeaderRenderer={compactHeaderRenderer}
           isCompactChatMode={isAutoCompact && isSessionsNavigation(navState) && !!navState.details}
           isCompactSettingsMode={isWebUI && isAutoCompact && isSettingsNavigation(navState)}
@@ -2532,7 +2627,7 @@ function AppShellContent({
                     <TooltipContent side="right">{newChatHotkey}</TooltipContent>
                   </Tooltip>
                 </div>
-                {/* Primary Nav: All Sessions (▸ Statuses, Flagged, Archived), Labels | Sources, Skills | Settings */}
+                {/* Primary Nav: Sessions → Labels → Projects | Memory…Knowledge | Automations → Settings */}
                 {/* pb-4 provides clearance so the last item scrolls above the mask-fade-bottom gradient */}
                 <div className="flex-1 overflow-y-auto min-h-0 mask-fade-bottom pb-4">
                 <LeftSidebar
@@ -2583,6 +2678,8 @@ function AppShellContent({
                           iconColorable: state.iconColorable,
                           variant: (sessionFilter?.kind === 'state' && sessionFilter.stateId === state.id ? "default" : "ghost") as "default" | "ghost",
                           onClick: () => handleSessionStatusClick(state.id),
+                          // Accent dot when a session landed in this bucket since last open.
+                          hasUnseen: !!unseenStatuses[state.id],
                           contextMenu: {
                             type: 'status' as const,
                             statusId: state.id,
@@ -2630,17 +2727,42 @@ function AppShellContent({
                       },
                       items: buildLabelSidebarItems(labelTree),
                     },
-                    // --- Separator ---
-                    { id: "separator:chats-sources", type: "separator" },
-                    // --- Knowledge (W2 native mode; flag-off state renders in the surface) ---
+                    // --- Projects (after session chrome) ---
                     {
-                      id: "nav:knowledge",
-                      title: t(APP_NAV_DESTINATIONS_BY_ID.knowledge.labelKey),
-                      icon: APP_NAV_DESTINATIONS_BY_ID.knowledge.icon,
-                      variant: isKnowledgeNavigation(navState) ? "default" : "ghost",
-                      onClick: handleKnowledgeClick,
+                      id: "nav:projects",
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.projects.labelKey),
+                      label: String(projects.length),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.projects.icon,
+                      // Highlight only when on Projects view itself, not when a child is "active" (jumped-to filter)
+                      variant: isProjectsNavigation(navState) ? "default" : "ghost",
+                      onClick: handleProjectsClick,
+                      expandable: projects.length > 0,
+                      expanded: isExpanded('nav:projects'),
+                      onToggle: () => toggleExpanded('nav:projects'),
+                      contextMenu: {
+                        type: 'projects' as const,
+                        onAddProject: openAddProject,
+                      },
+                      items: projects.map(p => ({
+                        id: `nav:projects:${p.config.id}`,
+                        title: p.config.name,
+                        icon: FolderKanban,
+                        // Highlight when on allSessions view AND filter includes this project (the jump-to state)
+                        variant: (sessionFilter?.kind === 'allSessions' && projectFilter.get(p.config.id) === 'include') ? "default" as const : "ghost" as const,
+                        onClick: () => handleJumpToProjectSessions(p.config.id),
+                      })),
                     },
-                    // --- Sources & Skills Section ---
+                    // --- Separator after projects ---
+                    { id: "separator:projects-memory", type: "separator" },
+                    // --- Memory ---
+                    {
+                      id: "nav:memory",
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.memory.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.memory.icon,
+                      variant: isMemoryNavigation(navState) ? "default" : "ghost",
+                      onClick: handleMemoryClick,
+                    },
+                    // --- Sources ---
                     {
                       id: "nav:sources",
                       title: t(APP_NAV_DESTINATIONS_BY_ID.sources.labelKey),
@@ -2711,43 +2833,21 @@ function AppShellContent({
                       },
                     },
                     {
-                      id: "nav:memory",
-                      title: t(APP_NAV_DESTINATIONS_BY_ID.memory.labelKey),
-                      icon: APP_NAV_DESTINATIONS_BY_ID.memory.icon,
-                      variant: isMemoryNavigation(navState) ? "default" : "ghost",
-                      onClick: handleMemoryClick,
-                    },
-                    {
-                      id: "nav:projects",
-                      title: t(APP_NAV_DESTINATIONS_BY_ID.projects.labelKey),
-                      label: String(projects.length),
-                      icon: APP_NAV_DESTINATIONS_BY_ID.projects.icon,
-                      // Highlight only when on Projects view itself, not when a child is "active" (jumped-to filter)
-                      variant: isProjectsNavigation(navState) ? "default" : "ghost",
-                      onClick: handleProjectsClick,
-                      expandable: projects.length > 0,
-                      expanded: isExpanded('nav:projects'),
-                      onToggle: () => toggleExpanded('nav:projects'),
-                      contextMenu: {
-                        type: 'projects' as const,
-                        onAddProject: openAddProject,
-                      },
-                      items: projects.map(p => ({
-                        id: `nav:projects:${p.config.id}`,
-                        title: p.config.name,
-                        icon: FolderKanban,
-                        // Highlight when on allSessions view AND filter includes this project (the jump-to state)
-                        variant: (sessionFilter?.kind === 'allSessions' && projectFilter.get(p.config.id) === 'include') ? "default" as const : "ghost" as const,
-                        onClick: () => handleJumpToProjectSessions(p.config.id),
-                      })),
-                    },
-                    {
                       id: "nav:notes",
                       title: t(APP_NAV_DESTINATIONS_BY_ID.notes.labelKey),
                       icon: APP_NAV_DESTINATIONS_BY_ID.notes.icon,
                       variant: isNotesNavigation(navState) ? "default" : "ghost",
                       onClick: handleNotesClick,
                     },
+                    {
+                      id: "nav:knowledge",
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.knowledge.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.knowledge.icon,
+                      variant: isKnowledgeNavigation(navState) ? "default" : "ghost",
+                      onClick: handleKnowledgeClick,
+                    },
+                    // --- Separator before footer ---
+                    { id: "separator:knowledge-automations", type: "separator" },
                     {
                       id: "nav:automations",
                       title: t(APP_NAV_DESTINATIONS_BY_ID.automations.labelKey),
@@ -2792,9 +2892,7 @@ function AppShellContent({
                         },
                       ],
                     },
-                    // --- Separator ---
-                    { id: "separator:skills-settings", type: "separator" },
-                    // --- Settings ---
+                    // --- Settings (What's New moved to TopBar) ---
                     {
                       id: "nav:settings",
                       title: t(APP_NAV_DESTINATIONS_BY_ID.settings.labelKey),
@@ -2802,23 +2900,17 @@ function AppShellContent({
                       variant: isSettingsNavigation(navState) ? "default" : "ghost",
                       onClick: () => handleSettingsClick(),
                     },
-                    // --- What's New ---
-                    {
-                      id: "nav:whats-new",
-                      title: t("sidebar.whatsNew"),
-                      icon: hasUnseenReleaseNotes ? (
-                        <span className="relative">
-                          <Cake className="h-3.5 w-3.5" />
-                          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
-                        </span>
-                      ) : Cake,
-                      variant: "ghost" as const,
-                      onClick: handleWhatsNewClick,
-                    },
                   ]}
                 />
                 {/* Agent Tree: Hierarchical list of agents */}
                 {/* Agents section removed */}
+                </div>
+                {/* Pinned profile strip — opens Settings */}
+                <div className="shrink-0 border-t border-foreground/5 px-1 py-1.5">
+                  <ProfileStrip
+                    data={profileStrip}
+                    onClick={() => handleSettingsClick()}
+                  />
                 </div>
               </div>
 
@@ -3699,9 +3791,12 @@ function AppShellContent({
                     }
                   }}
                   sessionOptions={sessionOptions}
-                  searchActive={searchActive}
+                  searchActive={searchActive || searchQuery.length > 0}
                   searchQuery={searchQuery}
-                  onSearchChange={setSearchQuery}
+                  onSearchChange={(q) => {
+                    setSearchQuery(q)
+                    if (q.length > 0) setSearchActive(true)
+                  }}
                   onSearchClose={() => {
                     setSearchActive(false)
                     setSearchQuery('')
@@ -3989,12 +4084,16 @@ function AppShellContent({
         </>
       )}
 
-      {/* What's New overlay */}
-      <DocumentFormattedMarkdownOverlay
+      {/* What's New timeline */}
+      <WhatsNewTimeline
         isOpen={showWhatsNew}
         onClose={() => setShowWhatsNew(false)}
-        content={releaseNotesContent}
+        notes={whatsNewNotes}
         onOpenUrl={(url) => window.electronAPI.openUrl(url)}
+        onSeenChange={(seen) => {
+          const latest = whatsNewNotes[0]?.version
+          if (latest && seen.includes(latest)) setHasUnseenReleaseNotes(false)
+        }}
       />
 
       {/* Delete automation confirmation dialog */}

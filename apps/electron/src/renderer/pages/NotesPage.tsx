@@ -1,5 +1,8 @@
 import * as React from 'react'
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Copy, ExternalLink, FileDown, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, Link2, Paperclip, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Copy, ExternalLink, FileDown, FilePlus2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, Link2, Paperclip, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { useAtomValue } from 'jotai'
+import { activeSessionIdAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { DndContext, useDraggable, useDroppable, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { TiptapMarkdownEditor, type TiptapEditorHandle } from '@craft-agent/ui'
 import type { FileAttachment, NoteAsset, NoteChangedPayload, NoteDocument, NoteRenameImpact, NoteSummary } from '../../shared/types'
@@ -494,7 +497,25 @@ function countFolderNotes(node: FolderTreeNode): number {
 }
 
 export default function NotesPage({ selectedNoteId }: NotesPageProps) {
-  const { activeWorkspaceId, onCreateSession, onOpenFile, onSendMessage } = useAppShellContext()
+  const { t } = useTranslation()
+  const {
+    activeWorkspaceId,
+    onCreateSession,
+    onOpenFile,
+    onSendMessage,
+    onInputChange,
+    getDraft,
+    labels = [],
+    sessionStatuses = [],
+    projects = [],
+  } = useAppShellContext()
+  const activeSessionId = useAtomValue(activeSessionIdAtom)
+  const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+  const activeProjectId = activeSessionId ? sessionMetaMap.get(activeSessionId)?.projectId : undefined
+  const activeProjectSlug = projects.find((p) => p.id === activeProjectId)?.slug
+  const [sideSessionId, setSideSessionId] = React.useState<string | null>(null)
+  const [sideSessionPrompt, setSideSessionPrompt] = React.useState('')
+  const [sideNoteChip, setSideNoteChip] = React.useState<{ title: string; path: string } | null>(null)
   const [notes, setNotes] = React.useState<NoteSummary[]>([])
   // Stable insertion order for sidebar — only updated on full refreshes, not optimistic saves
   const [sidebarOrder, setSidebarOrder] = React.useState<string[]>([])
@@ -859,7 +880,8 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
 
   const openCreateNoteDialog = (folder?: string) => {
     setCreateTitle('')
-    setCreateInFolder(folder)
+    const projectFolder = activeProjectSlug ? `projects/${activeProjectSlug}` : undefined
+    setCreateInFolder(folder ?? projectFolder)
     setCreateDialogOpen(true)
   }
 
@@ -930,7 +952,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     const saved = await window.electronAPI.saveNote(activeWorkspaceId, created.id, updateMarkdownTitle(document.content, title))
     await refreshNotes()
     navigate(routes.view.notes(saved.id))
-    toast.success('Note duplicated')
+    toast.success(t('notes.toast.duplicated'))
   }
 
   const openMoveDialog = (note: NoteSummary) => {
@@ -958,7 +980,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       setMoveFolderName('')
       await refreshNotes()
       navigate(routes.view.notes(saved.id))
-      toast.success('Note moved')
+      toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) {
         await window.electronAPI.deleteNote(activeWorkspaceId, created.id).catch(() => {})
@@ -978,7 +1000,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       await window.electronAPI.deleteNote(activeWorkspaceId, note.id)
       await refreshNotes()
       navigate(routes.view.notes(saved.id))
-      toast.success('Note moved')
+      toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) await window.electronAPI.deleteNote(activeWorkspaceId, created.id).catch(() => {})
       toast.error(error instanceof Error ? error.message : 'Failed to move note')
@@ -996,7 +1018,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
   }
 
   const copyNoteLink = async (note: NoteSummary) => {    await navigator.clipboard.writeText(`[[${note.title}]]`)
-    toast.success('Note link copied')
+    toast.success(t('notes.toast.linkCopied'))
   }
 
   const openRenameFolderDialog = (folder: string) => {
@@ -1013,7 +1035,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       setRenameFolderTarget('')
       setRenameFolderName('')
       await refreshNotes()
-      toast.success('Folder renamed')
+      toast.success(t('notes.toast.folderRenamed'))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to rename folder')
     }
@@ -1037,7 +1059,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
         navigate(routes.view.notes())
       }
       await refreshNotes()
-      toast.success(`Deleted folder and ${result.deletedNotes.length} note${result.deletedNotes.length === 1 ? '' : 's'}`)
+      toast.success(t('notes.toast.deletedFolder', { count: result.deletedNotes.length }))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete folder')
     }
@@ -1045,7 +1067,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
 
   const copyNotePath = async (note: NoteSummary) => {
     await navigator.clipboard.writeText(`notes/${note.relativePath}`)
-    toast.success('Markdown path copied')
+    toast.success(t('notes.toast.pathCopied'))
   }
 
   const revealNote = async (note: NoteSummary) => {
@@ -1079,7 +1101,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setRenameDialogOpen(false)
     await refreshNotes()
     navigate(routes.view.notes(result.note.id))
-    toast.success(`Updated ${result.updatedNotes.length} linked note${result.updatedNotes.length === 1 ? '' : 's'}`)
+    toast.success(t('notes.toast.updatedLinkedNotes', { count: result.updatedNotes.length }))
   }
 
   const handleDelete = async () => {
@@ -1254,36 +1276,66 @@ h1,h2,h3{margin-top:1.5em}
     navigate(routes.view.notes(created.id))
   }, [activeWorkspaceId, missingLinkTarget, refreshNotes])
 
-  const AI_PROMPTS: Record<AIActionMode, { sessionName: string; instruction: string }> = {
+  const AI_PROMPTS: Record<AIActionMode, { sessionNameKey: string; instructionKey: string }> = {
     'analyze': {
-      sessionName: 'Note: analyze',
-      instruction: 'Analyze this note and suggest concrete next actions.',
+      sessionNameKey: 'notes.ai.sessionAnalyze',
+      instructionKey: 'notes.ai.promptAnalyze',
     },
     'expand': {
-      sessionName: 'Note: expand',
-      instruction: 'Expand and enrich this note with additional context, examples, and detail. Write the expanded version as markdown.',
+      sessionNameKey: 'notes.ai.sessionExpand',
+      instructionKey: 'notes.ai.promptExpand',
     },
     'summarize': {
-      sessionName: 'Note: summarize',
-      instruction: 'Write a concise 3–5 sentence summary of this note, then list key takeaways as bullet points.',
+      sessionNameKey: 'notes.ai.sessionSummarize',
+      instructionKey: 'notes.ai.promptSummarize',
     },
     'extract-tasks': {
-      sessionName: 'Note: tasks',
-      instruction: 'Extract all implied and explicit action items from this note. Format as a markdown task list `- [ ] task`.',
+      sessionNameKey: 'notes.ai.sessionExtractTasks',
+      instructionKey: 'notes.ai.promptExtractTasks',
     },
   }
 
-  const handleAskAgent = async (mode: AIActionMode = 'analyze') => {
+  const presetTagVocabulary = React.useMemo(() => {
+    const tags = new Set<string>()
+    const walk = (nodes: typeof labels) => {
+      for (const node of nodes) {
+        if (node.name?.trim()) tags.add(node.name.trim())
+        if (node.children?.length) walk(node.children)
+      }
+    }
+    walk(labels)
+    for (const status of sessionStatuses) {
+      if (status.label?.trim()) tags.add(status.label.trim())
+    }
+    // Stable product vocabulary extras (sidebar states)
+    for (const key of ['sidebar.flagged', 'sidebar.archived', 'kanban.column.backlog', 'kanban.column.todo', 'kanban.column.inProgress', 'kanban.column.needsReview', 'kanban.column.done'] as const) {
+      const label = t(key)
+      if (label && label !== key) tags.add(label)
+    }
+    return Array.from(tags).sort((a, b) => a.localeCompare(b))
+  }, [labels, sessionStatuses, t])
+
+  const handleAskAgent = async (mode: AIActionMode = 'extract-tasks') => {
     if (!activeWorkspaceId || !activeNote) return
     if (!await flushBeforeAction()) return
-    const { sessionName, instruction } = AI_PROMPTS[mode]
-    const session = await onCreateSession(activeWorkspaceId, { name: `${sessionName}: ${activeNote.title}` })
+    const { sessionNameKey, instructionKey } = AI_PROMPTS[mode]
+    const sessionName = `${t(sessionNameKey)}: ${activeNote.title}`
+    const instruction = t(instructionKey)
+    const session = await onCreateSession(activeWorkspaceId, { name: sessionName })
     const prompt = [
-      `Use this workspace note as context: ${activeNote.title}`,
-      `Path: notes/${activeNote.relativePath}`,
-      `Tags: ${activeNote.tags.length ? activeNote.tags.map(tag => `#${tag}`).join(' ') : 'none'}`,
-      `Backlinks: ${activeNote.backlinks.length ? activeNote.backlinks.map(link => link.title).join(', ') : 'none'}`,
-      `Open tasks: ${activeNoteTasks.filter(task => !task.checked).length}`,
+      t('notes.ai.contextHeader', { title: activeNote.title }),
+      t('notes.ai.contextPath', { path: `notes/${activeNote.relativePath}` }),
+      t('notes.ai.contextTags', {
+        tags: activeNote.tags.length ? activeNote.tags.map(tag => `#${tag}`).join(' ') : t('notes.inspector.none'),
+      }),
+      t('notes.ai.contextBacklinks', {
+        links: activeNote.backlinks.length
+          ? activeNote.backlinks.map(link => link.title).join(', ')
+          : t('notes.inspector.none'),
+      }),
+      t('notes.ai.contextOpenTasks', {
+        count: activeNoteTasks.filter(task => !task.checked).length,
+      }),
       '',
       '```markdown',
       content,
@@ -1291,9 +1343,27 @@ h1,h2,h3{margin-top:1.5em}
       '',
       instruction,
     ].join('\n')
-    onSendMessage(session.id, prompt)
-    navigate(routes.view.allSessions(session.id))
+    // Prefill only — do NOT auto-send. Keep note open; open side session panel.
+    onInputChange(session.id, prompt)
+    setSideSessionId(session.id)
+    setSideSessionPrompt(prompt)
+    setSideNoteChip({ title: activeNote.title, path: `notes/${activeNote.relativePath}` })
   }
+
+  const closeSideSession = React.useCallback(() => {
+    setSideSessionId(null)
+    setSideSessionPrompt('')
+    setSideNoteChip(null)
+  }, [])
+
+  const sendSideSession = React.useCallback(() => {
+    if (!sideSessionId) return
+    const draft = (getDraft(sideSessionId) || sideSessionPrompt).trim()
+    if (!draft) return
+    onSendMessage(sideSessionId, draft)
+    onInputChange(sideSessionId, '')
+    setSideSessionPrompt('')
+  }, [sideSessionId, sideSessionPrompt, getDraft, onSendMessage, onInputChange])
 
   const openAssetRenameDialog = (asset: NoteAsset) => {
     setAssetRenameTarget(asset)
@@ -1704,7 +1774,8 @@ h1,h2,h3{margin-top:1.5em}
                   if (note) { void handleOpenNote(note.id) }
                   else { setMissingLinkTarget(target) }
                 }}
-                placeholder="Write note..."
+                onTagClick={(tag) => setSelectedTag(selectedTag === tag ? null : tag)}
+                placeholder={t('notes.editor.placeholder')}
                 markdownEngine="legacy"
                 className="mx-auto w-full max-w-[720px] min-h-full"
               />
@@ -1718,6 +1789,51 @@ h1,h2,h3{margin-top:1.5em}
           )}
         </div>
       </main>
+
+      {sideSessionId && (
+        <aside className="w-[380px] shrink-0 border-l border-border/60 bg-muted/[0.10] flex flex-col min-h-0">
+          <div className="h-[42px] shrink-0 border-b border-border/60 px-3 flex items-center gap-2">
+            <div className="min-w-0 flex-1 truncate text-sm font-medium">{t('notes.sideSession.title')}</div>
+            <button
+              type="button"
+              className="h-7 w-7 rounded-[5px] hover:bg-foreground/[0.06] grid place-items-center text-muted-foreground"
+              onClick={closeSideSession}
+              title={t('notes.sideSession.close')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="px-3 pt-3 pb-2 shrink-0 space-y-2">
+            {sideNoteChip && (
+              <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px]">
+                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate font-medium">{sideNoteChip.title}</span>
+                <span className="truncate text-muted-foreground">{sideNoteChip.path}</span>
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">{t('notes.sideSession.hint')}</div>
+          </div>
+          <div className="flex-1 min-h-0 px-3 pb-3 flex flex-col gap-2">
+            <textarea
+              value={sideSessionPrompt}
+              onChange={(e) => {
+                setSideSessionPrompt(e.target.value)
+                if (sideSessionId) onInputChange(sideSessionId, e.target.value)
+              }}
+              className="min-h-0 flex-1 w-full resize-none rounded-[8px] border border-border/60 bg-background p-2.5 text-xs leading-relaxed outline-none focus:border-foreground/30"
+              placeholder={t('notes.sideSession.promptPlaceholder')}
+            />
+            <div className="flex items-center justify-end gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={closeSideSession}>
+                {t('notes.sideSession.cancel')}
+              </Button>
+              <Button size="sm" onClick={sendSideSession} disabled={!sideSessionPrompt.trim()}>
+                {t('notes.sideSession.send')}
+              </Button>
+            </div>
+          </div>
+        </aside>
+      )}
 
       <NoteInspector
         activeNote={activeNote}
@@ -1734,9 +1850,16 @@ h1,h2,h3{margin-top:1.5em}
         uncreatedLinks={uncreatedLinks}
         activeNoteTasks={activeNoteTasks}
         openTasks={openTasks}
+        presetTags={presetTagVocabulary}
         onTagDraftChange={setTagDraft}
         onApplyTags={applyTags}
         onTagClick={(tag) => setSelectedTag(selectedTag === tag ? null : tag)}
+        onAddTag={(tag) => {
+          if (!activeNote) return
+          const next = Array.from(new Set([...activeNote.tags, tag]))
+          setTagDraft(next.join(', '))
+          void updateProperty('tags', next)
+        }}
         onUpdateProperty={updateProperty}
         onNewPropertyKeyChange={setNewPropertyKey}
         onNewPropertyValueChange={setNewPropertyValue}
@@ -1745,7 +1868,11 @@ h1,h2,h3{margin-top:1.5em}
         onOpenFile={onOpenFile}
         onToggleTask={toggleTask}
         onOpenNote={handleOpenNote}
-        onMissingLink={setMissingLinkTarget}
+        onMissingLink={(target) => {
+          const note = findNoteByTarget(notes, target)
+          if (note) void handleOpenNote(note.id)
+          else setMissingLinkTarget(target)
+        }}
         collapsed={inspectorCollapsed}
         onToggleCollapsed={toggleInspector}
       />
