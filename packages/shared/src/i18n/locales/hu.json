@@ -775,6 +775,8 @@
   "knowledge.inspector.outline": "Vázlat",
   "knowledge.inspector.properties": "Tulajdonságok",
   "knowledge.inspector.title": "Vizsgáló",
+  "knowledge.legacyNotes.banner": "A Markdown jegyzetek örököltek — az elsődleges a Knowledge (SiYuan).",
+  "knowledge.legacyNotes.open": "Régi jegyzetek megnyitása",
   "knowledge.nav.daily": "Napi jegyzetek",
   "knowledge.nav.databases": "Adatbázisok",
   "knowledge.nav.favorites": "Kedvencek",

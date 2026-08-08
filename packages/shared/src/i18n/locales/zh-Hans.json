@@ -775,6 +775,8 @@
   "knowledge.inspector.outline": "大纲",
   "knowledge.inspector.properties": "属性",
   "knowledge.inspector.title": "检查器",
+  "knowledge.legacyNotes.banner": "Markdown 笔记为旧版 — 主入口为知识库（SiYuan）。",
+  "knowledge.legacyNotes.open": "打开旧笔记",
   "knowledge.nav.daily": "日记",
   "knowledge.nav.databases": "数据库",
   "knowledge.nav.favorites": "收藏",

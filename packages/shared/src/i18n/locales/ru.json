@@ -775,6 +775,8 @@
   "knowledge.inspector.outline": "Структура",
   "knowledge.inspector.properties": "Свойства",
   "knowledge.inspector.title": "Инспектор",
+  "knowledge.legacyNotes.banner": "Markdown-заметки устарели — основной рабочий стол: База знаний (SiYuan).",
+  "knowledge.legacyNotes.open": "Открыть старые заметки",
   "knowledge.nav.daily": "Дневник",
   "knowledge.nav.databases": "Базы данных",
   "knowledge.nav.favorites": "Избранное",
