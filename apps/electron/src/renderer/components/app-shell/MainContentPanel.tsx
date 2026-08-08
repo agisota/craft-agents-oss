@@ -51,6 +51,7 @@ import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import { AutomationInfoPage } from '../automations/AutomationInfoPage'
 import ProjectInfoPage from '@/pages/ProjectInfoPage'
 import { KanbanBoardContainer } from './kanban/KanbanBoardContainer'
+import { SessionTableHost } from './session-table/SessionTableHost'
 import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
@@ -510,6 +511,15 @@ export function MainContentPanel({
       return wrapWithStoplight(
         <Panel variant="grow" className={className}>
           <KanbanBoardContainer />
+        </Panel>
+      )
+    }
+
+    // Table view: full-width sessions table shell (B0 placeholder host)
+    if (navState.viewMode === 'table') {
+      return wrapWithStoplight(
+        <Panel variant="grow" className={className}>
+          <SessionTableHost />
         </Panel>
       )
     }

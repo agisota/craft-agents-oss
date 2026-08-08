@@ -22,6 +22,7 @@ import { registerNotesHandlers, cleanupNotesWatchForClient } from './notes'
 export { registerSessionsHandlers, cleanupSessionFileWatchForClient } from './sessions'
 export { cleanupNotesWatchForClient } from './notes'
 import { registerKnowledgeHandlers, cleanupKnowledgeWatchForClient } from './knowledge'
+import { registerMindmapHandlers } from './mindmap'
 import { registerServerHandlers } from './server'
 import type { ServerHandlerContext } from '../../bootstrap/headless-start'
 export type { ServerHandlerContext } from '../../bootstrap/headless-start'
@@ -30,7 +31,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerGamificationHandlers } from './gamification'
 import { registerProjectsHandlers } from './projects'
 import { registerKanbanHandlers } from './kanban'
-import { registerMindmapHandlers } from './mindmap'
+import { registerCollectionHandlers } from './collection'
 
 import { registerSkillsHandlers } from './skills'
 import { registerSourcesHandlers } from './sources'
@@ -90,6 +91,7 @@ export function registerCoreRpcHandlers(
   registerGamificationHandlers(server, deps)
   registerProjectsHandlers(server, deps)
   registerKanbanHandlers(server, deps)
+  registerCollectionHandlers(server, deps)
 
   registerSkillsHandlers(server, deps)
   registerSourcesHandlers(server, deps)

@@ -8,6 +8,7 @@ import type { LoadedSource } from '../sources/types'
 import type { LoadedSkill } from '../skills/types'
 import type { LoadedProject } from '../projects/types'
 import type { KanbanBoardConfig } from '../kanban/types'
+import type { CollectionDisplay } from '../sessions/collection-display-storage'
 
 import type { ToolStatus } from '../toolchain/types'
 import { RPC_CHANNELS } from './channels'
@@ -22,6 +23,7 @@ import type {
   KnowledgeChangedPayload,
   SiyuanSurfaceState,
   ExtensionSurfaceState,
+  SessionsBulkChangedEvent,
 } from './dto'
 import type { ExtensionsChangedPayload } from '../extensions/types'
 
@@ -45,6 +47,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.sessions.EVENT]: [event: SessionEvent]
   [RPC_CHANNELS.sessions.UNREAD_SUMMARY_CHANGED]: [summary: UnreadSummary]
   [RPC_CHANNELS.sessions.FILES_CHANGED]: [sessionId: string]
+  [RPC_CHANNELS.sessions.BULK_CHANGED]: [event: SessionsBulkChangedEvent]
 
   // Domain change broadcasts (global via broadcastToAll)
   [RPC_CHANNELS.sources.CHANGED]: [workspaceId: string, sources: LoadedSource[]]
@@ -58,6 +61,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.memory.CHANGED]: [workspaceId: string | null, scope: 'global' | 'workspace' | 'both']
   [RPC_CHANNELS.projects.CHANGED]: [workspaceId: string, projects: LoadedProject[]]
   [RPC_CHANNELS.kanban.CHANGED]: [workspaceId: string, config: KanbanBoardConfig]
+  [RPC_CHANNELS.collection.CHANGED]: [workspaceId: string, display: CollectionDisplay]
 
   [RPC_CHANNELS.tasks.GENERATED]: [workspaceId: string, result: TaskGenerateResult]
   [RPC_CHANNELS.notes.CHANGED]: [payload: NoteChangedPayload]

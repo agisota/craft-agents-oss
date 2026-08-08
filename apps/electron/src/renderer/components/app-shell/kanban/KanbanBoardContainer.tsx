@@ -7,6 +7,9 @@ import { useTranslation } from 'react-i18next'
 import type { KanbanBoardConfig, KanbanGroupBy } from '@craft-agent/shared/kanban'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
+import { collectionDisplayAtom } from '@/atoms/collection-display'
+import { collectionFiltersAtom } from '@/atoms/collection-filters'
+import { filterSessionMeta } from '@craft-agent/shared/sessions'
 import { projectsAtom } from '@/atoms/projects'
 import {
   kanbanProjectFilterAtom,
@@ -26,7 +29,7 @@ import type { SessionStatus } from '@/config/session-status-config'
 import { KanbanBoard, type KanbanMoveTarget } from './KanbanBoard'
 import { KANBAN_COLUMNS, statusToColumn } from './status-column'
 import { DEFAULT_KANBAN_COLUMN_COLORS } from './kanban-colors'
-import { BoardListToggle } from './BoardListToggle'
+import { CollectionViewChrome } from '../collection/CollectionViewChrome'
 import { KanbanProjectFilter, type KanbanProjectFilterOption } from './KanbanProjectFilter'
 import { TaskEditor } from './TaskEditor'
 import { mergeSubtaskRows, type SpecNodeSummary, type SubtaskChildRow } from './subtask-merge'
@@ -187,6 +190,8 @@ export function KanbanBoardContainer() {
 
   const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(() => new Set())
   const [editorTarget, setEditorTarget] = useAtom(kanbanEditorTargetAtom)
+  const collectionDisplay = useAtomValue(collectionDisplayAtom)
+  const collectionFilters = useAtomValue(collectionFiltersAtom)
 
   // Workspace board config (columns + groupBy).
   const [boardConfig, setBoardConfig] = React.useState<KanbanBoardConfig | null>(null)
@@ -395,9 +400,12 @@ export function KanbanBoardContainer() {
     }
 
     const result: KanbanTask[] = []
+    const now = Date.now()
     for (const meta of metaMap.values()) {
       if (meta.parentSessionId) continue
       if (meta.isArchived || meta.hidden || meta.taskDraft) continue
+      // B6: honor workspace collection filters (Display.showCompleted EC-5 respects explicit status chips).
+      if (!filterSessionMeta(meta, collectionFilters, collectionDisplay.showCompleted, now)) continue
       const statusId = meta.sessionStatus ?? 'todo'
       const column = meta.kanbanColumn ?? statusToColumn(statusId)
       const children: SubtaskChildRow[] = (childrenByParent.get(meta.id) ?? []).map(child => ({
@@ -537,6 +545,18 @@ export function KanbanBoardContainer() {
         void window.electronAPI.sessionCommand(taskId, {
           type: 'setProjectId',
           projectId: nextProjectId,
+        })
+      }
+
+      // B5: re-rank within destination column when Display orderBy === 'rank'.
+      if (collectionDisplay.orderBy === 'rank') {
+        const destSiblings = visibleTasks
+          .filter((t) => t.column === toColumn)
+          .filter((t) => t.id !== taskId)
+        const last = destSiblings[destSiblings.length - 1]
+        void window.electronAPI.sessionCommand(taskId, {
+          type: 'reorderRank',
+          prevId: last?.id,
         })
       }
 
@@ -895,11 +915,14 @@ export function KanbanBoardContainer() {
           >
             <Plus className="h-3.5 w-3.5" strokeWidth={2.5} /> {t('kanban.newTask')}
           </button>
-          <BoardListToggle
-            value="board"
-            onChange={view => {
+          <CollectionViewChrome
+            workspaceId={activeWorkspaceId}
+            viewMode="board"
+            onViewModeChange={view => {
               if (view === 'list') navigate(routes.view.allSessions())
+              else if (view === 'table') navigate(routes.view.table())
             }}
+            compact
           />
         </div>
       </div>

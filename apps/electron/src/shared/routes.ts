@@ -213,6 +213,9 @@ export const routes = {
     /** Kanban board view (sessions navigator, board view mode, all sessions) */
     board: () => 'board' as const,
 
+    /** Dense table collection view (sessions navigator, table view mode, all sessions) */
+    table: () => 'table' as const,
+
     // ----------------------------------------------------------------
     // Unified shell surface routes (W1 scaffolding, spec S-02 §3.5/§3.6).
     // These parse back through route-parser; rendering degrades to the
