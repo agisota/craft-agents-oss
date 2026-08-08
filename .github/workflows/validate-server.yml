@@ -18,7 +18,8 @@ concurrency:
 
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
+    # GitHub-hosted runners not provisioned on this repo's plan — use self-hosted.
+    runs-on: [self-hosted, linux-toolchain]
     timeout-minutes: 45
     strategy:
       matrix:
