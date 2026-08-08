@@ -105,5 +105,6 @@ export function registerCoreRpcHandlers(
   registerSkillsPendingHandlers(server, deps)
   registerNotesHandlers(server, deps)
   registerKnowledgeHandlers(server, deps)
+  registerMindmapHandlers(server, deps)
   if (options?.browserPane !== false) registerBrowserPaneHandlers(server, deps)
 }

@@ -72,3 +72,14 @@ export {
   type PinReadIO,
   type PinWriteIO,
 } from './pin.ts';
+
+export {
+  applyEnrichedOutline,
+  buildEnrichPrompt,
+  heuristicEnrichOutline,
+  parseEnrichedOutlineJson,
+  parseEnrichmentJson,
+  type EnrichedOutlineNode,
+  type EnrichMindMapInput,
+  type EnrichMindMapResult,
+} from './enrich.ts';
