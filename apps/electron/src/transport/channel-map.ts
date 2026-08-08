@@ -617,6 +617,9 @@ export const CHANNEL_MAP = {
   // Kanban board config
   getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
   enrichMindMap: invoke(RPC_CHANNELS.mindmap.ENRICH),
+  mindmapPinLoad: invoke(RPC_CHANNELS.mindmap.PIN_LOAD),
+  mindmapPinSave: invoke(RPC_CHANNELS.mindmap.PIN_SAVE),
+  mindmapPinClear: invoke(RPC_CHANNELS.mindmap.PIN_CLEAR),
   setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
   onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
 
