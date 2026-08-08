@@ -952,7 +952,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     const saved = await window.electronAPI.saveNote(activeWorkspaceId, created.id, updateMarkdownTitle(document.content, title))
     await refreshNotes()
     navigate(routes.view.notes(saved.id))
-    toast.success('Note duplicated')
+    toast.success(t('notes.toast.duplicated'))
   }
 
   const openMoveDialog = (note: NoteSummary) => {
@@ -980,7 +980,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       setMoveFolderName('')
       await refreshNotes()
       navigate(routes.view.notes(saved.id))
-      toast.success('Note moved')
+      toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) {
         await window.electronAPI.deleteNote(activeWorkspaceId, created.id).catch(() => {})
@@ -1000,7 +1000,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       await window.electronAPI.deleteNote(activeWorkspaceId, note.id)
       await refreshNotes()
       navigate(routes.view.notes(saved.id))
-      toast.success('Note moved')
+      toast.success(t('notes.toast.moved'))
     } catch (error) {
       if (created) await window.electronAPI.deleteNote(activeWorkspaceId, created.id).catch(() => {})
       toast.error(error instanceof Error ? error.message : 'Failed to move note')
@@ -1018,7 +1018,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
   }
 
   const copyNoteLink = async (note: NoteSummary) => {    await navigator.clipboard.writeText(`[[${note.title}]]`)
-    toast.success('Note link copied')
+    toast.success(t('notes.toast.linkCopied'))
   }
 
   const openRenameFolderDialog = (folder: string) => {
@@ -1035,7 +1035,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
       setRenameFolderTarget('')
       setRenameFolderName('')
       await refreshNotes()
-      toast.success('Folder renamed')
+      toast.success(t('notes.toast.folderRenamed'))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to rename folder')
     }
@@ -1059,7 +1059,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
         navigate(routes.view.notes())
       }
       await refreshNotes()
-      toast.success(`Deleted folder and ${result.deletedNotes.length} note${result.deletedNotes.length === 1 ? '' : 's'}`)
+      toast.success(t('notes.toast.deletedFolder', { count: result.deletedNotes.length }))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete folder')
     }
@@ -1067,7 +1067,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
 
   const copyNotePath = async (note: NoteSummary) => {
     await navigator.clipboard.writeText(`notes/${note.relativePath}`)
-    toast.success('Markdown path copied')
+    toast.success(t('notes.toast.pathCopied'))
   }
 
   const revealNote = async (note: NoteSummary) => {
@@ -1101,7 +1101,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     setRenameDialogOpen(false)
     await refreshNotes()
     navigate(routes.view.notes(result.note.id))
-    toast.success(`Updated ${result.updatedNotes.length} linked note${result.updatedNotes.length === 1 ? '' : 's'}`)
+    toast.success(t('notes.toast.updatedLinkedNotes', { count: result.updatedNotes.length }))
   }
 
   const handleDelete = async () => {
