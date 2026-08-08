@@ -88,6 +88,7 @@ import {
 import { getFileManagerName } from '@/lib/platform'
 import { rendererLog } from '@/lib/logger'
 import { ActionRegistryProvider } from '@/actions'
+import { OmniboxHost } from '@/platform/OmniboxHost'
 import { toast } from 'sonner'
 
 type AppState = 'loading' | 'onboarding' | 'reauth' | 'workspace-picker' | 'ready'
@@ -2125,6 +2126,10 @@ export default function App() {
         >
           {/* Handle window close requests (X button, Cmd+W) - close modal first if open */}
           <WindowCloseHandler />
+
+          {/* W3 Omnibox — unified ⌘K palette (S-04). Residual: embedded SiYuan
+              webContents ⌘K bridge is a follow-up; renderer hotkey is exit-complete. */}
+          <OmniboxHost />
 
           {/* Splash screen overlay - fades out when fully ready */}
           {showSplash && (

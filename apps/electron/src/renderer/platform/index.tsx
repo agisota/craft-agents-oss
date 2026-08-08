@@ -20,6 +20,9 @@ import { SurfaceTabs } from './SurfaceTabs'
 export { ActivityRail, ACTIVITY_RAIL_WIDTH, ACTIVITY_RAIL_COLLAPSED_WIDTH } from './ActivityRail'
 export { SurfaceTabs } from './SurfaceTabs'
 export { InspectorHost } from './InspectorHost'
+export { Omnibox } from './Omnibox'
+export { OmniboxHost } from './OmniboxHost'
+export { parsePrefix, scoreMatch } from './omnibox-helpers'
 
 export function UnifiedShellLayout({ children }: { children: ReactNode }) {
   const enabled = useAtomValue(featureUnifiedShellAtom)
