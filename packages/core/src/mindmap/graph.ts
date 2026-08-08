@@ -2,7 +2,6 @@ import { hashMindMapSource } from './hash.ts';
 import type {
   MindMapDerivation,
   MindMapEdge,
-  MindMapEdgeKind,
   MindMapEntityRef,
   MindMapGraph,
   MindMapNode,
@@ -12,40 +11,16 @@ import type {
 } from './types.ts';
 import { MIND_MAP_ROOT_ID } from './types.ts';
 
-export interface CreateNodeInput {
+/** Partial node passed to addChild — children are always assigned by the helper. */
+export type MindMapChildInput = {
   id: MindMapNodeId;
   label: string;
   kind: MindMapNodeKind;
-  level: number;
-  source?: MindMapNodeSource;
   meta?: Record<string, string | number | boolean>;
-}
-
-/** Mutable builder used during derive; call finalizeGraph before returning. */
-export interface MindMapGraphBuilder {
-  entity: MindMapEntityRef;
-  rootId: MindMapNodeId;
-  nodes: Record<MindMapNodeId, MindMapNode>;
-  edges: MindMapEdge[];
-  hashParts: string[];
-}
-
-export function createGraphBuilder(entity: MindMapEntityRef, rootLabel: string): MindMapGraphBuilder {
-  const root: MindMapNode = {
-    id: MIND_MAP_ROOT_ID,
-    label: rootLabel,
-    kind: 'root',
-    level: 0,
-    children: [],
-  };
-  return {
-    entity,
-    rootId: MIND_MAP_ROOT_ID,
-    nodes: { [MIND_MAP_ROOT_ID]: root },
-    edges: [],
-    hashParts: [`entity:${entityKey(entity)}`, `root:${rootLabel}`],
-  };
-}
+  source?: MindMapNodeSource;
+  collapsed?: boolean;
+  level?: number;
+};
 
 export function entityKey(entity: MindMapEntityRef): string {
   if (entity.type === 'session') return `session:${entity.sessionId}`;
@@ -54,77 +29,106 @@ export function entityKey(entity: MindMapEntityRef): string {
   return `knowledge:${ref.provider ?? ref.scheme}:${ref.kind}:${ref.id}`;
 }
 
-export function addNode(builder: MindMapGraphBuilder, input: CreateNodeInput): MindMapNode {
-  if (builder.nodes[input.id]) {
-    return builder.nodes[input.id]!;
-  }
-  const node: MindMapNode = {
-    id: input.id,
-    label: input.label,
-    kind: input.kind,
-    level: input.level,
+export function createEmptyGraph(entity: MindMapEntityRef, rootLabel: string): MindMapGraph {
+  const root: MindMapNode = {
+    id: MIND_MAP_ROOT_ID,
+    label: rootLabel,
+    kind: 'root',
     children: [],
-    ...(input.source ? { source: input.source } : {}),
-    ...(input.meta ? { meta: input.meta } : {}),
+    level: 0,
   };
-  builder.nodes[input.id] = node;
-  builder.hashParts.push(`node:${input.id}:${input.kind}:${input.label}`);
-  return node;
+  return {
+    entity,
+    rootId: MIND_MAP_ROOT_ID,
+    nodes: { [MIND_MAP_ROOT_ID]: root },
+    edges: [],
+    contentHash: '',
+    derivedAt: 0,
+    derivation: 'session',
+  };
 }
 
+/**
+ * Add a child under parentId. Assigns children[], parentId, and a parent edge.
+ * Returns the created (or existing) node.
+ */
 export function addChild(
-  builder: MindMapGraphBuilder,
+  graph: MindMapGraph,
   parentId: MindMapNodeId,
-  input: CreateNodeInput,
+  partial: MindMapChildInput,
 ): MindMapNode {
-  const parent = builder.nodes[parentId];
+  const parent = graph.nodes[parentId];
   if (!parent) {
     throw new Error(`mindmap: unknown parent ${parentId}`);
   }
-  const node = addNode(builder, input);
-  if (!parent.children.includes(node.id)) {
-    parent.children.push(node.id);
-    builder.hashParts.push(`parent:${parentId}>${node.id}`);
+
+  const existing = graph.nodes[partial.id];
+  if (existing) {
+    if (!parent.children.includes(existing.id)) {
+      parent.children.push(existing.id);
+      existing.parentId = parentId;
+      ensureParentEdge(graph, parentId, existing.id);
+    }
+    return existing;
   }
-  addEdge(builder, parentId, node.id, 'parent');
+
+  const node: MindMapNode = {
+    id: partial.id,
+    label: partial.label,
+    kind: partial.kind,
+    parentId,
+    children: [],
+    ...(partial.meta ? { meta: partial.meta } : {}),
+    ...(partial.source ? { source: partial.source } : {}),
+    ...(partial.collapsed !== undefined ? { collapsed: partial.collapsed } : {}),
+    ...(partial.level !== undefined ? { level: partial.level } : {}),
+  };
+  graph.nodes[node.id] = node;
+  parent.children.push(node.id);
+  ensureParentEdge(graph, parentId, node.id);
   return node;
 }
 
+function ensureParentEdge(graph: MindMapGraph, from: MindMapNodeId, to: MindMapNodeId): void {
+  const id = `e:parent:${from}>${to}`;
+  if (graph.edges.some((e) => e.id === id)) return;
+  const edge: MindMapEdge = { id, from, to, kind: 'parent' };
+  graph.edges.push(edge);
+}
+
 export function addEdge(
-  builder: MindMapGraphBuilder,
+  graph: MindMapGraph,
   from: MindMapNodeId,
   to: MindMapNodeId,
-  kind: MindMapEdgeKind,
+  kind: MindMapEdge['kind'],
 ): MindMapEdge {
   const id = `e:${kind}:${from}>${to}`;
-  const existing = builder.edges.find((edge) => edge.id === id);
+  const existing = graph.edges.find((edge) => edge.id === id);
   if (existing) return existing;
   const edge: MindMapEdge = { id, from, to, kind };
-  builder.edges.push(edge);
-  if (kind !== 'parent') {
-    builder.hashParts.push(`edge:${kind}:${from}>${to}`);
-  }
+  graph.edges.push(edge);
   return edge;
 }
 
 export function truncateLabel(text: string, max = 80): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
+  const firstLine = text.split('\n')[0] ?? '';
+  const oneLine = firstLine.replace(/\s+/g, ' ').trim();
   if (oneLine.length <= max) return oneLine || '…';
   return `${oneLine.slice(0, Math.max(1, max - 1))}…`;
 }
 
-export function finalizeGraph(
-  builder: MindMapGraphBuilder,
-  opts?: { derivation?: MindMapDerivation; now?: number },
-): MindMapGraph {
-  const contentHash = hashMindMapSource(builder.hashParts);
-  return {
-    entity: builder.entity,
-    rootId: builder.rootId,
-    nodes: builder.nodes,
-    edges: builder.edges,
-    contentHash,
-    derivedAt: opts?.now ?? Date.now(),
-    derivation: opts?.derivation ?? 'outline',
-  };
+/**
+ * Sets contentHash from sorted node labels+ids+edges, derivedAt, derivation.
+ */
+export function finalizeGraph(graph: MindMapGraph, derivation: MindMapDerivation): MindMapGraph {
+  const nodeParts = Object.values(graph.nodes)
+    .map((n) => `${n.id}\0${n.label}\0${n.kind}\0${n.parentId ?? ''}`)
+    .sort();
+  const edgeParts = graph.edges
+    .map((e) => `${e.id}\0${e.from}\0${e.to}\0${e.kind}`)
+    .sort();
+  graph.contentHash = hashMindMapSource([...nodeParts, ...edgeParts]);
+  graph.derivedAt = Date.now();
+  graph.derivation = derivation;
+  return graph;
 }

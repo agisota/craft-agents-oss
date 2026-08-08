@@ -1,15 +1,16 @@
 import type { KnowledgeRef } from '../knowledge/refs.ts';
-import { addChild, createGraphBuilder, finalizeGraph, truncateLabel } from './graph.ts';
-import { attachHeadingsTree, parseOutlineHeadings } from './outline.ts';
+import { addChild, addEdge, createEmptyGraph, finalizeGraph, truncateLabel } from './graph.ts';
+import { headingsToTree, parseOutlineHeadings } from './outline.ts';
 import type { MindMapGraph } from './types.ts';
 
 export interface MindMapKnowledgeChild {
   blockId: string;
   content: string;
+  children?: MindMapKnowledgeChild[];
 }
 
 export interface MindMapKnowledgeBacklink {
-  ref: KnowledgeRef;
+  ref: { kind: string; id: string } | KnowledgeRef;
   title: string;
 }
 
@@ -19,55 +20,63 @@ export interface MindMapKnowledgeInput {
   content?: string;
   children?: MindMapKnowledgeChild[];
   backlinks?: MindMapKnowledgeBacklink[];
-  now?: number;
 }
 
-function firstLineLabel(content: string): string {
-  const line = content.split('\n').find((l) => l.trim().length > 0) ?? content;
-  return truncateLabel(line.replace(/^#+\s*/, ''), 100);
+function attachChildren(
+  graph: MindMapGraph,
+  parentId: string,
+  children: MindMapKnowledgeChild[],
+): void {
+  for (const child of children) {
+    const id = `block:${child.blockId}`;
+    addChild(graph, parentId, {
+      id,
+      label: truncateLabel(child.content || child.blockId),
+      kind: 'block',
+      source: { kind: 'block', id: child.blockId },
+    });
+    if (child.children?.length) {
+      attachChildren(graph, id, child.children);
+    }
+  }
+}
+
+function backlinkNodeId(bl: MindMapKnowledgeBacklink): string {
+  const ref = bl.ref as { kind: string; id: string; scheme?: string };
+  return `backlink:${ref.kind}:${ref.id}`;
 }
 
 export function deriveKnowledgeMindMap(input: MindMapKnowledgeInput): MindMapGraph {
-  const title = input.title.trim() || input.ref.id;
-  const entity = { type: 'knowledge' as const, ref: input.ref };
-  const builder = createGraphBuilder(entity, title);
+  const rootLabel = input.title.trim() || 'Knowledge';
+  const graph = createEmptyGraph({ type: 'knowledge', ref: input.ref }, rootLabel);
 
-  const children = input.children ?? [];
-  if (children.length > 0) {
-    for (const child of children) {
-      addChild(builder, builder.rootId, {
-        id: `block:${child.blockId}`,
-        label: firstLineLabel(child.content) || child.blockId,
-        kind: 'block',
-        level: 1,
-        source: { kind: 'block', id: child.blockId },
-      });
-    }
-  } else if (input.content?.trim()) {
+  if (input.children && input.children.length > 0) {
+    attachChildren(graph, graph.rootId, input.children);
+  } else if (input.content && input.content.trim()) {
     const headings = parseOutlineHeadings(input.content);
     if (headings.length > 0) {
-      attachHeadingsTree(builder, headings, builder.rootId, 'h');
+      headingsToTree(graph, headings, graph.rootId);
     } else {
-      addChild(builder, builder.rootId, {
+      addChild(graph, graph.rootId, {
         id: 'section:body',
         label: truncateLabel(input.content, 120),
         kind: 'section',
-        level: 1,
-        source: { kind: 'document', id: input.ref.id },
+        source: { kind: 'section', id: 'body' },
       });
     }
   }
 
   for (const bl of input.backlinks ?? []) {
-    const id = `backlink:${bl.ref.kind}:${bl.ref.id}`;
-    addChild(builder, builder.rootId, {
+    const id = backlinkNodeId(bl);
+    const ref = bl.ref as { kind: string; id: string };
+    addChild(graph, graph.rootId, {
       id,
-      label: bl.title.trim() || bl.ref.id,
+      label: bl.title.trim() || ref.id,
       kind: 'backlink',
-      level: 1,
-      source: { kind: bl.ref.kind, id: bl.ref.id },
+      source: { kind: ref.kind, id: ref.id },
     });
+    addEdge(graph, graph.rootId, id, 'backlink');
   }
 
-  return finalizeGraph(builder, { derivation: 'outline', now: input.now });
+  return finalizeGraph(graph, 'knowledge');
 }

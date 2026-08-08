@@ -3,8 +3,8 @@
  * Ported from apps/electron/.../outline-parser.ts (no markdown library).
  */
 
-import { addChild, type MindMapGraphBuilder } from './graph.ts';
-import type { MindMapNodeId } from './types.ts';
+import { addChild } from './graph.ts';
+import type { MindMapGraph, MindMapNodeId } from './types.ts';
 
 export interface OutlineHeading {
   level: 1 | 2 | 3 | 4 | 5 | 6;
@@ -13,9 +13,13 @@ export interface OutlineHeading {
   line: number;
 }
 
+/** `#`…`######`, at least one space, title, optional closing hash run (CommonMark ATX). */
 const HEADING_RE = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/;
+
+/** Opening/closing fence marker: ``` or ~~~ (with optional info string). */
 const FENCE_RE = /^[ \t]*(```+|~~~)/;
 
+/** Hard cap so very long documents stay cheap to index and render. */
 export const MAX_OUTLINE_HEADINGS = 100;
 
 export function parseOutlineHeadings(
@@ -45,21 +49,14 @@ export function parseOutlineHeadings(
   return headings;
 }
 
-function slugify(text: string): string {
-  const slug = text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return slug || 'h';
-}
-
-/** Attach heading nodes under rootId; returns ids in document order. */
-export function attachHeadingsTree(
-  builder: MindMapGraphBuilder,
+/**
+ * Attach heading nodes under rootId using a level stack.
+ * Node ids: `heading:<line>`.
+ */
+export function headingsToTree(
+  graph: MindMapGraph,
   headings: OutlineHeading[],
   rootId: MindMapNodeId,
-  idPrefix = 'h',
 ): MindMapNodeId[] {
   const stack: Array<{ level: number; id: MindMapNodeId }> = [{ level: 0, id: rootId }];
   const ids: MindMapNodeId[] = [];
@@ -69,8 +66,8 @@ export function attachHeadingsTree(
       stack.pop();
     }
     const parentId = stack[stack.length - 1]!.id;
-    const id: MindMapNodeId = `${idPrefix}:${heading.line}:${slugify(heading.text)}`;
-    addChild(builder, parentId, {
+    const id: MindMapNodeId = `heading:${heading.line}`;
+    addChild(graph, parentId, {
       id,
       label: heading.text,
       kind: 'heading',

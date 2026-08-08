@@ -61,8 +61,10 @@ export const KEYS = {
   whatsNewSeenVersions: 'whats-new-seen-versions',
   // Workspace icon rail custom links (workspace-scoped via suffix)
   workspaceRailLinks: 'workspace-rail-links',
-  // Session multi-view tab (session-scoped via suffix)
+  // Session multi-view tab (session-scoped via suffix) — legacy; prefer entityViewMode
   sessionViewMode: 'session-view-mode',
+  // Entity multi-view tab (scoped via suffix e.g. session:<id>, note:<id>)
+  entityViewMode: 'entity-view-mode',
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
   // Sidebar status filter unseen accent dots (workspace-scoped via suffix)
   sidebarUnseenStatus: 'sidebar-unseen-status',
