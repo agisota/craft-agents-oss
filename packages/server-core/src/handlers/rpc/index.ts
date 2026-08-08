@@ -31,6 +31,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerGamificationHandlers } from './gamification'
 import { registerProjectsHandlers } from './projects'
 import { registerKanbanHandlers } from './kanban'
+import { registerCollectionHandlers } from './collection'
 
 import { registerSkillsHandlers } from './skills'
 import { registerSourcesHandlers } from './sources'
@@ -90,6 +91,7 @@ export function registerCoreRpcHandlers(
   registerGamificationHandlers(server, deps)
   registerProjectsHandlers(server, deps)
   registerKanbanHandlers(server, deps)
+  registerCollectionHandlers(server, deps)
 
   registerSkillsHandlers(server, deps)
   registerSourcesHandlers(server, deps)
