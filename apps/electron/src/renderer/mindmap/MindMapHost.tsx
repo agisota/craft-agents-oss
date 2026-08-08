@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import {
   AlertCircle,
   Columns2,
+  FileDown,
   Maximize2,
   Minimize2,
   Network,
@@ -22,7 +23,10 @@ import {
 import {
   createPinnedMap,
   entityPinKey,
+  graphToMarkdown,
   isStale,
+  materializeNoteTitle,
+  MINDMAP_NOTES_FOLDER,
   type MindMapEntityRef,
   type MindMapGraph,
   type MindMapNodeId,
@@ -30,6 +34,7 @@ import {
 } from '@craft-agent/core/mindmap'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { toast } from 'sonner'
+import { navigate, routes } from '@/lib/navigate'
 import { cn } from '@/lib/utils'
 import {
   ResizableHandle,
@@ -99,6 +104,7 @@ export function MindMapHost({
   const [staleDismissed, setStaleDismissed] = React.useState(false)
   const [enrichDraft, setEnrichDraft] = React.useState<MindMapGraph | null>(null)
   const [enriching, setEnriching] = React.useState(false)
+  const [materializing, setMaterializing] = React.useState(false)
   const { activeWorkspaceId } = useAppShellContext()
   const engineRef = React.useRef<SvgMindMapViewHandle | null>(null)
 
@@ -257,6 +263,45 @@ export function MindMapHost({
   const handleDiscardEnrich = React.useCallback(() => {
     setEnrichDraft(null)
   }, [])
+
+  const handleMaterialize = React.useCallback(async () => {
+    const g = displayGraph ?? graph
+    if (!g || materializing) return
+    const workspaceId = workspaceIdProp || activeWorkspaceId
+    if (!workspaceId) {
+      toast.error(t('mindmap.enrichNoWorkspace'))
+      return
+    }
+    setMaterializing(true)
+    try {
+      const title = materializeNoteTitle(g)
+      const markdown = graphToMarkdown(g)
+      const created = await window.electronAPI.createNote(
+        workspaceId,
+        title,
+        MINDMAP_NOTES_FOLDER,
+      )
+      await window.electronAPI.saveNote(workspaceId, created.id, markdown)
+      // Keep a pin of what we saved
+      const next = createPinnedMap(g, layoutFromCollapsed(collapsed))
+      savePin(next)
+      setPin(next)
+      toast.success(t('mindmap.materializeDone'))
+      navigate(routes.view.notesLegacy(created.id))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('mindmap.materializeFailed'))
+    } finally {
+      setMaterializing(false)
+    }
+  }, [
+    activeWorkspaceId,
+    collapsed,
+    displayGraph,
+    graph,
+    materializing,
+    t,
+    workspaceIdProp,
+  ])
 
   React.useEffect(() => {
     if (!zen) return
@@ -441,7 +486,23 @@ export function MindMapHost({
             <span className="text-[11px] font-medium">{t('mindmap.zen')}</span>
           </button>
 
-          <button
+                    <button
+            type="button"
+            className={cn(
+              'h-7 inline-flex items-center gap-1 rounded-[6px] px-1.5 hover:bg-foreground/5 text-muted-foreground hover:text-foreground',
+              materializing && 'opacity-60',
+            )}
+            title={t('mindmap.materialize')}
+            disabled={materializing || !graph}
+            onClick={() => void handleMaterialize()}
+          >
+            <FileDown className={cn('h-3.5 w-3.5', materializing && 'animate-pulse')} />
+            <span className="text-[11px] font-medium">
+              {materializing ? t('mindmap.materializing') : t('mindmap.materialize')}
+            </span>
+          </button>
+
+<button
             type="button"
             className={cn(
               'h-7 inline-flex items-center gap-1 rounded-[6px] px-1.5 hover:bg-foreground/5',

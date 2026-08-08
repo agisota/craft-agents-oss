@@ -2864,5 +2864,9 @@
   "workspaceRail.linkMissingUrl": "Adjon meg egy URL-t",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "Jegyzetazonosító (opcionális)",
-  "workspaceRail.removeLink": "Hivatkozás eltávolítása"
+  "workspaceRail.removeLink": "Hivatkozás eltávolítása",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializing": "Saving…",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note"
 }
