@@ -24,6 +24,7 @@ import { rendererPerf } from '@/lib/perf'
 import { isAbsolutePath } from '@/lib/drafts'
 import { navigate, routes } from '@/lib/navigate'
 import { coerceInputText } from '@/lib/input-text'
+import { lookupMigratedSiyuanId } from '@/lib/notes-migration-map'
 import { deriveSessionMessagesLoadState, formatSessionLoadFailure } from '@/lib/session-load'
 import { ensureSessionMessagesLoadedAtom, forceSessionMessagesReloadAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { kanbanEditorTargetAtom } from '@/atoms/kanban'
@@ -342,6 +343,21 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     await window.electronAPI.sessionCommand(session.id, { type: 'updateWorkingDirectory', dir: path })
   }, [session])
 
+  const resolveNoteNavigation = React.useCallback(
+    async (noteId: string) => {
+      const migrated = await lookupMigratedSiyuanId(
+        activeWorkspace?.rootPath,
+        noteId,
+      ).catch(() => null)
+      if (migrated?.siyuanId) {
+        navigate(routes.view.siyuan({ kind: 'document', id: migrated.siyuanId }))
+        return
+      }
+      navigate(routes.view.notesLegacy(noteId))
+    },
+    [activeWorkspace?.rootPath],
+  )
+
   const handleOpenFile = React.useCallback(
     async (path: string) => {
       const getNoteIdFromPath = (candidate: string): string | null => {
@@ -361,7 +377,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
       const directNoteId = getNoteIdFromPath(path)
       if (directNoteId) {
-        navigate(routes.view.notes(directNoteId))
+        await resolveNoteNavigation(directNoteId)
         return
       }
 
@@ -384,7 +400,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
       const resolvedNoteId = getNoteIdFromPath(resolved)
       if (resolvedNoteId) {
-        navigate(routes.view.notes(resolvedNoteId))
+        await resolveNoteNavigation(resolvedNoteId)
         return
       }
 
@@ -419,7 +435,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
       onOpenFile(resolved)
     },
-    [onOpenFile, workingDirectory, activeWorkspace?.rootPath]
+    [onOpenFile, workingDirectory, activeWorkspace?.rootPath, resolveNoteNavigation, t]
   )
 
   const handleOpenUrl = React.useCallback(
@@ -436,19 +452,19 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
               const basename = id.split('/').pop() ?? id
               return id === normalized || title === normalized || basename === normalized
             })
-            navigate(routes.view.notes(note?.id ?? target))
+            await resolveNoteNavigation(note?.id ?? target)
             return
           } catch {
-            navigate(routes.view.notes(target))
+            await resolveNoteNavigation(target)
             return
           }
         }
-        navigate(routes.view.notes(target))
+        await resolveNoteNavigation(target)
         return
       }
       onOpenUrl(url)
     },
-    [activeWorkspaceId, onOpenUrl]
+    [activeWorkspaceId, onOpenUrl, resolveNoteNavigation]
   )
 
   // Perf: Mark when data is ready

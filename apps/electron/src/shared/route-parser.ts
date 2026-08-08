@@ -91,7 +91,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'notes', 'automations', 'projects', 'settings', 'browser', 'memory',
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory',
   // Unified-shell surfaces (W1)
   'knowledge', 'cloud-run', 'extension', 'diff',
 ]
@@ -247,8 +247,8 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return null
   }
 
-  // Notes navigator
-  if (first === 'notes') {
+  // Notes navigator (notes-legacy is the P4 vault surface; same navigator/details)
+  if (first === 'notes' || first === 'notes-legacy') {
     if (segments.length === 1) {
       return { navigator: 'notes' as NavigatorType, details: null }
     }
