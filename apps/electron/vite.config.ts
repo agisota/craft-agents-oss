@@ -8,6 +8,34 @@ import { resolve } from 'path'
 // SENTRY_ORG, SENTRY_PROJECT to CI secrets. See CLAUDE.md "Sentry Error Tracking" section.
 // import { sentryVitePlugin } from '@sentry/vite-plugin'
 
+
+function nodeBuiltinStubPlugin() {
+  const stub = resolve(__dirname, 'src/renderer/shims/node-stub.ts')
+  const names = new Set([
+    'fs', 'fs/promises', 'path', 'os', 'crypto', 'child_process', 'url', 'util',
+    'stream', 'events', 'buffer', 'module', 'assert', 'process', 'worker_threads',
+    'http', 'https', 'net', 'tls', 'dns', 'zlib', 'querystring', 'string_decoder',
+    'readline', 'tty', 'constants', 'vm', 'perf_hooks', 'async_hooks', 'timers',
+    'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:crypto',
+    'node:child_process', 'node:url', 'node:util', 'node:stream', 'node:events',
+    'node:buffer', 'node:module', 'node:assert', 'node:process', 'node:worker_threads',
+    'node:http', 'node:https', 'node:net', 'node:tls', 'node:dns', 'node:zlib',
+  ])
+  return {
+    name: 'node-builtin-stub',
+    enforce: 'pre' as const,
+    resolveId(id: string) {
+      const clean = id.split('?')[0] || id
+      if (names.has(clean) || names.has(id)) return stub
+      if (clean.startsWith('node:')) return stub
+      // bare node core sometimes resolved with null bytes / vite prefixes
+      const base = clean.replace(/^\0/, '').replace(/^.*node_modules\//, '')
+      if (names.has(base)) return stub
+      return null
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     react({
@@ -22,6 +50,7 @@ export default defineConfig({
       },
     }),
     tailwindcss(),
+    nodeBuiltinStubPlugin(),
     // Sentry source map upload — intentionally disabled. See CLAUDE.md for re-enabling instructions.
     // sentryVitePlugin({
     //   org: process.env.SENTRY_ORG,
@@ -56,12 +85,13 @@ export default defineConfig({
       // Bun hoists deps to root. This prevents "multiple React copies" error from @craft-agent/ui
       'react': resolve(__dirname, '../../node_modules/react'),
       'react-dom': resolve(__dirname, '../../node_modules/react-dom'),
+      '@anthropic-ai/claude-agent-sdk': resolve(__dirname, 'src/renderer/shims/claude-agent-sdk-stub.ts'),
     },
     dedupe: ['react', 'react-dom']
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'jotai', 'pdfjs-dist'],
-    exclude: ['@craft-agent/ui'],
+    exclude: ['@craft-agent/ui', '@anthropic-ai/claude-agent-sdk'],
     esbuildOptions: {
       supported: { 'top-level-await': true },
       target: 'esnext'
