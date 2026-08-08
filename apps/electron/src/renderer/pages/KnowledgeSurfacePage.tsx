@@ -248,7 +248,7 @@ export default function KnowledgeSurfacePage({
     [ref, runDockOpen],
   )
 
-  // Controlled mode prop (session graph/mindmap tabs) — navigate in-place when live.
+  // Controlled mode prop (session graph tab) — navigate in-place when live.
   useEffect(() => {
     if (modeProp === surfaceModeRef.current) return
     setSurfaceMode(modeProp)
@@ -477,6 +477,11 @@ export default function KnowledgeSurfacePage({
                   <StyledDropdownMenuItem onClick={() => void handleCopyFormat('hPath')}>
                     <span className="flex-1">{t('knowledge.surface.copy.hPath')}</span>
                   </StyledDropdownMenuItem>
+                  {kind === 'block' && (
+                    <StyledDropdownMenuItem onClick={() => void handleCopyFormat('blockKramdown')}>
+                      <span className="flex-1">{t('knowledge.surface.copy.blockKramdown')}</span>
+                    </StyledDropdownMenuItem>
+                  )}
                   <StyledDropdownMenuSeparator />
                   <StyledDropdownMenuItem onClick={() => void handleExportMarkdown()}>
                     <span className="flex-1">{t('knowledge.surface.export.markdown')}</span>

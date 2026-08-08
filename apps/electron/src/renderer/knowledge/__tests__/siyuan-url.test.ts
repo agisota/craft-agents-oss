@@ -125,7 +125,7 @@ describe('buildSiyuanDurableKey', () => {
     )
   })
 
-  it('produces distinct keys for graph vs mindmap compat surfaces', () => {
+  it('produces distinct keys for global-graph vs document-graph modes', () => {
     const ref = { kind: 'notebook' as const, id: SIYUAN_FULL_SURFACE_ID }
     expect(buildSiyuanDurableKey(ref, 'global-graph')).toBe(
       'siyuan:notebook:__full__:global-graph',

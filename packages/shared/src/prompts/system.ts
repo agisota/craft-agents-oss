@@ -388,8 +388,8 @@ export function getSystemPrompt(
   const contextDocsBlock = getContextDocsPromptBlock({ workingDirectory });
 
   // Optional self-learning memory (injected directly after the project memory block):
-  // pre-formatted lesson corrections and workspace memory from the memory store.
-  const memoryInjection = `${memoryBlocks?.lessonsBlock ?? ''}${memoryBlocks?.memoryBlock ?? ''}`;
+  // pre-formatted lesson corrections, workspace memory, and retrieved source docs.
+  const memoryInjection = `${memoryBlocks?.lessonsBlock ?? ''}${memoryBlocks?.memoryBlock ?? ''}${memoryBlocks?.sourcesBlock ?? ''}`;
 
   // Fall back to the user's current preference when callers don't pin/pass a value,
   // so forgetting the argument can't silently re-enable the co-author trailer (see #576).
@@ -554,6 +554,33 @@ export function formatWorkspaceMemoryForPrompt(memory: Partial<WorkspaceMemory>)
   }
   lines.push('');
   return lines.join('\n');
+}
+
+/** One retrieved source doc ready for prompt injection (path + excerpt). */
+export interface SourceRetrieveHit {
+  path: string
+  /** Snippet or short body excerpt already budgeted by the retriever. */
+  excerpt: string
+}
+
+/**
+ * Format FTS-retrieved source docs for system-prompt injection.
+ * Returns an empty string when there are no hits so callers can append
+ * unconditionally. Ordering is caller-provided (rank order from retrieve).
+ */
+export function formatSourceRetrieveForPrompt(hits: SourceRetrieveHit[]): string {
+  if (!hits.length) return ''
+  const lines: string[] = ['', '[Retrieved source docs]']
+  for (const hit of hits) {
+    const path = hit.path?.trim()
+    const excerpt = hit.excerpt?.trim()
+    if (!path || !excerpt) continue
+    lines.push(`### ${path}`, excerpt, '')
+  }
+  // Only the header was written (every hit lacked path/excerpt) → omit block.
+  if (lines.length <= 2) return ''
+  // Trailing blank already added per hit; ensure a single trailing newline via join.
+  return lines.join('\n')
 }
 
 /**

@@ -854,12 +854,6 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                   id={SIYUAN_FULL_SURFACE_ID}
                   mode="global-graph"
                 />
-              ) : sessionView === 'mindmap' ? (
-                <KnowledgeSurfacePage
-                  kind="notebook"
-                  id={SIYUAN_FULL_SURFACE_ID}
-                  mode="graph"
-                />
               ) : sessionView !== 'standard' ? (
                 <SessionViewPlaceholder view={sessionView} />
               ) : (
@@ -943,12 +937,6 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
               kind="notebook"
               id={SIYUAN_FULL_SURFACE_ID}
               mode="global-graph"
-            />
-          ) : sessionView === 'mindmap' ? (
-            <KnowledgeSurfacePage
-              kind="notebook"
-              id={SIYUAN_FULL_SURFACE_ID}
-              mode="graph"
             />
           ) : sessionView !== 'standard' ? (
             <SessionViewPlaceholder view={sessionView} />

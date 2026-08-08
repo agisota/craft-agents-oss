@@ -17,7 +17,7 @@ import { detectSkillRiskFlags, lineDiff, RISK_FLAG_I18N_KEY, VIOLATION_I18N_KEY,
 import type { PendingSkill, PendingSkillDiff, SkillUsageMap } from '@craft-agent/shared/memory/types'
 import { activeSessionIdAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { projectsAtom } from '@/atoms/projects'
-import type { LoadedSkill } from '../../../shared/types'
+import type { BundledSkillPackStatus, LoadedSkill } from '../../../shared/types'
 
 const RISK_FLAG_ICON: Record<SkillRiskFlag, typeof Network> = {
   'network': Network,
@@ -67,6 +67,8 @@ export function SkillsListPanel({
   const [skillUsage, setSkillUsage] = React.useState<SkillUsageMap | null>(null)
   const [pruneConfirmOpen, setPruneConfirmOpen] = React.useState(false)
   const [pruneBusy, setPruneBusy] = React.useState(false)
+  const [bundledPacks, setBundledPacks] = React.useState<BundledSkillPackStatus[] | null>(null)
+  const [packsBusy, setPacksBusy] = React.useState(false)
   const effectiveWorkspaceId = workspaceId ?? activeWorkspaceId
 
   // T1: export target = the project the active session is bound to.
@@ -108,6 +110,38 @@ export function SkillsListPanel({
     })
     return () => { cancelled = true; offPending(); offSkills() }
   }, [effectiveWorkspaceId])
+
+  // Bundled skill packs (moved from Context settings — P2.1)
+  React.useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      window.electronAPI
+        .listBundledSkillPacks()
+        .then((packs) => { if (!cancelled) setBundledPacks(packs) })
+        .catch(() => { if (!cancelled) setBundledPacks([]) })
+    }
+    load()
+    const off = window.electronAPI.onBundledSkillsChanged(() => load())
+    return () => { cancelled = true; off() }
+  }, [])
+
+  const toggleBundledPack = async (slug: string, enabled: boolean) => {
+    if (!bundledPacks) return
+    setPacksBusy(true)
+    try {
+      const currentlyDisabled = bundledPacks.filter((p) => p.disabled).map((p) => p.slug)
+      const next = enabled
+        ? currentlyDisabled.filter((s) => s !== slug)
+        : [...new Set([...currentlyDisabled, slug])]
+      await window.electronAPI.setBundledSkillsDisabled(next)
+      const refreshed = await window.electronAPI.listBundledSkillPacks()
+      setBundledPacks(refreshed)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPacksBusy(false)
+    }
+  }
 
   // Fetch the diff when an update candidate is expanded (S3). Cached per
   // slug for the lifetime of the expansion; refetched after list reloads.
@@ -490,6 +524,50 @@ export function SkillsListPanel({
               </li>
             )
           })}
+        </ul>
+      </div>
+    )}
+
+    {/* Bundled skill packs — enable/disable presets shipped with the app */}
+    {bundledPacks !== null && bundledPacks.length > 0 && (
+      <div className="mb-2 pb-1.5 border-b border-foreground/5" data-list-role="bundled-skill-packs">
+        <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+          {t('settings.context.bundledTitle')}
+        </div>
+        <p className="px-2 pb-1.5 text-[11px] text-muted-foreground/80 leading-snug">
+          {t('settings.context.bundledDesc')}
+        </p>
+        <ul>
+          {bundledPacks.map((pack) => (
+            <li key={pack.slug} className="flex items-center gap-2 px-2 py-1.5 rounded-[8px] hover:bg-foreground/[0.03]">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">{pack.slug}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {[
+                    pack.commit ? pack.commit.slice(0, 8) : null,
+                    pack.localModified ? t('settings.context.bundledLocalModified') : null,
+                    `${pack.installed.length}/${pack.skills.length} ${t('settings.context.bundledSkillsCount')}`,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!pack.disabled}
+                disabled={packsBusy}
+                onClick={() => void toggleBundledPack(pack.slug, pack.disabled)}
+                className={`shrink-0 relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${
+                  pack.disabled ? 'bg-foreground/10' : 'bg-primary'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-background shadow transition-transform ${
+                    pack.disabled ? '' : 'translate-x-4'
+                  }`}
+                />
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
     )}

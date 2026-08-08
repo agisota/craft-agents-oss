@@ -1867,8 +1867,9 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
   if (key === 'settings') return { navigator: 'settings', subpage: null }
   if (key.startsWith('settings:')) {
     const subpage = key.slice(9)
-    // Legacy subpages, поглощённые вкладкой Runtime (PRD §5.1) — как в route-parser.
+    // Legacy subpages absorbed into other tabs
     if (subpage === 'toolchain') return { navigator: 'settings', subpage: 'runtime' }
+    if (subpage === 'preferences') return { navigator: 'settings', subpage: 'context' }
     if (isValidSettingsSubpage(subpage)) {
       return { navigator: 'settings', subpage }
     }

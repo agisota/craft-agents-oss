@@ -10,6 +10,7 @@ mock.module('../../config/preferences.ts', () => ({
 
 import {
   formatLessonsForPrompt,
+  formatSourceRetrieveForPrompt,
   formatWorkspaceMemoryForPrompt,
   getSystemPrompt,
 } from '../system'
@@ -19,6 +20,7 @@ import type { ProjectPromptContext } from '../../projects/types.ts'
 const LESSONS_HEADER =
   '[Learned corrections — user-taught rules. ALWAYS follow these. They override default behavior.]'
 const MEMORY_HEADER = '[Workspace memory]'
+const SOURCES_HEADER = '[Retrieved source docs]'
 
 function lesson(rule: string, overrides: Partial<Lesson> = {}): Lesson {
   return {
@@ -160,5 +162,76 @@ describe('system prompt memory injection', () => {
     )
     expect(prompt).not.toContain(LESSONS_HEADER)
     expect(prompt).not.toContain(MEMORY_HEADER)
+  })
+})
+
+describe('formatSourceRetrieveForPrompt', () => {
+  it('returns empty string for no hits', () => {
+    expect(formatSourceRetrieveForPrompt([])).toBe('')
+  })
+
+  it('renders header plus path/excerpt sections in caller order', () => {
+    const block = formatSourceRetrieveForPrompt([
+      { path: 'docs/a.md', excerpt: 'alpha body' },
+      { path: 'docs/b.md', excerpt: 'beta body' },
+    ])
+    expect(block).toContain(SOURCES_HEADER)
+    expect(block).toContain('### docs/a.md')
+    expect(block).toContain('alpha body')
+    expect(block).toContain('### docs/b.md')
+    expect(block.indexOf('docs/a.md')).toBeLessThan(block.indexOf('docs/b.md'))
+  })
+
+  it('skips hits missing path or excerpt', () => {
+    expect(
+      formatSourceRetrieveForPrompt([
+        { path: '', excerpt: 'x' },
+        { path: 'p.md', excerpt: '  ' },
+      ]),
+    ).toBe('')
+  })
+})
+
+describe('system prompt sources injection', () => {
+  beforeEach(() => {
+    mockIncludeCoAuthoredBy = true
+  })
+
+  it('injects sourcesBlock after memory blocks', () => {
+    const lessonsBlock = formatLessonsForPrompt([lesson('a rule')])
+    const memoryBlock = formatWorkspaceMemoryForPrompt({ context: 'ctx' })
+    const sourcesBlock = formatSourceRetrieveForPrompt([
+      { path: 'local/guide.md', excerpt: 'retrieved guide body' },
+    ])
+    const prompt = getSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+      projectCtx(),
+      { lessonsBlock, memoryBlock, sourcesBlock },
+    )
+    expect(prompt).toContain(SOURCES_HEADER)
+    expect(prompt).toContain('### local/guide.md')
+    expect(prompt).toContain('retrieved guide body')
+    expect(prompt.indexOf(MEMORY_HEADER)).toBeLessThan(prompt.indexOf(SOURCES_HEADER))
+    expect(prompt.indexOf(LESSONS_HEADER)).toBeLessThan(prompt.indexOf(SOURCES_HEADER))
+  })
+
+  it('omits sources header when sourcesBlock is absent or empty', () => {
+    const bare = getSystemPrompt(
+      undefined, undefined, undefined, undefined, undefined, undefined, true,
+    )
+    expect(bare).not.toContain(SOURCES_HEADER)
+
+    const empty = getSystemPrompt(
+      undefined, undefined, undefined, undefined, undefined, undefined, true,
+      undefined,
+      { sourcesBlock: formatSourceRetrieveForPrompt([]) },
+    )
+    expect(empty).not.toContain(SOURCES_HEADER)
   })
 })

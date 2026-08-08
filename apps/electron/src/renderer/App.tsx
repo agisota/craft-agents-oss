@@ -1818,7 +1818,7 @@ export default function App() {
   }, [])
 
   const handleOpenStoredUserPreferences = useCallback(() => {
-    navigate(routes.view.settings('preferences'))
+    navigate(routes.view.settings('context'))
   }, [])
 
   // Show reset confirmation dialog
