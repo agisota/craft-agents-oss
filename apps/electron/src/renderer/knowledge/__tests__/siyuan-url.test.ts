@@ -101,22 +101,27 @@ describe('DEFAULT_BASE_URL', () => {
 })
 
 describe('buildSiyuanDurableKey', () => {
-  it('formats siyuan:{kind}:{id}', () => {
-    expect(buildSiyuanDurableKey({ kind: 'document', id: 'abc' })).toBe('siyuan:document:abc')
-  })
-
-  it('is independent of surface mode (mode is presentation-only)', () => {
-    // Mode lives in the URL craftSurface marker, not the durable compositor key.
-    expect(buildSiyuanDurableKey({ kind: 'document', id: 'abc' })).toBe('siyuan:document:abc')
-    expect(buildSiyuanDurableKey({ kind: 'notebook', id: SIYUAN_FULL_SURFACE_ID })).toBe(
-      'siyuan:notebook:__full__',
+  it('formats siyuan:{kind}:{id}:{mode} with editor default', () => {
+    expect(buildSiyuanDurableKey({ kind: 'document', id: 'abc' })).toBe(
+      'siyuan:document:abc:editor',
     )
   })
 
-  it('produces a distinct key for the compat surface', () => {
-    expect(buildSiyuanDurableKey({ kind: 'notebook', id: SIYUAN_FULL_SURFACE_ID })).toBe(
-      'siyuan:notebook:__full__',
+  it('includes mode so graph and editor do not collide', () => {
+    const ref = { kind: 'document' as const, id: 'abc' }
+    expect(buildSiyuanDurableKey(ref, 'editor')).toBe('siyuan:document:abc:editor')
+    expect(buildSiyuanDurableKey(ref, 'graph')).toBe('siyuan:document:abc:graph')
+    expect(buildSiyuanDurableKey(ref, 'global-graph')).toBe(
+      'siyuan:document:abc:global-graph',
     )
+  })
+
+  it('produces distinct keys for graph vs mindmap compat surfaces', () => {
+    const ref = { kind: 'notebook' as const, id: SIYUAN_FULL_SURFACE_ID }
+    expect(buildSiyuanDurableKey(ref, 'global-graph')).toBe(
+      'siyuan:notebook:__full__:global-graph',
+    )
+    expect(buildSiyuanDurableKey(ref, 'graph')).toBe('siyuan:notebook:__full__:graph')
   })
 })
 

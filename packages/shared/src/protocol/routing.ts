@@ -297,6 +297,16 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.gamification.GET,
   RPC_CHANNELS.gamification.AWARD,
   RPC_CHANNELS.gamification.CHANGED,
+
+  // orgs — local-only identity/membership bookkeeping (CONFIG_DIR)
+  RPC_CHANNELS.orgs.LIST,
+  RPC_CHANNELS.orgs.CREATE,
+  RPC_CHANNELS.orgs.INVITE,
+  RPC_CHANNELS.orgs.ACCEPT,
+  RPC_CHANNELS.orgs.LIST_MEMBERS,
+  RPC_CHANNELS.orgs.GET_IDENTITY,
+  RPC_CHANNELS.orgs.UPDATE_IDENTITY,
+  RPC_CHANNELS.orgs.SET_WORKSPACE_ORG,
 ])
 
 // ---------------------------------------------------------------------------

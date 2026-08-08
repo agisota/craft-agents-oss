@@ -7,9 +7,9 @@
  * component resolves/owns the instance via `siyuanEngine.createEmbedded` and
  * reports its DOM rect + focus state so main can position or hide the view.
  *
- * Instance identity: durableKey `siyuan:{kind}:{id}` — stable per document, so
- * the compositor dedups re-opens and restores surfaces across restarts. Surface
- * mode (editor/graph/…) is presentation-only and does not change the durable key.
+ * Instance identity: durableKey `siyuan:{kind}:{id}:{mode}` — stable per document
+ * presentation, so graph/editor don't collide and the compositor still dedups
+ * re-opens of the same mode across restarts.
  *
  * P4.1 surface modes: optional `mode` (editor|graph|global-graph|outline|backlinks)
  * drives URL query markers and a thin Craft toolbar. Non-editor modes evaluate
@@ -179,7 +179,7 @@ export default function KnowledgeSurfacePage({
         baseUrlRef.current = baseUrl
         const url = buildSiyuanSurfaceUrl(baseUrl, ref, { mode: surfaceModeRef.current })
         createdId = await window.electronAPI.siyuanEngine.createEmbedded({
-          durableKey: buildSiyuanDurableKey(ref),
+          durableKey: buildSiyuanDurableKey(ref, surfaceModeRef.current),
           url,
           workspaceId: activeWorkspaceId,
         })

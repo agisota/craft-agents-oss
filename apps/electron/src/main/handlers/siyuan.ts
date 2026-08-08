@@ -2,7 +2,7 @@
  * SiYuan engine surface handlers (P2 native knowledge mode).
  *
  * Thin registry over BrowserPaneManager: embedded SiYuan desktop surfaces are
- * keyed by a durable document key (`siyuan:{kind}:{id}`), so re-opening a doc
+ * keyed by a durable document key (`siyuan:{kind}:{id}:{mode}`), so re-opening a doc
  * dedupifies onto the existing surface and renderers restore survivors across
  * restarts via LIST. This supersedes the ephemeral `browser-embedded-${n}`
  * id as the knowledge-surface handle — the durable key is the stable contract.
@@ -158,6 +158,20 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
       // latest opener's binding wins so workspace-scoped LIST stays accurate.
       if (input.workspaceId !== undefined) {
         existing.workspaceId = input.workspaceId ?? null
+      }
+      // Mode/URL may change on re-open (editor→graph, different craftSurface).
+      // Navigate the live instance when the URL differs so the surface reflects
+      // the latest presentation without spawning a second BrowserView.
+      if (input.url && input.url !== existing.url) {
+        existing.url = input.url
+        void browserPaneManager.navigate(existing.instanceId, input.url).catch((error: unknown) => {
+          // Best-effort: focus still happens; renderer can recreate on hard fail.
+          console.warn(
+            `[siyuan] re-open navigate failed id=${existing.instanceId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          )
+        })
       }
       browserPaneManager.focus(existing.instanceId)
       pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(existing))
