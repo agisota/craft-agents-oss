@@ -132,7 +132,7 @@ export default function SkillInfoPage({ skillSlug, workspaceId, workingDirectory
       const updated = await window.electronAPI.updateSkill(workspaceId, skillSlug, {
         name,
         description,
-        instructions: editContent,
+        content: editContent,
       })
       setSkill(updated)
       toast.success(t('skillInfo.saved'))
