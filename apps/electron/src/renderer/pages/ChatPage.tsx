@@ -47,8 +47,8 @@ import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindm
 const SESSION_ENTITY_VIEW_CAPABILITIES: EntityViewCapability[] = defaultSessionEntityCapabilities({
   siyuanConnected: true,
 }).map((cap) => {
-  // Legacy SiYuan mindmap + teamchat stay disabled until separately wired.
-  if (cap.id === 'mindmap' || cap.id === 'teamchat') {
+  // teamchat remains placeholder; legacy SiYuan mindmap stays available with distinct label.
+  if (cap.id === 'teamchat') {
     return { ...cap, available: false }
   }
   return cap
@@ -549,12 +549,18 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
   const handleMindMapNavigate = React.useCallback(
     (source: { kind: string; id: string }) => {
-      // P1: switch to standard chat for message/tool click-through.
+      // Switch to standard chat and scroll to the source message/turn.
       if (source.kind === 'message' || source.kind === 'tool') {
         setSessionView('standard')
+        // Defer until ChatDisplay is mounted for standard view.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            chatDisplayRef?.current?.scrollToMessage?.(source.id)
+          })
+        })
       }
     },
-    [setSessionView],
+    [chatDisplayRef, setSessionView],
   )
 
   const renderSessionViewBody = React.useCallback(
@@ -568,6 +574,16 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           />
         )
       }
+      if (sessionView === 'mindmap') {
+        // Legacy SiYuan mind-map/graph dock (not Craft projection).
+        return (
+          <KnowledgeSurfacePage
+            kind="notebook"
+            id={SIYUAN_FULL_SURFACE_ID}
+            mode="graph"
+          />
+        )
+      }
       if (sessionView === 'map' || sessionView === 'outline') {
         return (
           <MindMapHost
@@ -576,6 +592,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             loading={sessionMindMapLoading}
             error={messageLoadState.error}
             mode={sessionView}
+            workspaceId={activeWorkspaceId || undefined}
+            sourceExcerpt={
+              session?.messages
+                ?.slice(-12)
+                .map((m) => `${m.role}: ${(m.content ?? '').slice(0, 240)}`)
+                .join('\n') || undefined
+            }
             onNavigate={handleMindMapNavigate}
           />
         )
@@ -592,6 +615,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       sessionMindMapLoading,
       messageLoadState.error,
       handleMindMapNavigate,
+      activeWorkspaceId,
     ],
   )
 

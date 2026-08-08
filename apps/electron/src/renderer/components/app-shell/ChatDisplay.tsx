@@ -286,6 +286,8 @@ export interface ChatDisplayHandle {
   matchCount: number
   currentMatchIndex: number
   isHighlighting: boolean
+  /** Scroll chat to a message/turn by message id (mindmap click-through). */
+  scrollToMessage: (messageId: string) => void
 }
 
 /**
@@ -1004,14 +1006,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // With CSS Highlight API, highlighting is instant — no settling phase
   const isHighlighting = false
 
-  // Expose navigation via imperative handle (for session list navigation controls)
-  React.useImperativeHandle(ref, () => ({
-    goToNextMatch,
-    goToPrevMatch,
-    matchCount: validMatches.length,
-    currentMatchIndex,
-    isHighlighting,
-  }), [goToNextMatch, goToPrevMatch, validMatches.length, currentMatchIndex])
 
   // Notify parent when match info (count, index, highlighting state) changes
   useEffect(() => {
@@ -1504,7 +1498,72 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     }
   }, [assistantTurnIndexByMessageId, allTurns, visibleTurnCount])
 
-  const handleFollowUpChipClick = useCallback((item: {
+  const scrollToMessage = useCallback((messageId: string) => {
+    if (!messageId) return
+
+    // Prefer exact turn keyed by user/system message id.
+    let targetTurnIndex = allTurns.findIndex((turn) => {
+      if (turn.type === 'user' || turn.type === 'system' || turn.type === 'auth-request') {
+        return turn.message.id === messageId
+      }
+      if (turn.type === 'assistant') {
+        if (turn.response?.messageId === messageId) return true
+        return turn.activities?.some((a) => a.messageId === messageId || a.id === messageId) ?? false
+      }
+      return false
+    })
+
+    // Fallback: assistant map
+    if (targetTurnIndex < 0) {
+      const mapped = assistantTurnIndexByMessageId.get(messageId)
+      if (mapped != null) targetTurnIndex = mapped
+    }
+    if (targetTurnIndex < 0) return
+
+    const ensureVisibleCount = allTurns.length - targetTurnIndex
+    const scrollToTurn = () => {
+      const targetTurn = allTurns[targetTurnIndex]
+      if (!targetTurn) return false
+      const turnKey = getTurnKey(targetTurn)
+      const turnContainer = turnRefs.current.get(turnKey)
+      if (!turnContainer) {
+        // Last resort: element with message id (assistant markdown)
+        const byId = document.getElementById(messageId)
+        if (byId) {
+          byId.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          return true
+        }
+        return false
+      }
+      turnContainer.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return true
+    }
+
+    if (ensureVisibleCount > visibleTurnCount) {
+      setVisibleTurnCount(ensureVisibleCount)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!scrollToTurn()) setTimeout(() => { void scrollToTurn() }, 80)
+        })
+      })
+      return
+    }
+    if (!scrollToTurn()) {
+      requestAnimationFrame(() => { void scrollToTurn() })
+    }
+  }, [allTurns, assistantTurnIndexByMessageId, visibleTurnCount])
+
+    // Expose navigation via imperative handle (for session list + mindmap click-through)
+  React.useImperativeHandle(ref, () => ({
+    goToNextMatch,
+    goToPrevMatch,
+    matchCount: validMatches.length,
+    currentMatchIndex,
+    isHighlighting,
+    scrollToMessage,
+  }), [goToNextMatch, goToPrevMatch, validMatches.length, currentMatchIndex, scrollToMessage])
+
+const handleFollowUpChipClick = useCallback((item: {
     messageId: string
     annotationId: string
   }, anchor?: { x: number; y: number }) => {

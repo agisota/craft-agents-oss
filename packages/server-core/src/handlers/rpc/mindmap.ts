@@ -1,11 +1,13 @@
 /**
  * Mind map RPC — one-shot outline enrichment via SessionManager.runDistillOneShot.
- * Fail-soft: missing SM / parse errors return original graph + error string.
+ * Fail-soft: missing LLM / parse errors fall back to heuristic cleanup when possible.
  */
 import {
   applyEnrichedOutline,
   buildEnrichPrompt,
-  parseEnrichmentJson,
+  heuristicEnrichOutline,
+  parseEnrichedOutlineJson,
+  type EnrichedOutlineNode,
   type MindMapEntityRef,
   type MindMapGraph,
 } from '@craft-agent/core/mindmap'
@@ -22,11 +24,13 @@ export type MindmapEnrichRequest = {
   entity: MindMapEntityRef
   graph: MindMapGraph
   sourceExcerpt?: string
+  /** Skip LLM; apply deterministic outline cleanup only. */
+  heuristicOnly?: boolean
 }
 
 export type MindmapEnrichResponse =
-  | { ok: true; graph: MindMapGraph }
-  | { ok: false; error: string; graph: MindMapGraph }
+  | { ok: true; graph: MindMapGraph; mode: 'llm' | 'heuristic' }
+  | { ok: false; error: string; graph: MindMapGraph; mode: 'passthrough' }
 
 export function registerMindmapHandlers(server: RpcServer, deps: HandlerDeps): void {
   server.handle(
@@ -38,22 +42,44 @@ export function registerMindmapHandlers(server: RpcServer, deps: HandlerDeps): v
           ok: false,
           error: 'Invalid mindmap enrich request: graph required',
           graph: original ?? ({} as MindMapGraph),
+          mode: 'passthrough',
         }
       }
 
       const workspaceId = input.workspaceId
+      const applyOutline = (
+        outline: EnrichedOutlineNode[],
+        mode: 'llm' | 'heuristic',
+      ): MindmapEnrichResponse => {
+        const { graph } = applyEnrichedOutline({ graph: original, outline })
+        return { ok: true, graph, mode }
+      }
+
+      const heuristic = (): MindmapEnrichResponse => {
+        try {
+          return applyOutline(heuristicEnrichOutline(original), 'heuristic')
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+            graph: original,
+            mode: 'passthrough',
+          }
+        }
+      }
+
+      if (input.heuristicOnly) {
+        return heuristic()
+      }
+
       if (!workspaceId || typeof workspaceId !== 'string') {
-        return { ok: false, error: 'workspaceId required', graph: original }
+        return heuristic()
       }
 
       try {
         const run = deps.sessionManager?.runDistillOneShot
         if (typeof run !== 'function') {
-          return {
-            ok: false,
-            error: 'Mind map enrich unavailable (no session manager)',
-            graph: original,
-          }
+          return heuristic()
         }
 
         let prompt = buildEnrichPrompt(original)
@@ -62,33 +88,19 @@ export function registerMindmapHandlers(server: RpcServer, deps: HandlerDeps): v
         }
 
         const text = await run.call(deps.sessionManager, workspaceId, prompt)
-        let outline
+        let outline: EnrichedOutlineNode[]
         try {
-          outline = parseEnrichmentJson(typeof text === 'string' ? text : '')
-        } catch (parseErr) {
-          return {
-            ok: false,
-            error:
-              parseErr instanceof Error
-                ? parseErr.message
-                : 'Failed to parse enrichment response',
-            graph: original,
-          }
+          outline = parseEnrichedOutlineJson(typeof text === 'string' ? text : '')
+        } catch {
+          return heuristic()
         }
         if (!Array.isArray(outline) || outline.length === 0) {
-          return {
-            ok: false,
-            error: 'Failed to parse enrichment response',
-            graph: original,
-          }
+          return heuristic()
         }
-
-        const { graph } = applyEnrichedOutline({ graph: original, outline })
-        return { ok: true, graph }
+        return applyOutline(outline, 'llm')
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        deps.platform.logger?.warn?.('mindmap:enrich failed', err)
-        return { ok: false, error: message || 'Mind map enrich failed', graph: original }
+        deps.platform.logger?.warn?.('mindmap:enrich failed, heuristic fallback', err)
+        return heuristic()
       }
     },
   )

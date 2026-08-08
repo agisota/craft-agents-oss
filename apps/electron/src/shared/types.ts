@@ -1182,7 +1182,7 @@ export interface ElectronAPI {
     heuristicOnly?: boolean
   }): Promise<
     | { ok: true; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'llm' | 'heuristic' }
-    | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'passthrough' }
+    | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode?: 'passthrough' }
   >
   onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
 
