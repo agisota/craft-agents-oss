@@ -20,7 +20,7 @@ import type {
 import { validateSourceConfig } from '../config/validators.ts';
 import { debug } from '../utils/debug.ts';
 import { readJsonFileSync } from '../utils/files.ts';
-import { getBuiltinSources, isBuiltinSource, getDocsSource } from './builtin-sources.ts';
+import { getBuiltinSources, isBuiltinSource, getDocsSource, ensureBuiltinSources } from './builtin-sources.ts';
 import { expandPath, toPortablePath } from '../utils/paths.ts';
 import { getWorkspaceSourcesPath } from '../workspaces/storage.ts';
 // Circular import (credential-manager imports from this file) is safe here:
@@ -367,6 +367,12 @@ export function loadSource(workspaceRootPath: string, sourceSlug: string): Loade
  */
 export function loadWorkspaceSources(workspaceRootPath: string): LoadedSource[] {
   ensureSourcesDir(workspaceRootPath);
+  // Best-effort seed of Exa/Firecrawl folders for existing workspaces.
+  try {
+    ensureBuiltinSources(workspaceRootPath);
+  } catch {
+    // non-fatal
+  }
 
   const sources: LoadedSource[] = [];
   const sourcesDir = getWorkspaceSourcesPath(workspaceRootPath);
@@ -423,18 +429,20 @@ export function getSourcesBySlugs(workspaceRootPath: string, slugs: string[]): L
   const workspaceId = basename(workspaceRootPath);
   const sources: LoadedSource[] = [];
   for (const slug of slugs) {
-    // Check builtin sources first (they don't exist on disk)
-    if (isBuiltinSource(slug)) {
-      // Currently only craft-agents-docs is a builtin source
-      if (slug === 'craft-agents-docs') {
-        sources.push(getDocsSource(workspaceId, workspaceRootPath));
-      }
+    // craft-agents-docs is MCP-only (no folder). Exa/Firecrawl live on disk.
+    if (slug === 'craft-agents-docs') {
+      sources.push(getDocsSource(workspaceId, workspaceRootPath));
       continue;
     }
-    // Load user-configured source from disk
     const source = loadSource(workspaceRootPath, slug);
     if (source) {
       sources.push(source);
+      continue;
+    }
+    // Fallback in-memory builtins if folder not yet seeded
+    if (isBuiltinSource(slug)) {
+      const builtin = getBuiltinSources(workspaceId, workspaceRootPath).find((s) => s.config.slug === slug);
+      if (builtin) sources.push(builtin);
     }
   }
   return sources;
@@ -451,7 +459,11 @@ export function getSourcesBySlugs(workspaceRootPath: string, slugs: string[]): L
 export function loadAllSources(workspaceRootPath: string): LoadedSource[] {
   const workspaceId = basename(workspaceRootPath);
   const userSources = loadWorkspaceSources(workspaceRootPath);
-  const builtinSources = getBuiltinSources(workspaceId, workspaceRootPath);
+  const present = new Set(userSources.map((s) => s.config.slug));
+  // Only inject in-memory builtins that are not already on disk (e.g. docs MCP).
+  const builtinSources = getBuiltinSources(workspaceId, workspaceRootPath).filter(
+    (s) => !present.has(s.config.slug),
+  );
   return [...userSources, ...builtinSources];
 }
 

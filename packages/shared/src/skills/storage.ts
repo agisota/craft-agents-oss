@@ -11,6 +11,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'fs';
 import type { Dirent } from 'fs';
 import { homedir } from 'os';
@@ -394,8 +395,93 @@ export function getSkillIconPath(workspaceRoot: string, slug: string): string | 
 }
 
 // ============================================================
-// Delete Operations
+// Write / Delete Operations
 // ============================================================
+
+export interface UpdateSkillContentInput {
+  /** Display name (frontmatter name) */
+  name?: string;
+  /** Description (frontmatter description) */
+  description?: string;
+  /** Markdown body without frontmatter */
+  content?: string;
+  /** Optional icon emoji or URL */
+  icon?: string | null;
+}
+
+/**
+ * Update a workspace skill's SKILL.md (frontmatter + body).
+ * Only workspace-tier skills under {workspace}/skills/{slug}/ are writable.
+ * Returns the reloaded skill, or null if not found / unreadable.
+ */
+export function updateSkillContent(
+  workspaceRoot: string,
+  slug: string,
+  updates: UpdateSkillContentInput,
+): LoadedSkill | null {
+  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
+  const skillDir = join(skillsDir, slug);
+  const skillFile = join(skillDir, 'SKILL.md');
+
+  if (!existsSync(skillFile)) {
+    return null;
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(skillFile, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const parsed = parseSkillFile(raw);
+  if (!parsed) {
+    // Fall back to gray-matter parse even if required fields were missing so we can repair
+    try {
+      const loose = matter(raw);
+      const name = (updates.name ?? loose.data.name ?? slug) as string;
+      const description = (updates.description ?? loose.data.description ?? '') as string;
+      if (!name || !description) {
+        throw new Error('Skill name and description are required');
+      }
+      const data: Record<string, unknown> = { ...loose.data, name, description };
+      if (updates.icon !== undefined) {
+        if (updates.icon === null || updates.icon === '') delete data.icon;
+        else data.icon = updates.icon;
+      }
+      const body = updates.content !== undefined ? updates.content : loose.content;
+      writeFileSync(skillFile, matter.stringify(body.replace(/^\n+/, ''), data), 'utf-8');
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  } else {
+    const name = updates.name ?? parsed.metadata.name;
+    const description = updates.description ?? parsed.metadata.description;
+    if (!name.trim() || !description.trim()) {
+      throw new Error('Skill name and description are required');
+    }
+
+    const data: Record<string, unknown> = {
+      name: name.trim(),
+      description: description.trim(),
+    };
+    if (parsed.metadata.globs?.length) data.globs = parsed.metadata.globs;
+    if (parsed.metadata.alwaysAllow?.length) data.alwaysAllow = parsed.metadata.alwaysAllow;
+    if (parsed.metadata.requiredSources?.length) data.requiredSources = parsed.metadata.requiredSources;
+
+    const nextIcon = updates.icon !== undefined ? updates.icon : parsed.metadata.icon;
+    if (nextIcon) data.icon = nextIcon;
+
+    const body = updates.content !== undefined ? updates.content : parsed.body;
+    // matter.stringify adds a trailing newline; strip leading newlines from body for stable files
+    writeFileSync(skillFile, matter.stringify(body.replace(/^\n+/, ''), data), 'utf-8');
+  }
+
+  // Bust cache so subsequent loads see the write
+  invalidateSkillsCache();
+
+  return loadSkillFromDir(skillsDir, slug, 'workspace');
+}
 
 /**
  * Delete a skill from a workspace

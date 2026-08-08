@@ -4,7 +4,8 @@
  * See docs/superpowers/specs/2026-08-06-self-learning-memory-design.md
  */
 
-export type LessonCategory = 'preference' | 'workflow' | 'knowledge' | 'correction'
+/** Built-in categories plus free-form user categories (stored as plain strings). */
+export type LessonCategory = 'preference' | 'workflow' | 'knowledge' | 'correction' | (string & {})
 export type LessonScope = 'global' | 'workspace'
 export type LessonTrigger = 'explicit' | 'branch' | 'interrupted' | 'error' | 'distillation'
 

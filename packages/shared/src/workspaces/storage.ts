@@ -21,6 +21,8 @@ import { expandPath, toPortablePath } from '../utils/paths.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { getDefaultStatusConfig, saveStatusConfig, ensureDefaultIconFiles } from '../statuses/storage.ts';
 import { getDefaultLabelConfig, saveLabelConfig } from '../labels/storage.ts';
+import { ensureDefaultAutomations } from '../automations/default-seeds.ts';
+import { ensureBuiltinSources } from '../sources/builtin-sources.ts';
 import { loadConfigDefaults } from '../config/storage.ts';
 import { CONFIG_DIR } from '../config/paths.ts';
 import { generateSlug } from '../utils/slug.ts';
@@ -325,6 +327,12 @@ export function createWorkspaceAtPath(
 
   // Initialize label configuration with defaults (two nested groups + valued labels)
   saveLabelConfig(rootPath, getDefaultLabelConfig());
+
+  // Seed default automations (30 templates, mostly disabled)
+  ensureDefaultAutomations(rootPath);
+
+  // Seed Exa / Firecrawl builtin source folders when missing
+  ensureBuiltinSources(rootPath);
 
   // Initialize plugin manifest for SDK integration (enables skills, commands, agents)
   ensurePluginManifest(rootPath, name);

@@ -11,6 +11,7 @@ import { exportSkillToProject, pruneUnusedSkills, readUsage } from '../../memory
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.skills.GET,
   RPC_CHANNELS.skills.GET_FILES,
+  RPC_CHANNELS.skills.UPDATE,
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.OPEN_EDITOR,
   RPC_CHANNELS.skills.OPEN_FINDER,
@@ -106,6 +107,25 @@ export function registerSkillsHandlers(server: RpcServer, deps: HandlerDeps): vo
     const { deleteSkill } = await import('@craft-agent/shared/skills')
     deleteSkill(workspace.rootPath, skillSlug)
     deps.platform.logger?.info(`Deleted skill: ${skillSlug}`)
+  })
+
+  // Native edit: update workspace skill frontmatter + body
+  server.handle(RPC_CHANNELS.skills.UPDATE, async (
+    _ctx,
+    workspaceId: string,
+    skillSlug: string,
+    updates: import('@craft-agent/shared/skills').UpdateSkillContentInput,
+  ) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { updateSkillContent } = await import('@craft-agent/shared/skills')
+    const skill = updateSkillContent(workspace.rootPath, skillSlug, updates)
+    if (!skill) throw new Error(`Skill not found: ${skillSlug}`)
+
+    await broadcastSkillsChanged(workspaceId, workspace.rootPath)
+    deps.platform.logger?.info(`Updated skill: ${skillSlug}`)
+    return skill
   })
 
   // Import an OMP skill into the workspace as a regular craft skill.
