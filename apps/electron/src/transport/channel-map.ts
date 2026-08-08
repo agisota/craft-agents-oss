@@ -327,6 +327,7 @@ export const CHANNEL_MAP = {
   'siyuanEngine.list': invoke(RPC_CHANNELS.siyuan.LIST),
   'siyuanEngine.syncBounds': invoke(RPC_CHANNELS.siyuan.SYNC_BOUNDS),
   'siyuanEngine.focus': invoke(RPC_CHANNELS.siyuan.FOCUS),
+  'siyuanEngine.evaluate': invoke(RPC_CHANNELS.siyuan.EVALUATE),
   'siyuanEngine.onStateChanged': listener(RPC_CHANNELS.siyuan.STATE_CHANGED),
   'siyuanEngine.onRemoved': listener(RPC_CHANNELS.siyuan.REMOVED),
 

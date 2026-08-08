@@ -1229,6 +1229,8 @@ export interface ElectronAPI {
     list(args?: { workspaceId?: string | null }): Promise<SiyuanSurfaceState[]>
     syncBounds(args: { instanceId: string; rect: { x: number; y: number; width: number; height: number } | null }): Promise<void>
     focus(args: { instanceId: string }): Promise<void>
+    /** Run JS in the embedded surface (dock open / location assign). LOCAL_ONLY. */
+    evaluate(args: { instanceId: string; expression: string }): Promise<unknown>
     onStateChanged(callback: (state: SiyuanSurfaceState) => void): () => void
     onRemoved(callback: (id: string) => void): () => void
   }

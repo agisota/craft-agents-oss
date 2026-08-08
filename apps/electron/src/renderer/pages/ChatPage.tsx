@@ -35,6 +35,8 @@ import {
   SessionViewTabs,
   useSessionView,
 } from '@/components/app-shell/SessionViewTabs'
+import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
+import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 
 export interface ChatPageProps {
   sessionId: string
@@ -830,7 +832,19 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
             <SessionViewTabs value={sessionView} onChange={setSessionView} />
             <div className="flex-1 flex flex-col min-h-0">
-              {sessionView !== 'standard' ? (
+              {sessionView === 'graph' ? (
+                <KnowledgeSurfacePage
+                  kind="notebook"
+                  id={SIYUAN_FULL_SURFACE_ID}
+                  mode="global-graph"
+                />
+              ) : sessionView === 'mindmap' ? (
+                <KnowledgeSurfacePage
+                  kind="notebook"
+                  id={SIYUAN_FULL_SURFACE_ID}
+                  mode="graph"
+                />
+              ) : sessionView !== 'standard' ? (
                 <SessionViewPlaceholder view={sessionView} />
               ) : (
               <ChatDisplay
@@ -908,7 +922,19 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
         <SessionViewTabs value={sessionView} onChange={setSessionView} />
         <div className="flex-1 flex flex-col min-h-0">
-          {sessionView !== 'standard' ? (
+          {sessionView === 'graph' ? (
+            <KnowledgeSurfacePage
+              kind="notebook"
+              id={SIYUAN_FULL_SURFACE_ID}
+              mode="global-graph"
+            />
+          ) : sessionView === 'mindmap' ? (
+            <KnowledgeSurfacePage
+              kind="notebook"
+              id={SIYUAN_FULL_SURFACE_ID}
+              mode="graph"
+            />
+          ) : sessionView !== 'standard' ? (
             <SessionViewPlaceholder view={sessionView} />
           ) : (
             <ChatDisplay

@@ -422,6 +422,7 @@ const EXPECTED_CHANNELS: string[] = [
   'shell:showInFolder',
   'siyuan:createEmbedded',
   'siyuan:destroy',
+  'siyuan:evaluate',
   'siyuan:focus',
   'siyuan:list',
   'siyuan:removed',
