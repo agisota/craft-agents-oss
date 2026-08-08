@@ -14,6 +14,7 @@ import {
   type EntityViewId,
 } from '@/components/app-shell/EntityViewTabs'
 import { useAppShellContext } from '@/context/AppShellContext'
+import { useSiyuanConnected } from '@/hooks/useSiyuanConnected'
 import { MindMapHost } from '@/mindmap/MindMapHost'
 import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
 import type { SiyuanSurfaceRef } from '@/knowledge/siyuan-url'
@@ -27,9 +28,10 @@ export interface KnowledgeEntityPageProps {
 export default function KnowledgeEntityPage({ kind, id, panelId }: KnowledgeEntityPageProps) {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useAppShellContext()
+  const siyuanConnected = useSiyuanConnected()
   const capabilities = React.useMemo(
-    () => defaultKnowledgeEntityCapabilities({ siyuanConnected: true }),
-    [],
+    () => defaultKnowledgeEntityCapabilities({ siyuanConnected: siyuanConnected ?? false }),
+    [siyuanConnected],
   )
   const [view, setView] = useEntityView(`knowledge:${kind}:${id}`, capabilities, 'standard')
 

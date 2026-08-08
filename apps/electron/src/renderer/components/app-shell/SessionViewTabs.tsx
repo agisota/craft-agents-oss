@@ -11,12 +11,17 @@ import {
   useEntityView,
   type EntityViewId,
 } from './EntityViewTabs'
+import { useSiyuanConnected } from '@/hooks/useSiyuanConnected'
 
 /** Alias of EntityViewId for existing session callers. */
 export type SessionViewId = EntityViewId
 
 export function useSessionView(sessionId: string): [SessionViewId, (id: SessionViewId) => void] {
-  const capabilities = React.useMemo(() => defaultSessionEntityCapabilities({ siyuanConnected: true }), [])
+  const siyuanConnected = useSiyuanConnected()
+  const capabilities = React.useMemo(
+    () => defaultSessionEntityCapabilities({ siyuanConnected: siyuanConnected ?? false }),
+    [siyuanConnected],
+  )
   return useEntityView(`session:${sessionId}`, capabilities, 'standard')
 }
 
@@ -27,7 +32,11 @@ export interface SessionViewTabsProps {
 }
 
 export function SessionViewTabs({ value, onChange, className }: SessionViewTabsProps) {
-  const capabilities = React.useMemo(() => defaultSessionEntityCapabilities({ siyuanConnected: true }), [])
+  const siyuanConnected = useSiyuanConnected()
+  const capabilities = React.useMemo(
+    () => defaultSessionEntityCapabilities({ siyuanConnected: siyuanConnected ?? false }),
+    [siyuanConnected],
+  )
   return (
     <EntityViewTabs
       value={value}

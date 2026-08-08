@@ -35,7 +35,7 @@ type GroupBucket = { key: string; label: string; count: number }
 function bucketFor(
   meta: SessionMeta,
   groupBy: CollectionDisplay['groupBy'],
-  statusById: Map<string, SessionStatusConfig>,
+  statusById: Map<string, SessionStatus>,
   projectNameById: Map<string, string>,
   labelById: Map<string, string>,
   now: number,
@@ -132,7 +132,7 @@ export function SessionTableHost() {
   )
 
   const statusById = React.useMemo(() => {
-    const map = new Map<string, SessionStatusConfig>()
+    const map = new Map<string, SessionStatus>()
     for (const s of sessionStatuses) map.set(s.id, s)
     return map
   }, [sessionStatuses])
@@ -165,7 +165,7 @@ export function SessionTableHost() {
       if (meta.hidden || meta.isArchived) continue
       if (meta.parentSessionId) continue
       if (meta.taskDraft) continue
-      if (!filterSessionMeta(meta, filters, display.showCompleted, now)) continue
+      if (!filterSessionMeta(meta, filters, { showCompleted: display.showCompleted, now, statusById })) continue
       list.push(meta)
     }
     list.sort((a, b) => compareSessions(a, b, display.orderBy, display.orderDir))
