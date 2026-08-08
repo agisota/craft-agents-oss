@@ -99,6 +99,8 @@ describe('buildScrubbedWorkerEnv', () => {
       MY_API_KEY: 'x',
       SERVICE_ROLE_KEY: 'sk-supabase-role',
       RANDOM_TOKEN: 't',
+      DATABASE_URL: 'postgres://u:p@h/db',
+      SENTRY_DSN: 'https://key@sentry.io/1',
       CRAFT_CONFIG_DIR: '/tmp/cfg',
       CRAFT_EXTENSION_SANDBOX_ROOT: '/tmp/sandbox',
       ELECTRON_RUN_AS_NODE: '1',
@@ -112,6 +114,8 @@ describe('buildScrubbedWorkerEnv', () => {
     expect(env.MY_API_KEY).toBeUndefined()
     expect(env.SERVICE_ROLE_KEY).toBeUndefined()
     expect(env.RANDOM_TOKEN).toBeUndefined()
+    expect(env.DATABASE_URL).toBeUndefined()
+    expect(env.SENTRY_DSN).toBeUndefined()
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(env.NODE_OPTIONS).toBeUndefined()
   })
