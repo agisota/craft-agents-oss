@@ -88,6 +88,10 @@ export function MindMapHost({
     setSelectedId(selectedProp)
   }, [selectedProp])
 
+  React.useEffect(() => {
+    if (mode === 'outline') setSplit(false)
+  }, [mode])
+
   // Stable key — callers pass fresh entity object literals each render.
   const entityKey = entityPinKey(entity)
   const contentHash = graph?.contentHash ?? null
@@ -132,6 +136,25 @@ export function MindMapHost({
       return next
     })
   }, [])
+
+  // When pinned (fresh), keep collapse layout in the pin snapshot.
+  React.useEffect(() => {
+    if (!graph || !pin) return
+    if (isStale(pin, graph.contentHash)) return
+    const prev = new Set(pin.layout.collapsed ?? [])
+    if (prev.size === collapsed.size && [...collapsed].every((id) => prev.has(id))) {
+      return
+    }
+    const next: PinnedMap = {
+      ...createPinnedMap(graph, layoutFromCollapsed(collapsed)),
+      id: pin.id,
+      createdAt: pin.createdAt,
+      updatedAt: Date.now(),
+    }
+    savePin(next)
+    setPin(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only collapse/layout
+  }, [collapsed])
 
   const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
@@ -313,7 +336,7 @@ export function MindMapHost({
                 ? 'text-foreground bg-foreground/5'
                 : 'text-muted-foreground hover:text-foreground',
             )}
-            title={pinFresh ? t('mindmap.pinned') : t('mindmap.pin')}
+            title={pinFresh ? t('mindmap.unpin') : t('mindmap.pin')}
             aria-pressed={pinFresh}
             onClick={handleTogglePin}
           >
@@ -357,20 +380,20 @@ export function MindMapHost({
 
       {pinStale ? (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-950 dark:text-amber-100 shrink-0">
-          <span className="flex-1 truncate">{t('mindmap.resync')}</span>
+          <span className="flex-1 truncate">{t('mindmap.staleBanner')}</span>
           <button
             type="button"
             className="h-6 rounded-[6px] px-2 font-medium hover:bg-amber-500/20"
             onClick={handleKeepStale}
           >
-            {t('common.dismiss')}
+            {t('mindmap.keepPin')}
           </button>
           <button
             type="button"
             className="h-6 rounded-[6px] bg-foreground/90 px-2 font-medium text-background hover:bg-foreground"
             onClick={handleRebuildPin}
           >
-            {t('mindmap.pin')}
+            {t('mindmap.rebuildPin')}
           </button>
         </div>
       ) : null}
