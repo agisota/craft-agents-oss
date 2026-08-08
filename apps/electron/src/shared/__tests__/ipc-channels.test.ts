@@ -407,6 +407,8 @@ const EXPECTED_CHANNELS: string[] = [
   'session:event',
   'session:getModel',
   'session:setModel',
+  'sessions:bulkChanged',
+  'sessions:bulkUpdate',
   'sessions:cancel',
   'sessions:command',
   'sessions:create',
