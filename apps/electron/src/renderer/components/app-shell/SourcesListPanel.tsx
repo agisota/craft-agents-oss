@@ -100,10 +100,10 @@ export function SourcesListPanel({
     setReindexing(true)
     try {
       const result = await window.electronAPI.reindexSources(activeWorkspaceId)
-      setIndexFileCount(result.fileCount)
+      setIndexFileCount(result.indexed)
       toast.success(
         t('sourcesList.reindexDone', {
-          count: result.fileCount,
+          count: result.indexed,
           indexed: result.indexed,
         }),
       )

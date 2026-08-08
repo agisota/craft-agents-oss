@@ -233,6 +233,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.contextDocs.LIST,
   RPC_CHANNELS.contextDocs.READ,
   RPC_CHANNELS.contextDocs.WRITE,
+  RPC_CHANNELS.contextDocs.DELETE,
   RPC_CHANNELS.contextDocs.READ_TEMPLATE,
   RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE,
   RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE,
@@ -254,9 +255,26 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.marketplace.PROGRESS,
   RPC_CHANNELS.marketplace.CHANGED,
 
-  // knowledge — engine status/start reflect local process state, never proxied
+  // extensions — Extension Center catalog/state (local config dir + projections; same host as marketplace)
+  RPC_CHANNELS.extensions.LIST_CATALOG,
+  RPC_CHANNELS.extensions.LIST_INSTALLED,
+  RPC_CHANNELS.extensions.SET_ENABLED,
+  RPC_CHANNELS.extensions.GET_STATE,
+  RPC_CHANNELS.extensions.CHANGED,
+
+  // pluginBridge — SiYuan plugin bridge (local fixtures / residual kernel; never proxied)
+  RPC_CHANNELS.pluginBridge.LIST_PLUGINS,
+  RPC_CHANNELS.pluginBridge.GET_PROJECTIONS,
+  RPC_CHANNELS.pluginBridge.SET_ENABLED,
+  RPC_CHANNELS.pluginBridge.OPEN_COMPAT,
+
+  // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
+  RPC_CHANNELS.extensionHost.STATUS,
+  RPC_CHANNELS.extensionHost.RESTART,
+
+
+  // knowledge — engine status + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
-  RPC_CHANNELS.knowledge.ENGINE_START,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -264,16 +282,13 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.siyuan.LIST,
   RPC_CHANNELS.siyuan.SYNC_BOUNDS,
   RPC_CHANNELS.siyuan.FOCUS,
-  RPC_CHANNELS.siyuan.EVALUATE,
   RPC_CHANNELS.siyuan.STATE_CHANGED,
   RPC_CHANNELS.siyuan.REMOVED,
-
-  // gamification — user XP lives in local CONFIG_DIR
+  RPC_CHANNELS.knowledge.ENGINE_START,
+  RPC_CHANNELS.siyuan.EVALUATE,
   RPC_CHANNELS.gamification.GET,
   RPC_CHANNELS.gamification.AWARD,
   RPC_CHANNELS.gamification.CHANGED,
-
-  // orgs — local-only identity/membership bookkeeping (CONFIG_DIR)
   RPC_CHANNELS.orgs.LIST,
   RPC_CHANNELS.orgs.CREATE,
   RPC_CHANNELS.orgs.INVITE,
@@ -397,7 +412,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.GET,
   RPC_CHANNELS.knowledge.GET_CONTEXT,
   RPC_CHANNELS.knowledge.GET_BACKLINKS,
-  RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
   RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
   RPC_CHANNELS.knowledge.SNAPSHOT_GET,
   RPC_CHANNELS.knowledge.CHANGED,
@@ -433,7 +447,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
-  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+  // P7-prep G1 metrics — workspace file under {workspaceRoot}/knowledge/metrics.json
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
@@ -461,6 +475,17 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
+
+  // identity — profile + service connections (Identity Center, S-07)
+  RPC_CHANNELS.identity.GET_STATE,
+  RPC_CHANNELS.identity.UPDATE_PROFILE,
+  RPC_CHANNELS.identity.CONNECT,
+  RPC_CHANNELS.identity.DISCONNECT,
+  RPC_CHANNELS.identity.REFRESH_STATUS,
+  RPC_CHANNELS.identity.CHANGED,
+
+
+
 
   // llmConnections — LLM config lives on server running workspace
   RPC_CHANNELS.llmConnections.LIST,
@@ -512,7 +537,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.preferences.READ,
   RPC_CHANNELS.preferences.WRITE,
 
-
   // drafts — workspace content
   RPC_CHANNELS.drafts.GET,
   RPC_CHANNELS.drafts.SET,
@@ -522,15 +546,12 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // sources — source config per-workspace
   RPC_CHANNELS.sources.GET,
   RPC_CHANNELS.sources.CREATE,
-  RPC_CHANNELS.sources.UPDATE,
   RPC_CHANNELS.sources.DELETE,
   RPC_CHANNELS.sources.START_OAUTH,
   RPC_CHANNELS.sources.SAVE_CREDENTIALS,
   RPC_CHANNELS.sources.CHANGED,
   RPC_CHANNELS.sources.GET_PERMISSIONS,
   RPC_CHANNELS.sources.GET_MCP_TOOLS,
-  RPC_CHANNELS.sources.REINDEX,
-  RPC_CHANNELS.sources.SEARCH,
 
   // oauth — OAuth state management
   RPC_CHANNELS.oauth.START,
@@ -552,7 +573,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // skills — skill content per-workspace (not openEditor/openFinder which are local OS)
   RPC_CHANNELS.skills.GET,
   RPC_CHANNELS.skills.GET_FILES,
-  RPC_CHANNELS.skills.UPDATE,
   RPC_CHANNELS.skills.DELETE,
   RPC_CHANNELS.skills.IMPORT_OMP,
   RPC_CHANNELS.skills.GET_USAGE,
@@ -568,7 +588,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // labels — workspace metadata
   RPC_CHANNELS.labels.LIST,
   RPC_CHANNELS.labels.CREATE,
-  RPC_CHANNELS.labels.UPDATE,
   RPC_CHANNELS.labels.DELETE,
   RPC_CHANNELS.labels.CHANGED,
 
@@ -603,11 +622,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.projects.UPLOAD_ASSET,
   RPC_CHANNELS.projects.DELETE_ASSET,
   RPC_CHANNELS.projects.CHANGED,
-
-  // kanban — workspace board config
-  RPC_CHANNELS.kanban.GET_CONFIG,
-  RPC_CHANNELS.kanban.SET_CONFIG,
-  RPC_CHANNELS.kanban.CHANGED,
 
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,
@@ -686,6 +700,16 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.messaging.DISMISS_PENDING_SENDER,
   RPC_CHANNELS.messaging.ALLOW_PENDING_SENDER,
   RPC_CHANNELS.messaging.SET_BINDING_ACCESS,
+  RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+  RPC_CHANNELS.sources.UPDATE,
+  RPC_CHANNELS.sources.REINDEX,
+  RPC_CHANNELS.sources.SEARCH,
+  RPC_CHANNELS.skills.UPDATE,
+  RPC_CHANNELS.labels.UPDATE,
+  RPC_CHANNELS.kanban.GET_CONFIG,
+  RPC_CHANNELS.kanban.SET_CONFIG,
+  RPC_CHANNELS.kanban.CHANGED,
 ])
 
 // ---------------------------------------------------------------------------

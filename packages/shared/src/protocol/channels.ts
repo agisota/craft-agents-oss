@@ -167,6 +167,8 @@ export const RPC_CHANNELS = {
     SNAPSHOT_CREATE: 'knowledge:snapshotCreate',
     SNAPSHOT_GET: 'knowledge:snapshotGet',
     ENGINE_STATUS: 'knowledge:engineStatus',
+    DETECT_ENGINE: 'knowledge:detectEngine',
+    METRICS_GET: 'knowledge:metricsGet',
     /** LOCAL_ONLY: ensure default connection + start local SiYuan if installed. */
     ENGINE_START: 'knowledge:engineStart',
     CHANGED: 'knowledge:changed',
@@ -293,6 +295,39 @@ export const RPC_CHANNELS = {
   credentials: {
     HEALTH_CHECK: 'credentials:healthCheck',
   },
+  identity: {
+    GET_STATE: 'identity:getState',
+    UPDATE_PROFILE: 'identity:updateProfile',
+    CONNECT: 'identity:connect',
+    DISCONNECT: 'identity:disconnect',
+    REFRESH_STATUS: 'identity:refreshStatus',
+    CHANGED: 'identity:changed',
+  },
+  extensions: {
+    LIST_CATALOG: 'extensions:listCatalog',
+    LIST_INSTALLED: 'extensions:listInstalled',
+    SET_ENABLED: 'extensions:setEnabled',
+    GET_STATE: 'extensions:getState',
+    CHANGED: 'extensions:changed',
+  },
+
+  // pluginBridge — SiYuan plugin bridge projections (W6). LOCAL_ONLY.
+  // Kernel plugin list is residual; handlers fail-soft / fixture-backed.
+  pluginBridge: {
+    LIST_PLUGINS: 'pluginBridge:listPlugins',
+    GET_PROJECTIONS: 'pluginBridge:getProjections',
+    SET_ENABLED: 'pluginBridge:setEnabled',
+    OPEN_COMPAT: 'pluginBridge:openCompat', // returns route descriptor only
+  },
+
+  // extensionHost — Craft Extension Host lifecycle scaffold (W6).
+  // Does NOT execute SiYuan plugins.
+  extensionHost: {
+    STATUS: 'extensionHost:status',
+    RESTART: 'extensionHost:restart',
+  },
+
+
   onboarding: {
     GET_AUTH_STATE: 'onboarding:getAuthState',
     VALIDATE_MCP: 'onboarding:validateMcp',
@@ -354,11 +389,6 @@ export const RPC_CHANNELS = {
   preferences: {
     READ: 'preferences:read',
     WRITE: 'preferences:write',
-  },
-  gamification: {
-    GET: 'gamification:get',
-    AWARD: 'gamification:award',
-    CHANGED: 'gamification:changed',
   },
   drafts: {
     GET: 'drafts:get',
@@ -455,16 +485,6 @@ export const RPC_CHANNELS = {
     UPDATE: 'labels:update',
     DELETE: 'labels:delete',
     CHANGED: 'labels:changed',
-  },
-  orgs: {
-    LIST: 'orgs:list',
-    CREATE: 'orgs:create',
-    INVITE: 'orgs:invite',
-    ACCEPT: 'orgs:accept',
-    LIST_MEMBERS: 'orgs:listMembers',
-    GET_IDENTITY: 'orgs:getIdentity',
-    UPDATE_IDENTITY: 'orgs:updateIdentity',
-    SET_WORKSPACE_ORG: 'orgs:setWorkspaceOrg',
   },
   views: {
     LIST: 'views:list',
@@ -588,6 +608,23 @@ export const RPC_CHANNELS = {
     DELETE_ASSET: 'projects:deleteAsset',
     CHANGED: 'projects:changed',
   },
+  gamification: {
+    GET: 'gamification:get',
+    AWARD: 'gamification:award',
+    CHANGED: 'gamification:changed',
+  },
+
+  orgs: {
+    LIST: 'orgs:list',
+    CREATE: 'orgs:create',
+    INVITE: 'orgs:invite',
+    ACCEPT: 'orgs:accept',
+    LIST_MEMBERS: 'orgs:listMembers',
+    GET_IDENTITY: 'orgs:getIdentity',
+    UPDATE_IDENTITY: 'orgs:updateIdentity',
+    SET_WORKSPACE_ORG: 'orgs:setWorkspaceOrg',
+  },
+
   kanban: {
     GET_CONFIG: 'kanban:getConfig',
     SET_CONFIG: 'kanban:setConfig',
@@ -660,6 +697,7 @@ export const RPC_CHANNELS = {
     LIST: 'contextDocs:list',
     READ: 'contextDocs:read',
     WRITE: 'contextDocs:write',
+    DELETE: 'contextDocs:delete',
     READ_TEMPLATE: 'contextDocs:readTemplate',
     ACCEPT_TEMPLATE: 'contextDocs:acceptTemplate',
     KEEP_MINE_TEMPLATE: 'contextDocs:keepMineTemplate',

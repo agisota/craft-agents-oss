@@ -101,6 +101,51 @@ export interface SshBootstrapProgress {
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
 
+// Identity Center (S-07)
+import type {
+  IdentityState,
+  UpdateProfileInput,
+  ServiceProvider,
+  ServiceConnection,
+} from '@craft-agent/core/platform';
+export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
+
+// Extension Center (S-05) + SiYuan plugin bridge / Extension Host (W6)
+import type {
+  BridgeProjectedContributions,
+  CatalogEntry,
+  CatalogFilter,
+  ExtensionHostStatus,
+  ExtensionRecord,
+  ExtensionsChangedPayload,
+  ExtensionsGetStateResult,
+  ExtensionsListCatalogResult,
+  ExtensionsListInstalledResult,
+  ExtensionsSetEnabledResult,
+  ExtensionStateFile,
+  PluginBridgeGetProjectionsArgs,
+  PluginBridgeListResult,
+  PluginBridgeSetEnabledArgs,
+  PluginBridgeSetEnabledResult,
+} from '@craft-agent/shared/extensions'
+export type {
+  BridgeProjectedContributions,
+  CatalogEntry,
+  CatalogFilter,
+  ExtensionHostStatus,
+  ExtensionRecord,
+  ExtensionsChangedPayload,
+  ExtensionsGetStateResult,
+  ExtensionsListCatalogResult,
+  ExtensionsListInstalledResult,
+  ExtensionsSetEnabledResult,
+  ExtensionStateFile,
+  PluginBridgeGetProjectionsArgs,
+  PluginBridgeListResult,
+  PluginBridgeSetEnabledArgs,
+  PluginBridgeSetEnabledResult,
+}
+
 // Source types for session source selection
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
@@ -315,9 +360,11 @@ import type {
   RemoteSessionTransferPayload,
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
-  KnowledgeEngineStartResult,
+  KnowledgeDetectEngineResult,
   KnowledgeEngineStatus,
+  KnowledgeEngineStartResult,
   KnowledgeLinkRecord,
+  KnowledgeMetricsSnapshot,
   MutationInput,
   MutationProposal,
   MutationProposalStatus,
@@ -707,6 +754,10 @@ export interface ElectronAPI {
     engineStatus(args: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStatus>
     /** LOCAL_ONLY: seed default connection + start/open local SiYuan if installed. */
     engineStart(args?: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStartResult>
+    /** G1 metric counters (P7-prep). */
+    metricsGet(args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot>
+    /** Detect local SiYuan install/runtime without starting it. */
+    detectEngine(): Promise<KnowledgeDetectEngineResult>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
   }
   // Debug: send renderer logs to main process log file
@@ -771,12 +822,84 @@ export interface ElectronAPI {
   openFile(path: string): Promise<void>
   showInFolder(path: string): Promise<void>
   exportNotePdf(opts: { html: string; defaultPath: string }): Promise<{ canceled: boolean; filePath?: string }>
-  /** Save plain text via native save dialog (knowledge export, etc.). */
+
+  // --- overhaul PR additions ---
   saveTextFile(opts: {
     content: string
     defaultPath: string
     filters?: Array<{ name: string; extensions: string[] }>
   }): Promise<{ canceled: boolean; filePath?: string }>
+  updateSource(
+    workspaceId: string,
+    sourceSlug: string,
+    patch: { name?: string; enabled?: boolean; url?: string; path?: string; tagline?: string; guide?: string },
+  ): Promise<LoadedSource>
+  reindexSources(workspaceId: string): Promise<{ indexed: number; skipped: number; errorCount: number }>
+  searchSourcesIndex(
+    workspaceId: string,
+    query: string,
+    limit?: number,
+  ): Promise<{ hits: Array<{ path: string; tokens: number; snippet?: string }>; query: string }>
+  updateSkill(
+    workspaceId: string,
+    skillSlug: string,
+    patch: { name?: string; description?: string; instructions?: string },
+  ): Promise<LoadedSkill>
+  updateLabel(
+    workspaceId: string,
+    labelId: string,
+    patch: { name?: string; color?: import('@craft-agent/shared/colors').EntityColor },
+  ): Promise<import('@craft-agent/shared/labels').LabelConfig>
+  listOrganizations(): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers[]>
+  createOrganization(input: import('@craft-agent/shared/orgs').CreateOrganizationInput): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers>
+  inviteToOrganization(input: import('@craft-agent/shared/orgs').InviteToOrgInput): Promise<import('@craft-agent/shared/orgs').OrgInvite>
+  acceptOrganizationInvite(input: import('@craft-agent/shared/orgs').AcceptInviteInput): Promise<{
+    org: import('@craft-agent/shared/orgs').OrganizationWithMembers
+    member: import('@craft-agent/shared/orgs').OrgMember
+    invite: import('@craft-agent/shared/orgs').OrgInvite
+  }>
+  listOrganizationMembers(orgId: string): Promise<import('@craft-agent/shared/orgs').OrgMember[]>
+  getOrgIdentity(): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  updateOrgIdentity(updates: { username?: string; email?: string; name?: string }): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  setWorkspaceOrganization(workspaceId: string, orgId: string | null): Promise<Workspace>
+  getKanbanConfig(workspaceId: string): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
+  getGamificationProfile(): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+  }>
+  awardGamificationXp(event: 'session_completed' | 'automation_ran' | 'cloud_run_imported' | 'note_linked'): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+    awarded: number
+    event: string
+    leveledUp: boolean
+    previousLevel: number
+  }>
+  onGamificationChanged(callback: (payload: {
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold?: number
+  }) => void): () => void
+
 
   // Menu event listeners
   onMenuNewChat(callback: () => void): () => void
@@ -796,6 +919,43 @@ export interface ElectronAPI {
 
   // Credential health check (startup validation)
   getCredentialHealth(): Promise<CredentialHealthStatus>
+
+  // Identity Center (S-07)
+  identityGetState(args?: { workspaceId?: string }): Promise<IdentityState>
+  identityUpdateProfile(input: UpdateProfileInput): Promise<IdentityState>
+  identityConnect(args: {
+    provider: ServiceProvider
+    workspaceId: string
+    accountLabel?: string
+    credentialValue?: string
+    connectionId?: string
+  }): Promise<IdentityState>
+  identityDisconnect(args: { connectionId: string }): Promise<IdentityState>
+  identityRefreshStatus(args?: { workspaceId?: string }): Promise<IdentityState>
+  onIdentityChanged(callback: () => void): () => void
+
+  // Extension Center (S-05)
+  extensionsListCatalog(args?: { filter?: CatalogFilter }): Promise<ExtensionsListCatalogResult>
+  extensionsListInstalled(args?: {
+    workspaceId?: string
+    workingDirectory?: string
+  }): Promise<ExtensionsListInstalledResult>
+  extensionsSetEnabled(args: { id: string; enabled: boolean }): Promise<ExtensionsSetEnabledResult>
+  extensionsGetState(): Promise<ExtensionsGetStateResult>
+  onExtensionsChanged(callback: (payload: ExtensionsChangedPayload) => void): () => void
+
+  // SiYuan plugin bridge (W6)
+  pluginBridgeListPlugins(): Promise<PluginBridgeListResult>
+  pluginBridgeGetProjections(args: PluginBridgeGetProjectionsArgs): Promise<BridgeProjectedContributions>
+  pluginBridgeSetEnabled(args: PluginBridgeSetEnabledArgs): Promise<PluginBridgeSetEnabledResult>
+  pluginBridgeOpenCompat(args?: { pluginId?: string }): Promise<{
+    route: string
+    ref: { kind: 'notebook'; id: string }
+  }>
+
+  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  extensionHostStatus(): Promise<ExtensionHostStatus>
+  extensionHostRestart(): Promise<ExtensionHostStatus>
 
   // Onboarding
   getAuthState(): Promise<AuthState>
@@ -846,42 +1006,6 @@ export interface ElectronAPI {
   readPreferences(): Promise<{ content: string; exists: boolean; path: string }>
   writePreferences(content: string): Promise<{ success: boolean; error?: string }>
 
-  // Gamification profile (XP/level/balance)
-  getGamificationProfile(): Promise<{
-    xp: number
-    level: number
-    balance: number | null
-    progress: number
-    xpIntoLevel: number
-    xpForNext: number
-    nextThreshold: number | null
-    currentThreshold: number
-  }>
-  awardGamificationXp(event: 'session_completed' | 'automation_ran' | 'cloud_run_imported' | 'note_linked'): Promise<{
-    xp: number
-    level: number
-    balance: number | null
-    progress: number
-    xpIntoLevel: number
-    xpForNext: number
-    nextThreshold: number | null
-    currentThreshold: number
-    awarded: number
-    event: string
-    leveledUp: boolean
-    previousLevel: number
-  }>
-  onGamificationChanged(callback: (payload: {
-    xp: number
-    level: number
-    balance: number | null
-    progress: number
-    xpIntoLevel: number
-    xpForNext: number
-    nextThreshold: number | null
-    currentThreshold?: number
-  }) => void): () => void
-
   // Session Drafts (persisted composer state — text + attachment refs)
   getDraft(sessionId: string): Promise<import('@craft-agent/shared/config').SessionDraft | null>
   setDraft(sessionId: string, draft: import('@craft-agent/shared/config').SessionDraft): Promise<void>
@@ -899,17 +1023,6 @@ export interface ElectronAPI {
   // Sources
   getSources(workspaceId: string): Promise<LoadedSource[]>
   createSource(workspaceId: string, config: Partial<FolderSourceConfig>): Promise<FolderSourceConfig>
-  updateSource(
-    workspaceId: string,
-    sourceSlug: string,
-    updates: {
-      name?: string
-      enabled?: boolean
-      tagline?: string
-      url?: string
-      guide?: string
-    },
-  ): Promise<LoadedSource>
   deleteSource(workspaceId: string, sourceSlug: string): Promise<void>
   startSourceOAuth(workspaceId: string, sourceSlug: string): Promise<{ success: boolean; error?: string }>
   saveSourceCredentials(workspaceId: string, sourceSlug: string, credential: string): Promise<void>
@@ -917,32 +1030,6 @@ export interface ElectronAPI {
   getWorkspacePermissionsConfig(workspaceId: string): Promise<import('@craft-agent/shared/agent').PermissionsConfigFile | null>
   getDefaultPermissionsConfig(): Promise<{ config: import('@craft-agent/shared/agent').PermissionsConfigFile | null; path: string }>
   getMcpTools(workspaceId: string, sourceSlug: string): Promise<McpToolsResult>
-  reindexSources(workspaceId: string): Promise<{
-    indexed: number
-    skipped: number
-    truncated: boolean
-    dbPath: string
-    fts: boolean
-    fileCount: number
-    rootCount: number
-  }>
-  searchSourcesIndex(
-    workspaceId: string,
-    query: string,
-    limit?: number,
-  ): Promise<{
-    hits: Array<{
-      path: string
-      chars: number
-      tokens: number
-      mtime: number
-      snippet: string
-      rank: number
-    }>
-    total: number
-    fts: boolean
-    query: string
-  }>
 
   // OAuth (server-owned credentials, client-orchestrated flow)
   performOAuth(args: { sourceSlug: string; sessionId?: string; authRequestId?: string }): Promise<{ success: boolean; error?: string; email?: string }>
@@ -960,11 +1047,6 @@ export interface ElectronAPI {
   // Skills
   getSkills(workspaceId: string, workingDirectory?: string): Promise<LoadedSkill[]>
   getSkillFiles?(workspaceId: string, skillSlug: string): Promise<SkillFile[]>
-  updateSkill(
-    workspaceId: string,
-    skillSlug: string,
-    updates: import('@craft-agent/shared/skills').UpdateSkillContentInput,
-  ): Promise<LoadedSkill>
   deleteSkill(workspaceId: string, skillSlug: string): Promise<void>
   /** Import an OMP skill into workspace craft skills. Returns the materialized slug (may get a `-omp` suffix on conflict). */
   importOmpSkill(workspaceId: string, skillSlug: string): Promise<{ slug: string; path: string; renamed: boolean }>
@@ -1018,27 +1100,8 @@ export interface ElectronAPI {
   // Labels (workspace-scoped)
   listLabels(workspaceId: string): Promise<import('@craft-agent/shared/labels').LabelConfig[]>
   createLabel(workspaceId: string, input: import('@craft-agent/shared/labels').CreateLabelInput): Promise<import('@craft-agent/shared/labels').LabelConfig>
-  updateLabel(
-    workspaceId: string,
-    labelId: string,
-    updates: import('@craft-agent/shared/labels').UpdateLabelInput,
-  ): Promise<import('@craft-agent/shared/labels').LabelConfig>
   deleteLabel(workspaceId: string, labelId: string): Promise<{ stripped: number }>
   onLabelsChanged(callback: (workspaceId: string) => void): () => void
-
-  // Organizations (P3.1 team workspaces)
-  listOrganizations(): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers[]>
-  createOrganization(input: import('@craft-agent/shared/orgs').CreateOrganizationInput): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers>
-  inviteToOrganization(input: import('@craft-agent/shared/orgs').InviteToOrgInput): Promise<import('@craft-agent/shared/orgs').OrgInvite>
-  acceptOrganizationInvite(input: import('@craft-agent/shared/orgs').AcceptInviteInput): Promise<{
-    org: import('@craft-agent/shared/orgs').OrganizationWithMembers
-    member: import('@craft-agent/shared/orgs').OrgMember
-    invite: import('@craft-agent/shared/orgs').OrgInvite
-  }>
-  listOrganizationMembers(orgId: string): Promise<import('@craft-agent/shared/orgs').OrgMember[]>
-  getOrgIdentity(): Promise<{ userId: string; username?: string; email?: string; name?: string }>
-  updateOrgIdentity(updates: { username?: string; email?: string; name?: string }): Promise<{ userId: string; username?: string; email?: string; name?: string }>
-  setWorkspaceOrganization(workspaceId: string, orgId: string | null): Promise<Workspace>
 
   // LLM connections change listener
   onLlmConnectionsChanged(callback: () => void): () => void
@@ -1230,12 +1293,6 @@ export interface ElectronAPI {
   deleteProjectAsset(workspaceId: string, projectSlug: string, filename: string): Promise<void>
   onProjectsChanged(callback: (workspaceId: string, projects: unknown) => void): () => void
 
-  // Kanban board config (workspace-scoped)
-  getKanbanConfig(workspaceId: string): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
-  setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
-  onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
-
-
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
 
@@ -1314,6 +1371,7 @@ export interface ElectronAPI {
   listContextDocs(): Promise<ContextDocInfo[]>
   readContextDoc(filename: string): Promise<ContextDocContent>
   writeContextDoc(filename: string, content: string): Promise<ContextDocInfo>
+  deleteContextDoc(filename: string): Promise<void>
   readContextDocTemplate(filename: string): Promise<string | null>
   acceptContextDocTemplate(filename: string): Promise<ContextDocInfo>
   keepMineContextDocTemplate(filename: string): Promise<ContextDocInfo>
@@ -1672,11 +1730,10 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return 'skills'
   }
   if (state.navigator === 'notes') {
-    // Legacy vault surface only (P4.2); primary IA uses knowledge.
     if (state.details?.type === 'note') {
-      return `notes-legacy/note/${encodeURIComponent(state.details.noteId)}`
+      return `notes/note/${encodeURIComponent(state.details.noteId)}`
     }
-    return 'notes-legacy'
+    return 'notes'
   }
   if (state.navigator === 'automations') {
     if (state.details?.type === 'automation') {
@@ -1766,14 +1823,10 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     return { navigator: 'skills', details: null }
   }
 
-  // P4.2: bare `notes` / `notes/note/*` alias to Knowledge home (IA unify).
-  // Legacy vault uses `notes-legacy` so migration tooling can still open Tiptap.
-  if (key === 'notes' || key.startsWith('notes/note/')) {
-    return { navigator: 'knowledge', details: null }
-  }
-  if (key === 'notes-legacy') return { navigator: 'notes', details: null }
-  if (key.startsWith('notes-legacy/note/')) {
-    const noteId = decodeURIComponent(key.slice(18))
+  // Handle notes
+  if (key === 'notes') return { navigator: 'notes', details: null }
+  if (key.startsWith('notes/note/')) {
+    const noteId = decodeURIComponent(key.slice(11))
     if (noteId) {
       return { navigator: 'notes', details: { type: 'note', noteId } }
     }

@@ -168,6 +168,31 @@ export const CHANNEL_MAP = {
   logout: invoke(RPC_CHANNELS.auth.LOGOUT),
   getCredentialHealth: invoke(RPC_CHANNELS.credentials.HEALTH_CHECK),
 
+  // Identity Center (S-07)
+  identityGetState: invoke(RPC_CHANNELS.identity.GET_STATE),
+  identityUpdateProfile: invoke(RPC_CHANNELS.identity.UPDATE_PROFILE),
+  identityConnect: invoke(RPC_CHANNELS.identity.CONNECT),
+  identityDisconnect: invoke(RPC_CHANNELS.identity.DISCONNECT),
+  identityRefreshStatus: invoke(RPC_CHANNELS.identity.REFRESH_STATUS),
+  onIdentityChanged: listener(RPC_CHANNELS.identity.CHANGED),
+
+  // Extension Center (S-05)
+  extensionsListCatalog: invoke(RPC_CHANNELS.extensions.LIST_CATALOG),
+  extensionsListInstalled: invoke(RPC_CHANNELS.extensions.LIST_INSTALLED),
+  extensionsSetEnabled: invoke(RPC_CHANNELS.extensions.SET_ENABLED),
+  extensionsGetState: invoke(RPC_CHANNELS.extensions.GET_STATE),
+  onExtensionsChanged: listener(RPC_CHANNELS.extensions.CHANGED),
+
+  // SiYuan plugin bridge (W6)
+  pluginBridgeListPlugins: invoke(RPC_CHANNELS.pluginBridge.LIST_PLUGINS),
+  pluginBridgeGetProjections: invoke(RPC_CHANNELS.pluginBridge.GET_PROJECTIONS),
+  pluginBridgeSetEnabled: invoke(RPC_CHANNELS.pluginBridge.SET_ENABLED),
+  pluginBridgeOpenCompat: invoke(RPC_CHANNELS.pluginBridge.OPEN_COMPAT),
+
+  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),
+  extensionHostRestart: invoke(RPC_CHANNELS.extensionHost.RESTART),
+
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
   getSetupNeeds: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE, r => r.setupNeeds),
@@ -261,11 +286,14 @@ export const CHANNEL_MAP = {
   'knowledge.get': invoke(RPC_CHANNELS.knowledge.GET),
   'knowledge.getContext': invoke(RPC_CHANNELS.knowledge.GET_CONTEXT),
   'knowledge.getBacklinks': invoke(RPC_CHANNELS.knowledge.GET_BACKLINKS),
-  'knowledge.getExportPayload': invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD),
   'knowledge.createSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_CREATE),
   'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
+  'knowledge.getExportPayload': invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD),
+  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
   'knowledge.engineStart': invoke(RPC_CHANNELS.knowledge.ENGINE_START),
+  'siyuanEngine.evaluate': invoke(RPC_CHANNELS.siyuan.EVALUATE),
+
   // P3 write-back (spec 05): mutation-proposal lifecycle.
   'knowledge.proposeMutation': invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION),
   'knowledge.approveProposal': invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL),
@@ -292,7 +320,8 @@ export const CHANNEL_MAP = {
   'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
   'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
   'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
-  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
+  'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
+  'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop
@@ -303,7 +332,6 @@ export const CHANNEL_MAP = {
   'siyuanEngine.list': invoke(RPC_CHANNELS.siyuan.LIST),
   'siyuanEngine.syncBounds': invoke(RPC_CHANNELS.siyuan.SYNC_BOUNDS),
   'siyuanEngine.focus': invoke(RPC_CHANNELS.siyuan.FOCUS),
-  'siyuanEngine.evaluate': invoke(RPC_CHANNELS.siyuan.EVALUATE),
   'siyuanEngine.onStateChanged': listener(RPC_CHANNELS.siyuan.STATE_CHANGED),
   'siyuanEngine.onRemoved': listener(RPC_CHANNELS.siyuan.REMOVED),
 
@@ -313,11 +341,6 @@ export const CHANNEL_MAP = {
   // User Preferences
   readPreferences: invoke(RPC_CHANNELS.preferences.READ),
   writePreferences: invoke(RPC_CHANNELS.preferences.WRITE),
-
-  // Gamification profile
-  getGamificationProfile: invoke(RPC_CHANNELS.gamification.GET),
-  awardGamificationXp: invoke(RPC_CHANNELS.gamification.AWARD),
-  onGamificationChanged: listener(RPC_CHANNELS.gamification.CHANGED),
 
   // Session Drafts
   getDraft: invoke(RPC_CHANNELS.drafts.GET),
@@ -336,7 +359,6 @@ export const CHANNEL_MAP = {
   // Sources
   getSources: invoke(RPC_CHANNELS.sources.GET),
   createSource: invoke(RPC_CHANNELS.sources.CREATE),
-  updateSource: invoke(RPC_CHANNELS.sources.UPDATE),
   deleteSource: invoke(RPC_CHANNELS.sources.DELETE),
   startSourceOAuth: invoke(RPC_CHANNELS.sources.START_OAUTH),
   saveSourceCredentials: invoke(RPC_CHANNELS.sources.SAVE_CREDENTIALS),
@@ -345,8 +367,6 @@ export const CHANNEL_MAP = {
   getDefaultPermissionsConfig: invoke(RPC_CHANNELS.permissions.GET_DEFAULTS),
   onDefaultPermissionsChanged: listener(RPC_CHANNELS.permissions.DEFAULTS_CHANGED),
   getMcpTools: invoke(RPC_CHANNELS.sources.GET_MCP_TOOLS),
-  reindexSources: invoke(RPC_CHANNELS.sources.REINDEX),
-  searchSourcesIndex: invoke(RPC_CHANNELS.sources.SEARCH),
 
   // Session content search
   searchSessionContent: invoke(RPC_CHANNELS.sessions.SEARCH_CONTENT),
@@ -360,7 +380,6 @@ export const CHANNEL_MAP = {
   // Skills
   getSkills: invoke(RPC_CHANNELS.skills.GET),
   getSkillFiles: invoke(RPC_CHANNELS.skills.GET_FILES),
-  updateSkill: invoke(RPC_CHANNELS.skills.UPDATE),
   deleteSkill: invoke(RPC_CHANNELS.skills.DELETE),
   importOmpSkill: invoke(RPC_CHANNELS.skills.IMPORT_OMP),
   getSkillUsage: invoke(RPC_CHANNELS.skills.GET_USAGE),
@@ -400,19 +419,8 @@ export const CHANNEL_MAP = {
   // Labels
   listLabels: invoke(RPC_CHANNELS.labels.LIST),
   createLabel: invoke(RPC_CHANNELS.labels.CREATE),
-  updateLabel: invoke(RPC_CHANNELS.labels.UPDATE),
   deleteLabel: invoke(RPC_CHANNELS.labels.DELETE),
   onLabelsChanged: listener(RPC_CHANNELS.labels.CHANGED),
-
-  // Organizations (P3.1)
-  listOrganizations: invoke(RPC_CHANNELS.orgs.LIST),
-  createOrganization: invoke(RPC_CHANNELS.orgs.CREATE),
-  inviteToOrganization: invoke(RPC_CHANNELS.orgs.INVITE),
-  acceptOrganizationInvite: invoke(RPC_CHANNELS.orgs.ACCEPT),
-  listOrganizationMembers: invoke(RPC_CHANNELS.orgs.LIST_MEMBERS),
-  getOrgIdentity: invoke(RPC_CHANNELS.orgs.GET_IDENTITY),
-  updateOrgIdentity: invoke(RPC_CHANNELS.orgs.UPDATE_IDENTITY),
-  setWorkspaceOrganization: invoke(RPC_CHANNELS.orgs.SET_WORKSPACE_ORG),
 
   // LLM connections change listener
   onLlmConnectionsChanged: listener(RPC_CHANNELS.llmConnections.CHANGED),
@@ -566,12 +574,6 @@ export const CHANNEL_MAP = {
   deleteProjectAsset: invoke(RPC_CHANNELS.projects.DELETE_ASSET),
   onProjectsChanged: listener(RPC_CHANNELS.projects.CHANGED),
 
-  // Kanban board config
-  getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
-  setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
-  onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
-
-
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),
   testAutomation: invoke(RPC_CHANNELS.automations.TEST),
@@ -630,6 +632,7 @@ export const CHANNEL_MAP = {
   listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
   readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
   writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
+  deleteContextDoc: invoke(RPC_CHANNELS.contextDocs.DELETE),
   readContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.READ_TEMPLATE),
   acceptContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE),
   keepMineContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE),
@@ -650,4 +653,25 @@ export const CHANNEL_MAP = {
   refreshMarketplaceCatalog: invoke(RPC_CHANNELS.marketplace.REFRESH),
   onMarketplaceProgress: listener(RPC_CHANNELS.marketplace.PROGRESS),
   onMarketplaceChanged: listener(RPC_CHANNELS.marketplace.CHANGED),
+
+  // --- overhaul PR additions ---
+  getGamificationProfile: invoke(RPC_CHANNELS.gamification.GET),
+  awardGamificationXp: invoke(RPC_CHANNELS.gamification.AWARD),
+  onGamificationChanged: listener(RPC_CHANNELS.gamification.CHANGED),
+  updateSource: invoke(RPC_CHANNELS.sources.UPDATE),
+  reindexSources: invoke(RPC_CHANNELS.sources.REINDEX),
+  searchSourcesIndex: invoke(RPC_CHANNELS.sources.SEARCH),
+  updateSkill: invoke(RPC_CHANNELS.skills.UPDATE),
+  updateLabel: invoke(RPC_CHANNELS.labels.UPDATE),
+  listOrganizations: invoke(RPC_CHANNELS.orgs.LIST),
+  createOrganization: invoke(RPC_CHANNELS.orgs.CREATE),
+  inviteToOrganization: invoke(RPC_CHANNELS.orgs.INVITE),
+  acceptOrganizationInvite: invoke(RPC_CHANNELS.orgs.ACCEPT),
+  listOrganizationMembers: invoke(RPC_CHANNELS.orgs.LIST_MEMBERS),
+  getOrgIdentity: invoke(RPC_CHANNELS.orgs.GET_IDENTITY),
+  updateOrgIdentity: invoke(RPC_CHANNELS.orgs.UPDATE_IDENTITY),
+  setWorkspaceOrganization: invoke(RPC_CHANNELS.orgs.SET_WORKSPACE_ORG),
+  getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
+  setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
+  onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
 } satisfies ChannelMap
