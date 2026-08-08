@@ -15,6 +15,10 @@ import { SessionManager, createManagedSession } from './SessionManager.ts'
 /**
  * B1.3: priority / dueDate / rank setters + getSessions rank backfill.
  * Harness mirrors session-memory-mode.test.ts (cold managed map seed).
+ *
+ * Default: stub flushSession so getSessions backfill does not race temp-dir
+ * cleanup via PersistenceQueue. Tests that assert disk durability restore the
+ * real flush for that case only.
  */
 describe('session collection fields (B1.3)', () => {
   let tmpRoot: string
@@ -25,7 +29,10 @@ describe('session collection fields (B1.3)', () => {
     tmpRoot = mkdtempSync(join(tmpdir(), 'sm-collection-'))
     sm = new SessionManager()
     events.length = 0
-    ;(sm as unknown as { sendEvent: (e: { type: string; sessionId?: string; changes?: Record<string, unknown> }) => void }).sendEvent = (e) => {
+    sm.flushSession = async () => {}
+    ;(sm as unknown as {
+      sendEvent: (e: { type: string; sessionId?: string; changes?: Record<string, unknown> }) => void
+    }).sendEvent = (e) => {
       events.push(e)
     }
   })
@@ -33,6 +40,11 @@ describe('session collection fields (B1.3)', () => {
   afterEach(() => {
     rmSync(tmpRoot, { recursive: true, force: true })
   })
+
+  function enableRealFlush() {
+    const proto = Object.getPrototypeOf(sm) as SessionManager
+    sm.flushSession = proto.flushSession.bind(sm)
+  }
 
   function buildWorkspace(id = 'ws_test') {
     return {
@@ -81,7 +93,7 @@ describe('session collection fields (B1.3)', () => {
       },
       buildWorkspace(),
     )
-    ;(sm as unknown as { sessions: Map<string, unknown> }).sessions.set(sessionId, managed)
+    sm.sessions.set(sessionId, managed)
     return managed
   }
 
@@ -92,6 +104,7 @@ describe('session collection fields (B1.3)', () => {
   }
 
   it('setPriority persists and emits session_metadata_changed', async () => {
+    enableRealFlush()
     seedSession('s1')
     await sm.setPriority('s1', 'high')
     const header = readDiskHeader('s1')
@@ -102,6 +115,7 @@ describe('session collection fields (B1.3)', () => {
   })
 
   it('setDueDate null clears managed field and emits dueDate: null', async () => {
+    enableRealFlush()
     seedSession('s2', { dueDate: Date.UTC(2026, 7, 1, 12, 0, 0) })
     await sm.setDueDate('s2', null)
     const header = readDiskHeader('s2')
@@ -116,6 +130,7 @@ describe('session collection fields (B1.3)', () => {
   })
 
   it('setRank persists a valid rank', async () => {
+    enableRealFlush()
     seedSession('s4')
     await sm.setRank('s4', 'U')
     expect(readDiskHeader('s4').rank).toBe('U')
@@ -128,6 +143,7 @@ describe('session collection fields (B1.3)', () => {
   })
 
   it('reorderRank places rank between neighbors', async () => {
+    enableRealFlush()
     seedSession('a', { rank: 'A' })
     seedSession('b', { rank: 'Z' })
     seedSession('mid', { rank: 'A' })
@@ -138,7 +154,7 @@ describe('session collection fields (B1.3)', () => {
     expect(midRank < 'Z').toBe(true)
   })
 
-  it('getSessions backfills missing ranks ordered by lastMessageAt desc', async () => {
+  it('getSessions backfills missing ranks ordered by lastMessageAt desc', () => {
     seedSession('old', { lastMessageAt: 1000 })
     seedSession('new', { lastMessageAt: 3000 })
     seedSession('mid', { lastMessageAt: 2000 })
@@ -150,13 +166,10 @@ describe('session collection fields (B1.3)', () => {
       expect(lexorankValidate(s.rank!)).toBe(true)
     }
 
-    // rank asc should match lastMessageAt desc order after backfill
     const byRankAsc = [...first].sort((a, b) => (a.rank! < b.rank! ? -1 : a.rank! > b.rank! ? 1 : 0))
     expect(byRankAsc.map((s) => s.id)).toEqual(['new', 'mid', 'old'])
 
     const ranksAfterFirst = Object.fromEntries(first.map((s) => [s.id, s.rank]))
-
-    // Second load must not reshuffle
     const second = sm.getSessions('ws_test')
     for (const s of second) {
       expect(s.rank).toBe(ranksAfterFirst[s.id])
@@ -164,8 +177,8 @@ describe('session collection fields (B1.3)', () => {
   })
 
   it('managedToSession coerces missing priority/dueDate defaults', () => {
-    const managed = createManagedSession({ id: 'coerce' }, buildWorkspace())
-    ;(sm as unknown as { sessions: Map<string, unknown> }).sessions.set('coerce', managed)
+    const managed = createManagedSession({ id: 'coerce', rank: 'M' }, buildWorkspace())
+    sm.sessions.set('coerce', managed)
     const [session] = sm.getSessions('ws_test')
     expect(session.priority).toBe('none')
     expect(session.dueDate).toBeNull()

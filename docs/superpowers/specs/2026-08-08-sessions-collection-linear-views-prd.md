@@ -630,10 +630,9 @@ See §1.3. Additionally deferred unless new PRD:
 
 ## 15. Approval gate
 
-**Status: Draft.**  
+**Status: Approved (2026-08-08).**
 
-User review required before implementation plans or code.  
-Upon approval, flip status to **Approved** and proceed slice-by-slice starting at **B0** (or generate implementation plan for B0–B1 first).
+Implementation proceeds slice-by-slice starting at **B0** (see `docs/superpowers/plans/2026-08-08-sessions-collection-linear-views-plan.md`).
 
 ---
 
