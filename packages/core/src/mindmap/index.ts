@@ -26,6 +26,14 @@ export {
 } from './graph.ts';
 
 export {
+  autoLayout,
+  layoutBounds,
+  subtreeLeafCount,
+  visibleChildren,
+  type AutoLayoutOptions,
+} from './layout.ts';
+
+export {
   headingsToTree,
   MAX_OUTLINE_HEADINGS,
   parseOutlineHeadings,
