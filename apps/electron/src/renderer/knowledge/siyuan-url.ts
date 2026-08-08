@@ -28,6 +28,8 @@ export type SiyuanSurfaceMode =
   | 'global-graph'
   | 'outline'
   | 'backlinks'
+  | 'flashcard'
+  | 'plugins'
 
 export const SIYUAN_SURFACE_MODES: readonly SiyuanSurfaceMode[] = [
   'editor',
@@ -35,6 +37,8 @@ export const SIYUAN_SURFACE_MODES: readonly SiyuanSurfaceMode[] = [
   'global-graph',
   'outline',
   'backlinks',
+  'flashcard',
+  'plugins',
 ] as const
 
 export interface SiyuanSurfaceRef {
@@ -48,16 +52,88 @@ export interface BuildSiyuanSurfaceUrlOptions {
 
 /**
  * JS injected after load when craftSurface is set — opens the matching SiYuan
- * dock/panel (graph first; Alt+G fallback). Safe no-op if selectors miss.
+ * dock/panel for the requested mode. Safe no-op if selectors miss.
+ *
+ * Modes:
+ * - graph / global-graph → graph dock (Alt+G fallback)
+ * - outline → outline dock
+ * - backlinks → backlink dock
+ * - flashcard → riff/flashcard dock
+ * - plugins → plugin marketplace / plugin panel
  */
 export const SIYUAN_OPEN_DOCK_SCRIPT = `(() => {
-  const mode = document.location.search.includes('craftSurface=global-graph') ? 'global' : 'local';
-  const tryClick = (sel) => { const el = document.querySelector(sel); if (el) { el.click(); return true } return false };
-  // common SiYuan dock selectors
-  if (tryClick('[data-type="graph"]') || tryClick('.dock__item[data-type="graph"]') || tryClick('#dockLeft [data-type="graph"]')) return 'clicked';
+  const params = new URLSearchParams(document.location.search);
+  const surface = params.get('craftSurface') || '';
+  const tryClick = (sel) => {
+    const el = document.querySelector(sel);
+    if (el) { el.click(); return true; }
+    return false;
+  };
+  const clickAny = (sels) => {
+    for (const sel of sels) { if (tryClick(sel)) return true; }
+    return false;
+  };
+
+  if (surface === 'outline') {
+    if (clickAny([
+      '[data-type="outline"]',
+      '.dock__item[data-type="outline"]',
+      '#dockLeft [data-type="outline"]',
+      '#dockRight [data-type="outline"]',
+    ])) return 'clicked-outline';
+    return 'miss-outline';
+  }
+
+  if (surface === 'backlinks') {
+    if (clickAny([
+      '[data-type="backlink"]',
+      '[data-type="backlinks"]',
+      '.dock__item[data-type="backlink"]',
+      '.dock__item[data-type="backlinks"]',
+      '#dockLeft [data-type="backlink"]',
+      '#dockRight [data-type="backlink"]',
+    ])) return 'clicked-backlinks';
+    return 'miss-backlinks';
+  }
+
+  if (surface === 'flashcard') {
+    if (clickAny([
+      '[data-type="riff"]',
+      '[data-type="flashcard"]',
+      '.dock__item[data-type="riff"]',
+      '.dock__item[data-type="flashcard"]',
+      '#dockLeft [data-type="riff"]',
+      '#dockRight [data-type="riff"]',
+      '#dockLeft [data-type="flashcard"]',
+      '#dockRight [data-type="flashcard"]',
+    ])) return 'clicked-flashcard';
+    return 'miss-flashcard';
+  }
+
+  if (surface === 'plugins') {
+    if (clickAny([
+      '[data-type="plugin"]',
+      '[data-type="plugins"]',
+      '.dock__item[data-type="plugin"]',
+      '.dock__item[data-type="plugins"]',
+      '#dockLeft [data-type="plugin"]',
+      '#dockRight [data-type="plugin"]',
+      'button[data-type="plugin"]',
+      '.b3-menu__item[data-id="plugin"]',
+    ])) return 'clicked-plugins';
+    return 'miss-plugins';
+  }
+
+  // graph / global-graph (default non-editor dock path)
+  if (clickAny([
+    '[data-type="graph"]',
+    '.dock__item[data-type="graph"]',
+    '#dockLeft [data-type="graph"]',
+    '#dockRight [data-type="graph"]',
+  ])) return 'clicked-graph';
   // hotkey Alt+G (graph)
   document.dispatchEvent(new KeyboardEvent('keydown', {key:'g', code:'KeyG', altKey:true, bubbles:true}));
-  return 'hotkey';
+  return 'hotkey-graph';
 })()`
 
 

@@ -11,10 +11,10 @@
  * presentation, so graph/editor don't collide and the compositor still dedups
  * re-opens of the same mode across restarts.
  *
- * P4.1 surface modes: optional `mode` (editor|graph|global-graph|outline|backlinks)
- * drives URL query markers and a thin Craft toolbar. Non-editor modes evaluate
- * SIYUAN_OPEN_DOCK_SCRIPT once after load (~800ms) to open SiYuan docks. Toolbar
- * switches prefer in-page `location.href` evaluate + dock script over recreate.
+ * P4.1 surface modes: optional `mode` (editor|graph|global-graph|outline|backlinks|
+ * flashcard|plugins) drives URL query markers and a thin Craft toolbar. Non-editor
+ * modes evaluate SIYUAN_OPEN_DOCK_SCRIPT once after load (~800ms) to open SiYuan docks.
+ * Toolbar switches prefer in-page `location.href` evaluate + dock script over recreate.
  *
  * P4.3 copy/export: toolbar ⋯ menu calls knowledge.getExportPayload and copies
  * deep link / id / markdown / hPath, or exports markdown via saveTextFile.
@@ -76,6 +76,8 @@ const SURFACE_TOOLBAR_MODES: Array<{
   { mode: 'backlinks', labelKey: 'knowledge.surface.toolbar.backlinks' },
   { mode: 'graph', labelKey: 'knowledge.surface.toolbar.graph' },
   { mode: 'global-graph', labelKey: 'knowledge.surface.toolbar.globalGraph' },
+  { mode: 'flashcard', labelKey: 'knowledge.surface.toolbar.flashcards' },
+  { mode: 'plugins', labelKey: 'knowledge.surface.toolbar.plugins' },
   { mode: 'editor', labelKey: 'knowledge.surface.toolbar.editor' },
 ]
 
