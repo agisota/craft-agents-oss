@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Flag as FlagIcon, GripVertical } from 'lucide-react'
+import { Flag as FlagIcon, GripVertical } from 'lucide-react'
 import type { SessionPriority } from '@craft-agent/shared/sessions'
 import type { SessionMeta } from '@/atoms/sessions'
 import type { SessionStatus, SessionStatusConfig } from '@/config/session-status-config'
@@ -26,6 +26,10 @@ export interface SessionTableRowProps {
   showUpdated: boolean
   showCreated: boolean
   showFlag: boolean
+  /** B5: HTML5 drag reorder callbacks (table host wires when showGrip). */
+  onDragStartRow?: (sessionId: string) => void
+  onDragOverRow?: (sessionId: string, event: React.DragEvent) => void
+  dropIndicator?: 'before' | 'after' | null
 }
 
 const PRIORITY_ORDER: SessionPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
@@ -78,6 +82,9 @@ export function SessionTableRow({
   showUpdated,
   showCreated,
   showFlag,
+  onDragStartRow,
+  onDragOverRow,
+  dropIndicator,
 }: SessionTableRowProps) {
   const { t } = useTranslation()
   const title = getSessionTitle(meta as never) || meta.id.slice(0, 8)
@@ -88,14 +95,12 @@ export function SessionTableRow({
   const projectName = meta.projectId ? (projectNameById.get(meta.projectId) ?? meta.projectId) : ''
   const labelNames = (meta.labels ?? []).map((id) => labelById.get(id) ?? id).join(', ')
 
-  const dueInput = React.useRef<HTMLInputElement | null>(null)
-
   const onPickDue = (v: string | null) => {
     if (v === null) {
       onUpdate({ dueDate: null })
       return
     }
-    // Store UTC noon of the picked day (PRD FR-16)
+    // Store UTC noon of picked local calendar day (PRD FR-16).
     const [y, m, d] = v.split('-').map(Number)
     const noon = Date.UTC(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0)
     onUpdate({ dueDate: noon })
@@ -115,8 +120,17 @@ export function SessionTableRow({
       className={cn(
         'group flex items-center gap-2 border-b border-border/30 px-3 py-1.5 text-sm hover:bg-foreground/[0.02]',
         selected && 'bg-foreground/[0.05]',
+        dropIndicator === 'before' && 'border-t-2 border-t-foreground/40',
+        dropIndicator === 'after' && 'border-b-2 border-b-foreground/40',
       )}
       aria-selected={selected}
+      draggable={showGrip}
+      onDragStart={() => onDragStartRow?.(meta.id)}
+      onDragOver={(e) => {
+        if (!onDragOverRow) return
+        e.preventDefault()
+        onDragOverRow(meta.id, e)
+      }}
     >
       <span className="w-6 shrink-0">
         <input
@@ -128,7 +142,7 @@ export function SessionTableRow({
         />
       </span>
       {showGrip && (
-        <span className="w-4 shrink-0 text-muted-foreground/50">
+        <span className="w-4 shrink-0 cursor-grab text-muted-foreground/50 active:cursor-grabbing">
           <GripVertical className="h-3.5 w-3.5" />
         </span>
       )}
@@ -185,7 +199,6 @@ export function SessionTableRow({
       {showDue && (
         <span className={cn('w-24 shrink-0', due.overdue && 'text-red-500 font-medium')}>
           <input
-            ref={dueInput}
             type="date"
             className="w-full rounded-md border border-border/60 bg-background px-1 py-0.5 text-[11px]"
             value={dueInputValue}

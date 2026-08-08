@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import type { KanbanBoardConfig, KanbanGroupBy } from '@craft-agent/shared/kanban'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
+import { collectionDisplayAtom } from '@/atoms/collection-display'
 import { projectsAtom } from '@/atoms/projects'
 import {
   kanbanProjectFilterAtom,
@@ -187,6 +188,7 @@ export function KanbanBoardContainer() {
 
   const [expandedTaskIds, setExpandedTaskIds] = React.useState<Set<string>>(() => new Set())
   const [editorTarget, setEditorTarget] = useAtom(kanbanEditorTargetAtom)
+  const collectionDisplay = useAtomValue(collectionDisplayAtom)
 
   // Workspace board config (columns + groupBy).
   const [boardConfig, setBoardConfig] = React.useState<KanbanBoardConfig | null>(null)
@@ -537,6 +539,18 @@ export function KanbanBoardContainer() {
         void window.electronAPI.sessionCommand(taskId, {
           type: 'setProjectId',
           projectId: nextProjectId,
+        })
+      }
+
+      // B5: re-rank within destination column when Display orderBy === 'rank'.
+      if (collectionDisplay.orderBy === 'rank') {
+        const destSiblings = visibleTasks
+          .filter((t) => (t.kanbanColumn ?? statusToColumn((t.sessionStatus ?? 'todo') as never)) === (toColumn as string))
+          .filter((t) => t.id !== taskId)
+        const last = destSiblings[destSiblings.length - 1]
+        void window.electronAPI.sessionCommand(taskId, {
+          type: 'reorderRank',
+          prevId: last?.id,
         })
       }
 

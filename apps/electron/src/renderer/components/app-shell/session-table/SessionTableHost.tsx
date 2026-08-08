@@ -207,6 +207,80 @@ export function SessionTableHost() {
   const showGrip = display.orderBy === 'rank'
   const showCol = (prop: string) => display.visibleProperties.includes(prop as never)
 
+  // B5: rank drag reorder via HTML5 DnD when orderBy === 'rank'.
+  const dragIdRef = React.useRef<string | null>(null)
+  const [dropTarget, setDropTarget] = React.useState<{ sessionId: string; before: boolean } | null>(null)
+
+  const handleRowDragStart = React.useCallback((id: string) => {
+    dragIdRef.current = id
+  }, [])
+
+  const handleRowDragOver = React.useCallback(
+    (id: string, e: React.DragEvent) => {
+      if (!showGrip) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const before = e.clientY < rect.top + rect.height / 2
+      setDropTarget({ sessionId: id, before })
+    },
+    [showGrip],
+  )
+
+  const finalizeReorder = React.useCallback(
+    async (targetId: string, before: boolean) => {
+      const dragId = dragIdRef.current
+      dragIdRef.current = null
+      setDropTarget(null)
+      if (!dragId || dragId === targetId) return
+      if (!showGrip) return
+
+      // Flatten current ordered list (excluding hidden cols)
+      const flat = rows.flatMap((g) => g.items).map((s) => s)
+      const withoutDrag = flat.filter((s) => s.id !== dragId)
+      const targetIdx = withoutDrag.findIndex((s) => s.id === targetId)
+      if (targetIdx < 0) return
+      const insertAt = before ? targetIdx : targetIdx + 1
+      const prevSib = insertAt > 0 ? withoutDrag[insertAt - 1] : undefined
+      const nextSib = insertAt < withoutDrag.length ? withoutDrag[insertAt] : undefined
+
+      // Optimistically move rank between siblings so UI updates before event.
+      if (prevSib && nextSib) {
+        updateMeta({ id: dragId, rank: `${prevSib.rank ?? 'A'}~` })
+      }
+
+      try {
+        await window.electronAPI.sessionCommand(dragId, {
+          type: 'reorderRank',
+          prevId: prevSib?.id,
+          nextId: nextSib?.id,
+        })
+      } catch (err) {
+        console.error(err)
+        // Server will push authoritative rank through metadata event.
+      }
+    },
+    [rows, showGrip, updateMeta],
+  )
+
+  const handleTableDrop = React.useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      if (dropTarget) {
+        void finalizeReorder(dropTarget.sessionId, dropTarget.before)
+      } else {
+        dragIdRef.current = null
+        setDropTarget(null)
+      }
+    },
+    [dropTarget, finalizeReorder],
+  )
+
+  const handleTableDragEnd = React.useCallback(() => {
+    dragIdRef.current = null
+    setDropTarget(null)
+  }, [])
+
   return (
     <div className="flex h-full flex-col bg-background">
       <CollectionOpsBar
@@ -230,7 +304,14 @@ export function SessionTableHost() {
         className="border-b border-border/50"
       />
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className="min-h-0 flex-1 overflow-auto"
+        onDrop={handleTableDrop}
+        onDragOver={(e) => {
+          if (showGrip) e.preventDefault()
+        }}
+        onDragEnd={handleTableDragEnd}
+      >
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground backdrop-blur">
           <span className="w-6 shrink-0">
             <input
@@ -268,7 +349,7 @@ export function SessionTableHost() {
             </button>
           </div>
         ) : (
-          <ul>
+          <ul onDrop={handleTableDrop} onDragEnd={handleTableDragEnd}>
             {rows.map((group) => (
               <React.Fragment key={group.bucket?.key ?? 'all'}>
                 {group.bucket && (
@@ -323,6 +404,15 @@ export function SessionTableHost() {
                       showUpdated={showCol('updated')}
                       showCreated={showCol('created')}
                       showFlag={showCol('flag')}
+                      onDragStartRow={handleRowDragStart}
+                      onDragOverRow={handleRowDragOver}
+                      dropIndicator={
+                        dropTarget?.sessionId === meta.id
+                          ? dropTarget.before
+                            ? 'before'
+                            : 'after'
+                          : null
+                      }
                     />
                   ))}
               </React.Fragment>
