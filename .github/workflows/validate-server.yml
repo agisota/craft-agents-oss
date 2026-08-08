@@ -46,7 +46,9 @@ jobs:
       # Fork-server integration leg needs a live Claude auth token as of 2025-05;
       # stdio fork server auth-later path relies on @anthropic-ai/claude-call-proxy or similar helper internal for now
       - name: Build server bundle
-        run: bun build packages/server/src/index.ts --target bun --outdir dist-server
+        # xlsx stays external — its ESM build has no default export, so bundling fails;
+        # markitdown-js requires() it at runtime from node_modules instead.
+        run: bun build packages/server/src/index.ts --target bun --outdir dist-server --external xlsx
 
       - name: Start server and run lifecycle smoke
         run: |
