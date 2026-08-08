@@ -37,5 +37,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run validation suite
+      - name: Run validation suite (isolated config dir)
+        env:
+          CRAFT_CONFIG_DIR: /tmp/craft-validate-$RANDOM
         run: bun run typecheck:all && bun run test:shared:all && bun run lint:i18n:parity && bun run lint:i18n:sorted && bun run lint:i18n:coverage
