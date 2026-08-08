@@ -8,7 +8,13 @@
  * reports its DOM rect + focus state so main can position or hide the view.
  *
  * Instance identity: durableKey `siyuan:{kind}:{id}` — stable per document, so
- * the compositor dedups re-opens and restores surfaces across restarts.
+ * the compositor dedups re-opens and restores surfaces across restarts. Surface
+ * mode (editor/graph/…) is presentation-only and does not change the durable key.
+ *
+ * P4.1 surface modes: optional `mode` (editor|graph|global-graph|outline|backlinks)
+ * drives URL query markers and a thin Craft toolbar. Non-editor modes evaluate
+ * SIYUAN_OPEN_DOCK_SCRIPT once after load (~800ms) to open SiYuan docks. Toolbar
+ * switches prefer in-page `location.href` evaluate + dock script over recreate.
  *
  * Compat view: `routes.view.siyuan({ kind: 'notebook', id: '__full__' })` (or the
  * `compat` prop) renders the same full-UI surface with a hint banner; the
@@ -22,13 +28,30 @@ import { useTranslation } from 'react-i18next'
 import { focusedPanelIdAtom } from '@/atoms/panel-stack'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { isKnowledgeFeatureEnabled } from '@/lib/feature-flags'
+import { cn } from '@/lib/utils'
 import {
   buildSiyuanDurableKey,
   buildSiyuanSurfaceUrl,
   DEFAULT_BASE_URL,
   isSiyuanCompatRef,
+  needsSiyuanDockOpen,
+  SIYUAN_OPEN_DOCK_SCRIPT,
+  type SiyuanSurfaceMode,
   type SiyuanSurfaceRef,
 } from '@/knowledge/siyuan-url'
+
+const DOCK_OPEN_DELAY_MS = 800
+
+const SURFACE_TOOLBAR_MODES: Array<{
+  mode: SiyuanSurfaceMode
+  labelKey: string
+}> = [
+  { mode: 'outline', labelKey: 'knowledge.surface.toolbar.structure' },
+  { mode: 'backlinks', labelKey: 'knowledge.surface.toolbar.backlinks' },
+  { mode: 'graph', labelKey: 'knowledge.surface.toolbar.graph' },
+  { mode: 'global-graph', labelKey: 'knowledge.surface.toolbar.globalGraph' },
+  { mode: 'editor', labelKey: 'knowledge.surface.toolbar.editor' },
+]
 
 export interface KnowledgeSurfacePageProps {
   /** SiYuan ref kind from the knowledge route details (document/notebook/...), */
@@ -39,15 +62,27 @@ export interface KnowledgeSurfacePageProps {
   panelId?: string
   /** Explicit compat full-interface surface (else auto-detected from id) */
   compat?: boolean
+  /** Presentation mode — editor default; graph/outline/backlinks open docks */
+  mode?: SiyuanSurfaceMode
 }
 
-export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: KnowledgeSurfacePageProps) {
+export default function KnowledgeSurfacePage({
+  kind,
+  id,
+  panelId,
+  compat,
+  mode: modeProp = 'editor',
+}: KnowledgeSurfacePageProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef(0)
+  const baseUrlRef = useRef(DEFAULT_BASE_URL)
+  const surfaceModeRef = useRef<SiyuanSurfaceMode>(modeProp)
+  const dockOpenedForKeyRef = useRef<string | null>(null)
   const [instanceId, setInstanceId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [removed, setRemoved] = useState(false)
+  const [surfaceMode, setSurfaceMode] = useState<SiyuanSurfaceMode>(modeProp)
   const focusedPanelId = useAtomValue(focusedPanelIdAtom)
   const { activeWorkspaceId } = useAppShellContext()
   // Evaluated once at hook scope (P1-9): when the feature is off, effects
@@ -60,7 +95,56 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
   const ref = useMemo<SiyuanSurfaceRef>(() => ({ kind, id }), [kind, id])
   const isCompat = compat === true || isSiyuanCompatRef(ref)
 
-  // Resolve the base URL and create (or re-attach to) the durable instance once.
+  surfaceModeRef.current = surfaceMode
+
+  const runDockOpen = useCallback(async (targetInstanceId: string, mode: SiyuanSurfaceMode) => {
+    if (!needsSiyuanDockOpen(mode)) {
+      dockOpenedForKeyRef.current = `${targetInstanceId}:editor`
+      return
+    }
+    const openKey = `${targetInstanceId}:${mode}`
+    if (dockOpenedForKeyRef.current === openKey) return
+    dockOpenedForKeyRef.current = openKey
+    try {
+      await window.electronAPI.siyuanEngine.evaluate({
+        instanceId: targetInstanceId,
+        expression: SIYUAN_OPEN_DOCK_SCRIPT,
+      })
+    } catch {
+      // Dock open is best-effort — SiYuan DOM may not be ready / selectors may miss.
+      dockOpenedForKeyRef.current = null
+    }
+  }, [])
+
+  const navigateToMode = useCallback(
+    async (targetInstanceId: string, next: SiyuanSurfaceMode) => {
+      const nextUrl = buildSiyuanSurfaceUrl(baseUrlRef.current, ref, { mode: next })
+      await window.electronAPI.siyuanEngine.evaluate({
+        instanceId: targetInstanceId,
+        expression: `window.location.href = ${JSON.stringify(nextUrl)}`,
+      })
+      dockOpenedForKeyRef.current = null
+      if (needsSiyuanDockOpen(next)) {
+        window.setTimeout(() => {
+          void runDockOpen(targetInstanceId, next)
+        }, DOCK_OPEN_DELAY_MS)
+      }
+    },
+    [ref, runDockOpen],
+  )
+
+  // Controlled mode prop (session graph/mindmap tabs) — navigate in-place when live.
+  useEffect(() => {
+    if (modeProp === surfaceModeRef.current) return
+    setSurfaceMode(modeProp)
+    const liveId = instanceId
+    if (!liveId) return
+    void navigateToMode(liveId, modeProp).catch(() => {
+      // Best-effort; next create path still carries mode via URL if remounted.
+    })
+  }, [modeProp, instanceId, navigateToMode])
+
+  // Resolve the base URL and create (or re-attach to) the durable instance once per ref.
   useEffect(() => {
     if (!knowledgeEnabled) return
     let cancelled = false
@@ -92,9 +176,11 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
         const connections = await window.electronAPI.knowledge.listConnections()
         if (cancelled) return
         const baseUrl = connections.find((c) => c.baseUrl)?.baseUrl ?? DEFAULT_BASE_URL
+        baseUrlRef.current = baseUrl
+        const url = buildSiyuanSurfaceUrl(baseUrl, ref, { mode: surfaceModeRef.current })
         createdId = await window.electronAPI.siyuanEngine.createEmbedded({
           durableKey: buildSiyuanDurableKey(ref),
-          url: buildSiyuanSurfaceUrl(baseUrl, ref),
+          url,
           workspaceId: activeWorkspaceId,
         })
         if (cancelled) {
@@ -105,6 +191,8 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
         }
         released = true // ownership moves to the [instanceId] destroy effect
         setInstanceId(createdId)
+        setError(null)
+        setRemoved(false)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err))
       }
@@ -114,6 +202,28 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
       releaseOrphan()
     }
   }, [knowledgeEnabled, ref, activeWorkspaceId])
+
+  // After createEmbedded, open the dock once for non-editor modes.
+  useEffect(() => {
+    if (!instanceId || !needsSiyuanDockOpen(surfaceMode)) return
+    const timer = window.setTimeout(() => {
+      void runDockOpen(instanceId, surfaceMode)
+    }, DOCK_OPEN_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [instanceId, surfaceMode, runDockOpen])
+
+  const handleModeChange = useCallback(
+    (next: SiyuanSurfaceMode) => {
+      if (next === surfaceMode) return
+      setSurfaceMode(next)
+      const liveId = instanceId
+      if (!liveId) return
+      void navigateToMode(liveId, next).catch(() => {
+        // Ignore evaluate failures — toolbar state already updated.
+      })
+    },
+    [surfaceMode, instanceId, navigateToMode],
+  )
 
   // Push current bounds (or null when hidden) to the main process
   const syncBounds = useCallback(() => {
@@ -197,6 +307,35 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
 
   const fullSurface = <div ref={containerRef} className="h-full w-full bg-background" />
 
+  const toolbar =
+    knowledgeEnabled && instanceId ? (
+      <div
+        className="flex items-center gap-1 border-b border-border px-2 py-1"
+        role="toolbar"
+        aria-label={t('knowledge.surface.toolbar.label')}
+      >
+        {SURFACE_TOOLBAR_MODES.map(({ mode: m, labelKey }) => {
+          const active = surfaceMode === m
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => handleModeChange(m)}
+              className={cn(
+                'rounded-md px-2 py-0.5 text-xs transition-colors',
+                active
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+              )}
+              aria-pressed={active}
+            >
+              {t(labelKey)}
+            </button>
+          )
+        })}
+      </div>
+    ) : null
+
   if (!knowledgeEnabled) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-background px-6 text-center text-muted-foreground">
@@ -238,11 +377,21 @@ export default function KnowledgeSurfacePage({ kind, id, panelId, compat }: Know
         <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
           {t('knowledge.surface.compatHint')}
         </div>
+        {toolbar}
         <div className="relative min-h-0 flex-1">{fullSurface}</div>
       </div>
     )
   }
 
-  // Full-size surface for the native view to cover
+  // Full-size surface for the native view to cover (+ optional mode toolbar)
+  if (toolbar) {
+    return (
+      <div className="flex h-full w-full flex-col bg-background">
+        {toolbar}
+        <div className="relative min-h-0 flex-1">{fullSurface}</div>
+      </div>
+    )
+  }
+
   return fullSurface
 }

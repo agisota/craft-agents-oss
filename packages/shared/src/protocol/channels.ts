@@ -214,6 +214,8 @@ export const RPC_CHANNELS = {
     LIST: 'siyuan:list',
     SYNC_BOUNDS: 'siyuan:syncBounds',
     FOCUS: 'siyuan:focus',
+    /** Run JS in an embedded SiYuan surface (LOCAL_ONLY; dock open / mode switch). */
+    EVALUATE: 'siyuan:evaluate',
     STATE_CHANGED: 'siyuan:stateChanged',
     REMOVED: 'siyuan:removed',
   },

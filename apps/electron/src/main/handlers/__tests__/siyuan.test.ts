@@ -48,6 +48,7 @@ interface EmbeddedCalls {
   destroyed: string[]
   focused: string[]
   bounds: Array<{ id: string; rect: unknown }>
+  evaluated: Array<{ id: string; expression: string }>
   nextInstanceId: number
 }
 
@@ -81,6 +82,10 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
       focus: (id: string) => {
         calls.focused.push(id)
       },
+      evaluate: async (id: string, expression: string) => {
+        calls.evaluated.push({ id, expression })
+        return 'ok'
+      },
       onStateChange: () => {},
       onRemoved: () => {},
       onInteracted: () => {},
@@ -90,7 +95,7 @@ function makeDeps(calls: EmbeddedCalls): HandlerDeps {
 }
 
 function makeCalls(): EmbeddedCalls {
-  return { created: [], destroyed: [], focused: [], bounds: [], nextInstanceId: 0 }
+  return { created: [], destroyed: [], focused: [], bounds: [], evaluated: [], nextInstanceId: 0 }
 }
 
 const CTX = {} as never
@@ -111,13 +116,14 @@ describe('siyuan surface handlers', () => {
     HANDLED_CHANNELS = mod.HANDLED_CHANNELS
   })
 
-  it('declares exactly the 5 invoke channels — push events are handler-external', () => {
+  it('declares exactly the 6 invoke channels — push events are handler-external', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
       RPC_CHANNELS.siyuan.DESTROY,
       RPC_CHANNELS.siyuan.LIST,
       RPC_CHANNELS.siyuan.SYNC_BOUNDS,
       RPC_CHANNELS.siyuan.FOCUS,
+      RPC_CHANNELS.siyuan.EVALUATE,
     ])
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.siyuan.STATE_CHANGED)
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.siyuan.REMOVED)
@@ -318,5 +324,17 @@ describe('siyuan surface handlers', () => {
 
     focus(CTX, { instanceId: 'browser-embedded-1' })
     expect(calls.focused).toEqual(['browser-embedded-1'])
+  })
+
+  it('evaluate forwards expression to browserPaneManager.evaluate', async () => {
+    register(recorder.server, makeDeps(calls))
+    const evaluate = recorder.handlers.get(RPC_CHANNELS.siyuan.EVALUATE)!
+
+    const result = await evaluate(CTX, {
+      instanceId: 'browser-embedded-1',
+      expression: '1 + 1',
+    })
+    expect(result).toBe('ok')
+    expect(calls.evaluated).toEqual([{ id: 'browser-embedded-1', expression: '1 + 1' }])
   })
 })
