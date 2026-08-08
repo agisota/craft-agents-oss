@@ -26,7 +26,7 @@ import type { KnowledgeRef, SearchHit } from '@craft-agent/core/knowledge'
 import { windowWorkspaceIdAtom } from '@/atoms/sessions'
 import { EntityList } from '@/components/ui/entity-list'
 import { useNavigation } from '@/contexts/NavigationContext'
-import { routes } from '@/lib/navigate'
+import { navigate, routes } from '@/lib/navigate'
 import { cn } from '@/lib/utils'
 import type { ViewConfig as KnowledgeViewConfig } from '@craft-agent/shared/views'
 import { KnowledgeProposals } from './KnowledgeProposals'
@@ -627,6 +627,17 @@ export function KnowledgeHome() {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground flex items-center justify-between gap-2">
+        <span>{t('knowledge.legacyNotes.banner', { defaultValue: 'Markdown notes vault is legacy — Knowledge (SiYuan) is primary.' })}</span>
+        <button
+          type="button"
+          className="shrink-0 underline underline-offset-2 hover:text-foreground"
+          onClick={() => navigate(routes.view.notesLegacy())}
+        >
+          {t('knowledge.legacyNotes.open', { defaultValue: 'Open legacy notes' })}
+        </button>
+      </div>
+
       <EntityList<SearchHit>
         className="flex-1"
         header={

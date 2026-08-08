@@ -755,6 +755,8 @@
   "knowledge.inspector.outline": "アウトライン",
   "knowledge.inspector.properties": "プロパティ",
   "knowledge.inspector.title": "インスペクター",
+  "knowledge.legacyNotes.banner": "Markdownメモはレガシーです。主はKnowledge（SiYuan）です。",
+  "knowledge.legacyNotes.open": "旧メモを開く",
   "knowledge.nav.daily": "デイリーノート",
   "knowledge.nav.databases": "データベース",
   "knowledge.nav.favorites": "お気に入り",

@@ -755,6 +755,8 @@
   "knowledge.inspector.outline": "Outline",
   "knowledge.inspector.properties": "Properties",
   "knowledge.inspector.title": "Inspector",
+  "knowledge.legacyNotes.banner": "Markdown notes are legacy — Knowledge (SiYuan) is the primary workspace.",
+  "knowledge.legacyNotes.open": "Open legacy notes",
   "knowledge.nav.daily": "Daily notes",
   "knowledge.nav.databases": "Databases",
   "knowledge.nav.favorites": "Favorites",

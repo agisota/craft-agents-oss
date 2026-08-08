@@ -1981,9 +1981,9 @@ function AppShellContent({
     navigate(routes.view.memory())
   }, [])
 
-  // Handler for notes view
+  // P4.2: Notes IA → Knowledge (legacy vault via notesLegacy / settings)
   const handleNotesClick = useCallback(() => {
-    navigate(routes.view.notes())
+    navigate(routes.view.knowledge())
   }, [])
 
   // Handlers for automations view
@@ -2300,7 +2300,7 @@ function AppShellContent({
     result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
-    result.push({ id: 'nav:notes', type: 'nav', action: handleNotesClick })
+    // notes nav removed P4.2 — knowledge is primary PKM
     result.push({ id: 'nav:knowledge', type: 'nav', action: handleKnowledgeClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
@@ -2831,13 +2831,6 @@ function AppShellContent({
                         type: 'skills',
                         onAddSkill: openAddSkill,
                       },
-                    },
-                    {
-                      id: "nav:notes",
-                      title: t(APP_NAV_DESTINATIONS_BY_ID.notes.labelKey),
-                      icon: APP_NAV_DESTINATIONS_BY_ID.notes.icon,
-                      variant: isNotesNavigation(navState) ? "default" : "ghost",
-                      onClick: handleNotesClick,
                     },
                     {
                       id: "nav:knowledge",

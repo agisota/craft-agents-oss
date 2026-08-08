@@ -755,6 +755,8 @@
   "knowledge.inspector.outline": "Esquema",
   "knowledge.inspector.properties": "Propiedades",
   "knowledge.inspector.title": "Inspector",
+  "knowledge.legacyNotes.banner": "Las notas Markdown son heredadas — Knowledge (SiYuan) es principal.",
+  "knowledge.legacyNotes.open": "Abrir notas heredadas",
   "knowledge.nav.daily": "Notas diarias",
   "knowledge.nav.databases": "Bases de datos",
   "knowledge.nav.favorites": "Favoritos",
