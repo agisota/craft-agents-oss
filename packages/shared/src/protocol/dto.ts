@@ -694,6 +694,37 @@ export interface KnowledgeEngineStartResult {
   installUrl?: string
 }
 
+/** Result of knowledge:metricsGet (P7-prep G1). */
+export interface KnowledgeMetricsSnapshot {
+  version: 1
+  updatedAt: string
+  counters: {
+    connectionsActive: number
+    publicationsTotal: number
+    publicationsLast7d: number
+    automationProposalsTotal: number
+    automationRunsTriggered: number
+    knowledgeSurfaceOpens: number
+    viewRunsTotal: number
+    watchTicksTotal: number
+  }
+  daily?: Record<string, { publications?: number; automationProposals?: number; viewRuns?: number }>
+}
+
+/** Result of knowledge:detectEngine (P7-prep external-local assist). */
+export interface KnowledgeDetectEngineResult {
+  installed: boolean
+  runningOnDefaultPort: boolean
+  suggestedBaseUrl: string
+  installPathsFound: string[]
+  platform: string
+  canOpenApp: boolean
+  /** Official SiYuan install docs — Craft never downloads the binary. */
+  installDocsUrl: string
+}
+
+
+
 // ---------------------------------------------------------------------------
 // Knowledge mutation safety — P3 write-back wire types (spec 05 K-05 §3.1/§3.2,
 // persistence shape in K-04 §3.3.4). CANONICAL HOME: packages/core/src/knowledge/mutations.ts

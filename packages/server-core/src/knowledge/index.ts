@@ -20,4 +20,20 @@ export * from './metrics-store'
 export * from './siyuan-detect'
 export * from './siyuan-plugins-fs'
 export * from './notes-migration'
-export * from './siyuan-bootstrap'
+// Named exports only — siyuan-bootstrap re-exports SIYUAN_DEFAULT_BASE_URL which
+// collides with siyuan-detect (TS2308).
+export {
+  SIYUAN_LOCAL_CONNECTION_ID,
+  SIYUAN_INSTALL_URL,
+  ensureDefaultLocalConnection,
+  ensureLocalKernel,
+  getKernelBootstrapStatus,
+  maybeAutoStartLocalKernel,
+  probeKernelHealth,
+  siyuanDataDir,
+  spawnLocalSiyuan,
+  type EnsureLocalKernelResult,
+  type KernelBootstrapStatus,
+  type KernelStartMethod,
+  type BootstrapDeps,
+} from './siyuan-bootstrap'
