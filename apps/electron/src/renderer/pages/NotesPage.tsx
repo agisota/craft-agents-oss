@@ -1384,10 +1384,13 @@ h1,h2,h3{margin-top:1.5em}
     if (!sideSessionId) return
     const draft = (getDraft(sideSessionId) || sideSessionPrompt).trim()
     if (!draft) return
-    onSendMessage(sideSessionId, draft)
-    onInputChange(sideSessionId, '')
+    const sessionId = sideSessionId
+    onSendMessage(sessionId, draft)
+    onInputChange(sessionId, '')
     setSideSessionPrompt('')
-  }, [sideSessionId, sideSessionPrompt, getDraft, onSendMessage, onInputChange])
+    closeSideSession()
+    navigate(routes.view.allSessions(sessionId))
+  }, [sideSessionId, sideSessionPrompt, getDraft, onSendMessage, onInputChange, closeSideSession])
 
   const openAssetRenameDialog = (asset: NoteAsset) => {
     setAssetRenameTarget(asset)

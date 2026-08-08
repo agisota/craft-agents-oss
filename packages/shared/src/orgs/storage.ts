@@ -5,11 +5,11 @@
  * Server-mode redemption (CRAFT_SERVER_URL) is handled at the RPC layer.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { randomBytes, randomUUID } from 'crypto'
 import { CONFIG_DIR } from '../config/paths.ts'
-import { readJsonFileSync } from '../utils/files.ts'
+import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts'
 import {
   ensureLocalUserIdentity,
   loadPreferences,
@@ -20,6 +20,7 @@ import type {
   CreateOrganizationInput,
   InviteToOrgInput,
   OrgInvite,
+  OrgInvitePublic,
   OrgMember,
   OrgRole,
   Organization,
@@ -61,20 +62,26 @@ export function getOrgsPath(): string {
 }
 
 export function loadOrgsStore(): OrgsStoreFile {
-  try {
-    if (!existsSync(ORGS_FILE)) return { ...EMPTY_STORE, organizations: [], members: [], invites: [] }
-    const raw = readJsonFileSync<Partial<OrgsStoreFile>>(ORGS_FILE)
-    if (!raw || typeof raw !== 'object') {
-      return { ...EMPTY_STORE, organizations: [], members: [], invites: [] }
-    }
-    return {
-      version: STORE_VERSION,
-      organizations: Array.isArray(raw.organizations) ? raw.organizations : [],
-      members: Array.isArray(raw.members) ? raw.members : [],
-      invites: Array.isArray(raw.invites) ? raw.invites : [],
-    }
-  } catch {
+  if (!existsSync(ORGS_FILE)) {
     return { ...EMPTY_STORE, organizations: [], members: [], invites: [] }
+  }
+  // Fail closed: corrupt or unreadable existing file must not wipe data on next save.
+  let raw: Partial<OrgsStoreFile> | null
+  try {
+    raw = readJsonFileSync<Partial<OrgsStoreFile>>(ORGS_FILE)
+  } catch (err) {
+    throw err instanceof Error
+      ? err
+      : new Error(`Failed to read orgs store: ${String(err)}`)
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Invalid orgs store: expected a JSON object')
+  }
+  return {
+    version: STORE_VERSION,
+    organizations: Array.isArray(raw.organizations) ? raw.organizations : [],
+    members: Array.isArray(raw.members) ? raw.members : [],
+    invites: Array.isArray(raw.invites) ? raw.invites : [],
   }
 }
 
@@ -86,7 +93,13 @@ export function saveOrgsStore(store: OrgsStoreFile): void {
     members: store.members,
     invites: store.invites,
   }
-  writeFileSync(ORGS_FILE, JSON.stringify(payload, null, 2) + '\n', 'utf-8')
+  atomicWriteFileSync(ORGS_FILE, JSON.stringify(payload, null, 2) + '\n')
+}
+
+/** Strip invite tokens from list/get DTOs (create/accept still return full tokens). */
+function toPublicInvite(invite: OrgInvite): OrgInvitePublic {
+  const { token: _token, ...rest } = invite
+  return rest
 }
 
 function uniqueSlug(base: string, existing: Organization[]): string {
@@ -110,7 +123,9 @@ export function listOrganizations(): OrganizationWithMembers[] {
   return store.organizations.map((org) => ({
     ...org,
     members: store.members.filter((m) => m.orgId === org.id),
-    pendingInvites: store.invites.filter((i) => i.orgId === org.id && !i.acceptedAt),
+    pendingInvites: store.invites
+      .filter((i) => i.orgId === org.id && !i.acceptedAt)
+      .map(toPublicInvite),
   }))
 }
 
@@ -121,7 +136,9 @@ export function getOrganization(orgId: string): OrganizationWithMembers | null {
   return {
     ...org,
     members: store.members.filter((m) => m.orgId === org.id),
-    pendingInvites: store.invites.filter((i) => i.orgId === org.id && !i.acceptedAt),
+    pendingInvites: store.invites
+      .filter((i) => i.orgId === org.id && !i.acceptedAt)
+      .map(toPublicInvite),
   }
 }
 
@@ -282,7 +299,9 @@ export function acceptInvite(input: AcceptInviteInput): {
     org: {
       ...org,
       members: store.members.filter((m) => m.orgId === org.id),
-      pendingInvites: store.invites.filter((i) => i.orgId === org.id && !i.acceptedAt),
+      pendingInvites: store.invites
+        .filter((i) => i.orgId === org.id && !i.acceptedAt)
+        .map(toPublicInvite),
     },
     member,
     invite,
