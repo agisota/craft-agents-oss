@@ -330,6 +330,8 @@ export const CHANNEL_MAP = {
   'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
   'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
   'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
+  'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
+  'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop

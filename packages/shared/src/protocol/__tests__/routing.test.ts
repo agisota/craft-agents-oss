@@ -137,9 +137,11 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     }
   })
 
-  test('knowledge ENGINE_STATUS and ENGINE_START are LOCAL_ONLY', () => {
+  test('knowledge ENGINE_STATUS, DETECT_ENGINE and ENGINE_START are LOCAL_ONLY', () => {
     expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(true)
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
+    expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.DETECT_ENGINE)).toBe(true)
+    expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.DETECT_ENGINE)).toBe(false)
     expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_START)).toBe(true)
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_START)).toBe(false)
   })
@@ -150,6 +152,7 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
       'APPROVE_PROPOSAL',
       'CAPABILITIES',
       'CHANGED',
+      'DETECT_ENGINE',
       'ENGINE_START',
       'ENGINE_STATUS',
       'ENVELOPE_GET',
@@ -163,6 +166,7 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
       'LIST_CONNECTIONS',
       'LIST_LINKS',
       'LIST_PROPOSALS',
+      'METRICS_GET',
       'MIGRATE_NOTES',
       'PROPOSE_MUTATION',
       'PUBLISH_APPLY',

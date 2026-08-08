@@ -369,6 +369,7 @@ import type {
   ImportRemoteSessionTransferResult,
   KnowledgeChangedPayload,
   KnowledgeDetectEngineResult,
+  KnowledgeEngineStartResult,
   KnowledgeEngineStatus,
   KnowledgeLinkRecord,
   KnowledgeMetricsSnapshot,
@@ -759,7 +760,9 @@ export interface ElectronAPI {
       notebookId: string
     }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
-    engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
+    engineStatus(args: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStatus>
+    /** LOCAL_ONLY: seed default connection + start/open local SiYuan if installed. */
+    engineStart(args?: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStartResult>
     /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
     metricsGet(args?: { workspaceId?: string }): Promise<KnowledgeMetricsSnapshot>
     /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */

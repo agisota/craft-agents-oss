@@ -167,6 +167,10 @@ export const RPC_CHANNELS = {
     SNAPSHOT_CREATE: 'knowledge:snapshotCreate',
     SNAPSHOT_GET: 'knowledge:snapshotGet',
     ENGINE_STATUS: 'knowledge:engineStatus',
+    /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
+    DETECT_ENGINE: 'knowledge:detectEngine',
+    /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
+    METRICS_GET: 'knowledge:metricsGet',
     /** LOCAL_ONLY: ensure default connection + start local SiYuan if installed. */
     ENGINE_START: 'knowledge:engineStart',
     CHANGED: 'knowledge:changed',

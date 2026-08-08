@@ -293,8 +293,10 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.extensionSurface.REMOVED,
 
 
-  // knowledge — engine status + install detect reflect the answering host, never proxied
+  // knowledge — engine status/start + install detect reflect the answering host, never proxied
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
+  RPC_CHANNELS.knowledge.DETECT_ENGINE,
+  RPC_CHANNELS.knowledge.ENGINE_START,
 
   // siyuan — embedded SiYuan surface lifecycle drives local Electron BrowserViews
   RPC_CHANNELS.siyuan.CREATE_EMBEDDED,
@@ -472,6 +474,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
   RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+  RPC_CHANNELS.knowledge.METRICS_GET,
 
   // memory — lesson/context data served by workspace host
   RPC_CHANNELS.memory.LIST_LESSONS,
@@ -567,6 +570,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sources.CHANGED,
   RPC_CHANNELS.sources.GET_PERMISSIONS,
   RPC_CHANNELS.sources.GET_MCP_TOOLS,
+  RPC_CHANNELS.sources.REINDEX,
+  RPC_CHANNELS.sources.SEARCH,
 
   // oauth — OAuth state management
   RPC_CHANNELS.oauth.START,
