@@ -2,9 +2,11 @@
  * Extension UI surface handlers (S-05 sandboxed BrowserView).
  *
  * Thin registry over BrowserPaneManager: embedded extension panels are keyed by
- * a durable view key (`ext:${extensionId}:${viewId}`), so re-opening the same
- * view dedupifies onto the existing surface. Each extension gets an isolated
- * session partition `persist:ext-${extensionId}` (sandbox + contextIsolation).
+ * a durable view key (`ext:${ws||'_default'}:${extensionId}:${viewId}`), so
+ * re-opening the same view dedupifies onto the existing surface. Same extension
+ * in two workspaces = two surfaces. Each extension×workspace gets an isolated
+ * session partition `persist:ext-${ws||'default'}-${extensionId}`
+ * (sandbox + contextIsolation).
  *
  * Delegation shape mirrors handlers/siyuan.ts 1:1 (create-embedded /
  * sync-bounds / destroy / list / focus forwards, broadcastToAll push
@@ -49,6 +51,23 @@ export class ExtensionSurfaceManager {
 
   get(durableKey: string): ExtensionSurfaceRecord | undefined {
     return this.byDurableKey.get(durableKey)
+  }
+
+  /** Lookup a live surface by its (extensionId, viewId) pair across workspaces. */
+  getByPair(extensionId: string, viewId: string): ExtensionSurfaceRecord | undefined {
+    for (const record of this.byDurableKey.values()) {
+      if (record.extensionId === extensionId && record.viewId === viewId) return record
+    }
+    return undefined
+  }
+
+  /** Move a record under a new durableKey (workspace rebind). */
+  rekey(record: ExtensionSurfaceRecord, durableKey: string): void {
+    for (const [key, value] of this.byDurableKey) {
+      if (value === record) this.byDurableKey.delete(key)
+    }
+    record.durableKey = durableKey
+    this.byDurableKey.set(durableKey, record)
   }
 
   getByInstanceId(instanceId: string): ExtensionSurfaceRecord | undefined {
@@ -108,12 +127,23 @@ function toState(record: ExtensionSurfaceRecord): ExtensionSurfaceState {
   }
 }
 
-export function buildExtensionDurableKey(extensionId: string, viewId: string): string {
-  return `ext:${extensionId}:${viewId}`
+export function buildExtensionDurableKey(
+  workspaceId: string | null | undefined,
+  extensionId: string,
+  viewId: string,
+): string {
+  const ws =
+    typeof workspaceId === 'string' && workspaceId.trim() ? workspaceId.trim() : '_default'
+  return `ext:${ws}:${extensionId}:${viewId}`
 }
 
-export function extensionPartition(extensionId: string): string {
-  return `persist:ext-${extensionId}`
+export function extensionPartition(
+  workspaceId: string | null | undefined,
+  extensionId: string,
+): string {
+  const ws =
+    typeof workspaceId === 'string' && workspaceId.trim() ? workspaceId.trim() : 'default'
+  return `persist:ext-${ws}-${extensionId}`
 }
 
 export interface ExtensionCreateEmbeddedInput {
@@ -155,10 +185,16 @@ export function registerExtensionSurfaceHandlers(server: RpcServer, deps: Handle
       const extensionId = requireNonEmptyString(input?.extensionId, 'extensionId')
       const viewId = requireNonEmptyString(input?.viewId, 'viewId')
       const url = typeof input?.url === 'string' ? input.url : 'about:blank'
-      const durableKey =
-        typeof input?.durableKey === 'string' && input.durableKey.trim().length > 0
-          ? input.durableKey.trim()
-          : buildExtensionDurableKey(extensionId, viewId)
+      const workspaceId = input?.workspaceId ?? null
+      const expectedKey = buildExtensionDurableKey(workspaceId, extensionId, viewId)
+      if (
+        typeof input?.durableKey === 'string' &&
+        input.durableKey.trim().length > 0 &&
+        input.durableKey.trim() !== expectedKey
+      ) {
+        throw new Error('durableKey does not match extensionId/viewId/workspace')
+      }
+      const durableKey = expectedKey
 
       const existing = surfaces.get(durableKey)
       if (existing) {
@@ -173,8 +209,8 @@ export function registerExtensionSurfaceHandlers(server: RpcServer, deps: Handle
 
       const instanceId = browserPaneManager.createEmbeddedInstance({
         url,
-        workspaceId: input.workspaceId ?? null,
-        partition: extensionPartition(extensionId),
+        workspaceId,
+        partition: extensionPartition(workspaceId, extensionId),
       })
       const record: ExtensionSurfaceRecord = {
         instanceId,
@@ -182,7 +218,7 @@ export function registerExtensionSurfaceHandlers(server: RpcServer, deps: Handle
         extensionId,
         viewId,
         url,
-        workspaceId: input.workspaceId ?? null,
+        workspaceId,
         rect: null,
         owners: 1,
       }

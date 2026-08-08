@@ -901,6 +901,10 @@ export interface ElectronAPI {
   extensionHostLoad(args: {
     extensionId: string
     entryPath: string
+    /**
+     * Ignored by main. Grants are loaded from workspace permissions.json only.
+     * Kept optional so older callers do not break; do not rely on this field.
+     */
     grantedPermissions?: string[]
     workspaceId?: string | null
   }): Promise<{ ok: true }>

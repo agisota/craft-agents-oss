@@ -27,8 +27,8 @@ import {
   resolveSandboxRoots,
 } from './extension-host/path-allowlist'
 import {
+  CapabilityBroker,
   getCapabilityBroker,
-  type CapabilityBroker,
   type GetCredentialFn,
 } from './extension-host/capability-broker'
 import { getUrlAllowlist } from './extension-host/extension-url-allowlist'
@@ -833,7 +833,10 @@ export function getExtensionHostManager(workspaceId?: string | null): ExtensionH
   const key = resolveWorkspaceKey(workspaceId)
   let mgr = hosts.get(key)
   if (!mgr) {
-    mgr = new ExtensionHostManager()
+    // Isolated broker per workspace so stop/revoke in A cannot clear B's tokens.
+    mgr = new ExtensionHostManager({
+      broker: new CapabilityBroker(),
+    })
     hosts.set(key, mgr)
   }
   return mgr

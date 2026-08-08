@@ -814,14 +814,89 @@ export async function escalateMint() {
     // Loaded with empty grants — worker self-supply must not authorize.
     await mgr.loadExtension('evil', entry, [])
 
+    // Peer spoof via opts.extensionId is ignored; mint binds to call ALS "evil"
+    // which has no grants → not granted / no stored grants.
     await expect(mgr.callExtension('evil', 'forgeMint')).rejects.toThrow(
-      /not loaded|not granted|No stored grants/i,
+      /not loaded|not granted|No stored grants|only allowed during/i,
     )
     await expect(mgr.callExtension('evil', 'escalateMint')).rejects.toThrow(
       /not granted/i,
     )
     expect(broker.size()).toBe(0)
   })
+
+  it('worker cannot mint as peer extension while call is on other id', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandboxA = join(tmp, 'extensions', 'sandbox', 'peer-a')
+    const sandboxB = join(tmp, 'extensions', 'sandbox', 'peer-b')
+    mkdirSync(sandboxA, { recursive: true })
+    mkdirSync(sandboxB, { recursive: true })
+    const entryA = join(sandboxA, 'index.mjs')
+    const entryB = join(sandboxB, 'index.mjs')
+    writeFileSync(entryA, 'export function ping() { return "a" }\n')
+    writeFileSync(
+      entryB,
+      `
+export async function stealPeer() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  // Claim to be peer-a (which has network.request) while call is peer-b.
+  return cap.mint('network.request', { extensionId: 'peer-a' })
+}
+`,
+    )
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+      messageTimeoutMs: 3000,
+      getCredential: async () => null,
+    })
+
+    await mgr.start()
+    await mgr.loadExtension('peer-a', entryA, ['network.request'])
+    await mgr.loadExtension('peer-b', entryB, []) // no grants
+
+    // peer-b call steals peer-a's id via opts → ALS still peer-b → not granted
+    await expect(mgr.callExtension('peer-b', 'stealPeer')).rejects.toThrow(
+      /not granted|No stored grants/i,
+    )
+    expect(broker.size()).toBe(0)
+
+    // peer-a can still mint for itself (opts.extensionId ignored; ALS = peer-a)
+    writeFileSync(
+      entryA,
+      `
+export async function mintSelf() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  return cap.mint('network.request', { extensionId: 'someone-else' })
+}
+`,
+    )
+    // Re-load to pick up new export (dynamic import may be cached by URL — unique path)
+    const entryA2 = join(sandboxA, 'mint.mjs')
+    writeFileSync(
+      entryA2,
+      `
+export async function mintSelf() {
+  const cap = globalThis.__craftCapability
+  if (!cap) throw new Error('no __craftCapability')
+  return cap.mint('network.request', { extensionId: 'someone-else' })
+}
+`,
+    )
+    await mgr.unloadExtension('peer-a')
+    await mgr.loadExtension('peer-a', entryA2, ['network.request'])
+    const minted = (await mgr.callExtension('peer-a', 'mintSelf')) as { token: string }
+    expect(minted.token).toBeTruthy()
+    expect(broker.peek(minted.token)?.extensionId).toBe('peer-a')
+  })
+
 
   it('mintCapability ignores forged grantedPermissions without prior load grants', async () => {
     tmp = mkdtempSync(join(tmpdir(), 'eh-'))
@@ -947,4 +1022,60 @@ export async function escalateMint() {
     expect(broker.size()).toBe(0)
     expect(mgr.getStatus().status).toBe('degraded')
   })
+})
+
+  it('two workspaces have isolated brokers; stop A does not clear B tokens', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    try {
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'iso')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    const { forkFn } = createInProcessFork(tmp)
+
+    // Production path: getExtensionHostManager creates isolated brokers.
+    resetExtensionHostManagers()
+    const brokerA = new CapabilityBroker()
+    const brokerB = new CapabilityBroker()
+    const makeMgr = (broker: CapabilityBroker) =>
+      new ExtensionHostManager({
+        forkFn,
+        configDir: tmp,
+        workerPath: '/virtual/worker.cjs',
+        broker,
+        getCredential: async () => null,
+      })
+    setExtensionHostManagerForTests(makeMgr(brokerA), 'ws-iso-a')
+    setExtensionHostManagerForTests(makeMgr(brokerB), 'ws-iso-b')
+
+    await getExtensionHostManager('ws-iso-a').start()
+    await getExtensionHostManager('ws-iso-b').start()
+    await getExtensionHostManager('ws-iso-a').loadExtension('iso', entry, ['network.request'])
+    await getExtensionHostManager('ws-iso-b').loadExtension('iso', entry, ['network.request'])
+
+    const tokA = getExtensionHostManager('ws-iso-a').mintCapability({
+      extensionId: 'iso',
+      permission: 'network.request',
+    })
+    const tokB = getExtensionHostManager('ws-iso-b').mintCapability({
+      extensionId: 'iso',
+      permission: 'network.request',
+    })
+
+    expect(brokerA.peek(tokA.token)).not.toBeNull()
+    expect(brokerB.peek(tokB.token)).not.toBeNull()
+    // Cross-broker isolation: A's token is unknown to B and vice versa
+    expect(brokerA.peek(tokB.token)).toBeNull()
+    expect(brokerB.peek(tokA.token)).toBeNull()
+
+    await getExtensionHostManager('ws-iso-a').stop()
+    expect(brokerA.peek(tokA.token)).toBeNull()
+    expect(brokerA.size()).toBe(0)
+    // B untouched
+    expect(brokerB.peek(tokB.token)).not.toBeNull()
+    expect(getExtensionHostManager('ws-iso-b').getStatus().status).toBe('running')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
 })

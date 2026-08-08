@@ -4,10 +4,10 @@
  * Host surface for a sandboxed extension UI panel (S-05). Mirrors
  * KnowledgeSurfacePage: the main process composites a native BrowserView on top
  * of this surface via `extensionSurface.createEmbedded` with partition
- * `persist:ext-${extensionId}`; this component reports DOM rect + focus so main
- * can position or hide the view.
+ * `persist:ext-${ws||'default'}-${extensionId}`; this component reports DOM rect
+ * + focus so main can position or hide the view.
  *
- * Instance identity: durableKey `ext:${extensionId}:${viewId}`.
+ * Instance identity: durableKey `ext:${ws||'_default'}:${extensionId}:${viewId}`.
  */
 
 import * as React from 'react'
@@ -42,7 +42,13 @@ export default function ExtensionSurfacePage({
   const { activeWorkspaceId } = useAppShellContext()
   const isFocused = panelId === undefined || focusedPanelId === panelId
 
-  const durableKey = useMemo(() => `ext:${extensionId}:${viewId}`, [extensionId, viewId])
+  const durableKey = useMemo(() => {
+    const ws =
+      typeof activeWorkspaceId === 'string' && activeWorkspaceId.trim()
+        ? activeWorkspaceId.trim()
+        : '_default'
+    return `ext:${ws}:${extensionId}:${viewId}`
+  }, [activeWorkspaceId, extensionId, viewId])
   const surfaceUrl = (url?.trim() || 'about:blank')
   const isBlank = surfaceUrl === 'about:blank'
 
