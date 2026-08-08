@@ -20,6 +20,8 @@
 | **B4** | **Done** | `4cf33b035` sessions:bulkUpdate RPC + CollectionBulkBar |
 | **B5** | **Done** | `e2e4ec9ac` table drag reorder + board append re-rank |
 | **B6** | **Done** | `53028baca` shared collectionFiltersAtom on board+table |
+| **Audit r1+r2** | **Done** | selection APIs, parity channel, board orderBy/groupBy, bulk RPC loop |
+| **B6 residual** | **Done** | `50b5ad7ee` priority subsections (Display.groupBy=priority → pseudo groups + drag→setPriority) |
 
 ### Verification (B0+B1)
 
