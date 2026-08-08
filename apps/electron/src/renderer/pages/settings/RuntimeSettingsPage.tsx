@@ -7,6 +7,7 @@
  *   toggles (toolchain.disabled)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAtomValue } from 'jotai'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, CheckCircle2, ChevronRight, CloudOff, Plus, X } from 'lucide-react'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
@@ -14,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { navigate, routes } from '@/lib/navigate'
 import { useAppShellContext } from '@/context/AppShellContext'
+import { activeSessionIdAtom } from '@/atoms/sessions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@craft-agent/ui'
@@ -335,6 +337,7 @@ export default function RuntimeSettingsPage() {
   const { t } = useTranslation()
   const { available, isLoading, tools, updateTool, updating } = useToolchainStatus()
   const { activeWorkspaceId, llmConnections, refreshLlmConnections } = useAppShellContext()
+  const activeSessionId = useAtomValue(activeSessionIdAtom)
   const [disabledTools, setDisabledTools] = useState<ToolchainToolName[]>([])
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL)
   const [permissionMode, setPermissionMode] = useState<PermissionMode | null>(null)
@@ -344,10 +347,12 @@ export default function RuntimeSettingsPage() {
   const [envSavedFlash, setEnvSavedFlash] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const [llmSwitching, setLlmSwitching] = useState(false)
+  const [llmSessionFlash, setLlmSessionFlash] = useState<string | null>(null)
 
   const defaultLlmConnection = useMemo(() => {
     return llmConnections.find((c) => c.isDefault) ?? llmConnections[0] ?? null
   }, [llmConnections])
+
 
   const llmConnectionOptions = useMemo(
     () =>
@@ -452,6 +457,7 @@ export default function RuntimeSettingsPage() {
     if (!window.electronAPI || slug === defaultLlmConnection?.slug) return
     setLlmSwitching(true)
     setPageError(null)
+    setLlmSessionFlash(null)
     try {
       const result = await window.electronAPI.setDefaultLlmConnection(slug)
       if (!result.success) {
@@ -459,6 +465,28 @@ export default function RuntimeSettingsPage() {
         setPageError(result.error ?? t('common.failed'))
       } else {
         await refreshLlmConnections()
+        // B4: also push model/connection onto the focused chat session when present
+        // (same ElectronAPI ChatPage uses). Failures here must not undo the default.
+        if (activeSessionId && activeWorkspaceId) {
+          const conn = llmConnections.find((c) => c.slug === slug)
+          try {
+            await window.electronAPI.setSessionModel(
+              activeSessionId,
+              activeWorkspaceId,
+              conn?.defaultModel ?? null,
+              slug,
+            )
+            setLlmSessionFlash(t('settings.runtime.llmAppliedToSession'))
+            window.setTimeout(() => setLlmSessionFlash(null), 3000)
+          } catch (sessionErr) {
+            console.error('Failed to apply LLM connection to active session:', sessionErr)
+            setLlmSessionFlash(t('settings.runtime.llmSessionApplyFailed'))
+            window.setTimeout(() => setLlmSessionFlash(null), 4000)
+          }
+        } else {
+          setLlmSessionFlash(t('settings.runtime.llmNextSessionOnly'))
+          window.setTimeout(() => setLlmSessionFlash(null), 3000)
+        }
       }
     } catch (error) {
       console.error('Failed to set default LLM connection:', error)
@@ -466,7 +494,15 @@ export default function RuntimeSettingsPage() {
     } finally {
       setLlmSwitching(false)
     }
-  }, [defaultLlmConnection?.slug, refreshLlmConnections, t])
+  }, [
+    activeSessionId,
+    activeWorkspaceId,
+    defaultLlmConnection?.slug,
+    llmConnections,
+    refreshLlmConnections,
+    t,
+  ])
+
 
   const handlePermissionModeChange = useCallback(async (mode: PermissionMode) => {
     if (!activeWorkspaceId) return
@@ -600,6 +636,9 @@ export default function RuntimeSettingsPage() {
                     options={llmConnectionOptions}
                     disabled={llmSwitching || llmConnections.length < 2}
                   />
+                  {llmSessionFlash && (
+                    <p className="px-4 pb-3 text-xs text-muted-foreground">{llmSessionFlash}</p>
+                  )}
                   <div className="h-px bg-border/50 mx-4" />
                   <SettingsRow
                     label={t('settings.runtime.llmOpenAiSettings')}
