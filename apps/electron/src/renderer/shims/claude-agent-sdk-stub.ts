@@ -9,7 +9,7 @@ export const tool = (..._args: unknown[]) => ({})
 export const createSdkMcpServer = (..._args: unknown[]) => ({})
 
 export async function* query(): AsyncGenerator<never> {
-  throw new Error('The Claude Agent SDK is unavailable in the Electron renderer')
+  yield await Promise.reject(new Error('The Claude Agent SDK is unavailable in the Electron renderer'))
 }
 
 export default { AbortError, tool, createSdkMcpServer, query }
