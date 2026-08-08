@@ -71,8 +71,10 @@ export interface ExtensionHostManagerOptions {
   configDir?: string
   /** Override CRAFT_EXTENSION_SANDBOX_ROOT. */
   sandboxRootEnv?: string
-  /** RPC / ping timeout. */
+  /** RPC / ping timeout. Defaults to CRAFT_EXTENSION_HOST_TIMEOUT_MS then 5_000. */
   messageTimeoutMs?: number
+  /** Crash-to-restart minimum backoff. */
+  crashBackoffMs?: number
   /** Skip waiting for worker `ready` (tests that drive messages manually). */
   skipReadyWait?: boolean
   /** Injectable capability broker (tests). Defaults to singleton. */
@@ -152,6 +154,7 @@ export class ExtensionHostManager {
   private readonly configDir: string
   private readonly sandboxRootEnv?: string
   private readonly messageTimeoutMs: number
+  private readonly crashBackoffMs: number
   private readonly skipReadyWait: boolean
   private readonly broker: CapabilityBroker
   private readonly getCredential: GetCredentialFn
@@ -178,8 +181,13 @@ export class ExtensionHostManager {
     this.workerPath = options.workerPath ?? defaultWorkerPath()
     this.configDir = options.configDir ?? CONFIG_DIR
     this.sandboxRootEnv = options.sandboxRootEnv
-    this.messageTimeoutMs = options.messageTimeoutMs ?? DEFAULT_MESSAGE_TIMEOUT_MS
+    this.messageTimeoutMs =
+      options.messageTimeoutMs ??
+      (Number(process.env.CRAFT_EXTENSION_HOST_TIMEOUT_MS) || DEFAULT_MESSAGE_TIMEOUT_MS)
     this.skipReadyWait = options.skipReadyWait ?? false
+    this.crashBackoffMs =
+      options.crashBackoffMs ??
+      (Number(process.env.CRAFT_EXTENSION_HOST_CRASH_BACKOFF_MS) || 0)
     this.broker = options.broker ?? getCapabilityBroker()
     this.getCredential =
       options.getCredential ??
