@@ -1,10 +1,10 @@
 /**
- * CloudRunsChip — entry point for cloud research runs (PRD docs/cloud-runs-prd.md, G3).
+ * CloudRunsChip — entry point for cloud runs (PRD docs/cloud-runs-prd.md, G3).
  *
  * Self-contained (like BackgroundFinishedChip): fetches config on mount,
  * renders nothing when the feature is disabled. The chip sits in the
  * composer top-right corner: a rocket button opens the dialog showing
- * past runs (refreshed while open) and the "new research" submission box.
+ * past runs (refreshed while open) and the new-run submission box.
  */
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
@@ -176,7 +176,7 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
         aria-label={t('cloudRuns.open')}
         title={t('cloudRuns.open')}
         onClick={() => setOpen(true)}
-        className="absolute top-2 right-32 z-20 flex h-6 items-center gap-1 rounded-full border border-border/60 bg-background/90 px-2 text-xs text-muted-foreground shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
+        className="absolute top-2 right-2 z-20 flex h-6 items-center gap-1 rounded-full border border-border/40 bg-background/40 px-2 text-xs text-muted-foreground/80 shadow-none backdrop-blur-sm hover:bg-background/55 hover:text-muted-foreground hover:border-border/50"
       >
         {activeCount > 0 ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Cloud className="h-3 w-3" />}
         {activeCount > 0 ? t('cloudRuns.active', { count: activeCount }) : t('cloudRuns.open')}

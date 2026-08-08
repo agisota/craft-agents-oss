@@ -534,13 +534,13 @@ const SidebarButton = React.forwardRef<HTMLButtonElement, SidebarButtonProps & R
         {link.title}
         {/* After-title element: type indicator icon, right-aligned before count badge, revealed on hover */}
         {link.afterTitle && (
-          <span data-touch-reveal="true" className="ml-auto opacity-0 group-hover/section:opacity-100 group-data-[state=open]:opacity-100 group-data-[edit-active=true]:opacity-100 transition-opacity">
+          <span data-touch-reveal="true" className="ml-auto opacity-100">
             {link.afterTitle}
           </span>
         )}
-        {/* Label Badge: Shows count or status on the right, revealed on section hover */}
+        {/* Label Badge: count/status always visible (muted) */}
         {link.label && (
-          <span data-touch-reveal="true" className={cn(link.afterTitle ? 'ml-0' : 'ml-auto', 'text-xs text-foreground/30 opacity-0 group-hover/section:opacity-100 group-data-[state=open]:opacity-100 group-data-[edit-active=true]:opacity-100 transition-opacity')}>
+          <span data-touch-reveal="true" className={cn(link.afterTitle ? 'ml-0' : 'ml-auto', 'text-xs text-foreground/30 opacity-100')}>
             {link.label}
           </span>
         )}

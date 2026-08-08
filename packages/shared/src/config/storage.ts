@@ -80,7 +80,7 @@ export interface StoredConfig {
   notificationsEnabled?: boolean;  // Desktop notifications for task completion (default: true)
   // Appearance
   colorTheme?: string;  // ID of selected preset theme (e.g., 'dracula', 'nord'). Default: 'default'
-  defaultZoomLevel?: number;  // Default app zoom percentage (100-150, default: 100)
+  defaultZoomLevel?: number;  // Default app zoom percentage (50-150, default: 100)
   // Auto-update
   dismissedUpdateVersion?: string;  // Version that user dismissed (skip notifications for this version)
   // Input settings
@@ -353,6 +353,31 @@ export function loadStoredConfig(): StoredConfig | null {
       }
     }
 
+    // P0: seed cloudRuns when section is absent. Never overwrite a persisted
+    // object (enabled:false and custom providers stay as the user left them).
+    if (config.cloudRuns === undefined) {
+      config.cloudRuns = {
+        enabled: true,
+        provider: 'cloudflare',
+        gatewayUrl:
+          process.env.CRAFT_CLOUD_RUNS_GATEWAY_URL
+          ?? 'https://craft-cloud-gateway.scharlesky-192.workers.dev',
+        defaultMaxWallClockSec: 5400,
+        defaultMaxLlmTokens: 2_000_000,
+        defaultMaxArtifactsBytes: 25 * 1024 * 1024,
+      };
+      try {
+        // Persist seed so subsequent reads and other processes see defaults.
+        // saveConfig re-portable-izes workspace paths; in-memory config keeps expanded paths.
+        saveConfig(config);
+      } catch (seedError) {
+        debug(
+          '[config] Failed to seed cloudRuns defaults:',
+          seedError instanceof Error ? seedError.message : seedError,
+        );
+      }
+    }
+
     return config;
   } catch (error) {
     debug('[config] loadStoredConfig failed:', error instanceof Error ? error.message : error);
@@ -524,7 +549,7 @@ export function setRichToolDescriptions(enabled: boolean): void {
   saveConfig(config);
 }
 
-const MIN_DEFAULT_ZOOM_LEVEL = 100;
+const MIN_DEFAULT_ZOOM_LEVEL = 50;
 const MAX_DEFAULT_ZOOM_LEVEL = 150;
 const DEFAULT_ZOOM_STEP = 10;
 

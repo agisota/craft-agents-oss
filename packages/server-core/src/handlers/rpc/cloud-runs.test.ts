@@ -86,6 +86,112 @@ describe('cloud-runs rpc handlers (local provider)', () => {
     }
   });
 
+  test('missing cloudRuns seeds enabled cloudflare defaults; enabled:false preserved', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'craft-cloud-runs-seed-'));
+    try {
+      writeFileSync(
+        join(dir, 'config.json'),
+        JSON.stringify({ workspaces: [], activeWorkspaceId: null, activeSessionId: null }),
+      );
+      const seeded = runScript(dir, SETUP + `
+        const cfg = await invoke(RPC_CHANNELS.cloudRuns.GET_CONFIG);
+        if (cfg.enabled !== true) throw new Error('seed enabled !== true: ' + JSON.stringify(cfg));
+        if (cfg.provider !== 'cloudflare') throw new Error('seed provider !== cloudflare: ' + JSON.stringify(cfg.provider));
+        if (!cfg.gatewayUrl || !String(cfg.gatewayUrl).includes('workers.dev')) {
+          throw new Error('seed gatewayUrl missing workers.dev: ' + JSON.stringify(cfg.gatewayUrl));
+        }
+        const { readFileSync } = await import('node:fs');
+        const stored = JSON.parse(readFileSync(process.env.CRAFT_CONFIG_DIR + '/config.json', 'utf8'));
+        if (!stored.cloudRuns) throw new Error('cloudRuns not persisted after seed');
+        if (stored.cloudRuns.enabled !== true) throw new Error('persisted enabled !== true');
+        if (stored.cloudRuns.provider !== 'cloudflare') throw new Error('persisted provider !== cloudflare');
+        console.log('ok');
+      `);
+      expect(seeded.stderr).toBe('');
+      expect(seeded.exitCode).toBe(0);
+
+      writeFileSync(
+        join(dir, 'config.json'),
+        JSON.stringify({
+          workspaces: [],
+          activeWorkspaceId: null,
+          activeSessionId: null,
+          cloudRuns: { enabled: false, provider: 'local' },
+        }),
+      );
+      const preserved = runScript(dir, SETUP + `
+        const cfg = await invoke(RPC_CHANNELS.cloudRuns.GET_CONFIG);
+        if (cfg.enabled !== false) throw new Error('enabled:false not preserved: ' + JSON.stringify(cfg));
+        if (cfg.provider !== 'local') throw new Error('provider local not preserved: ' + JSON.stringify(cfg.provider));
+        console.log('ok');
+      `);
+      expect(preserved.stderr).toBe('');
+      expect(preserved.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('schedule list/save/delete handlers', () => {
+    const dir = freshConfigDir();
+    try {
+      const r = runScript(dir, SETUP + `
+        for (const ch of [
+          RPC_CHANNELS.cloudRuns.LIST_SCHEDULES,
+          RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE,
+          RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE,
+        ]) {
+          if (!handlers.has(ch)) throw new Error('missing handler: ' + ch);
+        }
+
+        const empty = await invoke(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES);
+        if (!Array.isArray(empty) || empty.length !== 0) throw new Error('expected empty schedules: ' + JSON.stringify(empty));
+
+        const saved = await invoke(RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE, {
+          schedule: {
+            id: 'sched-test-1',
+            topic: 'daily brief',
+            everyHours: 12,
+            sessionId: 'sess-test',
+            enabled: true,
+          },
+        });
+        if (!saved?.ok) throw new Error('save failed: ' + JSON.stringify(saved));
+
+        const listed = await invoke(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES);
+        if (!Array.isArray(listed) || listed.length !== 1) throw new Error('list after save: ' + JSON.stringify(listed));
+        if (listed[0].id !== 'sched-test-1' || listed[0].topic !== 'daily brief' || listed[0].everyHours !== 12) {
+          throw new Error('saved schedule mismatch: ' + JSON.stringify(listed[0]));
+        }
+
+        const toggled = await invoke(RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE, {
+          schedule: { ...listed[0], enabled: false },
+        });
+        if (!toggled?.ok) throw new Error('toggle save failed: ' + JSON.stringify(toggled));
+        const afterToggle = await invoke(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES);
+        if (afterToggle[0]?.enabled !== false) throw new Error('toggle not persisted: ' + JSON.stringify(afterToggle));
+
+        const generated = await invoke(RPC_CHANNELS.cloudRuns.SAVE_SCHEDULE, {
+          schedule: { topic: 'no-id topic', everyHours: 24, sessionId: 'sess-test', enabled: true },
+        });
+        if (!generated?.ok || !generated.schedule?.id) throw new Error('id not generated: ' + JSON.stringify(generated));
+
+        const del = await invoke(RPC_CHANNELS.cloudRuns.DELETE_SCHEDULE, { id: 'sched-test-1' });
+        if (!del?.ok) throw new Error('delete failed: ' + JSON.stringify(del));
+        const afterDel = await invoke(RPC_CHANNELS.cloudRuns.LIST_SCHEDULES);
+        if (afterDel.some((s) => s.id === 'sched-test-1')) throw new Error('delete did not remove: ' + JSON.stringify(afterDel));
+        console.log('ok');
+      `);
+      if (r.exitCode !== 0) {
+        console.error('STDERR:', r.stderr.slice(0, 2000));
+        console.error('STDOUT:', r.stdout.slice(0, 2000));
+      }
+      expect(r.exitCode).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('submit → status → list → import → aggregate (+ disabled gate)', () => {
     const dir = freshConfigDir();
     try {
