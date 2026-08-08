@@ -43,6 +43,12 @@ export type SessionStatus = string
 export type BuiltInStatusId = 'todo' | 'in-progress' | 'needs-review' | 'done' | 'cancelled'
 
 /**
+ * Collection-view priority for linear session lists/tables.
+ * Default coerce to 'none' on read when absent.
+ */
+export type SessionPriority = 'none' | 'urgent' | 'high' | 'medium' | 'low'
+
+/**
  * Electron-specific Session type (includes runtime state).
  * Extends core Session with messages array and processing state.
  */
@@ -116,6 +122,12 @@ export interface Session {
   parentSessionId?: string
   /** Kanban board column id ('todo' | 'in-progress' | 'done'); independent of sessionStatus */
   kanbanColumn?: string
+  /** LexoRank string for stable manual ordering within a collection view */
+  rank?: string
+  /** Collection priority; default coerce to 'none' on read when absent */
+  priority?: SessionPriority
+  /** Due date as epoch ms (UTC noon when set from date pickers); null clears */
+  dueDate?: number | null
   /** Tasks Conductor: slug of the task spec this session belongs to. */
   taskSlug?: string
   /** Tasks Conductor: id of the run that spawned this child session (child nodes only). */
@@ -419,7 +431,7 @@ export type SessionEvent =
   | { type: 'name_changed'; sessionId: string; name?: string }
   | { type: 'session_model_changed'; sessionId: string; model: string | null }
   | { type: 'session_status_changed'; sessionId: string; sessionStatus: SessionStatus }
-  | { type: 'session_metadata_changed'; sessionId: string; changes: Partial<Pick<Session, 'taskNodeCount' | 'kanbanColumn' | 'taskDraft' | 'taskSlug' | 'projectId' | 'memoryMode'>> }
+  | { type: 'session_metadata_changed'; sessionId: string; changes: Partial<Pick<Session, 'taskNodeCount' | 'kanbanColumn' | 'taskDraft' | 'taskSlug' | 'projectId' | 'memoryMode' | 'rank' | 'priority' | 'dueDate'>> }
   | { type: 'session_deleted'; sessionId: string }
   | { type: 'session_created'; sessionId: string }
   | { type: 'session_shared'; sessionId: string; sharedUrl: string }
@@ -466,6 +478,10 @@ export type SessionCommand =
   | { type: 'setLabels'; labels: string[] }
   | { type: 'setProjectId'; projectId: string | null }
   | { type: 'setKanbanColumn'; column: string | null }
+  | { type: 'setPriority'; priority: SessionPriority }
+  | { type: 'setDueDate'; dueDate: number | null }
+  | { type: 'setRank'; rank: string }
+  | { type: 'reorderRank'; prevId?: string; nextId?: string }
   | { type: 'showInFinder' }
   | { type: 'copyPath' }
   | { type: 'shareToViewer' }

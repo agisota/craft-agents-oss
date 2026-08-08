@@ -18,6 +18,7 @@ export type {
   SessionMetadata,
   SessionHeader,
   SessionPersistentField,
+  SessionPriority,
 } from './types.ts';
 
 // Field constants
