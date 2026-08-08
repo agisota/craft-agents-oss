@@ -22,11 +22,15 @@ function createMockServer() {
 describe('extensions RPC', () => {
   let dir: string
   let prev: string | undefined
+  let prevConfPaths: string | undefined
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'ext-rpc-'))
     prev = process.env.CRAFT_CONFIG_DIR
     process.env.CRAFT_CONFIG_DIR = dir
+    // Avoid real SiYuan conf token fallback probing during catalog list.
+    prevConfPaths = process.env.CRAFT_SIYUAN_CONF_PATHS
+    process.env.CRAFT_SIYUAN_CONF_PATHS = join(dir, 'no-conf.json')
     resetExtensionStateStoreCache()
     // Minimal marketplace cache so catalog load does not hit network hard-fail.
     const mp = join(dir, 'marketplace')
@@ -82,6 +86,8 @@ describe('extensions RPC', () => {
     resetExtensionStateStoreCache()
     if (prev === undefined) delete process.env.CRAFT_CONFIG_DIR
     else process.env.CRAFT_CONFIG_DIR = prev
+    if (prevConfPaths === undefined) delete process.env.CRAFT_SIYUAN_CONF_PATHS
+    else process.env.CRAFT_SIYUAN_CONF_PATHS = prevConfPaths
     try {
       rmSync(dir, { recursive: true, force: true })
     } catch {

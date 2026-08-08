@@ -27,6 +27,7 @@
  *
  * Soft plugin/petal endpoints (plugin bridge feed — optional enrichment; callers soft-fail):
  *   POST /api/bazaar/getInstalledPlugin      args { frontend: 'desktop' } → installed plugin packages
+ *   POST /api/bazaar/getBazaarPlugin         args { frontend, keyword? } → remote Bazaar catalog packages
  *   POST /api/petal/loadPetals               args { frontend: 'desktop' } → petal enable state
  *   POST /api/petal/setPetalEnabled          args { packageName, enabled } → enable/disable petal
  *
@@ -226,6 +227,26 @@ export interface SiyuanInstalledPluginPackage {
   author?: string;
   enabled?: boolean;
   /** Present when kernel embeds full plugin.json fields. */
+  [key: string]: unknown;
+}
+
+/** One remote Bazaar package as returned by /api/bazaar/getBazaarPlugin (loose). */
+export interface SiyuanBazaarPluginPackage {
+  name: string;
+  version?: string;
+  displayName?: string | Record<string, string>;
+  description?: string | Record<string, string>;
+  author?: string;
+  /** True when already installed in the answering workspace. */
+  installed?: boolean;
+  hasUpdate?: boolean;
+  repoURL?: string;
+  repoHash?: string;
+  iconURL?: string;
+  minAppVersion?: string;
+  backends?: string[];
+  frontends?: string[];
+  /** Present when kernel embeds fuller plugin.json fields. */
   [key: string]: unknown;
 }
 
@@ -523,6 +544,19 @@ export class SiyuanKernelClient {
   }
 
   /**
+   * Remote Bazaar plugin catalog for a frontend (optional keyword filter).
+   * Kernel returns `{ packages: [...] }` (sometimes a bare array). Soft-fail callers
+   * must tolerate network/auth failures — this method still throws on kernel errors.
+   */
+  async getBazaarPlugin(
+    frontend: string = 'desktop',
+    keyword: string = '',
+  ): Promise<SiyuanBazaarPluginPackage[]> {
+    const data = await this.post<unknown>('/api/bazaar/getBazaarPlugin', { frontend, keyword });
+    return normalizeBazaarPluginPackages(data);
+  }
+
+  /**
    * Load petal (plugin enable) state for a frontend. data may be an array or a map.
    */
   async loadPetals(frontend: string = 'desktop'): Promise<SiyuanPetalInfo[]> {
@@ -537,7 +571,9 @@ export class SiyuanKernelClient {
 }
 
 function isNamedPackage(item: unknown): item is SiyuanInstalledPluginPackage {
-  return !!item && typeof item === 'object' && 'name' in item && typeof item.name === 'string';
+  if (!item || typeof item !== 'object') return false;
+  if (!('name' in item)) return false;
+  return typeof item.name === 'string' && item.name.length > 0;
 }
 
 function normalizeInstalledPluginPackages(data: unknown): SiyuanInstalledPluginPackage[] {
@@ -547,6 +583,11 @@ function normalizeInstalledPluginPackages(data: unknown): SiyuanInstalledPluginP
     if (Array.isArray(packages)) return packages.filter(isNamedPackage);
   }
   return [];
+}
+
+function normalizeBazaarPluginPackages(data: unknown): SiyuanBazaarPluginPackage[] {
+  // Same envelope shapes as installed: bare array or { packages: [...] }.
+  return normalizeInstalledPluginPackages(data);
 }
 
 function normalizePetalInfos(data: unknown): SiyuanPetalInfo[] {

@@ -422,9 +422,42 @@ describe('plugin/petal soft endpoints (bridge feed)', () => {
   test('soft petal methods are present and still no destructive knowledge writes', () => {
     const methods = Object.getOwnPropertyNames(SiyuanKernelClient.prototype).filter((name) => name !== 'constructor');
     expect(methods).toContain('getInstalledPlugin');
+    expect(methods).toContain('getBazaarPlugin');
     expect(methods).toContain('loadPetals');
     expect(methods).toContain('setPetalEnabled');
     const destructive = methods.filter((name) => /delete|remove|rename|move/i.test(name));
     expect(destructive).toEqual([]);
+  });
+
+  test('getBazaarPlugin normalizes array and packages wrapper', async () => {
+    {
+      const { client, calls } = makeClient({
+        '/api/bazaar/getBazaarPlugin': () => ({
+          data: {
+            packages: [
+              { name: 'remote-a', version: '1.2.3', author: 'alice', installed: false },
+              { nope: true },
+              null,
+            ],
+          },
+        }),
+      });
+      const pkgs = await client.getBazaarPlugin('desktop', 'note');
+      expect(pkgs).toEqual([
+        { name: 'remote-a', version: '1.2.3', author: 'alice', installed: false },
+      ]);
+      expect(callsFor(calls, '/api/bazaar/getBazaarPlugin')[0]!.body).toEqual({
+        frontend: 'desktop',
+        keyword: 'note',
+      });
+    }
+    {
+      const { client } = makeClient({
+        '/api/bazaar/getBazaarPlugin': () => ({
+          data: [{ name: 'bare', version: '9' }],
+        }),
+      });
+      await expect(client.getBazaarPlugin()).resolves.toEqual([{ name: 'bare', version: '9' }]);
+    }
   });
 });
