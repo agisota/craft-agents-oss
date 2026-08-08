@@ -224,10 +224,11 @@ echo "Packaging app with electron-builder..."
 cd "$ELECTRON_DIR"
 
 # Avoid selecting an arbitrary keychain identity during a local smoke build.
-# A caller may still explicitly override this; configured signing credentials
-# retain the existing automatic-discovery behavior.
+# A caller may still explicitly override this. Notarization still needs a
+# Developer ID identity, even when the caller has not named one explicitly.
 if [[ -z "${CSC_IDENTITY_AUTO_DISCOVERY+x}" ]]; then
-    if [[ -n "$APPLE_SIGNING_IDENTITY" || -n "${CSC_NAME:-}" || -n "${CSC_LINK:-}" ]]; then
+    if [[ -n "${APPLE_SIGNING_IDENTITY:-}" || -n "${CSC_NAME:-}" || -n "${CSC_LINK:-}" ||
+          ( -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ) ]]; then
         export CSC_IDENTITY_AUTO_DISCOVERY=true
     else
         export CSC_IDENTITY_AUTO_DISCOVERY=false
