@@ -494,7 +494,7 @@ export default function AppearanceSettingsPage() {
                     <div className="flex items-center gap-3 w-64">
                       <input
                         type="range"
-                        min={100}
+                        min={50}
                         max={150}
                         step={10}
                         value={defaultZoomLevel}

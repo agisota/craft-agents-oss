@@ -97,8 +97,9 @@ const LlmConnectionSchema = z.object({
 }).passthrough();
 
 const CloudRunsConfigSchema = z.object({
-  enabled: z.boolean().optional(),          // default false — no behavior change for existing users
-  provider: z.enum(['local', 'cloudflare', 'modal', 'e2b']).optional(),  // default 'local'
+  // P0: cloud runs on by default with Cloudflare gateway (token still optional until seeded).
+  enabled: z.boolean().default(true),
+  provider: z.enum(['local', 'cloudflare', 'modal', 'e2b']).default('cloudflare'),
   gatewayUrl: z.string().optional(),        // cloud gateway base URL (cloudflare/modal providers)
   defaultMaxWallClockSec: z.number().int().positive().optional(),
   defaultMaxLlmTokens: z.number().int().positive().optional(),

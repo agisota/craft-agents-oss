@@ -13,6 +13,10 @@ import { WorkspaceCreationScreen } from "@/components/workspace";
 import { waitForTransportConnected } from "@/lib/transport-wait";
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState";
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon";
+import {
+	TRAFFIC_LIGHT_SAFE_TOP,
+	WORKSPACE_ICON_RAIL_WIDTH,
+} from "@/components/app-shell/workspace-rail";
 import type { Workspace } from "../../../shared/types";
 
 interface WorkspaceIconRailProps {
@@ -216,13 +220,17 @@ export function WorkspaceIconRail({
 
 			<aside
 				className={cn(
-					"h-full w-[58px] shrink-0 border-r border-border/40 bg-background/40 titlebar-no-drag",
+					"h-full shrink-0 border-r border-border/40 bg-background/40 titlebar-no-drag",
 					"flex flex-col items-center overflow-y-auto overflow-x-hidden px-2 pb-2",
 					className,
 				)}
+				style={{ width: WORKSPACE_ICON_RAIL_WIDTH }}
 				aria-label={t("settings.appearance.workspaceIconRail")}
 			>
-				<div className="flex w-full flex-col items-center gap-2 pt-2">
+				<div
+					className="flex w-full flex-col items-center gap-2"
+					style={{ paddingTop: TRAFFIC_LIGHT_SAFE_TOP }}
+				>
 					{workspaces.map((workspace) => {
 						const selected = workspace.id === activeWorkspaceId;
 						const disconnected = isRemoteDisconnected(workspace.id);

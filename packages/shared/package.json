@@ -72,6 +72,7 @@
     "./memory/types": "./src/memory/types.ts",
     "./tasks": "./src/tasks/index.ts",
     "./i18n": "./src/i18n/index.ts",
+    "./os/user-display-name": "./src/os/user-display-name.ts",
     "./resources": "./src/resources/index.ts"
   },
   "dependencies": {
