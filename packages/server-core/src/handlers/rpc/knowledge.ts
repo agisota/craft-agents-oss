@@ -4,18 +4,21 @@
  * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md)
  * plus 8 Session→Knowledge publication channels (P4, spec 06) plus 6 P5
  * saved-views / work-envelope channels (K-09 §3.5 / S-08) plus P4.3
- * getExportPayload (Craft chrome copy/export, read-only).
+ * getExportPayload (Craft chrome copy/export, read-only) plus P4.4
+ * migrateNotes (Craft notes vault → SiYuan).
  *
  * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
  * channels + getExportPayload + the 7 spec-05 proposal channels + the 8
  * spec-06 publication channels + the 6 P5 view/envelope channels + 2 P6
- * watch channels. Every mutation channel routes through
+ * watch channels + migrateNotes. Every mutation channel routes through
  * KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
  * draft → diff → review → apply, with inverse-ops rollback) — no direct
- * provider write path is registered from this file, and engine-lifecycle
- * channels remain P7 and absent by design. Publication APPLY only creates a
- * proposal; FINALIZE commits publications/links after the proposal reaches
- * 'applied' via P3 UI. VIEW_SET_ATTRIBUTE also only proposes (never applies).
+ * provider write path is registered from this file except migrateNotes,
+ * which uses SiyuanKernelClient.createDocWithMd (whitelist) for bulk vault
+ * import. Engine-lifecycle channels remain P7 and absent by design.
+ * Publication APPLY only creates a proposal; FINALIZE commits
+ * publications/links after the proposal reaches 'applied' via P3 UI.
+ * VIEW_SET_ATTRIBUTE also only proposes (never applies).
  *
  * Proposal wiring: one memoized KnowledgeBridgeService per workspace root —
  * proposals/audit are workspace data at {root}/knowledge/{proposals,
@@ -98,6 +101,10 @@ import {
   KnowledgePublishDraftsStore,
   KnowledgeWorkEnvelopesStore,
   credentialIdFromRef,
+  migrateCraftNotesToSiyuan,
+  resolveWorkspaceNotesRoot,
+  type MigrateNotesArgs,
+  type MigrateNotesResult,
 } from '../../knowledge'
 import {
   KnowledgeBridgeService,
@@ -127,7 +134,10 @@ import type {
  * ТОЛЬКО через эти фактори; тесты ставят свой и возвращают оригинал в afterEach.
  */
 type SiyuanKnowledgeProviderCtor = new (options: { connection: KnowledgeConnection; token: string }) => KnowledgeProvider
-type SiyuanKernelClientCtor = new (options: { baseUrl: string; token: string }) => Pick<SiyuanKernelClient, 'getVersion'>
+type SiyuanKernelClientCtor = new (options: { baseUrl: string; token: string }) => Pick<
+  SiyuanKernelClient,
+  'getVersion' | 'listNotebooks' | 'createDocWithMd' | 'checkBlockExist'
+>
 let knowledgeProviderCtor: SiyuanKnowledgeProviderCtor = SiyuanKnowledgeProvider as unknown as SiyuanKnowledgeProviderCtor
 let siyuanKernelClientCtor: SiyuanKernelClientCtor = SiyuanKernelClient
 export function __setKnowledgeTestConstructors(ctor: SiyuanKnowledgeProviderCtor | null, clientCtor?: SiyuanKernelClientCtor | null): void {
@@ -143,7 +153,7 @@ export function __setSkipKnowledgeWatchAutoStart(skip: boolean): void {
   skipKnowledgeWatchAutoStart = skip
 }
 
-/** The complete knowledge channel set — 9 P1 read + getExportPayload + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch; asserted by knowledge.test.ts. */
+/** The complete knowledge channel set — 9 P1 read + getExportPayload + 7 P3 write-back + 8 P4 publication + 6 P5 views/envelopes + 2 P6 watch + migrateNotes; asserted by knowledge.test.ts. */
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
   RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -181,6 +191,8 @@ export const HANDLED_CHANNELS = [
   // P6 change watcher
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
+  // P4.4 Craft notes vault → SiYuan
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -1472,6 +1484,52 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
       return { ok: true as const, stopped }
     },
   )
+
+  // ——— MIGRATE_NOTES({workspaceId, connectionId, notebookName?}) → MigrateNotesResult ———
+  // P4.4 user-initiated Craft notes vault → SiYuan. Soft-fail per note; never deletes vault.
+  // createNotebook is not on the kernel whitelist — docs land under /Craft Notes/... path
+  // prefix in the named notebook when present, else the first open notebook.
+  server.handle(
+    RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+    async (_ctx, args: MigrateNotesArgs): Promise<MigrateNotesResult> => {
+      if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
+        throw new Error('knowledge.migrateNotes: workspaceId is required')
+      }
+      if (!args?.connectionId || typeof args.connectionId !== 'string') {
+        throw new Error('knowledge.migrateNotes: connectionId is required')
+      }
+      const rootPath = requireWorkspaceRoot(args.workspaceId)
+      const record = requireConnection(args.connectionId)
+      const token = await readToken(record)
+      if (!token) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          `Knowledge connection '${record.id}' has no token — save a SiYuan API token first`,
+        )
+      }
+      let client: InstanceType<SiyuanKernelClientCtor>
+      try {
+        client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
+      } catch (error) {
+        throw new CodedError(
+          'CONNECTION_UNAVAILABLE',
+          error instanceof Error ? error.message : String(error),
+        )
+      }
+      const notesRoot = resolveWorkspaceNotesRoot(args.workspaceId)
+      try {
+        return await migrateCraftNotesToSiyuan({
+          workspaceRoot: rootPath,
+          notesRoot,
+          client,
+          notebookName: args.notebookName,
+        })
+      } catch (error) {
+        throw toTransportError(error)
+      }
+    },
+  )
+
 
   // Auto-start process-level watches for existing connections (daemon / headless).
   // Fail-soft: missing credentials or provider errors are logged and skipped.

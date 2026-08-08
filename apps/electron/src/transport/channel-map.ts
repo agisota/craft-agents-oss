@@ -328,8 +328,7 @@ export const CHANNEL_MAP = {
   'knowledge.envelopeList': invoke(RPC_CHANNELS.knowledge.ENVELOPE_LIST),
   'knowledge.watch': invoke(RPC_CHANNELS.knowledge.WATCH),
   'knowledge.unwatch': invoke(RPC_CHANNELS.knowledge.UNWATCH),
-  'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
-  'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
+  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop
@@ -674,7 +673,6 @@ export const CHANNEL_MAP = {
   listContextDocs: invoke(RPC_CHANNELS.contextDocs.LIST),
   readContextDoc: invoke(RPC_CHANNELS.contextDocs.READ),
   writeContextDoc: invoke(RPC_CHANNELS.contextDocs.WRITE),
-  deleteContextDoc: invoke(RPC_CHANNELS.contextDocs.DELETE),
   readContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.READ_TEMPLATE),
   acceptContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE),
   keepMineContextDocTemplate: invoke(RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE),

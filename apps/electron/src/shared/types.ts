@@ -746,6 +746,18 @@ export interface ElectronAPI {
     /** P6: start polling watcher → AutomationSystem knowledge events. */
     watch(args: { connectionId: string; workspaceId: string; intervalMs?: number }): Promise<{ ok: true }>
     unwatch(args: { connectionId: string; workspaceId: string }): Promise<{ ok: true }>
+    /** P4.4: user-initiated Craft notes vault → SiYuan migration (does not delete vault). */
+    migrateNotes(args: {
+      workspaceId: string
+      connectionId: string
+      notebookName?: string
+    }): Promise<{
+      migrated: number
+      skipped: number
+      failed: Array<{ noteId: string; error: string }>
+      mapPath: string
+      notebookId: string
+    }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeEngineStatus>
     /** G1 metrics snapshot (REMOTE_ELIGIBLE workspace data). */
