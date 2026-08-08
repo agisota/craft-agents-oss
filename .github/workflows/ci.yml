@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 jobs:
   validate:
-    # GitHub-hosted runners not provisioned on this repo's plan — use self-hosted.
-    runs-on: [self-hosted, linux-toolchain]
+    # GitHub-hosted not provisioned; linux runner disk-quota blocks bun install — use macOS self-hosted.
+    runs-on: [self-hosted, macos-toolchain]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
