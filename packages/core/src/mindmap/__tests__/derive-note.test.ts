@@ -2,44 +2,55 @@ import { describe, expect, test } from 'bun:test';
 import { deriveNoteMindMap } from '../derive-note.ts';
 
 describe('deriveNoteMindMap', () => {
-  test('builds tree from headings', () => {
-    const g = deriveNoteMindMap({
+  test('builds outline tree from headings', () => {
+    const graph = deriveNoteMindMap({
       noteId: 'n1',
-      title: 'My Note',
-      markdown: '# Intro\n\n## Details\n\nbody\n',
-      now: 1,
+      title: 'Specs',
+      markdown: `# Intro
+## Details
+body
+# Outro
+`,
     });
-    const root = g.nodes[g.rootId]!;
-    expect(root.label).toBe('My Note');
-    expect(root.children.length).toBe(1);
-    const intro = g.nodes[root.children[0]!]!;
-    expect(intro.label).toBe('Intro');
-    expect(intro.children.length).toBe(1);
-    expect(g.nodes[intro.children[0]!]!.label).toBe('Details');
+
+    expect(graph.derivation).toBe('note');
+    expect(graph.entity).toEqual({ type: 'note', noteId: 'n1' });
+    expect(graph.nodes.root!.label).toBe('Specs');
+    expect(graph.nodes.root!.children).toEqual(['heading:0', 'heading:3']);
+    expect(graph.nodes['heading:0']!.children).toEqual(['heading:1']);
+    expect(graph.nodes['heading:1']!.label).toBe('Details');
   });
 
-  test('body section when no headings', () => {
-    const g = deriveNoteMindMap({
+  test('no headings → section:body truncated', () => {
+    const body = 'plain note without headings\nsecond line';
+    const graph = deriveNoteMindMap({
       noteId: 'n2',
-      title: 'Plain',
-      markdown: 'just a paragraph of text without structure',
-      now: 1,
+      title: 'Scratch',
+      markdown: body,
     });
-    const root = g.nodes[g.rootId]!;
-    expect(root.children).toEqual(['section:body']);
-    expect(g.nodes['section:body']!.kind).toBe('section');
+
+    expect(graph.nodes.root!.children).toEqual(['section:body']);
+    expect(graph.nodes['section:body']!.kind).toBe('section');
+    expect(graph.nodes['section:body']!.label).toBe('plain note without headings');
   });
 
-  test('attaches backlinks under root', () => {
-    const g = deriveNoteMindMap({
+  test('backlinks as backlink:<id> under root with backlink edge', () => {
+    const graph = deriveNoteMindMap({
       noteId: 'n3',
-      title: 'N',
-      markdown: '# H\n',
-      backlinks: [{ id: 'other', title: 'Other Note' }],
-      now: 1,
+      title: 'Main',
+      markdown: '# Only',
+      backlinks: [
+        { id: 'other', title: 'Other note' },
+        { id: 'x', title: '' },
+      ],
     });
-    const root = g.nodes[g.rootId]!;
-    expect(root.children.some((id) => id === 'backlink:other')).toBe(true);
-    expect(g.nodes['backlink:other']!.label).toBe('Other Note');
+
+    expect(graph.nodes.root!.children).toContain('backlink:other');
+    expect(graph.nodes['backlink:other']!.kind).toBe('backlink');
+    expect(graph.nodes['backlink:other']!.label).toBe('Other note');
+    expect(graph.nodes['backlink:x']!.label).toBe('x');
+
+    const blEdges = graph.edges.filter((e) => e.kind === 'backlink');
+    expect(blEdges.some((e) => e.to === 'backlink:other')).toBe(true);
   });
 });

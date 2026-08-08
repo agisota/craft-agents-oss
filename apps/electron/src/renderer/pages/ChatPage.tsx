@@ -32,12 +32,27 @@ import { getSessionTitle } from '@/utils/session'
 // Model resolution: connection.defaultModel (no hardcoded defaults)
 import { resolveEffectiveConnectionSlug, isSessionConnectionUnavailable } from '@config/llm-connections'
 import {
-  SessionViewPlaceholder,
-  SessionViewTabs,
-  useSessionView,
-} from '@/components/app-shell/SessionViewTabs'
+  defaultSessionEntityCapabilities,
+  EntityViewPlaceholder,
+  EntityViewTabs,
+  useEntityView,
+  type EntityViewCapability,
+  type EntityViewId,
+} from '@/components/app-shell/EntityViewTabs'
 import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
 import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
+import { MindMapHost } from '@/mindmap/MindMapHost'
+import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindmap'
+
+const SESSION_ENTITY_VIEW_CAPABILITIES: EntityViewCapability[] = defaultSessionEntityCapabilities({
+  siyuanConnected: true,
+}).map((cap) => {
+  // Legacy SiYuan mindmap + teamchat stay disabled until separately wired.
+  if (cap.id === 'mindmap' || cap.id === 'teamchat') {
+    return { ...cap, available: false }
+  }
+  return cap
+})
 
 export interface ChatPageProps {
   sessionId: string
@@ -50,7 +65,11 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     rendererPerf.markSessionSwitch(sessionId, 'panel.mounted')
   }, [sessionId])
 
-  const [sessionView, setSessionView] = useSessionView(sessionId)
+  const [sessionView, setSessionView] = useEntityView(
+    `session:${sessionId}`,
+    SESSION_ENTITY_VIEW_CAPABILITIES,
+    'standard',
+  )
 
   const {
     activeWorkspaceId,
@@ -500,6 +519,84 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   // Use isAsyncOperationOngoing for shimmer effect (sharing, updating share, revoking, title regeneration)
   const isAsyncOperationOngoing = session?.isAsyncOperationOngoing || sessionMeta?.isAsyncOperationOngoing || false
 
+  // Craft mind-map projection for map/outline tabs (live derive; no pin yet).
+  const sessionMindMapGraph = React.useMemo((): MindMapGraph | null => {
+    if (sessionView !== 'map' && sessionView !== 'outline') return null
+    const messages = session?.messages ?? []
+    // Wait until messages are loaded (or confirmed empty) before deriving.
+    if (!messagesLoaded && messages.length === 0) return null
+    return deriveSessionMindMap({
+      sessionId,
+      title: displayTitle,
+      messages: messages.map((m) => ({
+        id: m.id,
+        type: m.role,
+        content: m.content ?? '',
+        toolName: m.toolName,
+        toolUseId: m.toolUseId,
+        parentToolUseId: m.parentToolUseId,
+        turnId: m.turnId,
+        statusType: m.statusType,
+      })),
+    })
+  }, [sessionView, session?.messages, messagesLoaded, sessionId, displayTitle])
+
+  const sessionMindMapLoading =
+    (sessionView === 'map' || sessionView === 'outline') &&
+    !messagesLoaded &&
+    (session?.messages?.length ?? 0) === 0 &&
+    !messageLoadState.error
+
+  const handleMindMapNavigate = React.useCallback(
+    (source: { kind: string; id: string }) => {
+      // P1: switch to standard chat for message/tool click-through.
+      if (source.kind === 'message' || source.kind === 'tool') {
+        setSessionView('standard')
+      }
+    },
+    [setSessionView],
+  )
+
+  const renderSessionViewBody = React.useCallback(
+    (chatDisplay: React.ReactNode) => {
+      if (sessionView === 'graph') {
+        return (
+          <KnowledgeSurfacePage
+            kind="notebook"
+            id={SIYUAN_FULL_SURFACE_ID}
+            mode="global-graph"
+          />
+        )
+      }
+      if (sessionView === 'map' || sessionView === 'outline') {
+        return (
+          <MindMapHost
+            entity={{ type: 'session', sessionId }}
+            graph={sessionMindMapGraph}
+            loading={sessionMindMapLoading}
+            error={messageLoadState.error}
+            mode={sessionView}
+            onNavigate={handleMindMapNavigate}
+          />
+        )
+      }
+      if (sessionView !== 'standard') {
+        return <EntityViewPlaceholder view={sessionView as EntityViewId} />
+      }
+      return chatDisplay
+    },
+    [
+      sessionView,
+      sessionId,
+      sessionMindMapGraph,
+      sessionMindMapLoading,
+      messageLoadState.error,
+      handleMindMapNavigate,
+    ],
+  )
+
+
+
   // Rename dialog state
   const [renameDialogOpen, setRenameDialogOpen] = React.useState(false)
   const [renameName, setRenameName] = React.useState('')
@@ -846,17 +943,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
         <>
           <div className="h-full flex flex-col">
             <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
-            <SessionViewTabs value={sessionView} onChange={setSessionView} />
+            <EntityViewTabs
+              value={sessionView}
+              onChange={setSessionView}
+              capabilities={SESSION_ENTITY_VIEW_CAPABILITIES}
+            />
             <div className="flex-1 flex flex-col min-h-0">
-              {sessionView === 'graph' ? (
-                <KnowledgeSurfacePage
-                  kind="notebook"
-                  id={SIYUAN_FULL_SURFACE_ID}
-                  mode="global-graph"
-                />
-              ) : sessionView !== 'standard' ? (
-                <SessionViewPlaceholder view={sessionView} />
-              ) : (
+              {renderSessionViewBody(
               <ChatDisplay
                 ref={chatDisplayRef}
                 session={skeletonSession}
@@ -897,7 +990,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
                 connectionUnavailable={connectionUnavailable}
                 compactMode={!!isCompactMode}
                 enableCompactModelPicker={!!isCompactMode}
-              />
+              />,
               )}
             </div>
           </div>
@@ -930,17 +1023,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     <>
       <div className="h-full flex flex-col">
         <PanelHeader  title={displayTitle} titleMenu={titleMenu} compactTitleMenu={compactTitleMenu} leadingAction={leadingAction} actions={headerActions} rightSidebarButton={rightSidebarButton} isRegeneratingTitle={isAsyncOperationOngoing} />
-        <SessionViewTabs value={sessionView} onChange={setSessionView} />
+        <EntityViewTabs
+          value={sessionView}
+          onChange={setSessionView}
+          capabilities={SESSION_ENTITY_VIEW_CAPABILITIES}
+        />
         <div className="flex-1 flex flex-col min-h-0">
-          {sessionView === 'graph' ? (
-            <KnowledgeSurfacePage
-              kind="notebook"
-              id={SIYUAN_FULL_SURFACE_ID}
-              mode="global-graph"
-            />
-          ) : sessionView !== 'standard' ? (
-            <SessionViewPlaceholder view={sessionView} />
-          ) : (
+          {renderSessionViewBody(
             <ChatDisplay
               ref={chatDisplayRef}
               session={session}
@@ -990,7 +1079,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
               connectionUnavailable={connectionUnavailable}
               compactMode={!!isCompactMode}
               enableCompactModelPicker={!!isCompactMode}
-            />
+            />,
           )}
         </div>
       </div>

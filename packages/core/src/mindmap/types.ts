@@ -15,18 +15,23 @@ export type MindMapNodeId = string;
 
 export type MindMapNodeKind =
   | 'root'
-  | 'heading'
-  | 'block'
-  | 'message'
+  | 'turn'
+  | 'user'
+  | 'assistant'
   | 'tool'
-  | 'backlink'
-  | 'link'
+  | 'heading'
   | 'section'
-  | 'turn';
+  | 'backlink'
+  | 'block';
 
-export type MindMapEdgeKind = 'parent' | 'backlink' | 'wikilink' | 'mention' | 'followup';
+export type MindMapEdgeKind = 'parent' | 'backlink' | 'ref';
 
-export type MindMapDerivation = 'outline' | 'outline+ai' | 'pinned';
+export type MindMapDerivation =
+  | 'session'
+  | 'note'
+  | 'knowledge'
+  | 'pinned'
+  | 'enriched';
 
 export interface MindMapNodeSource {
   kind: string;
@@ -37,11 +42,13 @@ export interface MindMapNode {
   id: MindMapNodeId;
   label: string;
   kind: MindMapNodeKind;
-  level: number;
-  source?: MindMapNodeSource;
+  parentId?: MindMapNodeId;
   children: MindMapNodeId[];
-  collapsed?: boolean;
   meta?: Record<string, string | number | boolean>;
+  source?: MindMapNodeSource;
+  collapsed?: boolean;
+  /** Outline depth (0 = root); optional for non-heading trees. */
+  level?: number;
 }
 
 export interface MindMapEdge {
