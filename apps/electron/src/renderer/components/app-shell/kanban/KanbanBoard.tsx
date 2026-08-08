@@ -129,6 +129,7 @@ export function KanbanBoard({
   collapsedGroupKeys,
   onToggleProjectGroup,
   noProjectLabel,
+  sortTasks,
 }: KanbanBoardProps) {
   const { t } = useTranslation()
   const firstColumnId = columns[0]?.id
@@ -147,9 +148,12 @@ export function KanbanBoard({
       buckets.get(target)!.push(task)
     }
     const recency = (task: KanbanTask) => task.createdAt ?? task.lastMessageAt ?? 0
-    for (const list of buckets.values()) list.sort((a, b) => recency(b) - recency(a))
+    const sorter =
+      sortTasks ??
+      ((a: KanbanTask, b: KanbanTask) => recency(b) - recency(a))
+    for (const list of buckets.values()) list.sort(sorter)
     return buckets
-  }, [tasks, columns, firstColumnId])
+  }, [tasks, columns, firstColumnId, sortTasks])
 
   const groupsByColumn = React.useMemo(() => {
     if (!groupByProject) return null

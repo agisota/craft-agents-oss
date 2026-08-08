@@ -9,7 +9,7 @@ import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
 import { collectionDisplayAtom } from '@/atoms/collection-display'
 import { collectionFiltersAtom } from '@/atoms/collection-filters'
-import { filterSessionMeta } from '@craft-agent/shared/sessions'
+import { filterSessionMeta, compareSessions } from '@craft-agent/shared/sessions'
 import { projectsAtom } from '@/atoms/projects'
 import {
   kanbanProjectFilterAtom,
@@ -444,6 +444,17 @@ export function KanbanBoardContainer() {
     const allow = new Set(projectFilter)
     return tasks.filter(task => task.projectId !== undefined && allow.has(task.projectId))
   }, [tasks, projectFilter])
+
+  // B6: honor Display.orderBy when ranking cards within each column.
+  const displayDrivenSort = React.useCallback(
+    (a: KanbanTask, b: KanbanTask): number => {
+      const metaA = metaMap.get(a.id)
+      const metaB = metaMap.get(b.id)
+      if (!metaA || !metaB) return 0
+      return compareSessions(metaA, metaB, collectionDisplay.orderBy, collectionDisplay.orderDir)
+    },
+    [metaMap, collectionDisplay.orderBy, collectionDisplay.orderDir],
+  )
 
   const defaultSubtaskModel = modelToConnection.has(DEFAULT_MODEL) ? DEFAULT_MODEL : undefined
 
@@ -930,6 +941,7 @@ export function KanbanBoardContainer() {
         <KanbanBoard
           columns={activeColumns}
           tasks={visibleTasks}
+          sortTasks={displayDrivenSort}
           projectsById={projectsById}
           statusesById={statusesById}
           statuses={sessionStatuses ?? []}
