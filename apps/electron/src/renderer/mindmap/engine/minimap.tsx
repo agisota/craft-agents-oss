@@ -9,12 +9,20 @@ import {
   MIND_MAP_MINIMAP_THRESHOLD,
   MIND_MAP_NODE_HEIGHT,
   MIND_MAP_NODE_WIDTH,
-  type LayoutBounds,
 } from './types'
+
+export type MinimapBounds = {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+  width: number
+  height: number
+}
 
 export interface MindMapMinimapProps {
   layout: MindMapLayout
-  bounds: LayoutBounds
+  bounds: MinimapBounds
   /** screen = world * zoom + pan */
   pan: { x: number; y: number }
   zoom: number
