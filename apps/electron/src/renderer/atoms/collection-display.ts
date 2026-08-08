@@ -38,14 +38,32 @@ export const replaceCollectionDisplayAtom = atom(
   },
 )
 
+export type SetCollectionDisplayInput = {
+  display: Partial<CollectionDisplay> | CollectionDisplay
+  /** Override active workspace (defaults to windowWorkspaceIdAtom). */
+  workspaceId?: string | null
+}
+
 /**
- * Optimistically update local display and persist via RPC for the active
- * workspace. Returns the normalized server payload when save succeeds.
+ * Optimistically update local display and persist via RPC.
+ * Returns the normalized server payload when save succeeds.
  */
 export const setCollectionDisplayAtom = atom(
   null,
-  async (get, set, patch: Partial<CollectionDisplay> | CollectionDisplay): Promise<CollectionDisplay> => {
-    const workspaceId = get(windowWorkspaceIdAtom)
+  async (
+    get,
+    set,
+    input: Partial<CollectionDisplay> | CollectionDisplay | SetCollectionDisplayInput,
+  ): Promise<CollectionDisplay> => {
+    const patch =
+      input && typeof input === 'object' && 'display' in input
+        ? (input as SetCollectionDisplayInput).display
+        : (input as Partial<CollectionDisplay> | CollectionDisplay)
+    const workspaceId =
+      input && typeof input === 'object' && 'display' in input
+        ? ((input as SetCollectionDisplayInput).workspaceId ?? get(windowWorkspaceIdAtom))
+        : get(windowWorkspaceIdAtom)
+
     const prev = get(collectionDisplayAtom)
     const next: CollectionDisplay = {
       ...prev,
@@ -75,7 +93,7 @@ export const setCollectionDisplayAtom = atom(
 
 /**
  * Load display for a workspace id (or active window workspace).
- * No-ops when id is null.
+ * Applies result when the requested id is still the active one.
  */
 export const loadCollectionDisplayAtom = atom(
   null,
@@ -91,22 +109,26 @@ export const loadCollectionDisplayAtom = atom(
     set(collectionDisplayLoadingAtom, true)
     try {
       const loaded = await window.electronAPI.getCollectionDisplay(id)
-      // Ignore stale responses after a workspace switch.
-      if (get(windowWorkspaceIdAtom) === id) {
-        const next = cloneDisplay(loaded)
-        set(collectionDisplayAtom, next)
-        return next
+      // Drop stale responses after a workspace switch.
+      const active = get(windowWorkspaceIdAtom)
+      if (active != null && active !== id) {
+        return get(collectionDisplayAtom)
       }
-      return get(collectionDisplayAtom)
+      const next = cloneDisplay(loaded)
+      set(collectionDisplayAtom, next)
+      return next
     } catch (err) {
       console.warn('[collection-display] getCollectionDisplay failed', err)
-      const fallback = cloneDisplay()
-      if (get(windowWorkspaceIdAtom) === id) {
-        set(collectionDisplayAtom, fallback)
+      const active = get(windowWorkspaceIdAtom)
+      if (active != null && active !== id) {
+        return get(collectionDisplayAtom)
       }
+      const fallback = cloneDisplay()
+      set(collectionDisplayAtom, fallback)
       return fallback
     } finally {
-      if (get(windowWorkspaceIdAtom) === id) {
+      const active = get(windowWorkspaceIdAtom)
+      if (active == null || active === id) {
         set(collectionDisplayLoadingAtom, false)
       }
     }

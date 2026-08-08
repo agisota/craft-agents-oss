@@ -10,6 +10,7 @@ import type { SessionStatus } from '@/config/session-status-config'
 import {
   collectionDisplayAtom,
   loadCollectionDisplayAtom,
+  replaceCollectionDisplayAtom,
   setCollectionDisplayAtom,
 } from '@/atoms/collection-display'
 import { CollectionViewToggle, type CollectionViewMode } from '../kanban/BoardListToggle'
@@ -50,6 +51,7 @@ export function CollectionViewChrome({
 }: CollectionViewChromeProps) {
   const display = useAtomValue(collectionDisplayAtom)
   const setDisplay = useSetAtom(setCollectionDisplayAtom)
+  const replaceDisplay = useSetAtom(replaceCollectionDisplayAtom)
   const loadDisplay = useSetAtom(loadCollectionDisplayAtom)
   const [filters, setFilters] = React.useState<CollectionFilters>(() => ({
     ...DEFAULT_COLLECTION_FILTERS,
@@ -65,15 +67,15 @@ export function CollectionViewChrome({
     if (!api?.onCollectionDisplayChanged) return
     return api.onCollectionDisplayChanged((wsId, next) => {
       if (wsId !== workspaceId) return
-      void setDisplay({ ...next, visibleProperties: [...next.visibleProperties] })
+      replaceDisplay(next)
     })
-  }, [workspaceId, setDisplay])
+  }, [workspaceId, replaceDisplay])
 
   const handleDisplayChange = React.useCallback(
     (next: CollectionDisplay) => {
-      void setDisplay(next)
+      void setDisplay({ display: next, workspaceId })
     },
-    [setDisplay],
+    [setDisplay, workspaceId],
   )
 
   const toggle = (

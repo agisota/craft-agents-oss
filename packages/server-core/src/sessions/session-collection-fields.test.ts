@@ -93,10 +93,11 @@ describe('session collection fields (B1.3)', () => {
       },
       buildWorkspace(),
     )
-    sm.sessions.set(sessionId, managed)
+    smAny().sessions.set(sessionId, managed)
     return managed
   }
 
+  const smAny = () => sm as unknown as { sessions: Map<string, unknown> }
   function readDiskHeader(sessionId: string): Record<string, unknown> {
     const path = getSessionFilePath(tmpRoot, sessionId)
     const firstLine = readFileSync(path, 'utf-8').split('\n')[0]
@@ -178,7 +179,7 @@ describe('session collection fields (B1.3)', () => {
 
   it('managedToSession coerces missing priority/dueDate defaults', () => {
     const managed = createManagedSession({ id: 'coerce', rank: 'M' }, buildWorkspace())
-    sm.sessions.set('coerce', managed)
+    smAny().sessions.set('coerce', managed)
     const [session] = sm.getSessions('ws_test')
     expect(session.priority).toBe('none')
     expect(session.dueDate).toBeNull()

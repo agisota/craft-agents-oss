@@ -16,6 +16,7 @@ import { sessionMetaMapAtom, type SessionMeta } from '@/atoms/sessions'
 import {
   collectionDisplayAtom,
   loadCollectionDisplayAtom,
+  replaceCollectionDisplayAtom,
   setCollectionDisplayAtom,
 } from '@/atoms/collection-display'
 import { resolveStatusDisplayLabel, type SessionStatus } from '@/config/session-status-config'
@@ -38,6 +39,7 @@ export function SessionTableHost() {
   const metaMap = useAtomValue(sessionMetaMapAtom)
   const [display] = useAtom(collectionDisplayAtom)
   const setDisplay = useSetAtom(setCollectionDisplayAtom)
+  const replaceDisplay = useSetAtom(replaceCollectionDisplayAtom)
   const loadDisplay = useSetAtom(loadCollectionDisplayAtom)
 
   const [filters, setFilters] = React.useState<CollectionFilters>(() => ({
@@ -56,15 +58,15 @@ export function SessionTableHost() {
     return api.onCollectionDisplayChanged((workspaceId, next) => {
       if (workspaceId !== activeWorkspaceId) return
       // External / multi-window update — apply without re-persisting.
-      void setDisplay({ ...next, visibleProperties: [...next.visibleProperties] })
+      replaceDisplay(next)
     })
-  }, [activeWorkspaceId, setDisplay])
+  }, [activeWorkspaceId, replaceDisplay])
 
   const handleDisplayChange = React.useCallback(
     (next: CollectionDisplay) => {
-      void setDisplay(next)
+      void setDisplay({ display: next, workspaceId: activeWorkspaceId })
     },
-    [setDisplay],
+    [setDisplay, activeWorkspaceId],
   )
 
   const rows = React.useMemo(() => {
