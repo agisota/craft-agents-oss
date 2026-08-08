@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Eraser, Upload } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
@@ -124,6 +125,8 @@ export function NotesDialogs({
   deleteFolderDialogOpen, deleteFolderTarget, deleteFolderNoteCount,
   onDeleteFolderDialogOpenChange, onDeleteFolder,
 }: NotesDialogsProps) {
+  const { t } = useTranslation()
+
   return (
     <>
       <RenameDialog
@@ -132,47 +135,47 @@ export function NotesDialogs({
           onCreateDialogOpenChange(open)
           if (!open) onCreateTitleChange('')
         }}
-        title={createInFolder ? `New note in ${createInFolder}` : 'New note'}
+        title={createInFolder ? t('notes.dialog.newNoteInFolder', { folder: createInFolder }) : t('notes.dialog.newNote')}
         value={createTitle}
         onValueChange={onCreateTitleChange}
         onSubmit={onCreateNote}
-        placeholder="Note title"
+        placeholder={t('notes.dialog.noteTitlePlaceholder')}
       />
       <RenameDialog
         open={createFolderDialogOpen}
         onOpenChange={onCreateFolderDialogOpenChange}
-        title="New folder"
+        title={t('notes.dialog.newFolder')}
         value={createFolderName}
         onValueChange={onCreateFolderNameChange}
         onSubmit={onCreateFolder}
-        placeholder="Folder name"
+        placeholder={t('notes.dialog.folderNamePlaceholder')}
       />
       <Dialog open={moveDialogOpen} onOpenChange={onMoveDialogOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Move note</DialogTitle>
+            <DialogTitle>{t('notes.dialog.moveNote')}</DialogTitle>
             <DialogDescription>
-              Move "{moveTargetNote?.title}" to a folder. Leave blank for the vault root.
+              {t('notes.dialog.moveNoteDesc', { title: moveTargetNote?.title ?? '' })}
             </DialogDescription>
           </DialogHeader>
           <Input
             value={moveFolderName}
             onChange={(e) => onMoveFolderNameChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') onMoveNote() }}
-            placeholder="folder/subfolder"
+            placeholder={t('notes.dialog.folderPathPlaceholder')}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => onMoveDialogOpenChange(false)}>Cancel</Button>
-            <Button onClick={onMoveNote}>Move</Button>
+            <Button variant="outline" onClick={() => onMoveDialogOpenChange(false)}>{t('notes.dialog.cancel')}</Button>
+            <Button onClick={onMoveNote}>{t('notes.dialog.move')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={renameDialogOpen} onOpenChange={onRenameDialogOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename note</DialogTitle>
+            <DialogTitle>{t('notes.dialog.renameNote')}</DialogTitle>
             <DialogDescription>
-              Rename the markdown file and update any matching wiki links.
+              {t('notes.dialog.renameNoteDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -180,13 +183,16 @@ export function NotesDialogs({
               value={renameTitle}
               onChange={(e) => onRenameTitleChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') onRenameNote() }}
-              placeholder="Note title"
+              placeholder={t('notes.dialog.noteTitlePlaceholder')}
             />
             <div className="rounded-[6px] border border-border/60 p-2 text-xs">
               <div className="mb-1 text-muted-foreground">
                 {renameImpact
-                  ? `Will update ${renameImpact.totalReplacements} link${renameImpact.totalReplacements === 1 ? '' : 's'} across ${renameImpact.updatedNotes.length} note${renameImpact.updatedNotes.length === 1 ? '' : 's'}.`
-                  : 'No matching links found yet.'}
+                  ? t('notes.dialog.renameImpact', {
+                      replacements: renameImpact.totalReplacements,
+                      notes: renameImpact.updatedNotes.length,
+                    })
+                  : t('notes.dialog.renameNoLinks')}
               </div>
               {renameImpact?.updatedNotes.length ? (
                 <div className="max-h-36 overflow-y-auto">
@@ -201,59 +207,66 @@ export function NotesDialogs({
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => onRenameDialogOpenChange(false)}>Cancel</Button>
-            <Button onClick={onRenameNote} disabled={!renameTitle.trim() || renameTitle.trim() === activeNote?.title}>Rename</Button>
+            <Button variant="outline" onClick={() => onRenameDialogOpenChange(false)}>{t('notes.dialog.cancel')}</Button>
+            <Button onClick={onRenameNote} disabled={!renameTitle.trim() || renameTitle.trim() === activeNote?.title}>{t('notes.dialog.rename')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={deleteDialogOpen} onOpenChange={onDeleteDialogOpenChange}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Delete note</DialogTitle>
+            <DialogTitle>{t('notes.dialog.deleteNote')}</DialogTitle>
             <DialogDescription>
-              Delete "{activeNote?.title}" from {activeNote?.relativePath}? This note has {activeNote?.backlinks.length ?? 0} backlink{activeNote?.backlinks.length === 1 ? '' : 's'}.
+              {t('notes.dialog.deleteNoteDesc', {
+                title: activeNote?.title ?? '',
+                path: activeNote?.relativePath ?? '',
+                count: activeNote?.backlinks.length ?? 0,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => onDeleteDialogOpenChange(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={onDeleteNote}>Delete</Button>
+            <Button variant="outline" onClick={() => onDeleteDialogOpenChange(false)}>{t('notes.dialog.cancel')}</Button>
+            <Button variant="destructive" onClick={onDeleteNote}>{t('notes.dialog.delete')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={!!missingLinkTarget} onOpenChange={(open) => { if (!open) onDismissMissingLink() }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Create linked note</DialogTitle>
+            <DialogTitle>{t('notes.dialog.createLinkedNote')}</DialogTitle>
             <DialogDescription>
-              Create "{missingLinkTarget}" and open it?
+              {t('notes.dialog.createLinkedNoteDesc', { title: missingLinkTarget ?? '' })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={onDismissMissingLink}>Cancel</Button>
-            <Button onClick={onCreateMissingLink}>Create</Button>
+            <Button variant="outline" onClick={onDismissMissingLink}>{t('notes.dialog.cancel')}</Button>
+            <Button onClick={onCreateMissingLink}>{t('notes.dialog.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={assetDialogOpen} onOpenChange={onAssetDialogOpenChange}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Assets</DialogTitle>
+            <DialogTitle>{t('notes.dialog.assets')}</DialogTitle>
             <DialogDescription>
-              Manage files under notes/assets. Referenced assets are protected from deletion.
+              {t('notes.dialog.assetsDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">
-              {allAssets.length} asset{allAssets.length === 1 ? '' : 's'} · {orphanAssets.length} unused
+              {t('notes.dialog.assetsSummary', {
+                total: allAssets.length,
+                unused: orphanAssets.length,
+              })}
             </div>
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="sm" onClick={onImportAsset} disabled={assetBusy}>
                 <Upload className="mr-1.5 h-3.5 w-3.5" />
-                Import
+                {t('notes.dialog.import')}
               </Button>
               <Button variant="outline" size="sm" onClick={onCleanUnusedAssets} disabled={assetBusy || orphanAssets.length === 0}>
                 <Eraser className="mr-1.5 h-3.5 w-3.5" />
-                Clean unused
+                {t('notes.dialog.cleanUnused')}
               </Button>
             </div>
           </div>
@@ -267,62 +280,69 @@ export function NotesDialogs({
                   <button className="min-w-0 flex-1 text-left" onClick={() => onOpenFile(asset.path)}>
                     <div className="truncate text-xs font-medium">{asset.name}</div>
                     <div className="truncate text-[11px] text-muted-foreground">
-                      {asset.relativePath} · {formatBytes(asset.size)} · {refCount ? `used by ${refLabel}${refCount > 2 ? ` +${refCount - 2}` : ''}` : 'unused'}
+                      {asset.relativePath} · {formatBytes(asset.size)} · {refCount
+                        ? t('notes.dialog.assetUsedBy', {
+                            label: `${refLabel}${refCount > 2 ? ` +${refCount - 2}` : ''}`,
+                          })
+                        : t('notes.dialog.assetUnused')}
                     </div>
                   </button>
-                  <Button variant="ghost" size="sm" onClick={() => onOpenAssetRenameDialog(asset)} disabled={assetBusy}>Rename</Button>
-                  <Button variant="ghost" size="sm" onClick={() => onDeleteAsset(asset)} disabled={assetBusy || refCount > 0}>Delete</Button>
+                  <Button variant="ghost" size="sm" onClick={() => onOpenAssetRenameDialog(asset)} disabled={assetBusy}>{t('notes.dialog.rename')}</Button>
+                  <Button variant="ghost" size="sm" onClick={() => onDeleteAsset(asset)} disabled={assetBusy || refCount > 0}>{t('notes.dialog.delete')}</Button>
                 </div>
               )
             }) : (
-              <div className="px-3 py-10 text-center text-xs text-muted-foreground">No assets yet</div>
+              <div className="px-3 py-10 text-center text-xs text-muted-foreground">{t('notes.dialog.noAssetsYet')}</div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => onAssetDialogOpenChange(false)}>Close</Button>
+            <Button variant="outline" onClick={() => onAssetDialogOpenChange(false)}>{t('notes.dialog.close')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={!!assetRenameTarget} onOpenChange={(open) => { if (!open) onAssetRenameTargetChange(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename asset</DialogTitle>
+            <DialogTitle>{t('notes.dialog.renameAsset')}</DialogTitle>
             <DialogDescription>
-              Rename the asset file and update markdown references that point to it.
+              {t('notes.dialog.renameAssetDesc')}
             </DialogDescription>
           </DialogHeader>
           <Input
             value={assetRenameName}
             onChange={(e) => onAssetRenameNameChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') onRenameAsset() }}
-            placeholder="Asset filename"
+            placeholder={t('notes.dialog.assetFilenamePlaceholder')}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => onAssetRenameTargetChange(null)}>Cancel</Button>
-            <Button onClick={onRenameAsset} disabled={assetBusy || !assetRenameName.trim()}>Rename</Button>
+            <Button variant="outline" onClick={() => onAssetRenameTargetChange(null)}>{t('notes.dialog.cancel')}</Button>
+            <Button onClick={onRenameAsset} disabled={assetBusy || !assetRenameName.trim()}>{t('notes.dialog.rename')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <RenameDialog
         open={renameFolderDialogOpen}
         onOpenChange={onRenameFolderDialogOpenChange}
-        title={`Rename folder "${renameFolderTarget}"`}
+        title={t('notes.dialog.renameFolder', { folder: renameFolderTarget })}
         value={renameFolderName}
         onValueChange={onRenameFolderNameChange}
         onSubmit={onRenameFolder}
-        placeholder="Folder name"
+        placeholder={t('notes.dialog.folderNamePlaceholder')}
       />
       <Dialog open={deleteFolderDialogOpen} onOpenChange={onDeleteFolderDialogOpenChange}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Delete folder</DialogTitle>
+            <DialogTitle>{t('notes.dialog.deleteFolder')}</DialogTitle>
             <DialogDescription>
-            Delete folder "{deleteFolderTarget}" and all {deleteFolderNoteCount} note{deleteFolderNoteCount === 1 ? '' : 's'} inside? This cannot be undone.
+              {t('notes.dialog.deleteFolderDesc', {
+                folder: deleteFolderTarget,
+                count: deleteFolderNoteCount,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => onDeleteFolderDialogOpenChange(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={onDeleteFolder}>Delete folder</Button>
+            <Button variant="outline" onClick={() => onDeleteFolderDialogOpenChange(false)}>{t('notes.dialog.cancel')}</Button>
+            <Button variant="destructive" onClick={onDeleteFolder}>{t('notes.dialog.deleteFolder')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
