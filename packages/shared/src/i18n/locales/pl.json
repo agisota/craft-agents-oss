@@ -2868,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "Podaj URL",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "ID notatki (opcjonalnie)",
-  "workspaceRail.removeLink": "Usuń link",
-  "mindmap.staleBanner": "Source changed since pin.",
-  "mindmap.keepPin": "Keep pin",
-  "mindmap.rebuildPin": "Rebuild from source",
-  "mindmap.unpin": "Unpin"
+  "workspaceRail.removeLink": "Usuń link"
 }

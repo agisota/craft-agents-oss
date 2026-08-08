@@ -2868,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "請輸入網址",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "筆記 ID（選填）",
-  "workspaceRail.removeLink": "刪除連結",
-  "mindmap.staleBanner": "Source changed since pin.",
-  "mindmap.keepPin": "Keep pin",
-  "mindmap.rebuildPin": "Rebuild from source",
-  "mindmap.unpin": "Unpin"
+  "workspaceRail.removeLink": "刪除連結"
 }
