@@ -105,6 +105,10 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   ]
 
+  const P4_MIGRATE_CHANNELS = [
+    RPC_CHANNELS.knowledge.MIGRATE_NOTES,
+  ]
+
   test('knowledge read channels and CHANGED broadcast are REMOTE_ELIGIBLE', () => {
     for (const ch of REMOTE_READ_CHANNELS) {
       expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
@@ -126,25 +130,24 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     }
   })
 
-  test('knowledge ENGINE_STATUS and DETECT_ENGINE are LOCAL_ONLY', () => {
+  test('knowledge P4.4 migrateNotes is REMOTE_ELIGIBLE', () => {
+    for (const ch of P4_MIGRATE_CHANNELS) {
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
+    }
+  })
+
+  test('knowledge ENGINE_STATUS is LOCAL_ONLY', () => {
     expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(true)
     expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.ENGINE_STATUS)).toBe(false)
-    expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.DETECT_ENGINE)).toBe(true)
-    expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.DETECT_ENGINE)).toBe(false)
   })
 
-  test('knowledge METRICS_GET is REMOTE_ELIGIBLE', () => {
-    expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.knowledge.METRICS_GET)).toBe(true)
-    expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.knowledge.METRICS_GET)).toBe(false)
-  })
-
-  test('knowledge namespace is exactly the P1+P3+P4+P5+P6+P7-prep set (no engine-lifecycle channels)', () => {
+  test('knowledge namespace is exactly the P1+P3+P4+P5+P6 set (no engine-lifecycle channels)', () => {
     expect([...Object.keys(RPC_CHANNELS.knowledge)].sort()).toEqual([
       'APPLY_PROPOSAL',
       'APPROVE_PROPOSAL',
       'CAPABILITIES',
       'CHANGED',
-      'DETECT_ENGINE',
       'ENGINE_STATUS',
       'ENVELOPE_GET',
       'ENVELOPE_LIST',
@@ -157,7 +160,7 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
       'LIST_CONNECTIONS',
       'LIST_LINKS',
       'LIST_PROPOSALS',
-      'METRICS_GET',
+      'MIGRATE_NOTES',
       'PROPOSE_MUTATION',
       'PUBLISH_APPLY',
       'PUBLISH_DISTILL',
@@ -177,28 +180,9 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
       'VIEW_SET_ATTRIBUTE',
       'WATCH',
     ])
-    // Guard: no engine-lifecycle channels — engineStart/engineStop remain full P7.
+    // Guard: no engine-lifecycle channels — engineStart/engineStop are P7.
     for (const ch of Object.values(RPC_CHANNELS.knowledge)) {
       expect(ch).not.toMatch(/engineStart|engineStop/i)
-    }
-  })
-})
-
-describe('extensions channel routing (W5)', () => {
-  const EXTENSION_CHANNELS = Object.values(RPC_CHANNELS.extensions)
-
-  test('all extensions:* channels are LOCAL_ONLY (like marketplace)', () => {
-    expect(EXTENSION_CHANNELS.length).toBeGreaterThan(0)
-    for (const ch of EXTENSION_CHANNELS) {
-      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(true)
-      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(false)
-    }
-  })
-
-  test('marketplace:* channels remain LOCAL_ONLY', () => {
-    for (const ch of Object.values(RPC_CHANNELS.marketplace)) {
-      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(true)
-      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(false)
     }
   })
 })

@@ -260,7 +260,7 @@ export function KnowledgeHome() {
   const [view, setView] = useAtom(knowledgeHomeViewAtom)
   const [activeViewId, setActiveViewId] = useAtom(knowledgeActiveViewIdAtom)
   const [actionableProposalCount, setActionableProposalCount] = useState(0)
-
+  const [migrating, setMigrating] = useState(false)
   // Saved views list
   const [savedViews, setSavedViews] = useState<KnowledgeViewConfig[]>([])
   const [viewsLoaded, setViewsLoaded] = useState(false)
@@ -417,6 +417,63 @@ export function KnowledgeHome() {
     setViewStatus('idle')
     navigate(routes.view.knowledge())
   }, [navigate, setActiveViewId, setView])
+
+  const handleMigrateNotes = useCallback(async () => {
+    if (migrating) return
+    if (!workspaceId) {
+      toast.error(t('knowledge.migrate.noWorkspace'))
+      return
+    }
+    const api = window.electronAPI?.knowledge
+    if (!api?.migrateNotes || !api.listConnections) {
+      toast.error(t('knowledge.migrate.failed'))
+      return
+    }
+    setMigrating(true)
+    const progressToast = toast.loading(t('knowledge.migrate.progress'))
+    try {
+      const connections = await api.listConnections()
+      const connectionId = connections[0]?.id
+      if (!connectionId) {
+        toast.error(t('knowledge.migrate.noConnection'), { id: progressToast })
+        return
+      }
+      const result = await api.migrateNotes({ workspaceId, connectionId })
+      const failedCount = result.failed?.length ?? 0
+      if (failedCount > 0 && result.migrated === 0) {
+        toast.error(t('knowledge.migrate.failed'), {
+          id: progressToast,
+          description: result.failed[0]?.error,
+        })
+        return
+      }
+      const message =
+        failedCount > 0
+          ? t('knowledge.migrate.partial', {
+              migrated: result.migrated,
+              failed: failedCount,
+            })
+          : t('knowledge.migrate.success', {
+              migrated: result.migrated,
+              skipped: result.skipped,
+            })
+      toast.success(message, {
+        id: progressToast,
+        action: {
+          label: t('knowledge.migrate.openKnowledge'),
+          onClick: () => navigate(routes.view.knowledge()),
+        },
+      })
+    } catch (error) {
+      toast.error(t('knowledge.migrate.failed'), {
+        id: progressToast,
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setMigrating(false)
+    }
+  }, [migrating, workspaceId, t, navigate])
+
 
   const handleSetAttribute = useCallback(
     async (hit: SearchHit) => {
@@ -629,13 +686,23 @@ export function KnowledgeHome() {
     <div className="flex h-full flex-col">
       <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground flex items-center justify-between gap-2">
         <span>{t('knowledge.legacyNotes.banner', { defaultValue: 'Markdown notes vault is legacy — Knowledge (SiYuan) is primary.' })}</span>
-        <button
-          type="button"
-          className="shrink-0 underline underline-offset-2 hover:text-foreground"
-          onClick={() => navigate(routes.view.notesLegacy())}
-        >
-          {t('knowledge.legacyNotes.open', { defaultValue: 'Open legacy notes' })}
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+            disabled={migrating}
+            onClick={() => void handleMigrateNotes()}
+          >
+            {migrating ? t('knowledge.migrate.progress') : t('knowledge.migrate.button')}
+          </button>
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() => navigate(routes.view.notesLegacy())}
+          >
+            {t('knowledge.legacyNotes.open', { defaultValue: 'Open legacy notes' })}
+          </button>
+        </div>
       </div>
 
       <EntityList<SearchHit>
