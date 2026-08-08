@@ -503,6 +503,7 @@ export interface ElectronAPI {
 
   // B4: multi-select bulk patch over sessions:command setters (rank forbidden; 200 ids max)
   bulkUpdateSessions(input: import('@craft-agent/shared/protocol/dto').BulkUpdateSessionsInput): Promise<import('@craft-agent/shared/protocol/dto').BulkUpdateSessionsResult>
+  onSessionsBulkChanged(callback: (event: import('@craft-agent/shared/protocol/dto').SessionsBulkChangedEvent) => void): () => void
 
   // Server info (REMOTE_ELIGIBLE — returns data from whichever server owns the workspace)
   getServerHomeDir(): Promise<string>

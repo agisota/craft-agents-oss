@@ -425,17 +425,17 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
 
     for (const sessionId of input.ids) {
       try {
-        const managed = sessionManager.sessions.get(sessionId)
-        if (!managed) {
+        const existing = await sessionManager.getSession(sessionId).catch(() => null)
+        if (!existing) {
           failed.push({ id: sessionId, error: 'not_found' })
           continue
         }
-        if (managed.workspace.id !== input.workspaceId) {
+        if (existing.workspaceId !== input.workspaceId) {
           failed.push({ id: sessionId, error: 'foreign' })
           continue
         }
 
-        if (patch.isArchived === true && managed.isProcessing) {
+        if (patch.isArchived === true && existing.isProcessing) {
           failed.push({ id: sessionId, error: 'busy' })
           continue
         }

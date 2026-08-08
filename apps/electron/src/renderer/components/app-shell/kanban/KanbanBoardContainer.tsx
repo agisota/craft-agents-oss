@@ -551,7 +551,7 @@ export function KanbanBoardContainer() {
       // B5: re-rank within destination column when Display orderBy === 'rank'.
       if (collectionDisplay.orderBy === 'rank') {
         const destSiblings = visibleTasks
-          .filter((t) => (t.kanbanColumn ?? statusToColumn((t.sessionStatus ?? 'todo') as never)) === (toColumn as string))
+          .filter((t) => t.column === toColumn)
           .filter((t) => t.id !== taskId)
         const last = destSiblings[destSiblings.length - 1]
         void window.electronAPI.sessionCommand(taskId, {

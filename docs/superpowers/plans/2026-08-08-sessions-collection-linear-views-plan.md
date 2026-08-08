@@ -16,10 +16,10 @@
 | **B1** | **Done** | `c8c28c118` DTO · `43775fb6f` lexorank · `2e297c7d3` SessionManager+RPC · test harness |
 | **B0/B1 audit** | **Done** | `08c795229` table navigator collapse + rank max length + auto-select skip |
 | **B2** | **Done** | `8e96ece13` display RPC, pure query, OpsBar/Display popover, i18n |
-| **B3** | Todo | Full SessionTable UI |
-| **B4** | Todo | Multi-select bulk RPC+UI |
-| **B5** | Todo | LexoRank drag |
-| **B6** | Todo | Unify list+board on collection ops |
+| **B3** | **Done** | `1930ad180` dense SessionTable + OpsBar + groups + inline edits |
+| **B4** | **Done** | `4cf33b035` sessions:bulkUpdate RPC + CollectionBulkBar |
+| **B5** | **Done** | `e2e4ec9ac` table drag reorder + board append re-rank |
+| **B6** | **Done** | `53028baca` shared collectionFiltersAtom on board+table |
 
 ### Verification (B0+B1)
 

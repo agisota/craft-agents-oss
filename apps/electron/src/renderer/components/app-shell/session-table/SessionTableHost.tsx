@@ -246,7 +246,7 @@ export function SessionTableHost() {
 
       // Optimistically move rank between siblings so UI updates before event.
       if (prevSib && nextSib) {
-        updateMeta({ id: dragId, rank: `${prevSib.rank ?? 'A'}~` })
+        updateMeta(dragId, { rank: `${prevSib.rank ?? 'A'}~` })
       }
 
       try {
@@ -381,13 +381,13 @@ export function SessionTableHost() {
                       onSelect={() => toggle(meta.id, index)}
                       onOpen={(id) => navigate(routes.view.allSessions(id))}
                       onUpdate={(partial) => {
-                        updateMeta({ id: meta.id, ...partial })
+                        updateMeta(meta.id, partial)
                         const api = window.electronAPI
                         const send = (cmd: unknown) =>
                           api.sessionCommand(meta.id, cmd as never).catch((e) => {
                             console.error(e)
                             // revert on failure
-                            updateMeta({ id: meta.id, ...meta })
+                            updateMeta(meta.id, meta)
                           })
                         if (partial.priority !== undefined) void send({ type: 'setPriority', priority: partial.priority })
                         if (partial.dueDate !== undefined) void send({ type: 'setDueDate', dueDate: partial.dueDate })

@@ -1,17 +1,11 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Archive, Flag, Trash2, X } from 'lucide-react'
-import type { SessionPriority } from '@craft-agent/shared/protocol/dto'
-import {
-  useIsMultiSelectActive,
-  useSelectedIds,
-  useSelectionCount,
-  useSessionSelectionStore,
-} from '@/hooks/useSession'
+import { Archive, Flag, X } from 'lucide-react'
+import type { BulkUpdateSessionsPatch, SessionPriority } from '@craft-agent/shared/protocol/dto'
 import { sessionSelection } from '@/hooks/useEntitySelection'
-import type { SessionStatus } from '@/config/session-status-config'
-import type { SessionStatusId } from '@/config/session-status-config'
+import { useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
+import type { SessionStatus, SessionStatusId } from '@/config/session-status-config'
 import { cn } from '@/lib/utils'
 
 export interface CollectionBulkBarProps {
@@ -25,10 +19,7 @@ export interface CollectionBulkBarProps {
 const STATUSES_QUICK: SessionStatusId[] = ['todo', 'in-progress', 'needs-review', 'done', 'cancelled']
 const PRIORITIES: SessionPriority[] = ['none', 'urgent', 'high', 'medium', 'low']
 
-/**
- * Floating bulk actions for sessions multi-select.
- * Calls electronAPI.bulkUpdateSessions; per-id failures toast.
- */
+/** Bottom-center floating bulk actions for sessions multi-select. */
 export function CollectionBulkBar({
   workspaceId,
   statuses = [],
@@ -40,22 +31,20 @@ export function CollectionBulkBar({
   const active = useIsMultiSelectActive()
   const selectedIds = useSelectedIds()
   const count = useSelectionCount()
-  const { clearSelection } = sessionSelection
-  const selectionStore = useSessionSelectionStore()
+  const selection = sessionSelection.useSelection()
   const [busy, setBusy] = React.useState(false)
 
-  // EC selection clear on Escape
   React.useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearSelection()
+      if (e.key === 'Escape') selection.clearMultiSelect()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, clearSelection])
+  }, [active, selection])
 
   const apply = React.useCallback(
-    async (patch: import('@craft-agent/shared/protocol/dto').BulkUpdateSessionsPatch) => {
+    async (patch: BulkUpdateSessionsPatch) => {
       if (!workspaceId || selectedIds.size === 0) return
       setBusy(true)
       try {
@@ -69,26 +58,28 @@ export function CollectionBulkBar({
         } else {
           toast.success(t('collection.bulk.applied', { count: res.ok.length }))
         }
-        selectionStore.setState({ selected: null, selectedIds: new Set(), anchors: [] })
+        selection.reset()
       } catch (e) {
-        toast.error(t('collection.bulk.failed', { message: e instanceof Error ? e.message : String(e) }))
+        toast.error(
+          t('collection.bulk.failed', {
+            message: e instanceof Error ? e.message : String(e),
+          }),
+        )
       } finally {
         setBusy(false)
       }
     },
-    [workspaceId, selectedIds, selectionStore, t],
+    [workspaceId, selectedIds, selection, t],
   )
 
   if (!active || !workspaceId) return null
 
-  const statusOptions = statuses.length > 0 ? statuses.map((s) => s.id) : STATUSES_QUICK
+  const statusOptions: SessionStatusId[] =
+    statuses.length > 0 ? (statuses.map((s) => s.id) as SessionStatusId[]) : STATUSES_QUICK
 
   return (
     <div
-      className={cn(
-        'pointer-events-auto fixed inset-x-0 bottom-6 z-50 flex justify-center',
-        className,
-      )}
+      className={cn('pointer-events-auto fixed inset-x-0 bottom-6 z-50 flex justify-center', className)}
       role="toolbar"
       aria-label={t('collection.bulk.title')}
     >
@@ -195,7 +186,7 @@ export function CollectionBulkBar({
         <button
           type="button"
           disabled={busy}
-          onClick={() => clearSelection()}
+          onClick={() => selection.clearMultiSelect()}
           aria-label={t('collection.bulk.clear')}
           className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground"
         >

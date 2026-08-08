@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Flag as FlagIcon, GripVertical } from 'lucide-react'
 import type { SessionPriority } from '@craft-agent/shared/sessions'
 import type { SessionMeta } from '@/atoms/sessions'
-import type { SessionStatus, SessionStatusConfig } from '@/config/session-status-config'
+import type { SessionStatusConfig } from '@/config/session-status-config'
 import { getSessionTitle } from '@/utils/session'
 import { cn } from '@/lib/utils'
 
@@ -90,7 +90,7 @@ export function SessionTableRow({
   const title = getSessionTitle(meta as never) || meta.id.slice(0, 8)
   const due = formatDue(meta.dueDate)
   const priority = meta.priority ?? 'none'
-  const sessionStatus = (meta.sessionStatus ?? 'todo') as SessionStatus
+  const sessionStatus: string = meta.sessionStatus ?? 'todo'
 
   const projectName = meta.projectId ? (projectNameById.get(meta.projectId) ?? meta.projectId) : ''
   const labelNames = (meta.labels ?? []).map((id) => labelById.get(id) ?? id).join(', ')
@@ -161,7 +161,9 @@ export function SessionTableRow({
           <select
             className="w-full rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-xs"
             value={sessionStatus}
-            onChange={(e) => onUpdate({ sessionStatus: e.target.value as SessionStatus })}
+            onChange={(e) =>
+              onUpdate({ sessionStatus: e.target.value })
+            }
           >
             {(statuses.length > 0 ? statuses : [{ id: sessionStatus } as never]).map((s) => (
               <option key={s.id} value={s.id}>
