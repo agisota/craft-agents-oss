@@ -83,6 +83,8 @@ export interface SetupNeeds {
   needsBillingConfig: boolean;
   /** Billing type set but missing credentials → show credential entry */
   needsCredentials: boolean;
+  /** Rox cloud account (rox.one) not connected — product gate */
+  needsRoxCloud?: boolean;
   /** Everything complete → go straight to App */
   isFullyConfigured: boolean;
   /** User has legacy tokens that need migration */

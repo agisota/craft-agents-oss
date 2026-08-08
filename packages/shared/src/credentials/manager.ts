@@ -715,6 +715,79 @@ export class CredentialManager {
       issues,
     };
   }
+
+  // ============================================
+  // Rox cloud session (identity on rox.one)
+  // ============================================
+
+  private roxCloudId() {
+    return {
+      type: 'service_oauth' as const,
+      workspaceId: 'global',
+      name: 'rox-cloud',
+    }
+  }
+
+  async getRoxCloudSession(): Promise<{
+    accessToken: string
+    expiresAt?: number
+    userId?: string
+    email?: string
+    name?: string
+    authBaseUrl?: string
+  } | null> {
+    const cred = await this.get(this.roxCloudId())
+    if (!cred?.value) return null
+    let meta: { userId?: string; email?: string; name?: string } = {}
+    if (cred.idToken) {
+      try {
+        meta = JSON.parse(cred.idToken) as typeof meta
+      } catch {
+        meta = {}
+      }
+    }
+    return {
+      accessToken: cred.value,
+      expiresAt: cred.expiresAt,
+      userId: meta.userId,
+      email: meta.email,
+      name: meta.name,
+      authBaseUrl: cred.clientId,
+    }
+  }
+
+  async setRoxCloudSession(session: {
+    accessToken: string
+    expiresAt?: number
+    userId: string
+    email?: string
+    name?: string
+    authBaseUrl?: string
+  }): Promise<void> {
+    await this.set(this.roxCloudId(), {
+      value: session.accessToken,
+      expiresAt: session.expiresAt,
+      clientId: session.authBaseUrl,
+      idToken: JSON.stringify({
+        userId: session.userId,
+        email: session.email,
+        name: session.name,
+      }),
+      source: 'native',
+    })
+  }
+
+  async clearRoxCloudSession(): Promise<void> {
+    await this.delete(this.roxCloudId())
+  }
+
+  async hasRoxCloudSession(): Promise<boolean> {
+    const s = await this.getRoxCloudSession()
+    if (!s?.accessToken) return false
+    if (s.expiresAt && s.expiresAt < Date.now()) return false
+    return true
+  }
+
 }
 
 // Singleton instance

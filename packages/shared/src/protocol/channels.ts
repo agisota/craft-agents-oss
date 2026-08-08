@@ -367,6 +367,9 @@ export const RPC_CHANNELS = {
     HAS_CLAUDE_OAUTH_STATE: 'onboarding:hasClaudeOAuthState',
     CLEAR_CLAUDE_OAUTH_STATE: 'onboarding:clearClaudeOAuthState',
     DEFER_SETUP: 'onboarding:deferSetup',
+    START_ROX_CONNECT: 'onboarding:startRoxConnect',
+    GET_ROX_CLOUD_STATE: 'onboarding:getRoxCloudState',
+    CLEAR_ROX_CLOUD: 'onboarding:clearRoxCloud',
   },
   llmConnections: {
     LIST: 'LLM_Connection:list',
