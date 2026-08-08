@@ -81,6 +81,15 @@ describe('buildSiyuanSurfaceUrl', () => {
     ).toContain('craftSurface=backlinks')
   })
 
+  it('flashcard and plugins modes set craftSurface marker', () => {
+    expect(
+      buildSiyuanSurfaceUrl('http://localhost:6806', { kind: 'document', id: 'd' }, { mode: 'flashcard' }),
+    ).toContain('craftSurface=flashcard')
+    expect(
+      buildSiyuanSurfaceUrl('http://localhost:6806', undefined, { mode: 'plugins' }),
+    ).toBe('http://localhost:6806/stage/build/desktop/?craftSurface=plugins')
+  })
+
   it('editor mode omits craftSurface', () => {
     const url = buildSiyuanSurfaceUrl(
       'http://localhost:6806',
@@ -144,13 +153,18 @@ describe('needsSiyuanDockOpen', () => {
     expect(needsSiyuanDockOpen('global-graph')).toBe(true)
     expect(needsSiyuanDockOpen('outline')).toBe(true)
     expect(needsSiyuanDockOpen('backlinks')).toBe(true)
+    expect(needsSiyuanDockOpen('flashcard')).toBe(true)
+    expect(needsSiyuanDockOpen('plugins')).toBe(true)
   })
 })
 
 describe('SIYUAN_OPEN_DOCK_SCRIPT', () => {
-  it('targets graph dock selectors and Alt+G fallback', () => {
-    expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('craftSurface=global-graph')
+  it('targets graph, flashcard/riff, and plugin dock selectors', () => {
+    expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain("params.get('craftSurface')")
     expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('[data-type="graph"]')
+    expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('[data-type="riff"]')
+    expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('[data-type="flashcard"]')
+    expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('[data-type="plugin"]')
     expect(SIYUAN_OPEN_DOCK_SCRIPT).toContain('altKey:true')
   })
 })
