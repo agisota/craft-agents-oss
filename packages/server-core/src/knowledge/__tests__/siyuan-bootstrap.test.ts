@@ -131,7 +131,7 @@ describe('ensureLocalKernel', () => {
     const fetchImpl = (async () => {
       throw new Error('down')
     }) as unknown as typeof fetch
-    let opened: string | null = null
+    let opened = ''
     const appBin = '/Applications/SiYuan.app/Contents/MacOS/SiYuan'
     const result = await ensureLocalKernel({
       configDir,
