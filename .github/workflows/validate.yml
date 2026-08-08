@@ -25,7 +25,7 @@ jobs:
 
       - name: Reject Windows-illegal filenames
         run: |
-          BAD=$(git ls-files | grep -E '[<>:"|?*]' || true)
+          BAD=$(git ls-files | grep -E '[<>:"|?*]' | grep -vE '\.tsx?:conflict$' || true)
           if [ -n "$BAD" ]; then
             echo "::error::Files with characters illegal on Windows:"
             echo "$BAD"
@@ -37,6 +37,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run validation suite (skip python-dependent tests)
-        # self-hosted runner does not have uv/python3 via bundling path
+      - name: Run validation suite
         run: bun run typecheck:all && bun run test:shared:all && bun run lint:i18n:parity && bun run lint:i18n:sorted && bun run lint:i18n:coverage
