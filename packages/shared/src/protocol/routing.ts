@@ -323,6 +323,15 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.orgs.GET_IDENTITY,
   RPC_CHANNELS.orgs.UPDATE_IDENTITY,
   RPC_CHANNELS.orgs.SET_WORKSPACE_ORG,
+
+  // identity — profile + service connections (Identity Center, S-07)
+  RPC_CHANNELS.identity.GET_STATE,
+  RPC_CHANNELS.identity.UPDATE_PROFILE,
+  RPC_CHANNELS.identity.CONNECT,
+  RPC_CHANNELS.identity.DISCONNECT,
+  RPC_CHANNELS.identity.REFRESH_STATUS,
+  RPC_CHANNELS.identity.CHANGED,
+
 ])
 
 // ---------------------------------------------------------------------------
