@@ -341,6 +341,14 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
         return sessionManager.setSessionProjectId(sessionId, command.projectId)
       case 'setKanbanColumn':
         return sessionManager.setKanbanColumn(sessionId, command.column)
+      case 'setPriority':
+        return sessionManager.setPriority(sessionId, command.priority)
+      case 'setDueDate':
+        return sessionManager.setDueDate(sessionId, command.dueDate)
+      case 'setRank':
+        return sessionManager.setRank(sessionId, command.rank)
+      case 'reorderRank':
+        return sessionManager.reorderRank(sessionId, command.prevId, command.nextId)
       case 'showInFinder': {
         const sessionPath = sessionManager.getSessionPath(sessionId)
         if (sessionPath) {

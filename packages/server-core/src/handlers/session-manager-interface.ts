@@ -14,6 +14,7 @@ import type { AuthResult } from '@craft-agent/shared/agent'
 import type {
   Session,
   SessionStatus,
+  SessionPriority,
   CreateSessionOptions,
   FileAttachment,
   SendMessageOptions,
@@ -90,6 +91,10 @@ export interface ISessionManager {
   ): Promise<{ labelId: string } | undefined>
   setSessionProjectId(sessionId: string, projectId: string | null): Promise<void>
   setKanbanColumn(sessionId: string, column: string | null): Promise<void>
+  setPriority(sessionId: string, priority: SessionPriority): Promise<void>
+  setDueDate(sessionId: string, dueDate: number | null): Promise<void>
+  setRank(sessionId: string, rank: string): Promise<void>
+  reorderRank(sessionId: string, prevId?: string, nextId?: string): Promise<void>
   setTaskNodeCount(sessionId: string, count: number): Promise<void>
   setSessionMemoryMode(sessionId: string, mode: import('@craft-agent/core/types').SessionMemoryMode): Promise<void>
   adoptGeneratedTaskOrchestrator(
