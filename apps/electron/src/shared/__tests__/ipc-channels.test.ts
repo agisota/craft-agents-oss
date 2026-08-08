@@ -107,6 +107,7 @@ const EXPECTED_CHANNELS: string[] = [
   'contextDocs:read',
   'contextDocs:readTemplate',
   'contextDocs:write',
+  'contextDocs:delete',
   'copilot:cancelOAuth',
   'copilot:deviceCode',
   'copilot:getAuthStatus',

@@ -233,6 +233,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.contextDocs.LIST,
   RPC_CHANNELS.contextDocs.READ,
   RPC_CHANNELS.contextDocs.WRITE,
+  RPC_CHANNELS.contextDocs.DELETE,
   RPC_CHANNELS.contextDocs.READ_TEMPLATE,
   RPC_CHANNELS.contextDocs.ACCEPT_TEMPLATE,
   RPC_CHANNELS.contextDocs.KEEP_MINE_TEMPLATE,

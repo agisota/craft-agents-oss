@@ -722,6 +722,7 @@ export const RPC_CHANNELS = {
     LIST: 'contextDocs:list',
     READ: 'contextDocs:read',
     WRITE: 'contextDocs:write',
+    DELETE: 'contextDocs:delete',
     READ_TEMPLATE: 'contextDocs:readTemplate',
     ACCEPT_TEMPLATE: 'contextDocs:acceptTemplate',
     KEEP_MINE_TEMPLATE: 'contextDocs:keepMineTemplate',
