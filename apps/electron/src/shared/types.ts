@@ -646,6 +646,18 @@ export interface ElectronAPI {
     get(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<KnowledgeNode>
     getContext(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef; mode: ContextMode }): Promise<ContextPayload>
     getBacklinks(args: { workspaceId: string; connectionId: string; ref: KnowledgeRef }): Promise<ContextPayload['backlinks']>
+    getExportPayload(args: {
+      connectionId: string
+      ref: KnowledgeRef
+      formats?: Array<'markdown' | 'deepLink' | 'id' | 'hPath' | 'blockKramdown'>
+    }): Promise<{
+      id: string
+      deepLink?: string
+      markdown?: string
+      hPath?: string
+      blockKramdown?: string
+      title?: string
+    }>
     createSnapshot(args: {
       workspaceId: string
       connectionId: string
@@ -804,6 +816,12 @@ export interface ElectronAPI {
   openFile(path: string): Promise<void>
   showInFolder(path: string): Promise<void>
   exportNotePdf(opts: { html: string; defaultPath: string }): Promise<{ canceled: boolean; filePath?: string }>
+  /** Save plain text via native save dialog (knowledge export, etc.). */
+  saveTextFile(opts: {
+    content: string
+    defaultPath: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }): Promise<{ canceled: boolean; filePath?: string }>
 
   // Menu event listeners
   onMenuNewChat(callback: () => void): () => void

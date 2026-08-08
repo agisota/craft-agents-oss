@@ -190,6 +190,7 @@ const EXPECTED_CHANNELS: string[] = [
   'knowledge:get',
   'knowledge:getBacklinks',
   'knowledge:getContext',
+  'knowledge:getExportPayload',
   'knowledge:getProposal',
   'knowledge:listConnections',
   'knowledge:listLinks',

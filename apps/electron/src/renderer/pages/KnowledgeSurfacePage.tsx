@@ -16,6 +16,9 @@
  * SIYUAN_OPEN_DOCK_SCRIPT once after load (~800ms) to open SiYuan docks. Toolbar
  * switches prefer in-page `location.href` evaluate + dock script over recreate.
  *
+ * P4.3 copy/export: toolbar ⋯ menu calls knowledge.getExportPayload and copies
+ * deep link / id / markdown / hPath, or exports markdown via saveTextFile.
+ *
  * Compat view: `routes.view.siyuan({ kind: 'notebook', id: '__full__' })` (or the
  * `compat` prop) renders the same full-UI surface with a hint banner; the
  * sentinel id keeps its durableKey distinct from any real document instance.
@@ -24,23 +27,46 @@
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue } from 'jotai'
+import { MoreHorizontal } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { focusedPanelIdAtom } from '@/atoms/panel-stack'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { isKnowledgeFeatureEnabled } from '@/lib/feature-flags'
 import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  StyledDropdownMenuContent,
+  StyledDropdownMenuItem,
+  StyledDropdownMenuSeparator,
+} from '@/components/ui/styled-dropdown'
 import {
   buildSiyuanDurableKey,
   buildSiyuanSurfaceUrl,
   DEFAULT_BASE_URL,
   isSiyuanCompatRef,
   needsSiyuanDockOpen,
+  SIYUAN_FULL_SURFACE_ID,
   SIYUAN_OPEN_DOCK_SCRIPT,
   type SiyuanSurfaceMode,
   type SiyuanSurfaceRef,
 } from '@/knowledge/siyuan-url'
 
 const DOCK_OPEN_DELAY_MS = 800
+
+type ExportFormat = 'markdown' | 'deepLink' | 'id' | 'hPath' | 'blockKramdown'
+
+type ExportPayload = {
+  id: string
+  deepLink?: string
+  markdown?: string
+  hPath?: string
+  blockKramdown?: string
+  title?: string
+}
 
 const SURFACE_TOOLBAR_MODES: Array<{
   mode: SiyuanSurfaceMode
@@ -95,6 +121,93 @@ export default function KnowledgeSurfacePage({
   const ref = useMemo<SiyuanSurfaceRef>(() => ({ kind, id }), [kind, id])
   const isCompat = compat === true || isSiyuanCompatRef(ref)
 
+  const [connectionId, setConnectionId] = useState<string | null>(null)
+  // Full-surface / notebook __full__: only deep link + id are useful.
+  const contentCopyEnabled =
+    !isCompat && id !== SIYUAN_FULL_SURFACE_ID && (kind === 'document' || kind === 'block')
+
+  const fetchExportPayload = useCallback(
+    async (formats: ExportFormat[]): Promise<ExportPayload | null> => {
+      const api = window.electronAPI?.knowledge?.getExportPayload
+      if (!api || !connectionId) return null
+      return api({
+        connectionId,
+        ref: { scheme: 'siyuan', kind, id },
+        formats,
+      })
+    },
+    [connectionId, kind, id],
+  )
+
+  const copyText = useCallback(
+    async (text: string | undefined | null) => {
+      if (!text) {
+        toast.error(t('knowledge.surface.copy.failed'))
+        return
+      }
+      try {
+        await navigator.clipboard.writeText(text)
+        toast.success(t('knowledge.surface.copy.success'))
+      } catch {
+        toast.error(t('knowledge.surface.copy.failed'))
+      }
+    },
+    [t],
+  )
+
+  const handleCopyFormat = useCallback(
+    async (format: ExportFormat) => {
+      try {
+        const payload = await fetchExportPayload([format])
+        if (!payload) {
+          toast.error(t('knowledge.surface.copy.failed'))
+          return
+        }
+        const value =
+          format === 'deepLink'
+            ? payload.deepLink
+            : format === 'id'
+              ? payload.id
+              : format === 'markdown'
+                ? payload.markdown
+                : format === 'hPath'
+                  ? payload.hPath
+                  : payload.blockKramdown
+        await copyText(value)
+      } catch {
+        toast.error(t('knowledge.surface.copy.failed'))
+      }
+    },
+    [fetchExportPayload, copyText, t],
+  )
+
+  const handleExportMarkdown = useCallback(async () => {
+    try {
+      const payload = await fetchExportPayload(['markdown', 'hPath', 'id'])
+      const md = payload?.markdown
+      if (!md) {
+        toast.error(t('knowledge.surface.export.failed'))
+        return
+      }
+      const defaultName = `${(payload?.title || payload?.id || 'export').replace(/[^\w.-]+/g, '_')}.md`
+      const save = window.electronAPI?.saveTextFile
+      if (typeof save === 'function') {
+        const result = await save({
+          content: md,
+          defaultPath: defaultName,
+          filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        })
+        if (!result.canceled) {
+          toast.success(t('knowledge.surface.export.success'))
+        }
+        return
+      }
+      await navigator.clipboard.writeText(md)
+      toast.success(t('knowledge.surface.export.clipboardFallback'))
+    } catch {
+      toast.error(t('knowledge.surface.export.failed'))
+    }
+  }, [fetchExportPayload, t])
   surfaceModeRef.current = surfaceMode
 
   const runDockOpen = useCallback(async (targetInstanceId: string, mode: SiyuanSurfaceMode) => {
@@ -175,7 +288,9 @@ export default function KnowledgeSurfacePage({
       try {
         const connections = await window.electronAPI.knowledge.listConnections()
         if (cancelled) return
-        const baseUrl = connections.find((c) => c.baseUrl)?.baseUrl ?? DEFAULT_BASE_URL
+        const primary = connections.find((c) => c.baseUrl) ?? connections[0]
+        if (primary?.id) setConnectionId(primary.id)
+        const baseUrl = primary?.baseUrl ?? DEFAULT_BASE_URL
         baseUrlRef.current = baseUrl
         const url = buildSiyuanSurfaceUrl(baseUrl, ref, { mode: surfaceModeRef.current })
         createdId = await window.electronAPI.siyuanEngine.createEmbedded({
@@ -333,6 +448,42 @@ export default function KnowledgeSurfacePage({
             </button>
           )
         })}
+        <div className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                aria-label={t('knowledge.surface.copy.menu')}
+                title={t('knowledge.surface.copy.menu')}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <StyledDropdownMenuContent align="end" className="min-w-[180px]">
+              <StyledDropdownMenuItem onClick={() => void handleCopyFormat('deepLink')}>
+                <span className="flex-1">{t('knowledge.surface.copy.deepLink')}</span>
+              </StyledDropdownMenuItem>
+              <StyledDropdownMenuItem onClick={() => void handleCopyFormat('id')}>
+                <span className="flex-1">{t('knowledge.surface.copy.id')}</span>
+              </StyledDropdownMenuItem>
+              {contentCopyEnabled && (
+                <>
+                  <StyledDropdownMenuItem onClick={() => void handleCopyFormat('markdown')}>
+                    <span className="flex-1">{t('knowledge.surface.copy.markdown')}</span>
+                  </StyledDropdownMenuItem>
+                  <StyledDropdownMenuItem onClick={() => void handleCopyFormat('hPath')}>
+                    <span className="flex-1">{t('knowledge.surface.copy.hPath')}</span>
+                  </StyledDropdownMenuItem>
+                  <StyledDropdownMenuSeparator />
+                  <StyledDropdownMenuItem onClick={() => void handleExportMarkdown()}>
+                    <span className="flex-1">{t('knowledge.surface.export.markdown')}</span>
+                  </StyledDropdownMenuItem>
+                </>
+              )}
+            </StyledDropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     ) : null
 
