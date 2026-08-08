@@ -26,6 +26,7 @@ import { windowWorkspaceIdAtom } from '@/atoms/sessions'
 import { useNavigation } from '@/contexts/NavigationContext'
 import { routes } from '@/lib/navigate'
 import { cn } from '@/lib/utils'
+import type { ElectronAPI } from '../../../shared/types'
 
 // ---------------------------------------------------------------------------
 // Wire types (structural — mirror packages/core knowledge publications contract)
@@ -117,66 +118,25 @@ export interface PublicationRecord {
   createdAt: string
 }
 
-export interface KnowledgePublishApi {
-  listConnections(): Promise<Array<{ id: string; label?: string }>>
-  publishDistill(args: {
-    connectionId: string
-    sessionId?: string
-    runIds?: string[]
-    language?: string
-    workspaceId?: string
-  }): Promise<PublishDraft>
-  publishGetDraft(args: {
-    draftId: string
-    connectionId?: string
-    workspaceId?: string
-  }): Promise<PublishDraft | null>
-  publishUpdateDraft(args: {
-    draftId: string
-    connectionId?: string
-    workspaceId?: string
-    title?: string
-    markdown?: string
-  }): Promise<PublishDraft>
-  publishPrepare(args: {
-    draftId: string
-    connectionId: string
-    notebookId: string
-    path: string
-    adoptExisting?: boolean
-    workspaceId?: string
-  }): Promise<PublishPrepareResult>
-  publishApply(args: {
-    draftId: string
-    connectionId: string
-    workspaceId?: string
-  }): Promise<PublishApplyResult>
-  publishFinalize(args: {
-    draftId: string
-    proposalId: string
-    connectionId?: string
-    workspaceId?: string
-    appliedDocRef?: { scheme: string; kind: string; id: string }
-  }): Promise<PublishApplyResult | PublicationRecord>
-  publishList(args: {
-    connectionId?: string
-    workspaceId?: string
-    sessionId?: string
-    runId?: string
-  }): Promise<PublicationRecord[]>
-  listLinks?(args: {
-    connectionId?: string
-    workspaceId?: string
-    craftId?: string
-    knowledgeId?: string
-  }): Promise<unknown[]>
-}
+/** Byte-match ElectronAPI.knowledge publish surface — no local Partial cast. */
+export type KnowledgePublishApi = Pick<
+  ElectronAPI['knowledge'],
+  | 'listConnections'
+  | 'publishDistill'
+  | 'publishGetDraft'
+  | 'publishUpdateDraft'
+  | 'publishPrepare'
+  | 'publishApply'
+  | 'publishFinalize'
+  | 'publishList'
+  | 'listLinks'
+>
 
 export function resolveKnowledgePublishApi(): KnowledgePublishApi | null {
   if (typeof window === 'undefined' || !window.electronAPI?.knowledge) return null
-  const api = window.electronAPI.knowledge as unknown as Partial<KnowledgePublishApi>
+  const api = window.electronAPI.knowledge
   if (typeof api.publishDistill !== 'function') return null
-  return api as KnowledgePublishApi
+  return api
 }
 
 // ---------------------------------------------------------------------------
