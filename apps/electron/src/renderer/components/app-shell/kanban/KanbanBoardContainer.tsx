@@ -158,7 +158,7 @@ function mergeBoardColumns(config: KanbanBoardConfig | null): KanbanColumnMeta[]
  * rename/color/prompts, and group-by live in `{workspace}/kanban/config.json`.
  */
 export function KanbanBoardContainer() {
-  const { activeWorkspaceId, llmConnections, sessionStatuses, onCreateSession, onSendMessage, onJumpToTaskSessions } =
+  const { activeWorkspaceId, workspaces, llmConnections, sessionStatuses, onCreateSession, onSendMessage, onJumpToTaskSessions } =
     useAppShellContext()
   const { t } = useTranslation()
   const metaMap = useAtomValue(sessionMetaMapAtom)
@@ -209,6 +209,7 @@ export function KanbanBoardContainer() {
       setBoardConfig(null)
       return
     }
+    const remoteWorkspaceId = workspaces.find(w => w.id === activeWorkspaceId)?.remoteServer?.remoteWorkspaceId
     let cancelled = false
     void window.electronAPI.getKanbanConfig(activeWorkspaceId).then(cfg => {
       if (cancelled) return
@@ -252,13 +253,13 @@ export function KanbanBoardContainer() {
       if (!cancelled) setBoardConfig(null)
     })
     const unsub = window.electronAPI.onKanbanConfigChanged((wsId, cfg) => {
-      if (wsId === activeWorkspaceId) setBoardConfig(cfg)
+      if (wsId === activeWorkspaceId || (!!remoteWorkspaceId && wsId === remoteWorkspaceId)) setBoardConfig(cfg)
     })
     return () => {
       cancelled = true
       unsub()
     }
-  }, [activeWorkspaceId, setColumnColors])
+  }, [activeWorkspaceId, workspaces, setColumnColors])
 
   const persistBoardConfig = React.useCallback(
     (next: KanbanBoardConfig) => {
