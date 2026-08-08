@@ -83,3 +83,10 @@ export {
   type EnrichMindMapInput,
   type EnrichMindMapResult,
 } from './enrich.ts';
+
+export {
+  graphToMarkdown,
+  materializeNoteTitle,
+  MINDMAP_NOTES_FOLDER,
+  type MaterializeMarkdownOptions,
+} from './materialize.ts';

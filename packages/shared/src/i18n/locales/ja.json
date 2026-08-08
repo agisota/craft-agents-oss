@@ -2844,5 +2844,9 @@
   "workspaceRail.linkMissingUrl": "URL を入力してください",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "ノート ID（任意）",
-  "workspaceRail.removeLink": "リンクを削除"
+  "workspaceRail.removeLink": "リンクを削除",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializing": "Saving…",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note"
 }

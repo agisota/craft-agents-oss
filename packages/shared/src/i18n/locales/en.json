@@ -2844,5 +2844,9 @@
   "workspaceRail.linkMissingUrl": "Enter a URL",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "Note id (optional)",
-  "workspaceRail.removeLink": "Remove link"
+  "workspaceRail.removeLink": "Remove link",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializing": "Saving…",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note"
 }
