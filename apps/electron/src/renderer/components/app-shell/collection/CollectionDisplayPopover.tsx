@@ -1,16 +1,14 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, SlidersHorizontal } from 'lucide-react'
-import {
-  COLLECTION_GROUP_BY_VALUES,
-  COLLECTION_ORDER_BY_VALUES,
-  COLLECTION_PROPERTY_VALUES,
-  type CollectionDisplay,
-  type CollectionGroupBy,
-  type CollectionOrderBy,
-  type CollectionOrderDir,
-  type CollectionProperty,
-} from '@craft-agent/shared/sessions'
+import { COLLECTION_GROUP_BY_VALUES,
+COLLECTION_ORDER_BY_VALUES,
+COLLECTION_PROPERTY_VALUES,
+type CollectionDisplay,
+type CollectionGroupBy,
+type CollectionOrderBy,
+type CollectionOrderDir,
+type CollectionProperty, } from '@craft-agent/shared/sessions/collection'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'

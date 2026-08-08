@@ -14,4 +14,19 @@ export * from './panels/index.ts';
 export * from './commands/index.ts';
 export * from './resources/index.ts';
 export * from './surfaces/index.ts';
-export * from './identity/index.ts';
+export type {
+  Profile,
+  ProfileMode,
+  WorkspaceMembership,
+  WorkspaceRole,
+  ServiceConnection,
+  ServiceConnectionStatus,
+  ServiceProvider,
+  Entitlement,
+  EntitlementStatus,
+  IdentityState,
+  IdentityFile,
+  UpdateProfileInput,
+  ConnectServiceInput,
+  DisconnectServiceInput,
+} from './identity/types.ts';

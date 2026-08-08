@@ -1,6 +1,6 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join } from 'path'
-import { RPC_CHANNELS, type FileAttachment, type SendMessageOptions, type SessionEvent } from '@craft-agent/shared/protocol'
+import { RPC_CHANNELS, type FileAttachment, type SendMessageOptions, type Session, type SessionEvent } from '@craft-agent/shared/protocol'
 import type { BulkUpdateSessionsInput, BulkUpdateSessionsResult } from '@craft-agent/shared/protocol/dto'
 import type { StoredAttachment, SessionMemoryMode } from '@craft-agent/core/types'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
@@ -11,6 +11,7 @@ const VALID_THINKING_LEVELS_LIST = THINKING_LEVEL_IDS.map(id => `'${id}'`).join(
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import { setTransferableHandler } from './transfer'
+import { assertValidBulkLabelPatch, resolveBulkLabels } from '../../sessions/bulk-labels'
 
 interface ClientSessionWatchState {
   watcher: import('fs').FSWatcher
@@ -418,23 +419,33 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
     if ('rank' in (patch as Record<string, unknown>)) {
       throw new Error('bulk_rank_forbidden')
     }
+    assertValidBulkLabelPatch(patch)
 
-    // Each id must exist and belong to the workspace; report per-id failures without aborting the batch.
-    const ok: string[] = []
+    // Resolve and authorize every target before calling a setter. This prevents
+    // an earlier valid target from being mutated when a later id is missing or
+    // belongs to another workspace.
+    const resolvedSessions = new Map<string, Session>()
     const failed: Array<{ id: string; error: string }> = []
 
     for (const sessionId of input.ids) {
-      try {
-        const existing = await sessionManager.getSession(sessionId).catch(() => null)
-        if (!existing) {
-          failed.push({ id: sessionId, error: 'not_found' })
-          continue
-        }
-        if (existing.workspaceId !== input.workspaceId) {
-          failed.push({ id: sessionId, error: 'foreign' })
-          continue
-        }
+      const existing = await sessionManager.getSession(sessionId).catch(() => null)
+      if (!existing) {
+        failed.push({ id: sessionId, error: 'not_found' })
+      } else if (existing.workspaceId !== input.workspaceId) {
+        failed.push({ id: sessionId, error: 'foreign' })
+      } else {
+        resolvedSessions.set(sessionId, existing)
+      }
+    }
 
+    if (failed.length > 0) {
+      return { ok: [], failed }
+    }
+
+    const ok: string[] = []
+    for (const sessionId of input.ids) {
+      const existing = resolvedSessions.get(sessionId)!
+      try {
         if (patch.isArchived === true && existing.isProcessing) {
           failed.push({ id: sessionId, error: 'busy' })
           continue
@@ -460,8 +471,9 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
         if (patch.projectId !== undefined) {
           await sessionManager.setSessionProjectId(sessionId, patch.projectId)
         }
-        if (patch.labels !== undefined) {
-          await sessionManager.setSessionLabels(sessionId, patch.labels)
+        const nextLabels = resolveBulkLabels(existing.labels, patch)
+        if (nextLabels !== undefined) {
+          await sessionManager.setSessionLabels(sessionId, nextLabels)
         }
         if (patch.kanbanColumn !== undefined) {
           await sessionManager.setKanbanColumn(sessionId, patch.kanbanColumn)

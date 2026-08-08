@@ -1,7 +1,7 @@
 import type * as React from 'react'
 
-import type { SessionPriority } from '@craft-agent/shared/sessions'
-import type { CollectionDisplay, CollectionFilters } from '@craft-agent/shared/sessions'
+import type { SessionPriority } from '@craft-agent/shared/sessions/collection'
+import type { CollectionDisplay, CollectionFilters } from '@craft-agent/shared/sessions/collection'
 import type { SessionStatus } from '@/config/session-status-config'
 import { cn } from '@/lib/utils'
 import { CollectionDisplayPopover } from './CollectionDisplayPopover'

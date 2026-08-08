@@ -40,8 +40,8 @@ import type {
   ExtensionRuntime,
   ExtensionsListCatalogResult,
   ExtensionsListInstalledResult,
-} from '@craft-agent/shared/extensions'
-import { CATALOG_CATEGORIES, RUNTIME_PLACEMENT, HIGH_RISK_PERMISSIONS } from '@craft-agent/shared/extensions'
+} from '@craft-agent/shared/extensions/browser'
+import { CATALOG_CATEGORIES, RUNTIME_PLACEMENT, HIGH_RISK_PERMISSIONS } from '@craft-agent/shared/extensions/browser'
 import { useActiveWorkspace } from '@/context/AppShellContext'
 
 export const meta: DetailsPageMeta = {

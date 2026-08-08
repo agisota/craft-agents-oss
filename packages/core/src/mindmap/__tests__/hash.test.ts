@@ -9,6 +9,32 @@ describe('hashMindMapSource', () => {
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test('matches the SHA-256 known vector', () => {
+    expect(hashMindMapSource(['abc'])).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
+  });
+
+  test('uses the browser-safe fallback without a native Bun hasher', () => {
+    const bun = (globalThis as { Bun?: Record<string, unknown> }).Bun;
+    if (!bun) {
+      expect(hashMindMapSource(['abc'])).toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+      return;
+    }
+
+    const nativeHasher = bun.CryptoHasher;
+    try {
+      bun.CryptoHasher = undefined;
+      expect(hashMindMapSource(['abc'])).toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    } finally {
+      bun.CryptoHasher = nativeHasher;
+    }
+  });
+
   test('order of parts affects hash', () => {
     const a = hashMindMapSource(['a', 'b']);
     const b = hashMindMapSource(['b', 'a']);

@@ -7,6 +7,7 @@ import { sessionSelection } from '@/hooks/useEntitySelection'
 import { useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import type { SessionStatus, SessionStatusId } from '@/config/session-status-config'
 import { cn } from '@/lib/utils'
+import { NO_PROJECT_VALUE, projectPatchForBulkValue } from './bulk-input'
 
 export interface CollectionBulkBarProps {
   workspaceId: string | null | undefined
@@ -18,6 +19,7 @@ export interface CollectionBulkBarProps {
 
 const STATUSES_QUICK: SessionStatusId[] = ['todo', 'in-progress', 'needs-review', 'done', 'cancelled']
 const PRIORITIES: SessionPriority[] = ['none', 'urgent', 'high', 'medium', 'low']
+
 
 /** Bottom-center floating bulk actions for sessions multi-select. */
 export function CollectionBulkBar({
@@ -72,6 +74,8 @@ export function CollectionBulkBar({
     [workspaceId, selectedIds, selection, t],
   )
 
+
+
   if (!active || !workspaceId) return null
 
   const statusOptions: SessionStatusId[] =
@@ -83,7 +87,7 @@ export function CollectionBulkBar({
       role="toolbar"
       aria-label={t('collection.bulk.title')}
     >
-      <div className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-lg backdrop-blur">
+      <div className="inline-flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-modal-small backdrop-blur">
         <span className="text-xs font-semibold text-foreground/90">
           {t('collection.bulk.selected', { count })}
         </span>
@@ -135,15 +139,15 @@ export function CollectionBulkBar({
             defaultValue=""
             disabled={busy}
             onChange={(e) => {
-              const v = e.target.value
+              const patch = projectPatchForBulkValue(e.target.value)
               e.target.value = ''
-              void apply({ projectId: v === '' ? null : v })
+              if (patch) void apply(patch)
             }}
           >
             <option value="" disabled>
               {t('collection.bulk.setProject')}
             </option>
-            <option value="">{t('collection.bulk.noProject')}</option>
+            <option value={NO_PROJECT_VALUE}>{t('collection.bulk.noProject')}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -151,6 +155,70 @@ export function CollectionBulkBar({
             ))}
           </select>
         )}
+        {labels.length > 0 && (
+          <select
+            aria-label={t('collection.bulk.addLabel')}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            defaultValue=""
+            disabled={busy}
+            onChange={(e) => {
+              const labelId = e.target.value
+              e.target.value = ''
+              if (labelId) void apply({ addLabels: [labelId] })
+            }}
+          >
+            <option value="" disabled>
+              {t('collection.bulk.addLabel')}
+            </option>
+            {labels.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {labels.length > 0 && (
+          <select
+            aria-label={t('collection.bulk.removeLabel')}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            defaultValue=""
+            disabled={busy}
+            onChange={(e) => {
+              const labelId = e.target.value
+              e.target.value = ''
+              if (labelId) void apply({ removeLabels: [labelId] })
+            }}
+          >
+            <option value="" disabled>
+              {t('collection.bulk.removeLabel')}
+            </option>
+            {labels.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <input
+          type="date"
+          aria-label={t('collection.bulk.setDueDate')}
+          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          disabled={busy}
+          onChange={(e) => {
+            const value = e.target.value
+            e.target.value = ''
+            if (!value) {
+              void apply({ dueDate: null })
+              return
+            }
+            const [year, month, day] = value.split('-').map(Number)
+            const dueDate = Date.UTC(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0)
+            if (Number.isFinite(dueDate)) void apply({ dueDate })
+          }}
+        />
+
 
         <button
           type="button"

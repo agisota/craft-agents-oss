@@ -44,7 +44,7 @@ import {
   getDefaultKanbanBoardConfig,
   patchKanbanColumn,
   type KanbanBoardConfig,
-} from '@craft-agent/shared/kanban'
+} from '@craft-agent/shared/kanban/browser'
 import { setProjectColorTreatment, useProjectColorTreatment } from '@/hooks/useProjectColorTreatment'
 import { PROJECT_COLOR_PALETTE, type ProjectColorTreatment } from '@/utils/project-colors'
 import { Info_DataTable, SortableHeader } from '@/components/info/Info_DataTable'

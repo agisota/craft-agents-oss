@@ -9,15 +9,15 @@ import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { getLlmConnections } from '@craft-agent/shared/config'
-import {
-  getIdentityStore,
-  type ConnectServiceInput,
-  type IdentityState,
-  type ServiceConnection,
-  type ServiceConnectionStatus,
-  type ServiceProvider,
-  type UpdateProfileInput,
-} from '@craft-agent/core/platform'
+import { getIdentityStore } from '@craft-agent/core/platform/identity/store'
+import type {
+  ConnectServiceInput,
+  IdentityState,
+  ServiceConnection,
+  ServiceConnectionStatus,
+  ServiceProvider,
+  UpdateProfileInput,
+} from '@craft-agent/core/platform/identity/types'
 import { KnowledgeConnectionsStore } from '../../knowledge/connections-store'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
