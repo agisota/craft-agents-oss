@@ -184,72 +184,105 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('cloudRuns.title')}</DialogTitle>
           </DialogHeader>
 
-          <div className="flex gap-2">
-            <select
-              className="rounded-md border border-border bg-background px-1.5 text-xs"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as typeof kind)}
-              title={t('cloudRuns.preset')}
-            >
-              <option value="research">{t('cloudRuns.presetResearch')}</option>
-              <option value="competitor">{t('cloudRuns.presetCompetitor')}</option>
-              <option value="literature">{t('cloudRuns.presetLiterature')}</option>
-              <option value="vendor">{t('cloudRuns.presetVendor')}</option>
-            </select>
-            <Input
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder={t('cloudRuns.topicPlaceholder')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && topic.trim()) {
-                  void act('submit', async () => {
-                    await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
-                    setTopic('')
-                    toast.success(t('cloudRuns.submitted'))
-                  })
-                }
-              }}
-            />
-            <label className="flex items-center gap-1 text-xs text-muted-foreground" title={t('cloudRuns.personasHint')}>
-              <input type="checkbox" checked={personas} onChange={(e) => setPersonas(e.target.checked)} />
-              {t('cloudRuns.personas')}
-            </label>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy === 'prefill'}
-              title={t('cloudRuns.prefill')}
-              onClick={() => void prefillFromSession()}
-            >
-              ✦
-            </Button>
-            <Button
-              disabled={!topic.trim() || busy === 'submit'}
-              onClick={() =>
-                void act('submit', async () => {
-                  await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
-                  setTopic('')
-                  toast.success(t('cloudRuns.submitted'))
-                })
-              }
-            >
-              <Rocket className="mr-1 h-4 w-4" />
-              {t('cloudRuns.submit')}
-            </Button>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">{t('cloudRuns.sectionNewRun')}</div>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className="rounded-md border border-border bg-background px-1.5 text-xs h-9"
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as typeof kind)}
+                  title={t('cloudRuns.preset')}
+                >
+                  <option value="research">{t('cloudRuns.presetResearch')}</option>
+                  <option value="competitor">{t('cloudRuns.presetCompetitor')}</option>
+                  <option value="literature">{t('cloudRuns.presetLiterature')}</option>
+                  <option value="vendor">{t('cloudRuns.presetVendor')}</option>
+                </select>
+                <Input
+                  className="min-w-[12rem] flex-1 border-border"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder={t('cloudRuns.topicPlaceholder')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && topic.trim()) {
+                      void act('submit', async () => {
+                        await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
+                        setTopic('')
+                        toast.success(t('cloudRuns.submitted'))
+                      })
+                    }
+                  }}
+                />
+                <label className="flex items-center gap-1 text-xs text-muted-foreground" title={t('cloudRuns.personasHint')}>
+                  <input type="checkbox" checked={personas} onChange={(e) => setPersonas(e.target.checked)} />
+                  {t('cloudRuns.personas')}
+                </label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy === 'prefill'}
+                  title={t('cloudRuns.prefill')}
+                  onClick={() => void prefillFromSession()}
+                >
+                  ✦
+                </Button>
+                <Button
+                  disabled={!topic.trim() || busy === 'submit'}
+                  onClick={() =>
+                    void act('submit', async () => {
+                      await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
+                      setTopic('')
+                      toast.success(t('cloudRuns.submitted'))
+                    })
+                  }
+                >
+                  <Rocket className="mr-1 h-4 w-4" />
+                  {t('cloudRuns.newRun')}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t('cloudRuns.topicHelp')}</p>
+              {estimatedTokens !== null && (
+                <p className="text-xs text-muted-foreground">
+                  {t('cloudRuns.estimate', { tokens: tokShort(estimatedTokens) })}
+                </p>
+              )}
+            </div>
           </div>
-          {estimatedTokens !== null && (
-            <p className="-mt-1 text-xs text-muted-foreground">
-              {t('cloudRuns.estimate', { tokens: tokShort(estimatedTokens) })}
-            </p>
-          )}
 
           <div className="max-h-72 space-y-1 overflow-y-auto">
-            {runs.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t('cloudRuns.empty')}</p>}
+            {runs.length === 0 && (
+              <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-dashed border-border/70 bg-muted/30">
+                  <Cloud className="h-5 w-5 text-muted-foreground/70" />
+                </div>
+                <p className="text-sm text-muted-foreground">{t('cloudRuns.empty')}</p>
+                <Button
+                  size="sm"
+                  disabled={!topic.trim() || busy === 'submit'}
+                  onClick={() => {
+                    if (!topic.trim()) {
+                      // Focus topic by setting a gentle nudge via placeholder toast
+                      toast.message(t('cloudRuns.topicPlaceholder'))
+                      return
+                    }
+                    void act('submit', async () => {
+                      await window.electronAPI.submitCloudRun({ topic: topic.trim(), sessionId, kind, personas })
+                      setTopic('')
+                      toast.success(t('cloudRuns.submitted'))
+                    })
+                  }}
+                >
+                  <Rocket className="mr-1 h-4 w-4" />
+                  {t('cloudRuns.newRun')}
+                </Button>
+              </div>
+            )}
             {runs.map((run) => {
               const state = run.status?.state
               const progress = run.status?.progress
@@ -439,20 +472,22 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                     </Button>
                   </div>
                 ))}
-                <div className="flex gap-1">
+                <div className="flex flex-col gap-1">
+                  <div className="flex gap-1">
                   <Input
-                    className="h-7 flex-1 text-xs"
+                    className="h-7 flex-1 text-xs border-border"
                     value={newSched.topic}
                     onChange={(e) => setNewSched((p) => ({ ...p, topic: e.target.value }))}
                     placeholder={t('cloudRuns.scheduleTopicPlaceholder')}
                   />
                   <Input
-                    className="h-7 w-16 text-xs"
+                    className="h-7 w-16 text-xs border-border"
                     type="number"
                     min={1}
                     value={newSched.everyHours}
                     onChange={(e) => setNewSched((p) => ({ ...p, everyHours: e.target.value }))}
-                    title={t('cloudRuns.everyHours', { hours: '' }).replace(' ', '').replace(/\{\{hours\}\} ?/, '').trim() || 'hours'}
+                    title={t('cloudRuns.everyHoursHint')}
+                    aria-label={t('cloudRuns.everyHoursHint')}
                   />
                   <Button
                     size="sm"
@@ -474,6 +509,8 @@ function CloudRunsChipInner({ sessionId }: CloudRunsChipProps) {
                   >
                     +
                   </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground px-0.5">{t('cloudRuns.everyHoursHint')}</p>
                 </div>
               </div>
             )}

@@ -918,6 +918,17 @@ export interface ElectronAPI {
   // Sources
   getSources(workspaceId: string): Promise<LoadedSource[]>
   createSource(workspaceId: string, config: Partial<FolderSourceConfig>): Promise<FolderSourceConfig>
+  updateSource(
+    workspaceId: string,
+    sourceSlug: string,
+    updates: {
+      name?: string
+      enabled?: boolean
+      tagline?: string
+      url?: string
+      guide?: string
+    },
+  ): Promise<LoadedSource>
   deleteSource(workspaceId: string, sourceSlug: string): Promise<void>
   startSourceOAuth(workspaceId: string, sourceSlug: string): Promise<{ success: boolean; error?: string }>
   saveSourceCredentials(workspaceId: string, sourceSlug: string, credential: string): Promise<void>
@@ -942,6 +953,11 @@ export interface ElectronAPI {
   // Skills
   getSkills(workspaceId: string, workingDirectory?: string): Promise<LoadedSkill[]>
   getSkillFiles?(workspaceId: string, skillSlug: string): Promise<SkillFile[]>
+  updateSkill(
+    workspaceId: string,
+    skillSlug: string,
+    updates: import('@craft-agent/shared/skills').UpdateSkillContentInput,
+  ): Promise<LoadedSkill>
   deleteSkill(workspaceId: string, skillSlug: string): Promise<void>
   /** Import an OMP skill into workspace craft skills. Returns the materialized slug (may get a `-omp` suffix on conflict). */
   importOmpSkill(workspaceId: string, skillSlug: string): Promise<{ slug: string; path: string; renamed: boolean }>
@@ -995,6 +1011,11 @@ export interface ElectronAPI {
   // Labels (workspace-scoped)
   listLabels(workspaceId: string): Promise<import('@craft-agent/shared/labels').LabelConfig[]>
   createLabel(workspaceId: string, input: import('@craft-agent/shared/labels').CreateLabelInput): Promise<import('@craft-agent/shared/labels').LabelConfig>
+  updateLabel(
+    workspaceId: string,
+    labelId: string,
+    updates: import('@craft-agent/shared/labels').UpdateLabelInput,
+  ): Promise<import('@craft-agent/shared/labels').LabelConfig>
   deleteLabel(workspaceId: string, labelId: string): Promise<{ stripped: number }>
   onLabelsChanged(callback: (workspaceId: string) => void): () => void
 

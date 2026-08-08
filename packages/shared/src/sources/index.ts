@@ -95,7 +95,20 @@ export {
   getDocsSource,
   getBuiltinSources,
   isBuiltinSource,
+  ensureBuiltinSources,
+  hasExaKey,
+  hasFirecrawlKey,
+  estimateSourceGuideTokens,
+  formatTokenEstimate,
+  BUILTIN_SOURCE_SLUGS,
+  type BuiltinSourceSlug,
 } from './builtin-sources.ts';
+
+export {
+  computeSourceTokenStats,
+  type SourceFileStat,
+  type SourceTokenStats,
+} from './source-stats.ts';
 
 // API Tools (types)
 export type { SummarizeCallback } from './api-tools.ts';

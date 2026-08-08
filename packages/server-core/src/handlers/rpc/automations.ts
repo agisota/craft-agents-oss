@@ -78,6 +78,9 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
     }
     try {
       const { resolveAutomationsConfigPath } = await import('@craft-agent/shared/automations/resolve-config-path')
+      const { ensureDefaultAutomations } = await import('@craft-agent/shared/automations/default-seeds')
+      // Seed defaults when missing/empty legacy — no-op if user already has matchers.
+      ensureDefaultAutomations(workspace.rootPath)
       const configPath = resolveAutomationsConfigPath(workspace.rootPath)
       log.info(`AUTOMATIONS_GET: Reading config from: ${configPath}`)
       const content = await readFile(configPath, 'utf-8')
