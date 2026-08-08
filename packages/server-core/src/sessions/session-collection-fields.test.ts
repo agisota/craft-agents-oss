@@ -23,6 +23,7 @@ import { SessionManager, createManagedSession } from './SessionManager.ts'
 describe('session collection fields (B1.3)', () => {
   let tmpRoot: string
   let sm: SessionManager
+  const smAny = () => sm as unknown as { sessions: Map<string, unknown> }
   const events: Array<{ type: string; sessionId?: string; changes?: Record<string, unknown> }> = []
 
   beforeEach(() => {
@@ -97,7 +98,6 @@ describe('session collection fields (B1.3)', () => {
     return managed
   }
 
-  const smAny = () => sm as unknown as { sessions: Map<string, unknown> }
   function readDiskHeader(sessionId: string): Record<string, unknown> {
     const path = getSessionFilePath(tmpRoot, sessionId)
     const firstLine = readFileSync(path, 'utf-8').split('\n')[0]
