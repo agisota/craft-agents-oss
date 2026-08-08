@@ -993,6 +993,22 @@ export interface ElectronAPI {
   hasClaudeOAuthState(): Promise<boolean>
   clearClaudeOAuthState(): Promise<{ success: boolean }>
   /** Defer onboarding setup — user chose "Setup later" */
+  startRoxConnect(): Promise<{
+    success: boolean
+    userCode?: string
+    verificationUri?: string
+    verificationUriComplete?: string
+    expiresIn?: number
+    error?: string
+    authBaseUrl?: string
+  }>
+  getRoxCloudState(): Promise<{
+    required: boolean
+    connected: boolean
+    authBaseUrl: string
+    user: { id?: string; email?: string; name?: string } | null
+  }>
+  clearRoxCloud(): Promise<{ success: boolean }>
   deferSetup(): Promise<{ success: boolean }>
 
   // ChatGPT OAuth (for Codex chatgptAuthTokens mode)

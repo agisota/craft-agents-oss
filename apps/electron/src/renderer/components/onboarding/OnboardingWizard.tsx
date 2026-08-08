@@ -5,12 +5,14 @@ import { ProviderSelectStep, type ProviderChoice } from "./ProviderSelectStep"
 import { CredentialsStep, type CredentialStatus } from "./CredentialsStep"
 import { LocalModelStep, type LocalModelSubmitData } from "./LocalModelStep"
 import { CompletionStep } from "./CompletionStep"
+import { RoxConnectStep, type RoxConnectCodes } from "./RoxConnectStep"
 import { GitBashWarning, type GitBashStatus } from "./GitBashWarning"
 import type { ApiKeySubmitData, CustomEndpointModelInput } from "../apisetup"
 import type { CustomEndpointApi } from '@config/llm-connections'
 
 export type OnboardingStep =
   | 'welcome'
+  | 'rox-connect'
   | 'git-bash'
   | 'provider-select'
   | 'local-model'
@@ -64,6 +66,14 @@ interface OnboardingWizardProps {
   /** Called when user chooses "Setup later" on provider select */
   onSkipSetup?: () => void
 
+  // Rox cloud Connect
+  roxConnectCodes?: RoxConnectCodes | null
+  roxConnectStatus?: 'idle' | 'starting' | 'waiting' | 'success' | 'error'
+  roxConnectError?: string
+  roxAuthBaseUrl?: string
+  onStartRoxConnect?: () => void
+  onOpenRoxConnectBrowser?: () => void
+
   // Local model
   onSubmitLocalModel?: (data: LocalModelSubmitData) => void
 
@@ -112,6 +122,12 @@ export function OnboardingWizard({
   // Provider select (new flow)
   onSelectProvider,
   onSkipSetup,
+  roxConnectCodes,
+  roxConnectStatus = 'idle',
+  roxConnectError,
+  roxAuthBaseUrl = 'https://rox.one',
+  onStartRoxConnect,
+  onOpenRoxConnectBrowser,
   // Local model
   onSubmitLocalModel,
   // Edit mode

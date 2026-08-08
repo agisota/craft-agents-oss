@@ -14,6 +14,7 @@ import type {
   OnboardingState,
   OnboardingStep,
   ApiSetupMethod,
+  RoxConnectCodes,
 } from '@/components/onboarding'
 import type { ProviderChoice } from '@/components/onboarding/ProviderSelectStep'
 import type { LocalModelSubmitData } from '@/components/onboarding/LocalModelStep'
@@ -71,6 +72,14 @@ interface UseOnboardingReturn {
 
   // Copilot device code (displayed during device flow)
   copilotDeviceCode?: { userCode: string; verificationUri: string }
+
+  // Rox cloud Connect
+  roxConnectCodes: RoxConnectCodes | null
+  roxConnectStatus: 'idle' | 'starting' | 'waiting' | 'success' | 'error'
+  roxConnectError?: string
+  roxAuthBaseUrl: string
+  handleStartRoxConnect: () => void
+  handleOpenRoxConnectBrowser: () => void
 
   // Git Bash (Windows)
   handleBrowseGitBash: () => Promise<string | null>
@@ -218,6 +227,13 @@ export function useOnboarding({
     isCheckingGitBash: true, // Start as true until check completes
   })
 
+  // Rox cloud gate: if product requires Connect and not connected, force step.
+  useEffect(() => {
+    if (initialSetupNeeds?.needsRoxCloud) {
+      setState(s => (s.step === 'rox-connect' ? s : { ...s, step: 'rox-connect' }))
+    }
+  }, [initialSetupNeeds?.needsRoxCloud])
+
   // Check Git Bash on Windows at mount. If missing, redirect to git-bash step
   // regardless of the initial step (provider-select skips the welcome gate).
   useEffect(() => {
@@ -321,12 +337,18 @@ export function useOnboarding({
         break
 
       case 'welcome':
-        // On Windows, check if Git Bash is needed
-        if (state.gitBashStatus?.platform === 'win32' && !state.gitBashStatus?.found) {
+        // Rox cloud Connect gate (product policy: required by default)
+        if (initialSetupNeeds?.needsRoxCloud) {
+          setState(s => ({ ...s, step: 'rox-connect' }))
+        } else if (state.gitBashStatus?.platform === 'win32' && !state.gitBashStatus?.found) {
           setState(s => ({ ...s, step: 'git-bash' }))
         } else {
           setState(s => ({ ...s, step: 'provider-select' }))
         }
+        break
+
+      case 'rox-connect':
+        // Advancement handled by poll success in handleStartRoxConnect
         break
 
       case 'git-bash':
@@ -529,6 +551,87 @@ export function useOnboarding({
 
   // Copilot device code (displayed during device flow)
   const [copilotDeviceCode, setCopilotDeviceCode] = useState<{ userCode: string; verificationUri: string } | undefined>()
+
+  // Rox cloud Connect (rox.one device flow)
+  const [roxConnectCodes, setRoxConnectCodes] = useState<RoxConnectCodes | null>(null)
+  const [roxConnectStatus, setRoxConnectStatus] = useState<'idle' | 'starting' | 'waiting' | 'success' | 'error'>('idle')
+  const [roxConnectError, setRoxConnectError] = useState<string | undefined>()
+  const [roxAuthBaseUrl, setRoxAuthBaseUrl] = useState('https://rox.one')
+  const roxPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (roxPollRef.current) clearInterval(roxPollRef.current)
+    }
+  }, [])
+
+  const handleStartRoxConnect = useCallback(async () => {
+    setRoxConnectStatus('starting')
+    setRoxConnectError(undefined)
+    try {
+      const result = await window.electronAPI.startRoxConnect()
+      if (!result?.success || !result.userCode || !result.verificationUri || !result.verificationUriComplete) {
+        setRoxConnectStatus('error')
+        setRoxConnectError(result?.error || 'Failed to start Rox Connect')
+        return
+      }
+      const userCode = result.userCode
+      const verificationUri = result.verificationUri
+      const verificationUriComplete = result.verificationUriComplete
+      if (!userCode || !verificationUri || !verificationUriComplete) {
+        setRoxConnectStatus('error')
+        setRoxConnectError('Rox Connect returned an incomplete device payload')
+        return
+      }
+      setRoxConnectCodes({
+        userCode,
+        verificationUri,
+        verificationUriComplete,
+      })
+      try {
+        const st = await window.electronAPI.getRoxCloudState()
+        if (st?.authBaseUrl) setRoxAuthBaseUrl(st.authBaseUrl)
+      } catch { /* ignore */ }
+      setRoxConnectStatus('waiting')
+      // open browser
+      if (result.verificationUriComplete) {
+        await window.electronAPI.openUrl(result.verificationUriComplete)
+      }
+      // poll cloud state until connected
+      if (roxPollRef.current) clearInterval(roxPollRef.current)
+      roxPollRef.current = setInterval(async () => {
+        try {
+          const st = await window.electronAPI.getRoxCloudState()
+          if (st?.connected) {
+            if (roxPollRef.current) clearInterval(roxPollRef.current)
+            setRoxConnectStatus('success')
+            // advance to provider setup
+            setTimeout(() => {
+              setState(s => {
+                if (s.gitBashStatus?.platform === 'win32' && !s.gitBashStatus?.found) {
+                  return { ...s, step: 'git-bash' }
+                }
+                return { ...s, step: 'provider-select' }
+              })
+            }, 400)
+          }
+        } catch {
+          // keep waiting
+        }
+      }, 2000)
+    } catch (err) {
+      setRoxConnectStatus('error')
+      setRoxConnectError(err instanceof Error ? err.message : 'Connect failed')
+    }
+  }, [])
+
+  const handleOpenRoxConnectBrowser = useCallback(async () => {
+    const uri = roxConnectCodes?.verificationUriComplete
+    if (uri) {
+      await window.electronAPI.openUrl(uri)
+    }
+  }, [roxConnectCodes])
+
 
   // Start OAuth flow (Claude or ChatGPT depending on selected method)
   const handleStartOAuth = useCallback(async (methodOverride?: ApiSetupMethod, connectionSlugOverride?: string) => {
@@ -906,6 +1009,12 @@ export function useOnboarding({
     handleCancelOAuth,
     // Copilot device code
     copilotDeviceCode,
+    roxConnectCodes,
+    roxConnectStatus,
+    roxConnectError,
+    roxAuthBaseUrl,
+    handleStartRoxConnect,
+    handleOpenRoxConnectBrowser,
     // Git Bash (Windows)
     handleBrowseGitBash,
     handleUseGitBashPath,

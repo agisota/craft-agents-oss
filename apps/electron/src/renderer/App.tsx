@@ -2094,6 +2094,12 @@ export default function App() {
             onBack={onboarding.handleBack}
             onSelectProvider={onboarding.handleSelectProvider}
             onSkipSetup={onboarding.handleSkipSetup}
+            roxConnectCodes={onboarding.roxConnectCodes}
+            roxConnectStatus={onboarding.roxConnectStatus}
+            roxConnectError={onboarding.roxConnectError}
+            roxAuthBaseUrl={onboarding.roxAuthBaseUrl}
+            onStartRoxConnect={onboarding.handleStartRoxConnect}
+            onOpenRoxConnectBrowser={onboarding.handleOpenRoxConnectBrowser}
             onSelectApiSetupMethod={onboarding.handleSelectApiSetupMethod}
             onSubmitCredential={onboarding.handleSubmitCredential}
             onSubmitLocalModel={onboarding.handleSubmitLocalModel}
