@@ -189,6 +189,22 @@ export function SessionItem({
       )}
       icon={
         <>
+          <input
+            type="checkbox"
+            checked={isInMultiSelect}
+            aria-label={title}
+            className="h-3.5 w-3.5 shrink-0 rounded border-border"
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              if (e.shiftKey && onRangeSelect) onRangeSelect()
+              else if (onToggleSelect) onToggleSelect()
+            }}
+          />
           <SessionStatusIcon item={item} />
           <div className={cn(
             "flex items-center justify-center overflow-hidden gap-1",

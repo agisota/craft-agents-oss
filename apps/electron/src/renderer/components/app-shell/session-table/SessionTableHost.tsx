@@ -109,7 +109,7 @@ export function SessionTableHost() {
   const loadDisplay = useSetAtom(loadCollectionDisplayAtom)
   const filters = useAtomValue(collectionFiltersAtom)
   const setFilters = useSetAtom(collectionFiltersAtom)
-  const { toggle, selectAll, clearMultiSelect, isSelected } = sessionSelection.useSelection()
+  const { toggle, selectRange, selectAll, clearMultiSelect, isSelected } = sessionSelection.useSelection()
 
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => loadCollapsed())
 
@@ -201,11 +201,16 @@ export function SessionTableHost() {
   }, [metaMap, filters, display, statusById, projectNameById, labelById, t])
 
   const totalRows = rows.reduce((acc, g) => acc + g.items.length, 0)
-  const allIds = React.useMemo(
-    () => rows.flatMap((g) => g.items).map((s) => s.id),
-    [rows],
+  const visibleRows = React.useMemo<SessionMeta[]>(
+    () => rows.flatMap((group) => (group.bucket == null || !collapsed.has(group.bucket.key) ? group.items : [])),
+    [rows, collapsed],
   )
-  const allSelectedVisible = allIds.length > 0 && allIds.every((id) => isSelected(id))
+  const visibleIds = React.useMemo(() => visibleRows.map((meta) => meta.id), [visibleRows])
+  const visibleIndexById = React.useMemo(
+    () => new Map(visibleRows.map((meta, index) => [meta.id, index])),
+    [visibleRows],
+  )
+  const allSelectedVisible = visibleIds.length > 0 && visibleIds.every((id) => isSelected(id))
 
   const showGrip = display.orderBy === 'rank'
   const showCol = (prop: string) => display.visibleProperties.includes(prop as never)
@@ -321,7 +326,7 @@ export function SessionTableHost() {
               checked={allSelectedVisible}
               onChange={() => {
                 if (allSelectedVisible) clearMultiSelect()
-                else selectAll(allIds)
+                else selectAll(visibleIds)
               }}
               aria-label={t('collection.table.selectAll')}
             />
@@ -372,7 +377,7 @@ export function SessionTableHost() {
                   />
                 )}
                 {(group.bucket == null || !collapsed.has(group.bucket.key)) &&
-                  group.items.map((meta, index) => (
+                  group.items.map((meta) => (
                     <SessionTableRow
                       key={meta.id}
                       meta={meta}
@@ -380,7 +385,11 @@ export function SessionTableHost() {
                       projectNameById={projectNameById}
                       labelById={labelById}
                       selected={isSelected(meta.id)}
-                      onSelect={() => toggle(meta.id, index)}
+                      onSelect={(checked, shiftKey) => {
+                        const globalIndex = visibleIndexById.get(meta.id) ?? 0
+                        if (shiftKey) selectRange(globalIndex, visibleIds)
+                        else toggle(meta.id, globalIndex)
+                      }}
                       onOpen={(id) => navigate(routes.view.allSessions(id))}
                       onUpdate={(partial) => {
                         updateMeta(meta.id, partial)

@@ -52,6 +52,7 @@ import { AutomationInfoPage } from '../automations/AutomationInfoPage'
 import ProjectInfoPage from '@/pages/ProjectInfoPage'
 import { KanbanBoardContainer } from './kanban/KanbanBoardContainer'
 import { SessionTableHost } from './session-table/SessionTableHost'
+import { CollectionBulkBar } from './collection/CollectionBulkBar'
 import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
@@ -94,6 +95,7 @@ export function MainContentPanel({
     onArchiveSession,
     onSessionLabelsChange,
     sessionStatuses,
+    projects,
     labels,
     onTestAutomation,
     onToggleAutomation,
@@ -539,6 +541,12 @@ export function MainContentPanel({
             onArchive={handleBatchArchive}
             onClearSelection={clearMultiSelect}
           />
+          <CollectionBulkBar
+            workspaceId={activeWorkspaceId}
+            statuses={sessionStatuses}
+            projects={projects}
+            labels={labels}
+          />
         </Panel>
       )
     }
@@ -547,6 +555,12 @@ export function MainContentPanel({
       return wrapWithStoplight(
         <Panel variant="grow" className={className}>
           <ChatPage sessionId={navState.details.sessionId} />
+          <CollectionBulkBar
+            workspaceId={activeWorkspaceId}
+            statuses={sessionStatuses}
+            projects={projects}
+            labels={labels}
+          />
         </Panel>
       )
     }
