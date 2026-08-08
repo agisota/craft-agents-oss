@@ -149,6 +149,7 @@ export function KanbanColumn({
     onRunSubtasks,
     subtaskModelGroups,
     defaultSubtaskModel,
+    columnAccent: color?.solid,
   }
 
   if (collapsed) {
@@ -273,6 +274,7 @@ export function KanbanColumn({
                 onRunSubtasks={onRunSubtasks ? () => onRunSubtasks(task.id) : undefined}
                 subtaskModelGroups={subtaskModelGroups}
                 defaultSubtaskModel={defaultSubtaskModel}
+                columnAccent={color?.solid}
               />
             </DraggableTile>
           ))
@@ -297,6 +299,7 @@ type TileSharedProps = {
   onRunSubtasks?: (taskId: string) => void
   subtaskModelGroups?: KanbanModelProviderGroup[]
   defaultSubtaskModel?: string
+  columnAccent?: string
 }
 
 function ProjectGroupSection({
@@ -380,6 +383,7 @@ function ProjectGroupSection({
                 }
                 subtaskModelGroups={tileProps.subtaskModelGroups}
                 defaultSubtaskModel={tileProps.defaultSubtaskModel}
+                columnAccent={tileProps.columnAccent}
               />
             </DraggableTile>
           ))}

@@ -330,6 +330,12 @@ export function KanbanBoard({
               status={statusesById.get(activeTask.statusId)}
               treatment={treatment}
               expanded={expandedTaskIds.has(activeTask.id)}
+              columnAccent={
+                (columns.find(c => c.id === activeTask.column)?.color
+                  ? makeColumnColor(columns.find(c => c.id === activeTask.column)!.color!)
+                  : columnColors.get(activeTask.column)
+                )?.solid
+              }
             />
           </div>
         ) : null}

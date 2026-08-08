@@ -74,6 +74,8 @@ interface TaskTileProps {
   subtaskModelGroups?: KanbanModelProviderGroup[]
   /** Model id pre-selected in the composer (defaults to the first catalog model). */
   defaultSubtaskModel?: string
+  /** Column accent from boardConfig (preferred over localStorage atom). */
+  columnAccent?: string
 }
 
 /**
@@ -100,11 +102,12 @@ export function TaskTile({
   onRunSubtasks,
   subtaskModelGroups,
   defaultSubtaskModel,
+  columnAccent,
 }: TaskTileProps) {
   const { t } = useTranslation()
   const livePulseEnabled = useAtomValue(kanbanLivePulseAtom)
   const columnColors = useKanbanColumnColors()
-  const accent = columnColors.get(task.column)?.solid ?? 'var(--primary)'
+  const accent = columnAccent ?? columnColors.get(task.column)?.solid ?? 'var(--primary)'
 
   const color = project?.color ?? null
   const showStripe = !!color
