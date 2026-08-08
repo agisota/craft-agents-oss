@@ -2177,6 +2177,30 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     const ses = session.fromPartition(partition)
     this.setupSessionPermissions(ses)
     this.setupSessionObservers(ses)
+    // Extension partitions (persist:ext-*) get a strict CSP: untrusted craft-sandbox
+    // UI cannot probe secrets or fetch origins outside itself by default.
+    // env CRAFT_EXT_CSP_RELAX=1 opts out for local extension development.
+    if (partition.startsWith('persist:ext-') && process.env.CRAFT_EXT_CSP_RELAX !== '1') {
+      const csp = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self' https://localhost:* https://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
+        "frame-src 'self'",
+      ].join('; ')
+      // Register once per partition session
+      const sessKey = `__craftExtCsp_${partition}`
+      if (!(ses as unknown as Record<string, unknown>)[sessKey]) {
+        ;(ses as unknown as Record<string, unknown>)[sessKey] = true
+        ses.webRequest.onHeadersReceived((details, callback) => {
+          const headers = { ...(details.responseHeaders ?? {}) }
+          headers['content-security-policy'] = [csp]
+          callback({ responseHeaders: headers })
+        })
+      }
+    }
 
     const bgColor = nativeTheme.shouldUseDarkColors ? '#2b292e' : '#fafafb'
 
