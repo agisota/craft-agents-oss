@@ -623,6 +623,11 @@ export const CHANNEL_MAP = {
   setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
   onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
 
+  // Sessions collection display
+  getCollectionDisplay: invoke(RPC_CHANNELS.collection.GET_DISPLAY),
+  setCollectionDisplay: invoke(RPC_CHANNELS.collection.SET_DISPLAY),
+  onCollectionDisplayChanged: listener(RPC_CHANNELS.collection.CHANGED),
+
 
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),

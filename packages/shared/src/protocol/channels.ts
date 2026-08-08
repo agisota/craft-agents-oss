@@ -657,6 +657,11 @@ export const RPC_CHANNELS = {
     SET_CONFIG: 'kanban:setConfig',
     CHANGED: 'kanban:changed',
   },
+  collection: {
+    GET_DISPLAY: 'collection:getDisplay',
+    SET_DISPLAY: 'collection:setDisplay',
+    CHANGED: 'collection:changed',
+  },
 
   mindmap: {
     /** One-shot LLM outline improve → enriched MindMapGraph (LOCAL_ONLY). */

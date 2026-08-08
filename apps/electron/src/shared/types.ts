@@ -1423,6 +1423,11 @@ export interface ElectronAPI {
   setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
   onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
 
+  // Sessions collection display (workspace-scoped)
+  getCollectionDisplay(workspaceId: string): Promise<import('@craft-agent/shared/sessions').CollectionDisplay>
+  setCollectionDisplay(workspaceId: string, display: import('@craft-agent/shared/sessions').CollectionDisplay): Promise<import('@craft-agent/shared/sessions').CollectionDisplay>
+  onCollectionDisplayChanged(callback: (workspaceId: string, display: import('@craft-agent/shared/sessions').CollectionDisplay) => void): () => void
+
 
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
