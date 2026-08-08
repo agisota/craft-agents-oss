@@ -201,7 +201,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares exactly the 9 P1 read + getExportPayload + 7 P3 write-back + 8 P4 publication + 6 P5 view/envelope + 2 P6 watch + migrateNotes channels — no engine lifecycle, no CHANGED push event', () => {
+  it('declares P1–P6 knowledge channels plus ENGINE_START bootstrap — no engineStop, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -213,6 +213,7 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
       RPC_CHANNELS.knowledge.SNAPSHOT_GET,
       RPC_CHANNELS.knowledge.ENGINE_STATUS,
+      RPC_CHANNELS.knowledge.ENGINE_START,
       RPC_CHANNELS.knowledge.PROPOSE_MUTATION,
       RPC_CHANNELS.knowledge.APPROVE_PROPOSAL,
       RPC_CHANNELS.knowledge.REJECT_PROPOSAL,
@@ -238,11 +239,11 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.UNWATCH,
       RPC_CHANNELS.knowledge.MIGRATE_NOTES,
     ])
-    // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
-    expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
+    // engineStop remains out of scope (managed lifecycle).
+    expect(HANDLED_CHANNELS.some((ch) => /engineStop/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
-    expect(HANDLED_CHANNELS).toHaveLength(34) // 9 P1 + getExportPayload + 7 P3 + 8 P4 + 6 P5 + 2 P6 watch + migrateNotes
+    expect(HANDLED_CHANNELS).toHaveLength(35) // previous 34 + ENGINE_START
   })
 
   it('registers a handler for every declared channel and nothing else', () => {
@@ -300,7 +301,9 @@ describe('engineStatus', () => {
     credentials.set('source_bearer::ws1::conn-1', { value: 'secret-token-1' })
     const { invoke } = createHarness()
     const status = await invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS, { connectionId: 'conn-1' })
-    expect(status).toEqual({ mode: 'external-local', running: true, version: '3.1.28' })
+    expect(status).toMatchObject({ mode: 'external-local', running: true, version: '3.1.28' })
+    expect(typeof (status as { binaryFound?: boolean }).binaryFound).toBe('boolean')
+    expect(typeof (status as { installUrl?: string }).installUrl).toBe('string')
   })
 
   it('reports running:false when the kernel probe fails — probe semantics, never a throw', async () => {
@@ -308,7 +311,15 @@ describe('engineStatus', () => {
     kernelProbeError = new Error('connect ECONNREFUSED 127.0.0.1:6806')
     const { invoke } = createHarness()
     const status = await invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS, { connectionId: 'conn-1' })
-    expect(status).toEqual({ mode: 'external-local', running: false })
+    expect(status).toMatchObject({ mode: 'external-local', running: false })
+  })
+
+  it('seeds a default local connection via listConnections when empty', async () => {
+    const { invoke } = createHarness()
+    const list = await invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, {}) as KnowledgeConnection[]
+    expect(list.length).toBeGreaterThanOrEqual(1)
+    expect(list[0]!.baseUrl).toMatch(/127\.0\.0\.1:6806|localhost:6806/)
+    expect(list[0]!.provider).toBe('siyuan')
   })
 })
 

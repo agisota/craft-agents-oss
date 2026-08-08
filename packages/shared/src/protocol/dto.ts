@@ -660,48 +660,38 @@ export interface KnowledgeChangedPayload {
   change: 'created' | 'updated' | 'removed'
 }
 
-/** Result of knowledge:engineStatus (spec 03 §3.5.1: `{ mode, running, pid?, version? }`). */
+/** Result of knowledge:engineStatus (spec 03 §3.5.1 + local bootstrap extras). */
 export interface KnowledgeEngineStatus {
-  /** Connection mode — production is external-local; managed is typed but fail-closed until G2. */
+  /** Connection mode — P1 supports external-local only (managed lands with P7). */
   mode: 'external-local' | 'managed'
   /** Whether the kernel answered a version probe. */
   running: boolean
-  /** Kernel pid — managed mode only (P7; never set while G2 blocks spawn). */
+  /** Kernel pid — managed mode only (P7). */
   pid?: number
   /** Kernel version reported by the probe, when running. */
   version?: string
-  /** When managed is requested but blocked (G1/G2), explains why running is false. */
-  reason?: string
+  /** True when a local SiYuan binary/app was detected on this host. */
+  binaryFound?: boolean
+  /** Absolute path of the detected binary, when binaryFound. */
+  binaryPath?: string
+  /** Official install URL for empty-state CTA when binary is missing. */
+  installUrl?: string
+  /** True while a start attempt is in flight. */
+  starting?: boolean
 }
 
-
-/** Result of knowledge:metricsGet (P7-prep G1). */
-export interface KnowledgeMetricsSnapshot {
-  version: 1
-  updatedAt: string
-  counters: {
-    connectionsActive: number
-    publicationsTotal: number
-    publicationsLast7d: number
-    automationProposalsTotal: number
-    automationRunsTriggered: number
-    knowledgeSurfaceOpens: number
-    viewRunsTotal: number
-    watchTicksTotal: number
-  }
-  daily?: Record<string, { publications?: number; automationProposals?: number; viewRuns?: number }>
-}
-
-/** Result of knowledge:detectEngine (P7-prep external-local assist). */
-export interface KnowledgeDetectEngineResult {
-  installed: boolean
-  runningOnDefaultPort: boolean
-  suggestedBaseUrl: string
-  installPathsFound: string[]
-  platform: string
-  canOpenApp: boolean
-  /** Official SiYuan install docs — Craft never downloads the binary. */
-  installDocsUrl: string
+/** Result of knowledge:engineStart (local bootstrap). */
+export interface KnowledgeEngineStartResult {
+  ok: boolean
+  started: boolean
+  alreadyRunning: boolean
+  method: 'kernel-serve' | 'open-app' | 'none'
+  binaryPath: string | null
+  baseUrl: string
+  connectionId: string
+  version?: string
+  error?: string
+  installUrl?: string
 }
 
 // ---------------------------------------------------------------------------
