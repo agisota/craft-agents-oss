@@ -6,12 +6,12 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 import {
   autoLayout,
+  layoutBounds,
   type MindMapLayout,
   type MindMapNodeId,
 } from '@craft-agent/core/mindmap'
 import { MindMapMinimap } from './minimap'
 import {
-  computeLayoutBounds,
   MIND_MAP_NODE_HEIGHT,
   MIND_MAP_NODE_WIDTH,
   type MindMapEngineProps,
@@ -87,7 +87,7 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       origPanY: number
     } | null>(null)
     const [isPanning, setIsPanning] = React.useState(false)
-    const didFitKey = React.useRef<string | null>(null)
+    const fittedGraphKey = React.useRef<string | null>(null)
 
     const collapsedList = React.useMemo(
       () => normalizeCollapsed(collapsedProp),
@@ -131,7 +131,11 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       return () => ro.disconnect()
     }, [])
 
-    const bounds = React.useMemo(() => computeLayoutBounds(layout, 40), [layout])
+    // Expand point-bounds by half chip so fit includes full node rects
+    const bounds = React.useMemo(() => {
+      const half = Math.max(MIND_MAP_NODE_WIDTH, MIND_MAP_NODE_HEIGHT) / 2 + 24
+      return layoutBounds(layout, half)
+    }, [layout])
 
     const fitView = React.useCallback(() => {
       const { width, height } = size
@@ -183,33 +187,15 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       [fitView, zoomBy, pan.x, pan.y, zoom],
     )
 
-    // Fit when graph identity or first size arrives
-    React.useEffect(() => {
-      if (size.width <= 0 || size.height <= 0) return
-      const key = `${graph.contentHash}:${graph.rootId}:${size.width | 0}x${size.height | 0}`
-      // only auto-fit on graph change, not every resize after first
-      const graphKey = `${graph.contentHash}:${graph.rootId}`
-      if (didFitKey.current?.startsWith(graphKey) && didFitKey.current !== null) {
-        // already fitted this graph; ignore pure resize after first
-        if (didFitKey.current !== key && didFitKey.current.startsWith(graphKey)) return
-      }
-      if (didFitKey.current !== graphKey) {
-        didFitKey.current = graphKey
-        fitView()
-      } else if (!didFitKey.current) {
-        didFitKey.current = graphKey
-        fitView()
-      }
-    }, [graph.contentHash, graph.rootId, size.width, size.height, fitView])
+    const graphKey = `${graph.contentHash}:${graph.rootId}`
 
-    // First size after mount for current graph
+    // Fit when graph identity changes and container has size
     React.useEffect(() => {
       if (size.width <= 0 || size.height <= 0) return
-      if (didFitKey.current === null) {
-        didFitKey.current = `${graph.contentHash}:${graph.rootId}`
-        fitView()
-      }
-    }, [size.width, size.height, fitView, graph.contentHash, graph.rootId])
+      if (fittedGraphKey.current === graphKey) return
+      fittedGraphKey.current = graphKey
+      fitView()
+    }, [graphKey, size.width, size.height, fitView])
 
     React.useEffect(() => {
       if (fitRequestKey > 0) fitView()
@@ -222,7 +208,6 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       const rect = el.getBoundingClientRect()
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
-      // plain wheel or ctrl/meta-wheel both zoom
       const factor = e.deltaY < 0 ? ZOOM_IN : ZOOM_OUT
       setZoom((prev) => {
         const next = clampZoom(prev * factor)
@@ -296,7 +281,7 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
         if (!from || !to) continue
         if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) continue
 
-        // autoLayout y is vertical center; x is left-ish depth origin — treat as center
+        // autoLayout positions are node centers
         if (edge.kind === 'parent') {
           const x1 = from.x + MIND_MAP_NODE_WIDTH / 2
           const y1 = from.y
