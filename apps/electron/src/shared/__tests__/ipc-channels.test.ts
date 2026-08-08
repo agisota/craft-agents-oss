@@ -126,6 +126,7 @@ const EXPECTED_CHANNELS: string[] = [
   'drafts:set',
   'extensionHost:call',
   'extensionHost:getUrlAllowlist',
+  'extensionHost:listCommands',
   'extensionHost:load',
   'extensionHost:mintCapability',
   'extensionHost:proxyFetch',

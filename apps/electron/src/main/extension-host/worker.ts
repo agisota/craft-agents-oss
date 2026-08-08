@@ -264,6 +264,50 @@ export function startWorker(options: WorkerOptions = {}): {
           send(port, { id: msg.id, type: 'ok' })
           return
         }
+        case 'list-commands': {
+          const ext = loaded.get(msg.extensionId)
+          if (!ext) {
+            send(port, {
+              id: msg.id,
+              type: 'error',
+              error: `Extension not loaded: ${msg.extensionId}`,
+            })
+            return
+          }
+          const raw = ext.module?.commands
+          const commands = Array.isArray(raw)
+            ? raw
+                .filter(
+                  (c) =>
+                    c &&
+                    typeof c === 'object' &&
+                    typeof (c as { id?: unknown }).id === 'string' &&
+                    typeof (c as { title?: unknown }).title === 'string',
+                )
+                .map((c) => {
+                  const cmd = c as {
+                    id: string
+                    title: string
+                    when?: string
+                    defaultHotkey?: string
+                    keywords?: string[]
+                  }
+                  return {
+                    id: cmd.id,
+                    title: cmd.title,
+                    ...(typeof cmd.when === 'string' ? { when: cmd.when } : {}),
+                    ...(typeof cmd.defaultHotkey === 'string'
+                      ? { defaultHotkey: cmd.defaultHotkey }
+                      : {}),
+                    ...(Array.isArray(cmd.keywords)
+                      ? { keywords: cmd.keywords.filter((k): k is string => typeof k === 'string') }
+                      : {}),
+                  }
+                })
+            : []
+          send(port, { id: msg.id, type: 'ok', result: { commands } })
+          return
+        }
         case 'unload': {
           loaded.delete(msg.extensionId)
           if (lastLoadedExtensionId === msg.extensionId) lastLoadedExtensionId = null
