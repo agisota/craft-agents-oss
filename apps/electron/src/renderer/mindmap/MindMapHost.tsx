@@ -15,6 +15,7 @@ import {
   Pin,
   PinOff,
   Search,
+  Sparkles,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -27,6 +28,8 @@ import {
   type MindMapNodeId,
   type PinnedMap,
 } from '@craft-agent/core/mindmap'
+import { useAppShellContext } from '@/context/AppShellContext'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
   ResizableHandle,
@@ -50,8 +53,16 @@ export interface MindMapHostProps {
   selectedId?: MindMapNodeId | null
   onSelect?: (id: MindMapNodeId | null) => void
   onNavigate?: (source: { kind: string; id: string }) => void
+  /** Optional workspace id override; defaults to active workspace. */
+  workspaceId?: string
   /** Reserved for future FS pin path; unused (localStorage only). */
   workspaceRoot?: string
+  /** Optional source excerpt for LLM enrich. */
+  sourceExcerpt?: string
+  /** Called when user accepts an enriched draft (after pin). */
+  onAcceptDraft?: (graph: MindMapGraph) => void
+  /** Optional live override when accepting draft. */
+  onGraphOverride?: (graph: MindMapGraph) => void
   className?: string
 }
 
@@ -68,7 +79,11 @@ export function MindMapHost({
   selectedId: selectedProp = null,
   onSelect,
   onNavigate,
+  workspaceId: workspaceIdProp,
   workspaceRoot: _workspaceRoot,
+  sourceExcerpt,
+  onAcceptDraft,
+  onGraphOverride,
   className,
 }: MindMapHostProps) {
   const { t } = useTranslation()
@@ -82,6 +97,9 @@ export function MindMapHost({
   const [pin, setPin] = React.useState<PinnedMap | null>(null)
   /** User dismissed a stale banner without rebuilding. */
   const [staleDismissed, setStaleDismissed] = React.useState(false)
+  const [enrichDraft, setEnrichDraft] = React.useState<MindMapGraph | null>(null)
+  const [enriching, setEnriching] = React.useState(false)
+  const { activeWorkspaceId } = useAppShellContext()
   const engineRef = React.useRef<SvgMindMapViewHandle | null>(null)
 
   React.useEffect(() => {
@@ -101,6 +119,7 @@ export function MindMapHost({
   React.useEffect(() => {
     setPin(loadPin(entity))
     setStaleDismissed(false)
+    setEnrichDraft(null)
     // entity object identity is unstable; entityKey is the durable identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- entityKey
   }, [entityKey])
@@ -158,6 +177,7 @@ export function MindMapHost({
 
   const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
+  const displayGraph = enrichDraft ?? graph
 
   const handleTogglePin = React.useCallback(() => {
     if (!graph) return
@@ -183,6 +203,59 @@ export function MindMapHost({
 
   const handleKeepStale = React.useCallback(() => {
     setStaleDismissed(true)
+  }, [])
+
+  const handleEnrich = React.useCallback(async () => {
+    if (!graph || enriching) return
+    const workspaceId = workspaceIdProp || activeWorkspaceId
+    if (!workspaceId) {
+      toast.error(t('mindmap.enrichNoWorkspace'))
+      return
+    }
+    setEnriching(true)
+    try {
+      const api = window.electronAPI?.enrichMindMap
+      if (typeof api !== 'function') {
+        toast.error(t('mindmap.enrichUnavailable'))
+        return
+      }
+      const result = await api({
+        workspaceId,
+        entity,
+        graph: enrichDraft ?? graph,
+        sourceExcerpt,
+      })
+      if (result?.ok && result.graph) {
+        setEnrichDraft(result.graph)
+        setFitKey((k) => k + 1)
+      } else {
+        toast.error(
+          result && 'error' in result && result.error
+            ? result.error
+            : t('mindmap.enrichFailed'),
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('mindmap.enrichFailed'))
+    } finally {
+      setEnriching(false)
+    }
+  }, [activeWorkspaceId, enrichDraft, enriching, entity, graph, sourceExcerpt, t, workspaceIdProp])
+
+  const handleAcceptEnrich = React.useCallback(() => {
+    if (!enrichDraft) return
+    const next = createPinnedMap(enrichDraft, layoutFromCollapsed(collapsed))
+    savePin(next)
+    setPin(next)
+    setStaleDismissed(false)
+    onAcceptDraft?.(enrichDraft)
+    onGraphOverride?.(enrichDraft)
+    setEnrichDraft(null)
+    toast.success(t('mindmap.enrichAccepted'))
+  }, [collapsed, enrichDraft, onAcceptDraft, onGraphOverride, t])
+
+  const handleDiscardEnrich = React.useCallback(() => {
+    setEnrichDraft(null)
   }, [])
 
   React.useEffect(() => {
@@ -237,14 +310,14 @@ export function MindMapHost({
     )
   }
 
-  const childCount = Object.keys(graph.nodes).length
+  const childCount = Object.keys((displayGraph ?? graph).nodes).length
   const onlyRoot = childCount <= 1
   const showMapChrome = mode === 'map' && !onlyRoot
 
   const renderMap = () => (
     <SvgMindMapView
       ref={engineRef}
-      graph={graph}
+      graph={displayGraph!}
       layout="auto"
       readOnlyStructure
       searchQuery={search}
@@ -259,7 +332,7 @@ export function MindMapHost({
 
   const renderOutline = () => (
     <MindMapOutline
-      graph={graph}
+      graph={displayGraph!}
       selectedId={selectedId}
       onSelect={handleSelect}
       onNavigate={onNavigate}
@@ -270,7 +343,13 @@ export function MindMapHost({
     <>
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/30 text-[11px] text-muted-foreground shrink-0">
         <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-0.5 font-medium text-foreground/80">
-          {pinFresh ? t('mindmap.pinned') : t('mindmap.live')}
+          {enriching
+            ? t('mindmap.enriching')
+            : enrichDraft
+              ? t('mindmap.enrichReady')
+              : pinFresh
+                ? t('mindmap.pinned')
+                : t('mindmap.live')}
         </span>
         <span className="truncate">
           {mode === 'outline' && !split
@@ -365,6 +444,25 @@ export function MindMapHost({
           <button
             type="button"
             className={cn(
+              'h-7 inline-flex items-center gap-1 rounded-[6px] px-1.5 hover:bg-foreground/5',
+              enrichDraft
+                ? 'text-foreground bg-foreground/5'
+                : 'text-muted-foreground hover:text-foreground',
+              enriching && 'opacity-60',
+            )}
+            title={t('mindmap.enrich')}
+            disabled={enriching || !graph}
+            onClick={() => void handleEnrich()}
+          >
+            <Sparkles className={cn('h-3.5 w-3.5', enriching && 'animate-pulse')} />
+            <span className="text-[11px] font-medium">
+              {enriching ? t('mindmap.enriching') : t('mindmap.enrich')}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={cn(
               'h-7 w-7 grid place-items-center rounded-[6px] hover:bg-foreground/5',
               searchOpen
                 ? 'text-foreground bg-foreground/5'
@@ -377,6 +475,26 @@ export function MindMapHost({
           </button>
         </div>
       </div>
+
+      {enrichDraft ? (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-violet-500/30 bg-violet-500/10 text-[11px] text-violet-950 dark:text-violet-100 shrink-0">
+          <span className="flex-1 truncate">{t('mindmap.enrichDraftBanner')}</span>
+          <button
+            type="button"
+            className="h-6 rounded-[6px] px-2 font-medium hover:bg-violet-500/20"
+            onClick={handleDiscardEnrich}
+          >
+            {t('mindmap.enrichDiscard')}
+          </button>
+          <button
+            type="button"
+            className="h-6 rounded-[6px] bg-foreground/90 px-2 font-medium text-background hover:bg-foreground"
+            onClick={handleAcceptEnrich}
+          >
+            {t('mindmap.enrichAccept')}
+          </button>
+        </div>
+      ) : null}
 
       {pinStale ? (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-950 dark:text-amber-100 shrink-0">
