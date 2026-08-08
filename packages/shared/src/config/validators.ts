@@ -130,6 +130,9 @@ const LocationSchema = z.object({
 
 export const UserPreferencesSchema = z.object({
   name: z.string().optional(),
+  userId: z.string().optional(),
+  username: z.string().optional(),
+  email: z.string().optional(),
   timezone: z.string().optional(),  // TODO: Could validate against IANA timezone list
   location: LocationSchema.optional(),
   notes: z.string().optional(),

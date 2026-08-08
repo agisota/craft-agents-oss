@@ -34,6 +34,8 @@ export interface WorkspaceInfo {
   mcpUrl?: string;
   mcpAuthType?: McpAuthType;
   remoteServer?: RemoteServerConfig;
+  /** Optional organization this workspace belongs to (P3.1 team spaces). */
+  orgId?: string;
 }
 
 /**

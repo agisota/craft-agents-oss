@@ -391,6 +391,11 @@ export const RPC_CHANNELS = {
     READ: 'preferences:read',
     WRITE: 'preferences:write',
   },
+  gamification: {
+    GET: 'gamification:get',
+    AWARD: 'gamification:award',
+    CHANGED: 'gamification:changed',
+  },
   drafts: {
     GET: 'drafts:get',
     SET: 'drafts:set',
@@ -484,6 +489,16 @@ export const RPC_CHANNELS = {
     UPDATE: 'labels:update',
     DELETE: 'labels:delete',
     CHANGED: 'labels:changed',
+  },
+  orgs: {
+    LIST: 'orgs:list',
+    CREATE: 'orgs:create',
+    INVITE: 'orgs:invite',
+    ACCEPT: 'orgs:accept',
+    LIST_MEMBERS: 'orgs:listMembers',
+    GET_IDENTITY: 'orgs:getIdentity',
+    UPDATE_IDENTITY: 'orgs:updateIdentity',
+    SET_WORKSPACE_ORG: 'orgs:setWorkspaceOrg',
   },
   views: {
     LIST: 'views:list',

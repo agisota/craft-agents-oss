@@ -298,6 +298,35 @@ export const mockElectronAPI = {
     console.log('[Playground] writePreferences called:', prefs)
   },
 
+  getGamificationProfile: async () => ({
+    xp: 0,
+    level: 1,
+    balance: null,
+    progress: 0,
+    xpIntoLevel: 0,
+    xpForNext: 100,
+    nextThreshold: 100,
+    currentThreshold: 0,
+  }),
+  awardGamificationXp: async (event: string) => {
+    console.log('[Playground] awardGamificationXp', event)
+    return {
+      xp: 25,
+      level: 1,
+      balance: null,
+      progress: 0.25,
+      xpIntoLevel: 25,
+      xpForNext: 75,
+      nextThreshold: 100,
+      currentThreshold: 0,
+      awarded: 25,
+      event,
+      leveledUp: false,
+      previousLevel: 1,
+    }
+  },
+  onGamificationChanged: () => () => {},
+
   // FreeFormInput required mocks
   getAutoCapitalisation: async () => false,
 

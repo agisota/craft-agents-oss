@@ -1,4 +1,5 @@
 import { existsSync, writeFileSync } from 'fs';
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { ensureConfigDir } from './storage.ts';
 import { CONFIG_DIR } from './paths.ts';
@@ -25,6 +26,12 @@ export interface DiffViewerPreferences {
 
 export interface UserPreferences {
   name?: string;
+  /** Stable local user id (UUID). Generated once on first ensure. */
+  userId?: string;
+  /** Optional handle used for org invites */
+  username?: string;
+  /** Optional email used for org invites */
+  email?: string;
   timezone?: string;
   location?: UserLocation;
   // Free-form notes the agent learns about the user
@@ -41,6 +48,14 @@ export interface UserPreferences {
   uiLanguage?: LanguageCode;
   // When the preferences were last updated
   updatedAt?: number;
+}
+
+/** Local identity fields used by orgs / profile (never empty userId after ensure). */
+export interface LocalUserIdentity {
+  userId: string;
+  username?: string;
+  email?: string;
+  name?: string;
 }
 
 const PREFERENCES_FILE = join(CONFIG_DIR, 'preferences.json');
@@ -85,6 +100,43 @@ export function updatePreferences(updates: Partial<UserPreferences>): UserPrefer
   };
   savePreferences(updated);
   return updated;
+}
+
+/**
+ * Ensure preferences.json has a stable local `userId` (UUID v4).
+ * Generates once and persists; never overwrites an existing userId.
+ * Also fills username from name when username is absent (non-destructive).
+ */
+export function ensureLocalUserIdentity(): LocalUserIdentity {
+  const current = loadPreferences();
+  let changed = false;
+  let userId = typeof current.userId === 'string' ? current.userId.trim() : '';
+  if (!userId) {
+    userId = randomUUID();
+    current.userId = userId;
+    changed = true;
+  }
+  // Seed username from display name once so invite flows have a handle.
+  if (!current.username && current.name && current.name.trim()) {
+    const seed = current.name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, '-')
+      .replace(/[^a-z0-9.-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (seed) {
+      current.username = seed;
+      changed = true;
+    }
+  }
+  if (changed) savePreferences(current);
+  return {
+    userId,
+    username: current.username,
+    email: current.email,
+    name: current.name,
+  };
 }
 
 export function getPreferencesPath(): string {

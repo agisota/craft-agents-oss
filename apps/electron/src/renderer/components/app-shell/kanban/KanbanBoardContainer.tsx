@@ -291,10 +291,13 @@ export function KanbanBoardContainer() {
         id: project.config.id,
         name: project.config.name,
         color: project.config.color ?? '#94a3b8',
+        slug: project.config.slug,
+        icon: project.config.icon,
+        workspaceId: project.workspaceId || activeWorkspaceId || undefined,
       })
     }
     return map
-  }, [projects])
+  }, [projects, activeWorkspaceId])
 
   const projectOptions = React.useMemo<KanbanProjectFilterOption[]>(
     () => projects.map(p => ({ id: p.config.id, name: p.config.name, color: p.config.color })),

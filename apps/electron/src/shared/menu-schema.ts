@@ -394,6 +394,7 @@ const SETTINGS_ICONS: Record<SettingsSubpage, string> = {
   messaging: 'MessageSquare',
   server: 'Server',
   cloudRuns: 'Cloud',
+  organizations: 'Users',
   shortcuts: 'Keyboard',
   preferences: 'UserCircle',
 }

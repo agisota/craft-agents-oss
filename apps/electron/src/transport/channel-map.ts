@@ -343,6 +343,11 @@ export const CHANNEL_MAP = {
   readPreferences: invoke(RPC_CHANNELS.preferences.READ),
   writePreferences: invoke(RPC_CHANNELS.preferences.WRITE),
 
+  // Gamification profile
+  getGamificationProfile: invoke(RPC_CHANNELS.gamification.GET),
+  awardGamificationXp: invoke(RPC_CHANNELS.gamification.AWARD),
+  onGamificationChanged: listener(RPC_CHANNELS.gamification.CHANGED),
+
   // Session Drafts
   getDraft: invoke(RPC_CHANNELS.drafts.GET),
   setDraft: invoke(RPC_CHANNELS.drafts.SET),
@@ -425,6 +430,16 @@ export const CHANNEL_MAP = {
   updateLabel: invoke(RPC_CHANNELS.labels.UPDATE),
   deleteLabel: invoke(RPC_CHANNELS.labels.DELETE),
   onLabelsChanged: listener(RPC_CHANNELS.labels.CHANGED),
+
+  // Organizations (P3.1)
+  listOrganizations: invoke(RPC_CHANNELS.orgs.LIST),
+  createOrganization: invoke(RPC_CHANNELS.orgs.CREATE),
+  inviteToOrganization: invoke(RPC_CHANNELS.orgs.INVITE),
+  acceptOrganizationInvite: invoke(RPC_CHANNELS.orgs.ACCEPT),
+  listOrganizationMembers: invoke(RPC_CHANNELS.orgs.LIST_MEMBERS),
+  getOrgIdentity: invoke(RPC_CHANNELS.orgs.GET_IDENTITY),
+  updateOrgIdentity: invoke(RPC_CHANNELS.orgs.UPDATE_IDENTITY),
+  setWorkspaceOrganization: invoke(RPC_CHANNELS.orgs.SET_WORKSPACE_ORG),
 
   // LLM connections change listener
   onLlmConnectionsChanged: listener(RPC_CHANNELS.llmConnections.CHANGED),

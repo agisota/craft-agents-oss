@@ -920,6 +920,42 @@ export interface ElectronAPI {
   readPreferences(): Promise<{ content: string; exists: boolean; path: string }>
   writePreferences(content: string): Promise<{ success: boolean; error?: string }>
 
+  // Gamification profile (XP/level/balance)
+  getGamificationProfile(): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+  }>
+  awardGamificationXp(event: 'session_completed' | 'automation_ran' | 'cloud_run_imported' | 'note_linked'): Promise<{
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold: number
+    awarded: number
+    event: string
+    leveledUp: boolean
+    previousLevel: number
+  }>
+  onGamificationChanged(callback: (payload: {
+    xp: number
+    level: number
+    balance: number | null
+    progress: number
+    xpIntoLevel: number
+    xpForNext: number
+    nextThreshold: number | null
+    currentThreshold?: number
+  }) => void): () => void
+
   // Session Drafts (persisted composer state — text + attachment refs)
   getDraft(sessionId: string): Promise<import('@craft-agent/shared/config').SessionDraft | null>
   setDraft(sessionId: string, draft: import('@craft-agent/shared/config').SessionDraft): Promise<void>
@@ -1037,6 +1073,20 @@ export interface ElectronAPI {
   ): Promise<import('@craft-agent/shared/labels').LabelConfig>
   deleteLabel(workspaceId: string, labelId: string): Promise<{ stripped: number }>
   onLabelsChanged(callback: (workspaceId: string) => void): () => void
+
+  // Organizations (P3.1 team workspaces)
+  listOrganizations(): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers[]>
+  createOrganization(input: import('@craft-agent/shared/orgs').CreateOrganizationInput): Promise<import('@craft-agent/shared/orgs').OrganizationWithMembers>
+  inviteToOrganization(input: import('@craft-agent/shared/orgs').InviteToOrgInput): Promise<import('@craft-agent/shared/orgs').OrgInvite>
+  acceptOrganizationInvite(input: import('@craft-agent/shared/orgs').AcceptInviteInput): Promise<{
+    org: import('@craft-agent/shared/orgs').OrganizationWithMembers
+    member: import('@craft-agent/shared/orgs').OrgMember
+    invite: import('@craft-agent/shared/orgs').OrgInvite
+  }>
+  listOrganizationMembers(orgId: string): Promise<import('@craft-agent/shared/orgs').OrgMember[]>
+  getOrgIdentity(): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  updateOrgIdentity(updates: { username?: string; email?: string; name?: string }): Promise<{ userId: string; username?: string; email?: string; name?: string }>
+  setWorkspaceOrganization(workspaceId: string, orgId: string | null): Promise<Workspace>
 
   // LLM connections change listener
   onLlmConnectionsChanged(callback: () => void): () => void

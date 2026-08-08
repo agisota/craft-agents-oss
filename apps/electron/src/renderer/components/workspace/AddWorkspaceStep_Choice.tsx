@@ -73,8 +73,8 @@ export function AddWorkspaceStep_Choice({
       <div className="mt-8 w-full space-y-3">
         <ChoiceCard
           icon={<FolderPlus className="h-5 w-5" />}
-          title={t("workspace.createNew")}
-          description={t("workspace.createNewDesc")}
+          title={t("workspace.teamSpace")}
+          description={t("workspace.teamSpaceDesc")}
           onClick={onCreateNew}
           variant="primary"
         />

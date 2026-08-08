@@ -57,6 +57,12 @@ export const KEYS = {
   workspaceSelectorRail: 'workspace-selector-rail',
 
   // What's New
+  // What's New — per-version seen list (timeline)
+  whatsNewSeenVersions: 'whats-new-seen-versions',
+  // Workspace icon rail custom links (workspace-scoped via suffix)
+  workspaceRailLinks: 'workspace-rail-links',
+  // Session multi-view tab (session-scoped via suffix)
+  sessionViewMode: 'session-view-mode',
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
   // Sidebar status filter unseen accent dots (workspace-scoped via suffix)
   sidebarUnseenStatus: 'sidebar-unseen-status',
