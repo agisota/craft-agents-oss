@@ -162,16 +162,28 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
       // Mode/URL may change on re-open (editor→graph, different craftSurface).
       // Navigate the live instance when the URL differs so the surface reflects
       // the latest presentation without spawning a second BrowserView.
+      // Commit existing.url only after navigate settles — a failed navigate must
+      // not poison the registry (retry with the same nextUrl must re-attempt).
       if (input.url && input.url !== existing.url) {
-        existing.url = input.url
-        void browserPaneManager.navigate(existing.instanceId, input.url).catch((error: unknown) => {
-          // Best-effort: focus still happens; renderer can recreate on hard fail.
-          console.warn(
-            `[siyuan] re-open navigate failed id=${existing.instanceId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          )
-        })
+        const nextUrl = input.url
+        const instanceId = existing.instanceId
+        void browserPaneManager.navigate(instanceId, nextUrl).then(
+          () => {
+            const live = surfaces.get(input.durableKey)
+            if (!live || live.instanceId !== instanceId) return
+            // Skip if a newer successful navigate already moved past nextUrl.
+            if (live.url === nextUrl) return
+            live.url = nextUrl
+            pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(live))
+          },
+          (error: unknown) => {
+            console.warn(
+              `[siyuan] re-open navigate failed id=${instanceId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          },
+        )
       }
       browserPaneManager.focus(existing.instanceId)
       pushTyped(server, RPC_CHANNELS.siyuan.STATE_CHANGED, { to: 'all' }, toState(existing))
@@ -240,6 +252,10 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
   server.handle(RPC_CHANNELS.siyuan.EVALUATE, async (_ctx, input: SiyuanEvaluateInput) => {
     // LOCAL_ONLY JS eval against the embedded SiYuan WebContentsView —
     // used by the surface host to open docks / switch craftSurface modes.
+    // Refuse unknown instanceIds so callers cannot eval into arbitrary browser panes.
+    if (!surfaces.getByInstanceId(input.instanceId)) {
+      throw new Error(`Unknown SiYuan surface: ${input.instanceId}`)
+    }
     return browserPaneManager.evaluate(input.instanceId, input.expression)
   })
 }

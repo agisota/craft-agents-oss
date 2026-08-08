@@ -8,6 +8,10 @@ import { TiptapMarkdownEditor, type TiptapEditorHandle } from '@craft-agent/ui'
 import type { FileAttachment, NoteAsset, NoteChangedPayload, NoteDocument, NoteRenameImpact, NoteSummary } from '../../shared/types'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { navigate, routes } from '@/lib/navigate'
+import {
+  lookupMigratedSiyuanId,
+} from '@/lib/notes-migration-map'
+
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -500,6 +504,7 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
   const { t } = useTranslation()
   const {
     activeWorkspaceId,
+    workspaces,
     onCreateSession,
     onOpenFile,
     onSendMessage,
@@ -509,6 +514,10 @@ export default function NotesPage({ selectedNoteId }: NotesPageProps) {
     sessionStatuses = [],
     projects = [],
   } = useAppShellContext()
+  const activeWorkspaceRoot = React.useMemo(
+    () => workspaces.find((w) => w.id === activeWorkspaceId)?.rootPath ?? null,
+    [workspaces, activeWorkspaceId],
+  )
   const activeSessionId = useAtomValue(activeSessionIdAtom)
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const activeProjectId = activeSessionId ? sessionMetaMap.get(activeSessionId)?.projectId : undefined
@@ -1322,9 +1331,24 @@ h1,h2,h3{margin-top:1.5em}
     const sessionName = `${t(sessionNameKey)}: ${activeNote.title}`
     const instruction = t(instructionKey)
     const session = await onCreateSession(activeWorkspaceId, { name: sessionName })
+
+    // Prefer SiYuan document ref when this note was migrated (P4.4 map).
+    const legacyPath = `notes/${activeNote.relativePath}`
+    const migrated = await lookupMigratedSiyuanId(
+      activeWorkspaceRoot,
+      activeNote.id,
+    ).catch(() => null)
+    const attachPath = migrated
+      ? `siyuan/document/${migrated.siyuanId}`
+      : legacyPath
+    const attachTitle = migrated?.title?.trim() || activeNote.title
+    const pathLine = migrated
+      ? `${t('notes.ai.contextPath', { path: attachPath })} ${`[knowledge:siyuan/document/${migrated.siyuanId}]`}`
+      : t('notes.ai.contextPath', { path: legacyPath })
+
     const prompt = [
-      t('notes.ai.contextHeader', { title: activeNote.title }),
-      t('notes.ai.contextPath', { path: `notes/${activeNote.relativePath}` }),
+      t('notes.ai.contextHeader', { title: attachTitle }),
+      pathLine,
       t('notes.ai.contextTags', {
         tags: activeNote.tags.length ? activeNote.tags.map(tag => `#${tag}`).join(' ') : t('notes.inspector.none'),
       }),
@@ -1347,7 +1371,7 @@ h1,h2,h3{margin-top:1.5em}
     onInputChange(session.id, prompt)
     setSideSessionId(session.id)
     setSideSessionPrompt(prompt)
-    setSideNoteChip({ title: activeNote.title, path: `notes/${activeNote.relativePath}` })
+    setSideNoteChip({ title: attachTitle, path: attachPath })
   }
 
   const closeSideSession = React.useCallback(() => {

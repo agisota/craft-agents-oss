@@ -215,6 +215,7 @@ export default function AppearanceSettingsPage() {
       setKanbanBoardConfig(null)
       return
     }
+    const remoteWorkspaceId = workspaces.find(w => w.id === activeWorkspaceId)?.remoteServer?.remoteWorkspaceId
     let cancelled = false
     void window.electronAPI.getKanbanConfig(activeWorkspaceId).then(
       cfg => {
@@ -227,7 +228,7 @@ export default function AppearanceSettingsPage() {
       },
     )
     const unsub = window.electronAPI.onKanbanConfigChanged?.((wsId, cfg) => {
-      if (wsId !== activeWorkspaceId) return
+      if (wsId !== activeWorkspaceId && wsId !== remoteWorkspaceId) return
       setKanbanBoardConfig(cfg)
       syncKanbanAtomsFromConfig(cfg)
     })
@@ -235,7 +236,7 @@ export default function AppearanceSettingsPage() {
       cancelled = true
       unsub?.()
     }
-  }, [activeWorkspaceId, syncKanbanAtomsFromConfig])
+  }, [activeWorkspaceId, workspaces, syncKanbanAtomsFromConfig])
 
   const persistKanbanConfig = useCallback(
     async (next: KanbanBoardConfig) => {
