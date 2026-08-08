@@ -201,7 +201,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration', () => {
-  it('declares P1–P6 channels plus P7-prep metrics/detect — no engine lifecycle, no CHANGED push event', () => {
+  it('declares exactly the 9 P1 read + getExportPayload + 7 P3 write-back + 8 P4 publication + 6 P5 view/envelope + 2 P6 watch channels — no engine lifecycle, no CHANGED push event', () => {
     expect([...HANDLED_CHANNELS]).toEqual([
       RPC_CHANNELS.knowledge.LIST_CONNECTIONS,
       RPC_CHANNELS.knowledge.CAPABILITIES,
@@ -209,6 +209,7 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.GET,
       RPC_CHANNELS.knowledge.GET_CONTEXT,
       RPC_CHANNELS.knowledge.GET_BACKLINKS,
+      RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD,
       RPC_CHANNELS.knowledge.SNAPSHOT_CREATE,
       RPC_CHANNELS.knowledge.SNAPSHOT_GET,
       RPC_CHANNELS.knowledge.ENGINE_STATUS,
@@ -235,14 +236,12 @@ describe('registration', () => {
       RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
       RPC_CHANNELS.knowledge.WATCH,
       RPC_CHANNELS.knowledge.UNWATCH,
-      RPC_CHANNELS.knowledge.METRICS_GET,
-      RPC_CHANNELS.knowledge.DETECT_ENGINE,
     ])
-    // Engine lifecycle (engineStart/engineStop) remains full P7 and MUST NOT be registered.
+    // Engine lifecycle (engineStart/engineStop) remains P7 and MUST NOT be registered.
     expect(HANDLED_CHANNELS.some((ch) => /engine(Start|Stop)/i.test(ch))).toBe(false)
     // CHANGED is a server→client push event subscribed via knowledge.onChanged, not a handler.
     expect([...HANDLED_CHANNELS]).not.toContain(RPC_CHANNELS.knowledge.CHANGED)
-    expect(HANDLED_CHANNELS).toHaveLength(34) // 9 P1 + 7 P3 + 8 P4 + 6 P5 + 2 P6 + 2 P7-prep
+    expect(HANDLED_CHANNELS).toHaveLength(33) // 9 P1 + getExportPayload + 7 P3 + 8 P4 + 6 P5 + 2 P6 watch
   })
 
   it('registers a handler for every declared channel and nothing else', () => {
@@ -409,5 +408,154 @@ describe('applyProposal guard mapping (§3.2 wire contract, P2-14)', () => {
     const record = new KnowledgeMutationProposalsStore(workspaceRoot).get('p_expired')
     expect(record?.status).toBe('pending_review')
     expect(record?.approvedAt).toBeUndefined()
+  })
+})
+
+describe('getExportPayload', () => {
+  it('returns deepLink + id without kernel content when only those formats are requested', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    const { invoke } = createHarness()
+    const result = await invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD, {
+      connectionId: 'conn-1',
+      ref: DOC_REF,
+      formats: ['deepLink', 'id'],
+    }) as { id: string; deepLink?: string; markdown?: string }
+    expect(result).toEqual({
+      id: 'doc-1',
+      deepLink: 'siyuan://blocks/doc-1',
+    })
+    // No content formats → no kernel get
+    expect(fetchCalls.some((c) => c.url.includes('/api/export/') || c.url.includes('getBlockKramdown'))).toBe(false)
+  })
+
+  it('returns markdown + hPath + title for a document via provider.get', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    // Extend fetch seam for document get path used by real adapter
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url)
+      fetchCalls.push({ url: u, init: init as RequestInit })
+      if (kernelProbeError) throw kernelProbeError
+      if (u.endsWith('/api/system/version')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: '3.1.28' }), { status: 200 })
+      }
+      if (u.endsWith('/api/block/checkBlockExist')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: true }), { status: 200 })
+      }
+      if (u.endsWith('/api/export/exportMdContent')) {
+        return new Response(JSON.stringify({
+          code: 0, msg: '', data: { hPath: '/Research/Kernel Guide', content: '# Kernel Guide\n\nbody' },
+        }), { status: 200 })
+      }
+      if (u.endsWith('/api/block/getDocInfo')) {
+        return new Response(JSON.stringify({
+          code: 0, msg: '', data: {
+            id: 'doc-1', rootID: 'doc-1', name: 'Kernel Guide', refCount: 0, subFileCount: 0,
+            refIDs: [], ial: {}, icon: '', attrViews: [],
+          },
+        }), { status: 200 })
+      }
+      if (u.endsWith('/api/attr/getBlockAttrs')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: { updated: '20260807120000' } }), { status: 200 })
+      }
+      if (u.endsWith('/api/search/fullTextSearchBlock')) {
+        return new Response(JSON.stringify(KERNEL_SEARCH_RESPONSE), { status: 200 })
+      }
+      throw new Error(`unmocked kernel endpoint: ${u}`)
+    }) as unknown as typeof fetch
+
+    try {
+      const { invoke } = createHarness()
+      const result = await invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD, {
+        connectionId: 'conn-1',
+        ref: DOC_REF,
+        formats: ['markdown', 'hPath', 'id', 'deepLink'],
+      }) as {
+        id: string
+        deepLink?: string
+        markdown?: string
+        hPath?: string
+        title?: string
+      }
+      expect(result.id).toBe('doc-1')
+      expect(result.deepLink).toBe('siyuan://blocks/doc-1')
+      expect(result.markdown).toBe('# Kernel Guide\n\nbody')
+      expect(result.hPath).toBe('/Research/Kernel Guide')
+      expect(result.title).toBe('Kernel Guide')
+    } finally {
+      globalThis.fetch = prevFetch
+      installFetchSeam()
+    }
+  })
+
+  it('for __full__ surface skips content formats and still returns deepLink + id', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    const { invoke } = createHarness()
+    const result = await invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD, {
+      connectionId: 'conn-1',
+      ref: { scheme: 'siyuan', kind: 'notebook', id: '__full__' },
+      formats: ['markdown', 'hPath', 'deepLink', 'id'],
+    }) as { id: string; deepLink?: string; markdown?: string; hPath?: string }
+    expect(result).toEqual({
+      id: '__full__',
+      deepLink: 'siyuan://notebook/__full__',
+    })
+    expect(result.markdown).toBeUndefined()
+    expect(result.hPath).toBeUndefined()
+  })
+
+  it('returns blockKramdown for block refs', async () => {
+    seedConnection('conn-1', { status: 'ok' })
+    credentials.set('source_bearer::ws1::conn-1', { value: 'tok' })
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url)
+      fetchCalls.push({ url: u, init: init as RequestInit })
+      if (u.endsWith('/api/block/checkBlockExist')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: true }), { status: 200 })
+      }
+      if (u.endsWith('/api/block/getBlockKramdown')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: { id: 'blk-9', kramdown: 'block **md**' } }), { status: 200 })
+      }
+      if (u.endsWith('/api/block/getBlockInfo')) {
+        return new Response(JSON.stringify({
+          code: 0, msg: '', data: {
+            box: 'nb-1', path: '/x.sy', rootID: 'doc-1', rootTitle: 'Doc',
+            rootTitleEmpty: false, rootChildID: 'c', rootIcon: '',
+          },
+        }), { status: 200 })
+      }
+      if (u.endsWith('/api/attr/getBlockAttrs')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: { updated: '20260807120000' } }), { status: 200 })
+      }
+      if (u.endsWith('/api/filetree/getHPathByID')) {
+        return new Response(JSON.stringify({ code: 0, msg: '', data: '/Research/Doc' }), { status: 200 })
+      }
+      throw new Error(`unmocked kernel endpoint: ${u}`)
+    }) as unknown as typeof fetch
+
+    try {
+      const { invoke } = createHarness()
+      const result = await invoke(RPC_CHANNELS.knowledge.GET_EXPORT_PAYLOAD, {
+        connectionId: 'conn-1',
+        ref: { scheme: 'siyuan', kind: 'block', id: 'blk-9' },
+        formats: ['blockKramdown', 'markdown', 'hPath', 'deepLink'],
+      }) as {
+        deepLink?: string
+        markdown?: string
+        blockKramdown?: string
+        hPath?: string
+      }
+      expect(result.deepLink).toBe('siyuan://blocks/blk-9')
+      expect(result.markdown).toBe('block **md**')
+      expect(result.blockKramdown).toBe('block **md**')
+      expect(result.hPath).toBe('/Research/Doc')
+    } finally {
+      globalThis.fetch = prevFetch
+      installFetchSeam()
+    }
   })
 })

@@ -513,6 +513,11 @@ client.onConnectionStateChanged((state) => {
 // Notes PDF export — direct ipcMain.handle (needs BrowserWindow.printToPDF, not WS RPC)
 ;(api as ElectronAPI).exportNotePdf = (opts: { html: string; defaultPath: string }) =>
   ipcRenderer.invoke('notes:exportPdf', opts)
+;(api as ElectronAPI).saveTextFile = (opts: {
+  content: string
+  defaultPath: string
+  filters?: Array<{ name: string; extensions: string[] }>
+}) => ipcRenderer.invoke('file:saveText', opts)
 
 // webUtils.getPathForFile: returns the absolute OS path of a File object obtained
 // from <input type="file"> or OS drag-drop. Returns null for Files fabricated from
