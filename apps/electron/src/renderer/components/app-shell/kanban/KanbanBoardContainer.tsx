@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { useTranslation } from 'react-i18next'
 import type { KanbanBoardConfig, KanbanGroupBy } from '@craft-agent/shared/kanban'
+import type { SessionPriority } from '@craft-agent/shared/protocol/dto'
 import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
 import { collectionDisplayAtom } from '@/atoms/collection-display'
@@ -425,6 +426,7 @@ export function KanbanBoardContainer() {
         statusId,
         model: meta.model ?? DEFAULT_MODEL,
         projectId: meta.projectId,
+        priority: meta.priority ?? 'none',
         taskSlug: meta.taskSlug,
         subtasks,
         subtaskTotal: specNodes?.length ? undefined : meta.taskNodeCount,
@@ -547,8 +549,12 @@ export function KanbanBoardContainer() {
       updateSessionMeta(taskId, { kanbanColumn: toColumn })
       void window.electronAPI.sessionCommand(taskId, { type: 'setKanbanColumn', column: toColumn })
 
-      // Project assignment when dropped onto a different project group.
-      if (target.projectId !== undefined) {
+      // B6: pseudo group '__priority_<value>' assigns priority instead of project (FR-30/FR-47).
+      if (typeof target.projectId === 'string' && target.projectId.startsWith('__priority_')) {
+        const prio = target.projectId.slice('__priority_'.length).replace(/_$/, '') as SessionPriority
+        updateSessionMeta(taskId, { priority: prio })
+        void window.electronAPI.sessionCommand(taskId, { type: 'setPriority', priority: prio })
+      } else if (target.projectId !== undefined) {
         const nextProjectId = target.projectId
         updateSessionMeta(taskId, {
           projectId: nextProjectId === null ? undefined : nextProjectId,
@@ -964,6 +970,7 @@ export function KanbanBoardContainer() {
           onRemoveColumn={handleRemoveColumn}
           onAddColumn={handleAddColumn}
           groupByProject={groupBy === 'project' || collectionDisplay.groupBy === 'project'}
+          groupByPriority={collectionDisplay.groupBy === 'priority'}
           collapsedGroupKeys={collapsedGroupKeys}
           onToggleProjectGroup={handleToggleProjectGroup}
           noProjectLabel={t('kanban.noProject')}

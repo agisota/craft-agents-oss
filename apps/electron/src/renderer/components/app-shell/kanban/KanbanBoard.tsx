@@ -84,6 +84,8 @@ interface KanbanBoardProps {
   onAddColumn?: (side?: 'left' | 'right') => void
   /** When true, render collapsible project groups inside each column. */
   groupByProject?: boolean
+  /** B6: bucket per-column tasks into priority subsections (pseudo project groups `__priority_x`). */
+  groupByPriority?: boolean
   /** Collapsed project group keys (`projectId` or `__none__`) — sessionStorage-backed by container. */
   collapsedGroupKeys?: Set<string>
   onToggleProjectGroup?: (groupKey: string) => void
@@ -126,6 +128,7 @@ export function KanbanBoard({
   onRemoveColumn,
   onAddColumn,
   groupByProject = false,
+  groupByPriority = false,
   collapsedGroupKeys,
   onToggleProjectGroup,
   noProjectLabel,
@@ -206,6 +209,40 @@ export function KanbanBoard({
     }
     return result
   }, [groupByProject, columns, tasksByColumn, projectsById, noProjectLabel, t])
+
+  // B6: per-column priority subsections (order urgent → high → medium → low → none).
+  const priorityGroupsByColumn = React.useMemo(() => {
+    if (!groupByPriority) return null
+    const order: readonly string[] = ['urgent', 'high', 'medium', 'low', 'none']
+    const result = new Map<KanbanColumnId, KanbanProjectGroup[]>()
+    for (const column of columns) {
+      const colTasks = tasksByColumn.get(column.id) ?? []
+      const byPrio = new Map<string, KanbanTask[]>()
+      for (const task of colTasks) {
+        const key = (task.priority ?? 'none') as string
+        const list = byPrio.get(key)
+        if (list) list.push(task)
+        else byPrio.set(key, [task])
+      }
+      const groups: KanbanProjectGroup[] = []
+      for (const prio of order) {
+        const list = byPrio.get(prio)
+        if (!list || list.length === 0) continue
+        groups.push({
+          projectId: `__priority_${prio}`,
+          name: t(`priority.${prio}`, { defaultValue: prio }),
+          tasks: list,
+        })
+        byPrio.delete(prio)
+      }
+      // Preserve any unknown priorities at the end (defensive).
+      for (const [prio, list] of byPrio) {
+        groups.push({ projectId: `__priority_${prio}`, name: prio, tasks: list })
+      }
+      result.set(column.id, groups)
+    }
+    return result
+  }, [groupByPriority, columns, tasksByColumn, t])
 
   const columnColors = useKanbanColumnColors()
 
@@ -321,7 +358,7 @@ export function KanbanBoard({
                 ? patch => onUpdateColumn(column.id, patch)
                 : undefined
             }
-            projectGroups={groupsByColumn?.get(column.id)}
+            projectGroups={priorityGroupsByColumn?.get(column.id) ?? groupsByColumn?.get(column.id)}
             collapsedGroupKeys={collapsedGroupKeys}
             onToggleProjectGroup={onToggleProjectGroup}
           />
