@@ -67,8 +67,8 @@ export interface ParsedCompoundRoute {
   sourceFilter?: SourceFilter
   /** Automation filter (only for automations navigator) */
   automationFilter?: AutomationFilter
-  /** Sessions presentation mode (only for sessions navigator). 'board' = Kanban view. */
-  viewMode?: 'list' | 'board'
+  /** Sessions presentation mode (only for sessions navigator). 'board' = Kanban; 'table' = dense collection. */
+  viewMode?: 'list' | 'board' | 'table'
   /**
    * Details page info (null for empty state).
    * W1 surface navigators reuse this shape: `id` is the entity id (runId /
@@ -91,7 +91,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory',
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory',
   // Unified-shell surfaces (W1)
   'knowledge', 'cloud-run', 'extension', 'diff',
 ]
@@ -137,6 +137,18 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
       navigator: 'sessions',
       sessionFilter: { kind: 'allSessions' },
       viewMode: 'board',
+      details: null,
+    }
+  }
+
+  // Dense table — standalone route. A view of all sessions in table mode.
+  // Encoded as its own prefix (not `allSessions/table`) so it never collides
+  // with the positional `{filter}/session/{id}` detail parsing below.
+  if (first === 'table') {
+    return {
+      navigator: 'sessions',
+      sessionFilter: { kind: 'allSessions' },
+      viewMode: 'table',
       details: null,
     }
   }
@@ -512,8 +524,9 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
   }
 
   // Sessions navigator
-  // Board is a standalone view of all sessions; emit its own prefix.
+  // Board/table are standalone views of all sessions; emit their own prefixes.
   if (parsed.viewMode === 'board') return 'board'
+  if (parsed.viewMode === 'table') return 'table'
 
   let base: string
   const filter = parsed.sessionFilter

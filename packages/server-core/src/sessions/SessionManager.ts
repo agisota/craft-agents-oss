@@ -75,7 +75,11 @@ import {
   type SessionMetadata,
   type SessionStatus,
   type SessionHeader,
+  type SessionPriority,
   pickSessionFields,
+  lexorankValidate,
+  lexorankBetween,
+  backfillRanks,
 } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, loadAllSources, getSourcesBySlugs, isSourceUsable, type LoadedSource, type McpServerConfig, getSourcesNeedingAuth, getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential, isApiOAuthProvider, hasRenewEndpoint, SERVER_BUILD_ERRORS, TokenRefreshManager, createTokenGetter } from '@craft-agent/shared/sources'
 import { listTaskSlugs, parseTaskSpec, uniqueTaskSlug } from '@craft-agent/shared/tasks'
@@ -950,6 +954,10 @@ interface ManagedSession {
   parentSessionId?: string
   // Kanban board column id ('todo' | 'in-progress' | 'done'); independent of sessionStatus
   kanbanColumn?: string
+  // Collection linear views: LexoRank manual order, priority, due date
+  rank?: string
+  priority?: SessionPriority
+  dueDate?: number | null
   // Tasks Conductor: slug of the task spec this session belongs to (orchestrator + child nodes)
   taskSlug?: string
   // Tasks Conductor: id of the run that spawned this child session (child nodes only)
@@ -1242,6 +1250,9 @@ function managedToSession(m: ManagedSession, overrides?: Partial<Session>): Sess
     isProcessing: m.isProcessing,
     sessionFolderPath: getSessionStoragePath(m.workspace.rootPath, m.id),
     supportsBranching: resolveSupportsBranching(m),
+    // Collection fields: coerce defaults on read (FR-14)
+    priority: m.priority ?? 'none',
+    dueDate: m.dueDate ?? null,
     ...overrides,
   } as Session
 }
@@ -1635,6 +1646,20 @@ export class SessionManager implements ISessionManager {
     // Kanban column (mutable via drag; reconcile external/multi-window changes)
     if (managed.kanbanColumn !== header.kanbanColumn) {
       managed.kanbanColumn = header.kanbanColumn
+      changed = true
+    }
+
+    // Collection linear-view fields (rank / priority / dueDate)
+    if (managed.rank !== header.rank) {
+      managed.rank = header.rank
+      changed = true
+    }
+    if (managed.priority !== header.priority) {
+      managed.priority = header.priority
+      changed = true
+    }
+    if ((managed.dueDate ?? null) !== (header.dueDate ?? null)) {
+      managed.dueDate = header.dueDate ?? undefined
       changed = true
     }
 
@@ -2844,9 +2869,46 @@ export class SessionManager implements ISessionManager {
       sessions = sessions.filter(m => m.workspace.id === workspaceId)
     }
 
+    // FR-15 / AC-8: if any session in a workspace lacks a valid rank, assign a full
+    // lexorankN sequence ordered by lastMessageAt desc (id asc). Second load is a
+    // no-op once every rank is valid. Group by workspace so ranks don't cross roots.
+    const byWorkspace = new Map<string, ManagedSession[]>()
+    for (const m of sessions) {
+      const list = byWorkspace.get(m.workspace.id)
+      if (list) list.push(m)
+      else byWorkspace.set(m.workspace.id, [m])
+    }
+    for (const group of byWorkspace.values()) {
+      this.backfillSessionRanksIfNeeded(group)
+    }
+
     return sessions
       .map(m => managedToSession(m))
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
+  }
+
+  /**
+   * Idempotent rank backfill for one workspace group.
+   * When any member lacks a valid rank, rewrite the full ordered sequence and
+   * persist only sessions whose rank value actually changed.
+   */
+  private backfillSessionRanksIfNeeded(group: ManagedSession[]): void {
+    if (group.length === 0) return
+    const needsBackfill = group.some(m => !m.rank || !lexorankValidate(m.rank))
+    if (!needsBackfill) return
+
+    const assignments = backfillRanks(
+      group.map(m => ({ id: m.id, lastMessageAt: m.lastMessageAt ?? 0 })),
+    )
+    for (const { id, rank } of assignments) {
+      const managed = this.sessions.get(id)
+      if (!managed || managed.rank === rank) continue
+      managed.rank = rank
+      this.setMetadataWriteGuard(managed)
+      this.persistSession(managed)
+      // getSessions is sync — enqueue + fire-and-forget flush (same durability path).
+      void this.flushSession(managed.id)
+    }
   }
 
   /**
@@ -8039,6 +8101,91 @@ export class SessionManager implements ISessionManager {
       const watcher = this.configWatchers.get(managed.workspace.rootPath)
       watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
     }
+  }
+
+  /**
+   * Set collection priority for a session ('none' | 'urgent' | 'high' | 'medium' | 'low').
+   */
+  async setPriority(sessionId: string, priority: SessionPriority): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.priority = priority
+      this.setMetadataWriteGuard(managed)
+
+      this.persistSession(managed)
+      await this.flushSession(managed.id)
+      this.sendEvent({ type: 'session_metadata_changed', sessionId, changes: { priority } }, managed.workspace.id)
+      const watcher = this.configWatchers.get(managed.workspace.rootPath)
+      watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
+    }
+  }
+
+  /**
+   * Set due date (epoch ms). Pass `null` to clear (stored as undefined on managed;
+   * event carries dueDate: null so renderers clear).
+   */
+  async setDueDate(sessionId: string, dueDate: number | null): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.dueDate = dueDate ?? undefined
+      this.setMetadataWriteGuard(managed)
+
+      this.persistSession(managed)
+      await this.flushSession(managed.id)
+      this.sendEvent({ type: 'session_metadata_changed', sessionId, changes: { dueDate } }, managed.workspace.id)
+      const watcher = this.configWatchers.get(managed.workspace.rootPath)
+      watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
+    }
+  }
+
+  /**
+   * Set LexoRank string for a session. Rejects invalid ranks.
+   */
+  async setRank(sessionId: string, rank: string): Promise<void> {
+    if (!lexorankValidate(rank)) {
+      throw new Error(`Invalid rank: ${rank}`)
+    }
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.rank = rank
+      this.setMetadataWriteGuard(managed)
+
+      this.persistSession(managed)
+      await this.flushSession(managed.id)
+      this.sendEvent({ type: 'session_metadata_changed', sessionId, changes: { rank } }, managed.workspace.id)
+      const watcher = this.configWatchers.get(managed.workspace.rootPath)
+      watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
+    }
+  }
+
+  /**
+   * Recompute rank between optional neighbor sessions and persist.
+   * Missing neighbor ids (when provided) throw RANK_NEIGHBORS_STALE.
+   */
+  async reorderRank(sessionId: string, prevId?: string, nextId?: string): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return
+
+    let prevRank: string | undefined
+    let nextRank: string | undefined
+
+    if (prevId !== undefined) {
+      const prev = this.sessions.get(prevId)
+      if (!prev) {
+        throw new Error(`RANK_NEIGHBORS_STALE: prev session not found: ${prevId}`)
+      }
+      prevRank = prev.rank
+    }
+    if (nextId !== undefined) {
+      const next = this.sessions.get(nextId)
+      if (!next) {
+        throw new Error(`RANK_NEIGHBORS_STALE: next session not found: ${nextId}`)
+      }
+      nextRank = next.rank
+    }
+
+    const rank = lexorankBetween(prevRank ?? null, nextRank ?? null)
+    await this.setRank(sessionId, rank)
   }
 
   /**

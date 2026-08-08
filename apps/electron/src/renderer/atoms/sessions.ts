@@ -11,7 +11,7 @@
 import { atom } from 'jotai'
 import type { Getter, Setter } from 'jotai/vanilla'
 import { atomFamily } from 'jotai-family'
-import type { Session, Message } from '../../shared/types'
+import type { Session, Message, SessionPriority } from '../../shared/types'
 
 import { markStatusUnseen } from '@/lib/sidebar-unseen-status'
 
@@ -83,6 +83,12 @@ export interface SessionMeta {
   parentSessionId?: string
   /** Kanban board column id ('todo' | 'in-progress' | 'done'); independent of sessionStatus */
   kanbanColumn?: string
+  /** LexoRank string for stable manual ordering within a collection view */
+  rank?: string
+  /** Collection priority; default coerce to 'none' on read when absent */
+  priority?: SessionPriority
+  /** Due date as epoch ms (UTC noon when set from date pickers); null clears */
+  dueDate?: number | null
   /** Tasks Conductor: slug of the task spec this session belongs to (orchestrator + child nodes) */
   taskSlug?: string
   /** Tasks Conductor: id of the run that spawned this child session (Conductor-owned children only) */

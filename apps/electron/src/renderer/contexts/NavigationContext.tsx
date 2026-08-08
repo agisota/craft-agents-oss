@@ -642,11 +642,12 @@ export function NavigationProvider({
       }
 
       // Sessions: auto-select last/first session.
-      // Board view has no per-session detail, so skip auto-selection — otherwise
-      // navigating to the board would immediately resolve into a chat route.
+      // Board/table have no per-session detail chrome, so skip auto-selection —
+      // otherwise navigating there would immediately resolve into a chat route.
       if (
         isSessionsNavigation(nextState) &&
         nextState.viewMode !== 'board' &&
+        nextState.viewMode !== 'table' &&
         !nextState.details &&
         !options?.skipAutoSelect
       ) {

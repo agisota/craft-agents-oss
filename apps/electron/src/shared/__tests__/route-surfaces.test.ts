@@ -184,6 +184,7 @@ describe('route-parser: unified shell surfaces', () => {
     'flagged',
     'archived',
     'board',
+    'table',
     'memory',
     'allSessions/session/abc123',
     'flagged/session/abc123',
@@ -214,4 +215,24 @@ describe('route-parser: unified shell surfaces', () => {
       expect(buildRouteFromNavigationState(state!)).toBe(route)
     })
   }
+
+  it('parses table route into sessions viewMode table and round-trips', () => {
+    expect(routes.view.table()).toBe('table')
+    const state = parseRouteToNavigationState('table')
+    expect(state).toEqual({
+      navigator: 'sessions',
+      filter: { kind: 'allSessions' },
+      details: null,
+      viewMode: 'table',
+    })
+    expect(buildRouteFromNavigationState(state!)).toBe('table')
+    const compound = parseCompoundRoute('table')
+    expect(compound).toEqual({
+      navigator: 'sessions',
+      sessionFilter: { kind: 'allSessions' },
+      viewMode: 'table',
+      details: null,
+    })
+    expect(buildCompoundRoute(compound!)).toBe('table')
+  })
 })

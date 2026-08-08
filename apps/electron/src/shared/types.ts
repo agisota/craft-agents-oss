@@ -501,6 +501,10 @@ export interface ElectronAPI {
   // Consolidated session command handler
   sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult | RefreshTitleResult | UndoResult | { count: number }>
 
+  // B4: multi-select bulk patch over sessions:command setters (rank forbidden; 200 ids max)
+  bulkUpdateSessions(input: import('@craft-agent/shared/protocol/dto').BulkUpdateSessionsInput): Promise<import('@craft-agent/shared/protocol/dto').BulkUpdateSessionsResult>
+  onSessionsBulkChanged(callback: (event: import('@craft-agent/shared/protocol/dto').SessionsBulkChangedEvent) => void): () => void
+
   // Server info (REMOTE_ELIGIBLE — returns data from whichever server owns the workspace)
   getServerHomeDir(): Promise<string>
 
@@ -1427,6 +1431,11 @@ export interface ElectronAPI {
   setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
   onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
 
+  // Sessions collection display (workspace-scoped)
+  getCollectionDisplay(workspaceId: string): Promise<import('@craft-agent/shared/sessions').CollectionDisplay>
+  setCollectionDisplay(workspaceId: string, display: import('@craft-agent/shared/sessions').CollectionDisplay): Promise<import('@craft-agent/shared/sessions').CollectionDisplay>
+  onCollectionDisplayChanged(callback: (workspaceId: string, display: import('@craft-agent/shared/sessions').CollectionDisplay) => void): () => void
+
 
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
@@ -1626,11 +1635,12 @@ export interface SessionsNavigationState {
   details: { type: 'session'; sessionId: string } | null
   rightSidebar?: RightSidebarPanel
   /**
-   * Presentation mode for the sessions navigator. `'board'` renders the Kanban
-   * board (all sessions, grouped into To Do / In Progress / Done columns) in the
-   * content area instead of the list + chat. Absent/`'list'` is the default.
+   * Presentation mode for the sessions navigator.
+   * - Absent/`'list'` — default list + chat.
+   * - `'board'` — Kanban (all sessions, To Do / In Progress / Done) in the content area.
+   * - `'table'` — dense collection/issue-line table view in the content area.
    */
-  viewMode?: 'list' | 'board'
+  viewMode?: 'list' | 'board' | 'table'
 }
 
 /**

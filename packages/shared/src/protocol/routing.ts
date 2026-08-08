@@ -369,6 +369,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.sessions.RESPOND_TO_PERMISSION,
   RPC_CHANNELS.sessions.RESPOND_TO_CREDENTIAL,
   RPC_CHANNELS.sessions.COMMAND,
+  RPC_CHANNELS.sessions.BULK_UPDATE,
+  RPC_CHANNELS.sessions.BULK_CHANGED,
   RPC_CHANNELS.sessions.GET_PENDING_PLAN_EXECUTION,
   RPC_CHANNELS.sessions.GET_PERMISSION_MODE_STATE,
   RPC_CHANNELS.sessions.SET_MEMORY_MODE,
@@ -663,6 +665,11 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.kanban.GET_CONFIG,
   RPC_CHANNELS.kanban.SET_CONFIG,
   RPC_CHANNELS.kanban.CHANGED,
+
+  // collection — workspace sessions collection display prefs
+  RPC_CHANNELS.collection.GET_DISPLAY,
+  RPC_CHANNELS.collection.SET_DISPLAY,
+  RPC_CHANNELS.collection.CHANGED,
 
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,

@@ -12,6 +12,9 @@
 import type { PermissionMode } from '../agent/mode-manager.ts';
 import type { ThinkingLevel } from '../agent/thinking-levels.ts';
 import type { StoredAttachment, MessageRole, ToolStatus, AuthRequestType, AuthStatus, CredentialInputMode, StoredMessage, SessionMemoryMode } from '@craft-agent/core/types';
+import type { SessionPriority } from '../protocol/dto.ts';
+
+export type { SessionPriority };
 
 /**
  * Session fields that persist to disk.
@@ -59,6 +62,10 @@ export const SESSION_PERSISTENT_FIELDS = [
   // Kanban: task/subtask hierarchy + board column
   'parentSessionId',
   'kanbanColumn',
+  // Collection linear views: manual order, priority, due date
+  'rank',
+  'priority',
+  'dueDate',
   // Tasks Conductor: link a session back to the task spec / run / DAG node that owns it
   'taskSlug',
   'taskRunId',
@@ -222,6 +229,12 @@ export interface SessionConfig {
   parentSessionId?: string;
   /** Kanban board column id ('todo' | 'in-progress' | 'done'). Drag-to-move target; independent of sessionStatus. */
   kanbanColumn?: string;
+  /** LexoRank string for stable manual ordering within a collection view */
+  rank?: string;
+  /** Collection priority; default coerce to 'none' on read when absent */
+  priority?: SessionPriority;
+  /** Due date as epoch ms (UTC noon when set from date pickers); null clears */
+  dueDate?: number | null;
   /** Tasks Conductor: slug of the task spec this session belongs to (orchestrator + child nodes). */
   taskSlug?: string;
   /** Tasks Conductor: id of the run that spawned this child session (child nodes only). */
@@ -331,6 +344,12 @@ export interface SessionHeader {
   parentSessionId?: string;
   /** Kanban board column id ('todo' | 'in-progress' | 'done'). Drag-to-move target; independent of sessionStatus. */
   kanbanColumn?: string;
+  /** LexoRank string for stable manual ordering within a collection view */
+  rank?: string;
+  /** Collection priority; default coerce to 'none' on read when absent */
+  priority?: SessionPriority;
+  /** Due date as epoch ms (UTC noon when set from date pickers); null clears */
+  dueDate?: number | null;
   /** Tasks Conductor: slug of the task spec this session belongs to (orchestrator + child nodes). */
   taskSlug?: string;
   /** Tasks Conductor: id of the run that spawned this child session (child nodes only). */
@@ -429,6 +448,12 @@ export interface SessionMetadata {
   parentSessionId?: string;
   /** Kanban board column id ('todo' | 'in-progress' | 'done'). Drag-to-move target; independent of sessionStatus. */
   kanbanColumn?: string;
+  /** LexoRank string for stable manual ordering within a collection view */
+  rank?: string;
+  /** Collection priority; default coerce to 'none' on read when absent */
+  priority?: SessionPriority;
+  /** Due date as epoch ms (UTC noon when set from date pickers); null clears */
+  dueDate?: number | null;
   /** Tasks Conductor: slug of the task spec this session belongs to (orchestrator + child nodes). */
   taskSlug?: string;
   /** Tasks Conductor: id of the run that spawned this child session (child nodes only). */
