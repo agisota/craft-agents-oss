@@ -32,6 +32,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.siyuan.LIST,
   RPC_CHANNELS.siyuan.SYNC_BOUNDS,
   RPC_CHANNELS.siyuan.FOCUS,
+  RPC_CHANNELS.siyuan.EVALUATE,
 ] as const
 
 /** Registry record: wire state plus the last bounds reported by the renderer. */
@@ -134,6 +135,10 @@ export interface SiyuanSyncBoundsInput extends SiyuanInstanceInput {
   rect: EmbeddedBoundsRect | null
 }
 
+export interface SiyuanEvaluateInput extends SiyuanInstanceInput {
+  expression: string
+}
+
 export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): void {
   const { browserPaneManager } = deps
   if (!browserPaneManager) return
@@ -216,5 +221,11 @@ export function registerSiyuanHandlers(server: RpcServer, deps: HandlerDeps): vo
     // window); visibility is renderer-driven via syncBounds rects. The
     // forward is kept for contract completeness with the browserPane shape.
     browserPaneManager.focus(input.instanceId)
+  })
+
+  server.handle(RPC_CHANNELS.siyuan.EVALUATE, async (_ctx, input: SiyuanEvaluateInput) => {
+    // LOCAL_ONLY JS eval against the embedded SiYuan WebContentsView —
+    // used by the surface host to open docks / switch craftSurface modes.
+    return browserPaneManager.evaluate(input.instanceId, input.expression)
   })
 }
