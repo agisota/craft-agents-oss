@@ -16,7 +16,6 @@ export interface CollectionFilterChipsProps {
   onFiltersChange: (next: CollectionFilters) => void
   statuses?: SessionStatus[]
   priorities?: SessionPriority[]
-  /** Reserved for later chips — accepted so OpsBar can pass through. */
   projects?: Array<{ id: string; name: string }>
   labels?: Array<{ id: string; name: string }>
   className?: string
@@ -48,6 +47,8 @@ export function CollectionFilterChips({
   onFiltersChange,
   statuses = [],
   priorities = PRIORITIES,
+  projects = [],
+  labels = [],
   className,
 }: CollectionFilterChipsProps) {
   const { t } = useTranslation()
@@ -60,6 +61,28 @@ export function CollectionFilterChips({
     onFiltersChange({
       ...filters,
       status: next.length > 0 ? next : undefined,
+    })
+  }
+
+  const toggleProject = (id: string) => {
+    const current = new Set(filters.projectId ?? [])
+    if (current.has(id)) current.delete(id)
+    else current.add(id)
+    const next = Array.from(current)
+    onFiltersChange({
+      ...filters,
+      projectId: next.length > 0 ? next : undefined,
+    })
+  }
+
+  const toggleLabel = (id: string) => {
+    const current = new Set(filters.labels ?? [])
+    if (current.has(id)) current.delete(id)
+    else current.add(id)
+    const next = Array.from(current)
+    onFiltersChange({
+      ...filters,
+      labels: next.length > 0 ? next : undefined,
     })
   }
 
@@ -121,6 +144,32 @@ export function CollectionFilterChips({
           )
         })}
       </ChipGroup>
+
+      {projects.length > 0 && (
+        <ChipGroup label={t('collection.filter.project', { defaultValue: 'Project' })}>
+          {projects.map((project) => (
+            <FilterChip
+              key={project.id}
+              selected={(filters.projectId ?? []).includes(project.id)}
+              label={project.name}
+              onClick={() => toggleProject(project.id)}
+            />
+          ))}
+        </ChipGroup>
+      )}
+
+      {labels.length > 0 && (
+        <ChipGroup label={t('collection.filter.label', { defaultValue: 'Label' })}>
+          {labels.map((label) => (
+            <FilterChip
+              key={label.id}
+              selected={(filters.labels ?? []).includes(label.id)}
+              label={label.name}
+              onClick={() => toggleLabel(label.id)}
+            />
+          ))}
+        </ChipGroup>
+      )}
 
       <ChipGroup label={t('collection.filter.due')}>
         {(['overdue', 'today', 'none'] as SimpleDue[]).map((type) => (

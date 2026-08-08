@@ -104,7 +104,7 @@ import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSourc
 import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/atoms/sessions"
 import { collectionDisplayAtom } from "@/atoms/collection-display"
 import { collectionFiltersAtom } from "@/atoms/collection-filters"
-import { compareSessions, filterSessionMeta } from "@craft-agent/shared/sessions"
+import { compareSessions, DEFAULT_COLLECTION_FILTERS, filterSessionMeta } from "@craft-agent/shared/sessions"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"
@@ -529,7 +529,7 @@ function AppShellContent({
       setCollectionFilters(prev => ({
         ...prev,
         labels: [scope.labelId],
-        projectId: scope.projectId ? [scope.projectId] : prev.projectId,
+        projectId: scope.projectId ? [scope.projectId] : undefined,
       }))
       navigate(routes.view.allSessions(sessionId))
     },
@@ -700,6 +700,8 @@ function AppShellContent({
 
     // Clear transient UI state only on workspace SWITCH (not initial mount)
     if (previousWorkspaceId !== null && previousWorkspaceId !== activeWorkspaceId) {
+      setCollectionFilters({ ...DEFAULT_COLLECTION_FILTERS })
+
       // Clear search state
       setSearchActive(false)
       setSearchQuery('')
@@ -1293,10 +1295,23 @@ function AppShellContent({
     // Shared CollectionFilters path (FR-26/FR-31) — same pure helper as board/table.
     // sessionFilter.kind above remains the outer navigator predicate (smart views AND chips).
     {
+      const filtersForQuery = (() => {
+        const selected = collectionFilters.labels
+        if (!selected?.length) return collectionFilters
+
+        const expanded = new Set<string>()
+        for (const id of selected) {
+          expanded.add(id)
+          for (const descendantId of getDescendantIds(labelConfigs, id)) {
+            expanded.add(descendantId)
+          }
+        }
+        return { ...collectionFilters, labels: Array.from(expanded) }
+      })()
       const now = Date.now()
       const statusById = new Map(effectiveSessionStatuses.map(st => [st.id, st]))
       result = result.filter(meta =>
-        filterSessionMeta(meta, collectionFilters, {
+        filterSessionMeta(meta, filtersForQuery, {
           showCompleted: collectionDisplay.showCompleted,
           now,
           statusById,
@@ -1304,7 +1319,7 @@ function AppShellContent({
       )
     }
 
-        result.sort((a, b) => compareSessions(a, b, collectionDisplay.orderBy, collectionDisplay.orderDir))
+    result.sort((a, b) => compareSessions(a, b, collectionDisplay.orderBy, collectionDisplay.orderDir))
     return result
   }, [workspaceSessionMetas, activeSessionMetas, sessionFilter, labelConfigs, collectionFilters, collectionDisplay.showCompleted, collectionDisplay.orderBy, collectionDisplay.orderDir, effectiveSessionStatuses])
 
