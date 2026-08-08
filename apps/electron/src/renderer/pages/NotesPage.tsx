@@ -1781,6 +1781,8 @@ h1,h2,h3{margin-top:1.5em}
               entity={{ type: 'note', noteId: activeNote.id }}
               graph={noteMindMapGraph}
               mode={noteView}
+              workspaceId={activeWorkspaceId || undefined}
+              sourceExcerpt={content || undefined}
             />
           ) : (
             <div

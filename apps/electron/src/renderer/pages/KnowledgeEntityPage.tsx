@@ -119,6 +119,7 @@ export default function KnowledgeEntityPage({ kind, id, panelId }: KnowledgeEnti
         loading={loading}
         error={error}
         mode={view}
+        workspaceId={activeWorkspaceId || undefined}
       />
     )
   } else if (view === 'graph') {
