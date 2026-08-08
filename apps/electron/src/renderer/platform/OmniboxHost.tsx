@@ -47,7 +47,7 @@ export function OmniboxHost() {
 
   // ⌘K / mod+k via existing action hotkey system (definitions: app.omnibox)
   useAction('app.omnibox', () => {
-    setOpen(true)
+    setOpen((v) => !v)
   })
 
   return (

@@ -12,14 +12,28 @@ import { actions } from '@/actions/definitions'
  * - app.omnibox action is registered with mod+k
  */
 
+/** Mirrors Omnibox.tsx keysForWhen: underlying surface, not palette input. */
+function keysForPaletteQuery(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    inputFocus: false,
+    menuOpen: false,
+    omniboxOpen: true,
+    chatFocus: false,
+    navigatorFocus: false,
+    sidebarFocus: false,
+    hasSelection: false,
+    ...overrides,
+  }
+}
+
 function filterCommands(
   registry: ReturnType<typeof createCommandRegistry>,
   input: string,
+  keys: Record<string, unknown> = keysForPaletteQuery(),
 ): CommandContribution[] {
   const { prefix, query } = parsePrefix(input)
   if (prefix !== '' && prefix !== '>') return []
   const text = query
-  const keys = {}
   const list = registry.query({ text: text.trim() || undefined }, keys)
   if (!text.trim()) return list
   return list
@@ -119,5 +133,53 @@ describe('omnibox command filter logic', () => {
 
   it('/ prefix suppresses action section', () => {
     expect(filterCommands(registry, '/skill')).toEqual([])
+  })
+})
+
+describe('omnibox when-clause keys (live surface context)', () => {
+  it('shows navigator-scoped command when navigatorFocus is true', () => {
+    const registry = createCommandRegistry()
+    registry.register({
+      id: 'nav.scoped',
+      title: 'Navigator Only',
+      category: 'Navigation',
+      source: 'craft',
+      when: 'navigatorFocus',
+      execute: async () => {},
+    })
+    registry.register({
+      id: 'always',
+      title: 'Always',
+      category: 'General',
+      source: 'craft',
+      execute: async () => {},
+    })
+
+    const hidden = filterCommands(registry, '', keysForPaletteQuery({ navigatorFocus: false }))
+    expect(hidden.some((c) => c.id === 'nav.scoped')).toBe(false)
+    expect(hidden.some((c) => c.id === 'always')).toBe(true)
+
+    const shown = filterCommands(registry, '', keysForPaletteQuery({ navigatorFocus: true }))
+    expect(shown.some((c) => c.id === 'nav.scoped')).toBe(true)
+  })
+
+  it('does not hide !inputFocus commands while palette input would be focused', () => {
+    const registry = createCommandRegistry()
+    registry.register({
+      id: 'surface.cmd',
+      title: 'Surface Command',
+      category: 'General',
+      source: 'craft',
+      when: '!inputFocus',
+      execute: async () => {},
+    })
+
+    // keysForPaletteQuery forces inputFocus:false even if real palette input has focus
+    const hits = filterCommands(registry, '', keysForPaletteQuery({ inputFocus: false }))
+    expect(hits.some((c) => c.id === 'surface.cmd')).toBe(true)
+
+    // Contrast: if we incorrectly passed palette inputFocus=true, command would hide
+    const wrong = registry.query({}, { inputFocus: true, omniboxOpen: true })
+    expect(wrong.some((c) => c.id === 'surface.cmd')).toBe(false)
   })
 })

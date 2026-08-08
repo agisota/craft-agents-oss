@@ -31,6 +31,9 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { navigate, type Route } from '@/lib/navigate'
 import { parsePrefix, scoreMatch, type OmniboxPrefix } from './omnibox-helpers'
 import type { ActionId } from '@/actions/definitions'
+import { useRegisterModal } from '@/context/ModalContext'
+import { snapshotKeybindingContext } from '@/actions/keybinding-context'
+
 
 const DEBOUNCE_MS = 120
 const ACTIONS_LIMIT = 40
@@ -59,6 +62,9 @@ export function Omnibox({
   contextKeys,
   getHotkeyDisplay,
 }: OmniboxProps) {
+  // Cmd+W / X closes palette before other window handlers
+  useRegisterModal(open, () => onOpenChange(false))
+
   const { t } = useTranslation()
   const [input, setInput] = useState('')
   const [resourcesList, setResourcesList] = useState<ResourceItem[]>([])
@@ -67,7 +73,22 @@ export function Omnibox({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const parsed = useMemo(() => parsePrefix(input), [input])
-  const keys = useMemo(() => contextKeys.snapshot(), [contextKeys, open, input])
+  // Palette lists commands for the *underlying* surface, not the palette input.
+  // Force inputFocus/menuOpen false so when:!inputFocus surface actions still show.
+  const keys = useMemo(() => {
+    const kb = snapshotKeybindingContext()
+    return {
+      ...contextKeys.snapshot(),
+      inputFocus: false,
+      hasSelection: kb.hasSelection,
+      chatFocus: kb.chatFocus,
+      navigatorFocus: kb.navigatorFocus,
+      sidebarFocus: kb.sidebarFocus,
+      menuOpen: false,
+      omniboxOpen: open,
+    }
+  }, [contextKeys, open, input])
+
 
   // Reset input when closed
   useEffect(() => {
