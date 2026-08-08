@@ -575,10 +575,18 @@ export function useOnboarding({
         setRoxConnectError(result?.error || 'Failed to start Rox Connect')
         return
       }
+      const userCode = result.userCode
+      const verificationUri = result.verificationUri
+      const verificationUriComplete = result.verificationUriComplete
+      if (!userCode || !verificationUri || !verificationUriComplete) {
+        setRoxConnectStatus('error')
+        setRoxConnectError('Rox Connect returned an incomplete device payload')
+        return
+      }
       setRoxConnectCodes({
-        userCode: result.userCode,
-        verificationUri: result.verificationUri,
-        verificationUriComplete: result.verificationUriComplete,
+        userCode,
+        verificationUri,
+        verificationUriComplete,
       })
       try {
         const st = await window.electronAPI.getRoxCloudState()
