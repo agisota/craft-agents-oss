@@ -582,6 +582,20 @@ async function main(): Promise<void> {
   esbuildContexts.push(mainContext);
   console.log("👀 Watching main process...");
 
+  // 2b. Extension Host craft-sandbox worker watcher
+  const extensionHostWorkerContext = await esbuild.context({
+    entryPoints: [join(ROOT_DIR, "apps/electron/src/main/extension-host/worker.ts")],
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    outfile: join(ROOT_DIR, "apps/electron/dist/extension-host-worker.cjs"),
+    external: ["electron"],
+    logLevel: "info",
+  });
+  await extensionHostWorkerContext.watch();
+  esbuildContexts.push(extensionHostWorkerContext);
+  console.log("👀 Watching extension-host worker...");
+
   // 3. Preload watcher (using esbuild watch API)
   const preloadContext = await esbuild.context({
     entryPoints: [join(ROOT_DIR, "apps/electron/src/preload/bootstrap.ts")],

@@ -317,11 +317,15 @@ export const RPC_CHANNELS = {
     UNINSTALL_BAZAAR: 'pluginBridge:uninstallBazaar',
   },
 
-  // extensionHost — Craft Extension Host lifecycle scaffold (W6).
-  // Does NOT execute SiYuan plugins.
+  // extensionHost — Craft Extension Host lifecycle (S-05 §3.5).
+  // craft-sandbox utilityProcess only. Does NOT execute SiYuan plugins.
   extensionHost: {
     STATUS: 'extensionHost:status',
+    START: 'extensionHost:start',
+    STOP: 'extensionHost:stop',
     RESTART: 'extensionHost:restart',
+    LOAD: 'extensionHost:load',
+    CALL: 'extensionHost:call',
   },
 
 

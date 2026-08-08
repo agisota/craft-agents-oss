@@ -858,9 +858,18 @@ export interface ElectronAPI {
   pluginBridgeInstallBazaar(args: PluginBridgeInstallBazaarArgs): Promise<PluginBridgeInstallBazaarResult>
   pluginBridgeUninstallBazaar(args: PluginBridgeUninstallBazaarArgs): Promise<PluginBridgeUninstallBazaarResult>
 
-  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  // Extension Host lifecycle (S-05 §3.5) — craft-sandbox only; does not execute SiYuan plugins
   extensionHostStatus(): Promise<ExtensionHostStatus>
+  extensionHostStart(): Promise<ExtensionHostStatus>
+  extensionHostStop(): Promise<ExtensionHostStatus>
   extensionHostRestart(): Promise<ExtensionHostStatus>
+  extensionHostLoad(args: { extensionId: string; entryPath: string }): Promise<{ ok: true }>
+  extensionHostCall(args: {
+    extensionId: string
+    method: string
+    args?: unknown[]
+    permissions?: string[]
+  }): Promise<unknown>
 
   // Onboarding
   getAuthState(): Promise<AuthState>

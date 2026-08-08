@@ -272,7 +272,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
 
   // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
   RPC_CHANNELS.extensionHost.STATUS,
+  RPC_CHANNELS.extensionHost.START,
+  RPC_CHANNELS.extensionHost.STOP,
   RPC_CHANNELS.extensionHost.RESTART,
+  RPC_CHANNELS.extensionHost.LOAD,
+  RPC_CHANNELS.extensionHost.CALL,
 
 
   // knowledge — engine status + install detect reflect the answering host, never proxied

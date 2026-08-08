@@ -191,9 +191,13 @@ export const CHANNEL_MAP = {
   pluginBridgeInstallBazaar: invoke(RPC_CHANNELS.pluginBridge.INSTALL_BAZAAR),
   pluginBridgeUninstallBazaar: invoke(RPC_CHANNELS.pluginBridge.UNINSTALL_BAZAAR),
 
-  // Extension Host lifecycle scaffold (W6) — does not execute SiYuan plugins
+  // Extension Host lifecycle (S-05 §3.5) — craft-sandbox only; does not execute SiYuan plugins
   extensionHostStatus: invoke(RPC_CHANNELS.extensionHost.STATUS),
+  extensionHostStart: invoke(RPC_CHANNELS.extensionHost.START),
+  extensionHostStop: invoke(RPC_CHANNELS.extensionHost.STOP),
   extensionHostRestart: invoke(RPC_CHANNELS.extensionHost.RESTART),
+  extensionHostLoad: invoke(RPC_CHANNELS.extensionHost.LOAD),
+  extensionHostCall: invoke(RPC_CHANNELS.extensionHost.CALL),
 
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
