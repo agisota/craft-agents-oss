@@ -1,6 +1,6 @@
 import type { ProviderDriver, DriverTestConnectionArgs } from '../driver-types.ts';
 import type { ModelDefinition } from '../../../../config/models.ts';
-import { getAllPiModels, getPiModelsForAuthProvider, isDeprecatedClaudeOpus46Model } from '../../../../config/models-pi.ts';
+import { getAllPiModels, getPiModelsForAuthProvider } from '../../../../config/models-pi.ts';
 import { getPiProviderBaseUrl } from '../../../../config/models-pi.ts';
 
 // ── Copilot model types ────────────────────────────────────────────────
@@ -118,8 +118,7 @@ export function filterSelectableCopilotModels(models: RawCopilotModel[]): RawCop
     m.modelPickerEnabled === true
     && m.policy?.state !== 'disabled'
     && m.supportsToolCalls !== false
-    && !EXCLUDED_MODEL_PREFIXES.some(prefix => m.id.startsWith(prefix))
-    && !isDeprecatedClaudeOpus46Model(m.id),
+    && !EXCLUDED_MODEL_PREFIXES.some(prefix => m.id.startsWith(prefix)),
   );
 }
 
