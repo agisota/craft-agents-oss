@@ -407,6 +407,8 @@ export interface UpdateSkillContentInput {
   description?: string;
   /** Markdown body without frontmatter */
   content?: string;
+  /** Alias for content (UI native editor). */
+  instructions?: string;
   /** Optional icon emoji or URL */
   icon?: string | null;
 }
@@ -468,7 +470,7 @@ export function updateSkillContent(
         if (updates.icon === null || updates.icon === '') delete data.icon;
         else data.icon = updates.icon;
       }
-      const body = updates.content !== undefined ? updates.content : loose.content;
+      const body = updates.content !== undefined ? updates.content : updates.instructions !== undefined ? updates.instructions : loose.content;
       writeFileSync(skillFile, matter.stringify(body.replace(/^\n+/, ''), data), 'utf-8');
     } catch (err) {
       throw err instanceof Error ? err : new Error(String(err));
@@ -491,7 +493,7 @@ export function updateSkillContent(
     const nextIcon = updates.icon !== undefined ? updates.icon : parsed.metadata.icon;
     if (nextIcon) data.icon = nextIcon;
 
-    const body = updates.content !== undefined ? updates.content : parsed.body;
+    const body = updates.content !== undefined ? updates.content : updates.instructions !== undefined ? updates.instructions : parsed.body;
     // matter.stringify adds a trailing newline; strip leading newlines from body for stable files
     writeFileSync(skillFile, matter.stringify(body.replace(/^\n+/, ''), data), 'utf-8');
   }

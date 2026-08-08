@@ -297,6 +297,7 @@ export const CHANNEL_MAP = {
   'knowledge.getSnapshot': invoke(RPC_CHANNELS.knowledge.SNAPSHOT_GET),
   'knowledge.engineStatus': invoke(RPC_CHANNELS.knowledge.ENGINE_STATUS),
   'knowledge.engineStart': invoke(RPC_CHANNELS.knowledge.ENGINE_START),
+  'knowledge.migrateNotes': invoke(RPC_CHANNELS.knowledge.MIGRATE_NOTES),
   // P3 write-back (spec 05): mutation-proposal lifecycle.
   'knowledge.proposeMutation': invoke(RPC_CHANNELS.knowledge.PROPOSE_MUTATION),
   'knowledge.approveProposal': invoke(RPC_CHANNELS.knowledge.APPROVE_PROPOSAL),
@@ -600,6 +601,7 @@ export const CHANNEL_MAP = {
 
   // Kanban board config
   getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
+  enrichMindMap: invoke(RPC_CHANNELS.mindmap.ENRICH),
   setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
   onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
 
