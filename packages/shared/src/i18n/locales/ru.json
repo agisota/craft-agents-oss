@@ -1106,6 +1106,10 @@
   "mindmap.keepPin": "Оставить pin",
   "mindmap.live": "Live",
   "mindmap.loading": "Загрузка карты…",
+  "mindmap.materialize": "Сохранить в заметку",
+  "mindmap.materializeDone": "Карта сохранена как заметка",
+  "mindmap.materializeFailed": "Не удалось сохранить карту",
+  "mindmap.materializing": "Сохраняем…",
   "mindmap.nodes": "узлы",
   "mindmap.pin": "Закрепить",
   "mindmap.pinned": "Закреплено",
@@ -2864,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "Введите URL",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "ID заметки (необяз.)",
-  "workspaceRail.removeLink": "Удалить ссылку",
-  "mindmap.materialize": "Сохранить в заметку",
-  "mindmap.materializing": "Сохраняем…",
-  "mindmap.materializeDone": "Карта сохранена как заметка",
-  "mindmap.materializeFailed": "Не удалось сохранить карту"
+  "workspaceRail.removeLink": "Удалить ссылку"
 }

@@ -1106,6 +1106,10 @@
   "mindmap.keepPin": "Keep pin",
   "mindmap.live": "Live",
   "mindmap.loading": "Loading map…",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note",
+  "mindmap.materializing": "Saving…",
   "mindmap.nodes": "nodes",
   "mindmap.pin": "Pin",
   "mindmap.pinned": "Pinned",
@@ -2864,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "Enter a URL",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "Note id (optional)",
-  "workspaceRail.removeLink": "Remove link",
-  "mindmap.materialize": "Save as note",
-  "mindmap.materializing": "Saving…",
-  "mindmap.materializeDone": "Map saved as note",
-  "mindmap.materializeFailed": "Could not save map note"
+  "workspaceRail.removeLink": "Remove link"
 }

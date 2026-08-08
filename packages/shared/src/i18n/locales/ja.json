@@ -1106,6 +1106,10 @@
   "mindmap.keepPin": "Keep pin",
   "mindmap.live": "Live",
   "mindmap.loading": "マップを読み込み中…",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note",
+  "mindmap.materializing": "Saving…",
   "mindmap.nodes": "ノード",
   "mindmap.pin": "Pin",
   "mindmap.pinned": "Pinned",
@@ -2864,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "URL を入力してください",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "ノート ID（任意）",
-  "workspaceRail.removeLink": "リンクを削除",
-  "mindmap.materialize": "Save as note",
-  "mindmap.materializing": "Saving…",
-  "mindmap.materializeDone": "Map saved as note",
-  "mindmap.materializeFailed": "Could not save map note"
+  "workspaceRail.removeLink": "リンクを削除"
 }

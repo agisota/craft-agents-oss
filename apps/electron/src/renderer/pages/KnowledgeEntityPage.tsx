@@ -57,7 +57,11 @@ export default function KnowledgeEntityPage({ kind, id, panelId }: KnowledgeEnti
       setError(null)
       try {
         const connections = await window.electronAPI.knowledge.listConnections()
-        const connectionId = connections[0]?.id
+        // Prefer default-local connection over arbitrary [0] when multi-connection.
+        const connectionId =
+          connections.find((c) => c.id === 'siyuan-local')?.id ??
+          connections.find((c) => (c.label ?? '').toLowerCase().includes('local'))?.id ??
+          connections[0]?.id
         if (!connectionId) throw new Error(t('knowledge.inspector.noConnection'))
 
         const ref: KnowledgeRef = { scheme: 'siyuan', kind: kind as KnowledgeRef['kind'], id }

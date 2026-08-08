@@ -1106,6 +1106,10 @@
   "mindmap.keepPin": "Keep pin",
   "mindmap.live": "Live",
   "mindmap.loading": "正在載入地圖…",
+  "mindmap.materialize": "Save as note",
+  "mindmap.materializeDone": "Map saved as note",
+  "mindmap.materializeFailed": "Could not save map note",
+  "mindmap.materializing": "Saving…",
   "mindmap.nodes": "節點",
   "mindmap.pin": "Pin",
   "mindmap.pinned": "Pinned",
@@ -2864,9 +2868,5 @@
   "workspaceRail.linkMissingUrl": "請輸入網址",
   "workspaceRail.linkUrlPlaceholder": "https://…",
   "workspaceRail.notesPathPlaceholder": "筆記 ID（選填）",
-  "workspaceRail.removeLink": "刪除連結",
-  "mindmap.materialize": "Save as note",
-  "mindmap.materializing": "Saving…",
-  "mindmap.materializeDone": "Map saved as note",
-  "mindmap.materializeFailed": "Could not save map note"
+  "workspaceRail.removeLink": "刪除連結"
 }
