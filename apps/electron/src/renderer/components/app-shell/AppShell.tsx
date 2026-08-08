@@ -75,6 +75,13 @@ import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
+import {
+  clearStatusUnseen,
+  getUnseenStatuses,
+  subscribeUnseenStatuses,
+  type UnseenStatusMap,
+} from '@/lib/sidebar-unseen-status'
+
 import { APP_NAV_DESTINATIONS_BY_ID } from "./nav-destinations"
 import {
   UnifiedShellLayout,
@@ -1571,6 +1578,18 @@ function AppShellContent({
     return counts
   }, [activeSessionMetas, effectiveSessionStatuses])
 
+  // Per-status unseen accent dots (localStorage map, multi-window via storage event).
+  const [unseenStatuses, setUnseenStatusesState] = useState<UnseenStatusMap>({})
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      setUnseenStatusesState({})
+      return
+    }
+    setUnseenStatusesState(getUnseenStatuses(activeWorkspaceId))
+    return subscribeUnseenStatuses(activeWorkspaceId, setUnseenStatusesState)
+  }, [activeWorkspaceId])
+
+
   // Count sources by type for the Sources dropdown subcategories
   const sourceTypeCounts = useMemo(() => {
     const counts = { api: 0, mcp: 0, local: 0 }
@@ -1837,8 +1856,9 @@ function AppShellContent({
 
   // Handler for individual todo state views
   const handleSessionStatusClick = useCallback((stateId: SessionStatusId) => {
+    if (activeWorkspaceId) clearStatusUnseen(activeWorkspaceId, stateId)
     navigate(routes.view.state(stateId))
-  }, [])
+  }, [activeWorkspaceId])
 
   // Handler for label filter views (hierarchical — includes descendant labels)
   const handleLabelClick = useCallback((labelId: string) => {
@@ -2585,6 +2605,8 @@ function AppShellContent({
                           iconColorable: state.iconColorable,
                           variant: (sessionFilter?.kind === 'state' && sessionFilter.stateId === state.id ? "default" : "ghost") as "default" | "ghost",
                           onClick: () => handleSessionStatusClick(state.id),
+                          // Accent dot when a session landed in this bucket since last open.
+                          hasUnseen: !!unseenStatuses[state.id],
                           contextMenu: {
                             type: 'status' as const,
                             statusId: state.id,

@@ -575,6 +575,12 @@ export const CHANNEL_MAP = {
   deleteProjectAsset: invoke(RPC_CHANNELS.projects.DELETE_ASSET),
   onProjectsChanged: listener(RPC_CHANNELS.projects.CHANGED),
 
+  // Kanban board config
+  getKanbanConfig: invoke(RPC_CHANNELS.kanban.GET_CONFIG),
+  setKanbanConfig: invoke(RPC_CHANNELS.kanban.SET_CONFIG),
+  onKanbanConfigChanged: listener(RPC_CHANNELS.kanban.CHANGED),
+
+
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),
   testAutomation: invoke(RPC_CHANNELS.automations.TEST),

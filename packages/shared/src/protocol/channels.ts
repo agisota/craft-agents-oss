@@ -604,6 +604,12 @@ export const RPC_CHANNELS = {
     DELETE_ASSET: 'projects:deleteAsset',
     CHANGED: 'projects:changed',
   },
+  kanban: {
+    GET_CONFIG: 'kanban:getConfig',
+    SET_CONFIG: 'kanban:setConfig',
+    CHANGED: 'kanban:changed',
+  },
+
   messaging: {
     // WhatsApp subprocess → Gateway (subprocess invokes on server)
     WA_REGISTER: 'messaging:wa:register',

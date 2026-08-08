@@ -618,6 +618,11 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.projects.DELETE_ASSET,
   RPC_CHANNELS.projects.CHANGED,
 
+  // kanban — workspace board config
+  RPC_CHANNELS.kanban.GET_CONFIG,
+  RPC_CHANNELS.kanban.SET_CONFIG,
+  RPC_CHANNELS.kanban.CHANGED,
+
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,
 

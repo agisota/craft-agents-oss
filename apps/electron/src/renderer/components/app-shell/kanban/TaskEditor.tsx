@@ -1015,15 +1015,15 @@ export function TaskEditor({
 
           <div>
             <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="text-[12px] font-semibold text-foreground/55">{t('tasks.acceptanceCriteria')}</span>
+              <span className="text-[12px] font-semibold text-foreground/55">{t('kanban.field.goal')}</span>
               <span className="text-[10.5px] text-foreground/35">{t('tasks.acceptanceCriteriaHint')}</span>
             </div>
             <textarea
               value={acceptanceCriteria}
               onChange={(e) => setAcceptanceCriteria(e.target.value)}
-              rows={3}
+              rows={4}
               placeholder={t('tasks.acceptanceCriteriaPlaceholder')}
-              className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[12.5px] leading-relaxed outline-none focus:border-foreground/25 field-sizing-content max-h-48"
+              className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[12.5px] leading-relaxed outline-none focus:border-foreground/25 field-sizing-content max-h-64 overflow-y-auto"
             />
           </div>
 

@@ -1205,6 +1205,12 @@ export interface ElectronAPI {
   deleteProjectAsset(workspaceId: string, projectSlug: string, filename: string): Promise<void>
   onProjectsChanged(callback: (workspaceId: string, projects: unknown) => void): () => void
 
+  // Kanban board config (workspace-scoped)
+  getKanbanConfig(workspaceId: string): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  setKanbanConfig(workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig): Promise<import('@craft-agent/shared/kanban').KanbanBoardConfig>
+  onKanbanConfigChanged(callback: (workspaceId: string, config: import('@craft-agent/shared/kanban').KanbanBoardConfig) => void): () => void
+
+
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
 
