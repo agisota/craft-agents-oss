@@ -58,6 +58,9 @@ export const KEYS = {
 
   // What's New
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
+  // Sidebar status filter unseen accent dots (workspace-scoped via suffix)
+  sidebarUnseenStatus: 'sidebar-unseen-status',
+
 
   // Workspace navigation state (workspace-scoped via suffix = workspaceSlug)
   // Stores the full URL search string so switching back restores panels/focus/sidebar

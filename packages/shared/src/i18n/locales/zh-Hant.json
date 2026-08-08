@@ -709,7 +709,7 @@
   "kanban.column.newColumnName": "新列",
   "kanban.column.remove": "刪除列",
   "kanban.column.setDropStatus": "設定移動到此處時的狀態",
-  "kanban.column.todo": "待辦",
+  "kanban.column.todo": "任務",
   "kanban.describeSubtask": "描述一個子任務…",
   "kanban.editTask": "編輯任務",
   "kanban.list": "列表",
@@ -2502,5 +2502,18 @@
   "knowledge.views.resultCount_few": "{{count}} результата",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "自動提示",
+  "kanban.groupBy.none": "不分組",
+  "kanban.groupBy.project": "依專案分組",
+  "kanban.column.needsReview": "待審核",
+  "kanban.column.autoPromptPlaceholder": "卡片拖入此列時傳送的提示…",
+  "kanban.noProject": "無專案",
+  "kanban.toastAutoRunFailed": "無法啟動代理",
+  "kanban.field.goal": "目標 / 預期結果",
+  "kanban.column.collapse": "摺疊列",
+  "status.in-progress": "進行中",
+  "kanban.toastConfigSaveFailed": "無法儲存看板設定",
+  "kanban.column.backlog": "待辦池",
+  "kanban.column.expand": "展開列"
 }

@@ -2502,5 +2502,18 @@
   "knowledge.views.resultCount_few": "{{count}} результата",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "Auto-Prompt",
+  "kanban.groupBy.none": "Keine Gruppierung",
+  "kanban.groupBy.project": "Nach Projekt",
+  "kanban.column.needsReview": "Prüfung erforderlich",
+  "kanban.column.autoPromptPlaceholder": "Prompt beim Ablegen einer Karte hier…",
+  "kanban.noProject": "Kein Projekt",
+  "kanban.toastAutoRunFailed": "Agent konnte nicht gestartet werden",
+  "kanban.field.goal": "Ziel / erwartetes Ergebnis",
+  "kanban.column.collapse": "Spalte einklappen",
+  "status.in-progress": "In Bearbeitung",
+  "kanban.toastConfigSaveFailed": "Board-Einstellungen konnten nicht gespeichert werden",
+  "kanban.column.backlog": "Backlog",
+  "kanban.column.expand": "Spalte ausklappen"
 }

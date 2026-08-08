@@ -709,7 +709,7 @@
   "kanban.column.newColumnName": "Nowa kolumna",
   "kanban.column.remove": "Usuń kolumnę",
   "kanban.column.setDropStatus": "Ustaw status po przeniesieniu tutaj",
-  "kanban.column.todo": "Do zrobienia",
+  "kanban.column.todo": "Zadanie",
   "kanban.describeSubtask": "Opisz podzadanie…",
   "kanban.editTask": "Edytuj zadanie",
   "kanban.list": "Lista",
@@ -2502,5 +2502,18 @@
   "spreadsheet.colCount_few": "{{count}} столбца",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "Auto-prompt",
+  "kanban.groupBy.none": "Bez grupowania",
+  "kanban.groupBy.project": "Wg projektu",
+  "kanban.column.needsReview": "Wymaga przeglądu",
+  "kanban.column.autoPromptPlaceholder": "Prompt przy upuszczeniu karty tutaj…",
+  "kanban.noProject": "Bez projektu",
+  "kanban.toastAutoRunFailed": "Nie udało się uruchomić agenta",
+  "kanban.field.goal": "Cel / oczekiwany wynik",
+  "kanban.column.collapse": "Zwiń kolumnę",
+  "status.in-progress": "W toku",
+  "kanban.toastConfigSaveFailed": "Nie udało się zapisać ustawień tablicy",
+  "kanban.column.backlog": "Backlog",
+  "kanban.column.expand": "Rozwiń kolumnę"
 }

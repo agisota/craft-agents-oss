@@ -709,7 +709,7 @@
   "kanban.column.newColumnName": "Új oszlop",
   "kanban.column.remove": "Oszlop eltávolítása",
   "kanban.column.setDropStatus": "Állapot beállítása idehúzáskor",
-  "kanban.column.todo": "Teendő",
+  "kanban.column.todo": "Feladat",
   "kanban.describeSubtask": "Írj le egy részfeladatot…",
   "kanban.editTask": "Feladat szerkesztése",
   "kanban.list": "Lista",
@@ -2502,5 +2502,18 @@
   "knowledge.views.resultCount_few": "{{count}} результата",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "Auto-prompt",
+  "kanban.groupBy.none": "Nincs csoportosítás",
+  "kanban.groupBy.project": "Projektenként",
+  "kanban.column.needsReview": "Ellenőrzésre vár",
+  "kanban.column.autoPromptPlaceholder": "Prompt kártya idehúzásakor…",
+  "kanban.noProject": "Nincs projekt",
+  "kanban.toastAutoRunFailed": "Az ügynök indítása sikertelen",
+  "kanban.field.goal": "Cél / elvárt eredmény",
+  "kanban.column.collapse": "Oszlop összecsukása",
+  "status.in-progress": "Folyamatban",
+  "kanban.toastConfigSaveFailed": "A tábla beállításainak mentése sikertelen",
+  "kanban.column.backlog": "Backlog",
+  "kanban.column.expand": "Oszlop kibontása"
 }

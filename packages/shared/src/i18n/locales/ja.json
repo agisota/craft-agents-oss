@@ -709,7 +709,7 @@
   "kanban.column.newColumnName": "新しい列",
   "kanban.column.remove": "列を削除",
   "kanban.column.setDropStatus": "ここに移動したときのステータスを設定",
-  "kanban.column.todo": "Todo",
+  "kanban.column.todo": "タスク",
   "kanban.describeSubtask": "サブタスクを記述…",
   "kanban.editTask": "タスクを編集",
   "kanban.list": "リスト",
@@ -2502,5 +2502,18 @@
   "knowledge.views.resultCount_few": "{{count}} результата",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "オートプロンプト",
+  "kanban.groupBy.none": "グループなし",
+  "kanban.groupBy.project": "プロジェクト別",
+  "kanban.column.needsReview": "要レビュー",
+  "kanban.column.autoPromptPlaceholder": "カードをここにドロップしたときに送るプロンプト…",
+  "kanban.noProject": "プロジェクトなし",
+  "kanban.toastAutoRunFailed": "エージェントの開始に失敗しました",
+  "kanban.field.goal": "目標 / 期待される結果",
+  "kanban.column.collapse": "列を折りたたむ",
+  "status.in-progress": "進行中",
+  "kanban.toastConfigSaveFailed": "ボード設定の保存に失敗しました",
+  "kanban.column.backlog": "バックログ",
+  "kanban.column.expand": "列を展開"
 }

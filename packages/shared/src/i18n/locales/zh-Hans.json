@@ -709,7 +709,7 @@
   "kanban.column.newColumnName": "新列",
   "kanban.column.remove": "删除列",
   "kanban.column.setDropStatus": "设置移动到此处时的状态",
-  "kanban.column.todo": "待办",
+  "kanban.column.todo": "任务",
   "kanban.describeSubtask": "描述一个子任务…",
   "kanban.editTask": "编辑任务",
   "kanban.list": "列表",
@@ -2502,5 +2502,18 @@
   "knowledge.views.resultCount_few": "{{count}} результата",
   "spreadsheet.colCount_many": "{{count}} столбцов",
   "turnCard.errorCount_many": " · {{count}} ошибок",
-  "datatable.rowCount_few": "{{count}} строки"
+  "datatable.rowCount_few": "{{count}} строки",
+  "kanban.column.autoPrompt": "自动提示",
+  "kanban.groupBy.none": "不分组",
+  "kanban.groupBy.project": "按项目分组",
+  "kanban.column.needsReview": "待审核",
+  "kanban.column.autoPromptPlaceholder": "卡片拖入此列时发送的提示…",
+  "kanban.noProject": "无项目",
+  "kanban.toastAutoRunFailed": "无法启动代理",
+  "kanban.field.goal": "目标 / 预期结果",
+  "kanban.column.collapse": "折叠列",
+  "status.in-progress": "进行中",
+  "kanban.toastConfigSaveFailed": "无法保存看板设置",
+  "kanban.column.backlog": "待办池",
+  "kanban.column.expand": "展开列"
 }

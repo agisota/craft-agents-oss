@@ -186,7 +186,7 @@ export function TaskTile({
         </button>
       )}
 
-      <div className="relative p-3 pl-3.5">
+      <div className="relative p-2 pl-2.5">
         {(project || task.isFlagged) && (
           // Right padding keeps the flag clear of the hover-revealed corner pencil.
           <div className={cn('mb-1.5 flex items-center justify-between gap-2', onEdit && task.isFlagged && 'pr-7')}>
@@ -301,10 +301,9 @@ export function TaskTile({
           </div>
         )}
 
-        <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-border/40 pt-2">
-          <ModelChip model={task.model} />
+        <div className="mt-2 flex items-center gap-2 border-t border-border/40 pt-1.5">
           {(relativeTime || hasMessages) && (
-            <div className="flex shrink-0 items-center gap-2 text-[11px] text-foreground/45">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px] text-foreground/45">
               {relativeTime && (
                 <span className="inline-flex items-center gap-0.5 tabular-nums">
                   <Clock className="h-3 w-3" strokeWidth={2} />
@@ -319,6 +318,8 @@ export function TaskTile({
               )}
             </div>
           )}
+          {/* Model chip stays far right of the footer. */}
+          <ModelChip model={task.model} className="ml-auto shrink-0" />
         </div>
       </div>
     </div>
