@@ -10,6 +10,7 @@ import { RPC_CHANNELS, type FileAttachment, type NoteAsset, type NoteAssetRename
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import { sanitizeFilename } from '@craft-agent/server-core/handlers'
 import type { HandlerDeps } from '../handler-deps'
+import { awardXpSafe } from '@craft-agent/shared/gamification'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.notes.LIST,
@@ -811,7 +812,19 @@ export function registerNotesHandlers(server: RpcServer, _deps: HandlerDeps): vo
   })
 
   server.handle(RPC_CHANNELS.notes.SAVE, async (_ctx, workspaceId: string, noteId: string, content: string) => {
-    const note = await saveNote(getWorkspaceNotesRoot(workspaceId), noteId, content)
+    const notesRoot = getWorkspaceNotesRoot(workspaceId)
+    let previousLinkCount = 0
+    try {
+      const existing = await readNote(notesRoot, noteId)
+      previousLinkCount = existing.links?.length ?? 0
+    } catch {
+      // new / unreadable note — treat as zero prior links
+    }
+    const note = await saveNote(notesRoot, noteId, content)
+    const nextLinkCount = note.links?.length ?? 0
+    if (nextLinkCount > previousLinkCount) {
+      awardXpSafe('note_linked')
+    }
     changed({ workspaceId, reason: 'save', noteId: note.id })
     return note
   })

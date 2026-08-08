@@ -42,7 +42,8 @@ import { HeaderIconButton } from "@/components/ui/HeaderIconButton"
 import { resolveInheritedFilterParams, type FilterMode } from "./inherited-filter-params"
 import { HeaderMenu } from "@/components/ui/HeaderMenu"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipTrigger, TooltipContent, DocumentFormattedMarkdownOverlay } from "@craft-agent/ui"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@craft-agent/ui"
+import { WhatsNewTimeline, parseCombinedReleaseNotes, type WhatsNewNote } from "./WhatsNewTimeline"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -75,6 +76,7 @@ import { PanelStackContainer } from "./PanelStackContainer"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
+import { ProfileStrip, type ProfileStripData } from "./ProfileStrip"
 import {
   clearStatusUnseen,
   getUnseenStatuses,
@@ -619,17 +621,86 @@ function AppShellContent({
 
   const effectiveSidebarAndNavigatorHidden = isSidebarAndNavigatorHidden || isAutoCompact
 
-  // What's New overlay
+  // What's New timeline
   const [showWhatsNew, setShowWhatsNew] = React.useState(false)
-  const [releaseNotesContent, setReleaseNotesContent] = React.useState('')
+  const [whatsNewNotes, setWhatsNewNotes] = React.useState<WhatsNewNote[]>([])
   const [hasUnseenReleaseNotes, setHasUnseenReleaseNotes] = React.useState(false)
+
+  // Profile strip (gamification footer)
+  const [profileStrip, setProfileStrip] = React.useState<ProfileStripData>({
+    displayName: 'User',
+    level: 1,
+    xp: 0,
+    progress: 0,
+    xpIntoLevel: 0,
+    xpForNext: 100,
+    nextThreshold: 100,
+    balance: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    const applyProfile = async () => {
+      try {
+        const [prefsResult, gamification] = await Promise.all([
+          window.electronAPI.readPreferences(),
+          window.electronAPI.getGamificationProfile(),
+        ])
+        if (cancelled) return
+        let displayName = ''
+        try {
+          const prefs = JSON.parse(prefsResult.content || '{}') as { name?: string }
+          if (typeof prefs.name === 'string' && prefs.name.trim()) {
+            displayName = prefs.name.trim()
+          }
+        } catch {
+          // ignore bad prefs JSON
+        }
+        if (!displayName) displayName = t('profile.defaultName')
+        setProfileStrip({
+          displayName,
+          level: gamification.level,
+          xp: gamification.xp,
+          progress: gamification.progress,
+          xpIntoLevel: gamification.xpIntoLevel,
+          xpForNext: gamification.xpForNext,
+          nextThreshold: gamification.nextThreshold,
+          balance: gamification.balance,
+        })
+      } catch (err) {
+        console.error('Failed to load profile strip:', err)
+      }
+    }
+
+    void applyProfile()
+    const off = window.electronAPI.onGamificationChanged((payload) => {
+      setProfileStrip((prev) => ({
+        ...prev,
+        level: payload.level,
+        xp: payload.xp,
+        progress: payload.progress,
+        xpIntoLevel: payload.xpIntoLevel,
+        xpForNext: payload.xpForNext,
+        nextThreshold: payload.nextThreshold,
+        balance: payload.balance,
+      }))
+    })
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [t])
+
 
   // Check for unseen release notes on mount
   useEffect(() => {
     window.electronAPI.getLatestReleaseVersion().then((latestVersion) => {
       if (!latestVersion) return
       const lastSeen = storage.get(storage.KEYS.whatsNewLastSeenVersion, '')
-      setHasUnseenReleaseNotes(lastSeen !== latestVersion)
+      const seenVersions = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
+      const seenSet = new Set(Array.isArray(seenVersions) ? seenVersions : [])
+      setHasUnseenReleaseNotes(lastSeen !== latestVersion && !seenSet.has(latestVersion))
     })
   }, [])
 
@@ -1943,16 +2014,18 @@ function AppShellContent({
     navigate(routes.view.settings(subpage))
   }, [])
 
-  // Handler for What's New overlay
+  // Handler for What's New timeline
   const handleWhatsNewClick = useCallback(async () => {
     const content = await window.electronAPI.getReleaseNotes()
-    setReleaseNotesContent(content)
+    setWhatsNewNotes(parseCombinedReleaseNotes(content ?? ''))
     setShowWhatsNew(true)
     setHasUnseenReleaseNotes(false)
-    // Update last seen version
     const latestVersion = await window.electronAPI.getLatestReleaseVersion()
     if (latestVersion) {
       storage.set(storage.KEYS.whatsNewLastSeenVersion, latestVersion)
+      const prev = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
+      const next = Array.from(new Set([...(Array.isArray(prev) ? prev : []), latestVersion]))
+      storage.set(storage.KEYS.whatsNewSeenVersions, next)
     }
   }, [])
 
@@ -2831,6 +2904,13 @@ function AppShellContent({
                 />
                 {/* Agent Tree: Hierarchical list of agents */}
                 {/* Agents section removed */}
+                </div>
+                {/* Pinned profile strip — opens Settings */}
+                <div className="shrink-0 border-t border-foreground/5 px-1 py-1.5">
+                  <ProfileStrip
+                    data={profileStrip}
+                    onClick={() => handleSettingsClick()}
+                  />
                 </div>
               </div>
 
@@ -4004,12 +4084,16 @@ function AppShellContent({
         </>
       )}
 
-      {/* What's New overlay */}
-      <DocumentFormattedMarkdownOverlay
+      {/* What's New timeline */}
+      <WhatsNewTimeline
         isOpen={showWhatsNew}
         onClose={() => setShowWhatsNew(false)}
-        content={releaseNotesContent}
+        notes={whatsNewNotes}
         onOpenUrl={(url) => window.electronAPI.openUrl(url)}
+        onSeenChange={(seen) => {
+          const latest = whatsNewNotes[0]?.version
+          if (latest && seen.includes(latest)) setHasUnseenReleaseNotes(false)
+        }}
       />
 
       {/* Delete automation confirmation dialog */}

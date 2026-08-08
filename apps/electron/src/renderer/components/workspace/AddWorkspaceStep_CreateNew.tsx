@@ -115,8 +115,8 @@ export function AddWorkspaceStep_CreateNew({
       </button>
 
       <AddWorkspaceStepHeader
-        title={t("workspace.createWorkspace")}
-        description={t("workspace.createWorkspaceDesc")}
+        title={t("workspace.teamSpace")}
+        description={t("workspace.teamSpaceCreateDesc")}
       />
 
       <div className="mt-6 w-full space-y-6">

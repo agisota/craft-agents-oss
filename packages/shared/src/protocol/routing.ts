@@ -285,6 +285,11 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.siyuan.FOCUS,
   RPC_CHANNELS.siyuan.STATE_CHANGED,
   RPC_CHANNELS.siyuan.REMOVED,
+
+  // gamification — user XP lives in local CONFIG_DIR
+  RPC_CHANNELS.gamification.GET,
+  RPC_CHANNELS.gamification.AWARD,
+  RPC_CHANNELS.gamification.CHANGED,
 ])
 
 // ---------------------------------------------------------------------------
@@ -525,6 +530,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // preferences — workspace-level preferences
   RPC_CHANNELS.preferences.READ,
   RPC_CHANNELS.preferences.WRITE,
+
 
   // drafts — workspace content
   RPC_CHANNELS.drafts.GET,

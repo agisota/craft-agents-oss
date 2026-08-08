@@ -76,6 +76,8 @@
     "./tasks": "./src/tasks/index.ts",
     "./i18n": "./src/i18n/index.ts",
     "./os/user-display-name": "./src/os/user-display-name.ts",
+    "./orgs": "./src/orgs/index.ts",
+    "./gamification": "./src/gamification/index.ts",
     "./resources": "./src/resources/index.ts"
   },
   "dependencies": {

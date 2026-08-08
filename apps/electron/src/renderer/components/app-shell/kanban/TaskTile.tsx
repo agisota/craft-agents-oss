@@ -32,6 +32,7 @@ import { ModelChip } from './ModelChip'
 import { SubtaskRow } from './SubtaskRow'
 import { SubtaskProgress } from './SubtaskProgress'
 import type { KanbanModelProviderGroup, KanbanProject, KanbanTask } from './types'
+import { ProjectIcon } from '@/components/projects/ProjectIcon'
 
 /**
  * Brand icon for a provider key. Providers with a bundled SVG (anthropic,
@@ -192,11 +193,22 @@ export function TaskTile({
           <div className={cn('mb-1.5 flex items-center justify-between gap-2', onEdit && task.isFlagged && 'pr-7')}>
             {project ? (
               <span className="inline-flex min-w-0 items-center gap-1 text-[11px] font-medium text-foreground/55">
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: project.color }}
-                  aria-hidden
-                />
+                {project.icon ? (
+                  <ProjectIcon
+                    workspaceId={project.workspaceId}
+                    projectSlug={project.slug}
+                    iconFilename={project.icon}
+                    color={project.color}
+                    className="h-3 w-3"
+                    iconClassName="h-3 w-3 text-foreground/50"
+                  />
+                ) : (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: project.color }}
+                    aria-hidden
+                  />
+                )}
                 <span className="truncate">{project.name}</span>
               </span>
             ) : (

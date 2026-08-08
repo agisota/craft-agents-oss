@@ -37,6 +37,7 @@ export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className=
 export const AccountsIcon = ({ className }: IconProps) => <Users className={className} />
 export const PermissionsIcon = ({ className }: IconProps) => <ShieldCheck className={className} />
 export const LabelsIcon = ({ className }: IconProps) => <Tag className={className} />
+export const OrganizationsIcon = ({ className }: IconProps) => <Users className={className} />
 export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquare className={className} />
 export const ServerSettingsIcon = ({ className }: IconProps) => <Server className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
@@ -63,6 +64,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   accounts: AccountsIcon,
   permissions: PermissionsIcon,
   labels: LabelsIcon,
+  organizations: OrganizationsIcon,
   messaging: MessagingSettingsIcon,
   server: ServerSettingsIcon,
   cloudRuns: CloudRunsIcon,

@@ -47,6 +47,7 @@ export const SETTINGS_PAGES = [
   { id: 'accounts' as const, labelKey: 'settings.accounts.title', descriptionKey: 'settings.accounts.description' },
   { id: 'permissions' as const, labelKey: 'settings.permissions.title', descriptionKey: 'settings.permissions.description' },
   { id: 'labels' as const, labelKey: 'settings.labels.title', descriptionKey: 'settings.labels.description' },
+  { id: 'organizations' as const, labelKey: 'settings.orgs.title', descriptionKey: 'settings.orgs.description' },
   { id: 'messaging' as const, labelKey: 'settings.messaging.title', descriptionKey: 'settings.messaging.description' },
   { id: 'server' as const, labelKey: 'settings.server.title', descriptionKey: 'settings.server.description' },
   { id: 'cloudRuns' as const, labelKey: 'settings.cloudRuns.title', descriptionKey: 'settings.cloudRuns.description' },

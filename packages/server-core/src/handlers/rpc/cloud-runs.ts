@@ -32,6 +32,7 @@ import {
   type RunHandle,
   type RunStatus,
 } from '@craft-agent/cloud-runner';
+import { awardXpSafe } from '@craft-agent/shared/gamification';
 import type { RpcServer } from '@craft-agent/server-core/transport';
 import type { HandlerDeps } from '../handler-deps';
 
@@ -859,6 +860,7 @@ export function registerCloudRunsHandlers(server: RpcServer, deps: HandlerDeps):
       await writeFile(target, bytes);
       written.push(artifact.path);
     }
+    awardXpSafe('cloud_run_imported');
     return { root, files: written, warnings };
   });
 
