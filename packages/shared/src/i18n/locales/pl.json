@@ -752,6 +752,8 @@
   "knowledge.inspector.outline": "Konspekt",
   "knowledge.inspector.properties": "Właściwości",
   "knowledge.inspector.title": "Inspektor",
+  "knowledge.legacyNotes.banner": "Notatki Markdown są przestarzałe — główny jest Knowledge (SiYuan).",
+  "knowledge.legacyNotes.open": "Otwórz stare notatki",
   "knowledge.nav.daily": "Notatki dzienne",
   "knowledge.nav.databases": "Bazy danych",
   "knowledge.nav.favorites": "Ulubione",

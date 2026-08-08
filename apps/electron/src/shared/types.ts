@@ -1702,10 +1702,11 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return 'skills'
   }
   if (state.navigator === 'notes') {
+    // Legacy vault surface only (P4.2); primary IA uses knowledge.
     if (state.details?.type === 'note') {
-      return `notes/note/${encodeURIComponent(state.details.noteId)}`
+      return `notes-legacy/note/${encodeURIComponent(state.details.noteId)}`
     }
-    return 'notes'
+    return 'notes-legacy'
   }
   if (state.navigator === 'automations') {
     if (state.details?.type === 'automation') {
@@ -1795,10 +1796,14 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     return { navigator: 'skills', details: null }
   }
 
-  // Handle notes
-  if (key === 'notes') return { navigator: 'notes', details: null }
-  if (key.startsWith('notes/note/')) {
-    const noteId = decodeURIComponent(key.slice(11))
+  // P4.2: bare `notes` / `notes/note/*` alias to Knowledge home (IA unify).
+  // Legacy vault uses `notes-legacy` so migration tooling can still open Tiptap.
+  if (key === 'notes' || key.startsWith('notes/note/')) {
+    return { navigator: 'knowledge', details: null }
+  }
+  if (key === 'notes-legacy') return { navigator: 'notes', details: null }
+  if (key.startsWith('notes-legacy/note/')) {
+    const noteId = decodeURIComponent(key.slice(18))
     if (noteId) {
       return { navigator: 'notes', details: { type: 'note', noteId } }
     }

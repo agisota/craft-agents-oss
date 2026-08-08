@@ -752,6 +752,8 @@
   "knowledge.inspector.outline": "Gliederung",
   "knowledge.inspector.properties": "Eigenschaften",
   "knowledge.inspector.title": "Inspektor",
+  "knowledge.legacyNotes.banner": "Markdown-Notizen sind veraltet — Knowledge (SiYuan) ist primär.",
+  "knowledge.legacyNotes.open": "Alte Notizen öffnen",
   "knowledge.nav.daily": "Tagesnotizen",
   "knowledge.nav.databases": "Datenbanken",
   "knowledge.nav.favorites": "Favoriten",

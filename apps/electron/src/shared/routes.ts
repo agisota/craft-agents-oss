@@ -161,10 +161,17 @@ export const routes = {
     /** Memory view (memory navigator — self-learning panel) */
     memory: () => 'memory' as const,
 
-    /** Notes view (local markdown note vault). Pass a note id for detail view. */
-    notes: (noteId?: string) => {
-      if (!noteId) return 'notes' as const
-      return `notes/note/${encodeURIComponent(noteId)}` as const
+    /**
+     * P4.2: Notes IA aliases to Knowledge home.
+     * Legacy vault remains at `notesLegacy` until migration (P4.4).
+     * noteId is accepted for call-site compatibility but ignored until import map lands.
+     */
+    notes: (_noteId?: string) => 'knowledge' as const,
+
+    /** Legacy markdown notes vault (pre-SiYuan). Prefer knowledge. */
+    notesLegacy: (noteId?: string) => {
+      if (!noteId) return 'notes-legacy' as const
+      return `notes-legacy/note/${encodeURIComponent(noteId)}` as const
     },
 
     /** Automations view (automations navigator) - supports type filtering */

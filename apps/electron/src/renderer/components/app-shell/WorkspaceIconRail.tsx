@@ -253,9 +253,8 @@ export function WorkspaceIconRail({
 				return;
 			}
 			if (link.kind === "notes") {
-				// Optional folder path can be a note id; otherwise open notes root
-				const noteId = link.target?.trim();
-				navigate(noteId ? routes.view.notes(noteId) : routes.view.notes());
+				// P4.2: notes rail links open Knowledge (legacy note ids ignored until migrate map)
+				navigate(routes.view.knowledge());
 				return;
 			}
 			const url = link.target?.trim();
