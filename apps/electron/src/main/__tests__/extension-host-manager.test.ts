@@ -346,6 +346,20 @@ describe('ExtensionHostManager', () => {
     expect(status.executesSiyuanPlugins).toBe(false)
   })
 
+  it('listExtensionCommands throws when extension is not loaded', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const { forkFn } = createInProcessFork(tmp)
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+    })
+    await mgr.start()
+    await expect(mgr.listExtensionCommands('missing-ext')).rejects.toThrow(
+      /Extension not loaded: missing-ext/,
+    )
+  })
+
   it('call with empty permissions fails basic permission check', async () => {
     tmp = mkdtempSync(join(tmpdir(), 'eh-'))
     const { forkFn } = createInProcessFork(tmp)

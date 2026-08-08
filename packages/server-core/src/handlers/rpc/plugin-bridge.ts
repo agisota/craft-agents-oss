@@ -665,6 +665,10 @@ export function registerPluginBridgeHandlers(
         kernelOk = false
       }
 
+      if (localOk || kernelOk) {
+        broadcastExtensionsChanged(server, 'state')
+      }
+
       if (kernelOk) {
         return {
           pluginId: id,
