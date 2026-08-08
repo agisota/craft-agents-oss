@@ -1095,10 +1095,285 @@ export interface ElectronAPI {
     entity: import('@craft-agent/core/mindmap').MindMapEntityRef
     graph: import('@craft-agent/core/mindmap').MindMapGraph
     sourceExcerpt?: string
+    heuristicOnly?: boolean
   }): Promise<
-    | { ok: true; graph: import('@craft-agent/core/mindmap').MindMapGraph }
-    | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph }
-  >: Promise<{ owners: MessagingPlatformOwnerInfo[]; bindingId?: string }>
+    | { ok: true; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'llm' | 'heuristic' }
+    | { ok: false; error: string; graph: import('@craft-agent/core/mindmap').MindMapGraph; mode: 'passthrough' }
+  >
+  onMemoryChanged(callback: (workspaceId: string | null, scope: LessonScope | 'both') => void): () => void
+
+  // Statuses (workspace-scoped)
+  listStatuses(workspaceId: string): Promise<import('@craft-agent/shared/statuses').StatusConfig[]>
+  reorderStatuses(workspaceId: string, orderedIds: string[]): Promise<void>
+  onStatusesChanged(callback: (workspaceId: string) => void): () => void
+
+  // Labels (workspace-scoped)
+  listLabels(workspaceId: string): Promise<import('@craft-agent/shared/labels').LabelConfig[]>
+  createLabel(workspaceId: string, input: import('@craft-agent/shared/labels').CreateLabelInput): Promise<import('@craft-agent/shared/labels').LabelConfig>
+  deleteLabel(workspaceId: string, labelId: string): Promise<{ stripped: number }>
+  onLabelsChanged(callback: (workspaceId: string) => void): () => void
+
+  // LLM connections change listener
+  onLlmConnectionsChanged(callback: () => void): () => void
+
+  // Views (workspace-scoped, stored in views.json)
+  listViews(workspaceId: string): Promise<import('@craft-agent/shared/views').ViewConfig[]>
+  saveViews(workspaceId: string, views: import('@craft-agent/shared/views').ViewConfig[]): Promise<void>
+
+  // Generic workspace image loading/saving
+  readWorkspaceImage(workspaceId: string, relativePath: string): Promise<string>
+  writeWorkspaceImage(workspaceId: string, relativePath: string, base64: string, mimeType: string): Promise<void>
+
+  // Tool icon mappings
+  getToolIconMappings(): Promise<ToolIconMapping[]>
+
+  // Theme (app-level default)
+  getAppTheme(): Promise<import('@config/theme').ThemeOverrides | null>
+  loadPresetThemes(): Promise<import('@config/theme').PresetTheme[]>
+  loadPresetTheme(themeId: string): Promise<import('@config/theme').PresetTheme | null>
+  getColorTheme(): Promise<string>
+  setColorTheme(themeId: string): Promise<void>
+  getWorkspaceColorTheme(workspaceId: string): Promise<string | null>
+  setWorkspaceColorTheme(workspaceId: string, themeId: string | null): Promise<void>
+  getAllWorkspaceThemes(): Promise<Record<string, string | undefined>>
+
+  // Theme change listeners
+  onAppThemeChange(callback: (theme: import('@config/theme').ThemeOverrides | null) => void): () => void
+
+  // Logo URL resolution
+  getLogoUrl(serviceUrl: string, provider?: string): Promise<string | null>
+
+  // Notifications
+  showNotification(title: string, body: string, workspaceId: string, sessionId: string): Promise<void>
+  getNotificationsEnabled(): Promise<boolean>
+  setNotificationsEnabled(enabled: boolean): Promise<void>
+
+  // Input settings
+  getAutoCapitalisation(): Promise<boolean>
+  setAutoCapitalisation(enabled: boolean): Promise<void>
+  getSendMessageKey(): Promise<'enter' | 'cmd-enter'>
+  setSendMessageKey(key: 'enter' | 'cmd-enter'): Promise<void>
+  getSpellCheck(): Promise<boolean>
+  setSpellCheck(enabled: boolean): Promise<void>
+
+  // Power settings
+  getKeepAwakeWhileRunning(): Promise<boolean>
+  setKeepAwakeWhileRunning(enabled: boolean): Promise<void>
+
+  // Tools settings
+  getBrowserToolEnabled(): Promise<boolean>
+  setBrowserToolEnabled(enabled: boolean): Promise<void>
+
+  // Appearance settings
+  getRichToolDescriptions(): Promise<boolean>
+  setRichToolDescriptions(enabled: boolean): Promise<void>
+  getDefaultZoomLevel(): Promise<number>
+  setDefaultZoomLevel(level: number): Promise<void>
+
+  // Prompt caching & context
+  getExtendedPromptCache(): Promise<boolean>
+  setExtendedPromptCache(enabled: boolean): Promise<void>
+  getEnable1MContext(): Promise<boolean>
+  setEnable1MContext(enabled: boolean): Promise<void>
+
+  // RTK token optimization
+  getRtkEnabled(): Promise<boolean>
+  setRtkEnabled(enabled: boolean): Promise<void>
+  getRtkStatus(opts?: { forceRecheck?: boolean }): Promise<{ installed: boolean; path: string | null; version: string | null }>
+  getRtkGain(): Promise<{ totalCommands: number; totalInput: number; totalOutput: number; totalSaved: number; avgSavingsPct: number; totalTimeMs: number; avgTimeMs: number } | null>
+
+  // Network proxy settings
+  getNetworkProxySettings(): Promise<NetworkProxySettings | undefined>
+  setNetworkProxySettings(settings: NetworkProxySettings): Promise<void>
+
+  refreshBadge(): Promise<void>
+  setDockIconWithBadge(dataUrl: string): Promise<void>
+  onBadgeDraw(callback: (data: { count: number; iconDataUrl: string }) => void): () => void
+  onBadgeDrawWindows(callback: (data: { count: number }) => void): () => void
+  getWindowFocusState(): Promise<boolean>
+  onWindowFocusChange(callback: (isFocused: boolean) => void): () => void
+  onNotificationNavigate(callback: (data: { workspaceId: string; sessionId: string }) => void): () => void
+
+  // Theme preferences sync across windows
+  broadcastThemePreferences(preferences: { mode: string; colorTheme: string; font: string }): Promise<void>
+  onThemePreferencesChange(callback: (preferences: { mode: string; colorTheme: string; font: string }) => void): () => void
+
+  // Workspace theme sync across windows
+  broadcastWorkspaceThemeChange(workspaceId: string, themeId: string | null): Promise<void>
+  onWorkspaceThemeChange(callback: (data: { workspaceId: string; themeId: string | null }) => void): () => void
+
+  // Git operations
+  getGitBranch(dirPath: string): Promise<string | null>
+
+  // Git Bash (Windows)
+  checkGitBash(): Promise<GitBashStatus>
+  browseForGitBash(): Promise<string | null>
+  setGitBashPath(path: string): Promise<{ success: boolean; error?: string }>
+
+  // Menu actions (from renderer to main)
+  menuQuit(): Promise<void>
+  menuNewWindow(): Promise<void>
+  menuMinimize(): Promise<void>
+  menuMaximize(): Promise<void>
+  menuZoomIn(): Promise<void>
+  menuZoomOut(): Promise<void>
+  menuZoomReset(): Promise<void>
+  menuToggleDevTools(): Promise<void>
+  menuUndo(): Promise<void>
+  menuRedo(): Promise<void>
+  menuCut(): Promise<void>
+  menuCopy(): Promise<void>
+  menuPaste(): Promise<void>
+  menuSelectAll(): Promise<void>
+
+  // Browser pane management
+  browserPane: {
+    create(input?: string | BrowserPaneCreateOptions): Promise<string>
+    createEmbedded(input?: { url?: string }): Promise<string>
+    syncBounds(id: string, rect: { x: number; y: number; width: number; height: number } | null): Promise<void>
+    destroy(id: string): Promise<void>
+    list(): Promise<BrowserInstanceInfo[]>
+    navigate(id: string, url: string): Promise<{ url: string; title: string }>
+    goBack(id: string): Promise<void>
+    goForward(id: string): Promise<void>
+    reload(id: string): Promise<void>
+    stop(id: string): Promise<void>
+    focus(id: string): Promise<void>
+    resize(id: string, width: number, height: number): Promise<{ width: number; height: number }>
+    snapshot(id: string): Promise<{ url: string; title: string; nodes: Array<{ ref: string; role: string; name: string; value?: string; description?: string; focused?: boolean; checked?: boolean; disabled?: boolean }> }>
+    click(id: string, ref: string): Promise<void>
+    clickAt(id: string, x: number, y: number): Promise<void>
+    fill(id: string, ref: string, value: string): Promise<void>
+    typeText(id: string, text: string): Promise<void>
+    sendKey(id: string, args: { key: string; modifiers?: Array<'shift' | 'control' | 'alt' | 'meta'> }): Promise<void>
+    select(id: string, ref: string, value: string): Promise<void>
+    screenshotImage(id: string, options?: { format?: 'png' | 'jpeg'; annotate?: boolean }): Promise<{ base64: string; imageFormat: 'png' | 'jpeg'; metadata?: Record<string, unknown> }>
+    scroll(id: string, direction: 'up' | 'down' | 'left' | 'right', amount?: number): Promise<void>
+    evaluate(id: string, expression: string): Promise<unknown>
+    emptyStateLaunch(payload: BrowserEmptyStateLaunchPayload): Promise<BrowserEmptyStateLaunchResult>
+    onStateChanged(callback: (info: BrowserInstanceInfo) => void): () => void
+    onRemoved(callback: (id: string) => void): () => void
+    onInteracted(callback: (id: string) => void): () => void
+  }
+
+  // SiYuan engine surfaces (P2 native knowledge mode). Nested namespace via
+  // dotted CHANNEL_MAP keys, same as browserPane. Embedded SiYuan desktop
+  // panes keyed by durable document keys (`siyuan:{kind}:{id}`) — the durable
+  // key supersedes the ephemeral browser-embedded-${n} id for dedup + restore.
+  // All channels are LOCAL_ONLY.
+  siyuanEngine: {
+    /**
+     * Dedups by durableKey: re-opening the same document focuses + reuses the
+     * live surface. Returns the browser-pane instanceId (same id the matching
+     * STATE_CHANGED push carries inside SiyuanSurfaceState).
+     */
+    createEmbedded(args: { durableKey: string; url: string; workspaceId?: string | null }): Promise<string>
+    destroy(args: { instanceId: string }): Promise<void>
+    /** Surviving surfaces — optionally workspace-scoped. Renderer uses this for restore. */
+    list(args?: { workspaceId?: string | null }): Promise<SiyuanSurfaceState[]>
+    syncBounds(args: { instanceId: string; rect: { x: number; y: number; width: number; height: number } | null }): Promise<void>
+    focus(args: { instanceId: string }): Promise<void>
+    /** Run JS in the embedded surface (dock open / location assign). LOCAL_ONLY. */
+    evaluate(args: { instanceId: string; expression: string }): Promise<unknown>
+    onStateChanged(callback: (state: SiyuanSurfaceState) => void): () => void
+    onRemoved(callback: (id: string) => void): () => void
+  }
+
+  // LLM Connections (provider configurations)
+  listLlmConnections(): Promise<LlmConnection[]>
+  listLlmConnectionsWithStatus(): Promise<LlmConnectionWithStatus[]>
+  getLlmConnection(slug: string): Promise<LlmConnection | null>
+  getLlmConnectionApiKey(slug: string): Promise<string | null>
+  saveLlmConnection(connection: LlmConnection): Promise<{ success: boolean; error?: string }>
+  deleteLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  testLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  setDefaultLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  getDefaultThinkingLevel(): Promise<ThinkingLevel>
+  setDefaultThinkingLevel(level: ThinkingLevel): Promise<{ success: boolean; error?: string }>
+  setWorkspaceDefaultLlmConnection(workspaceId: string, slug: string | null): Promise<{ success: boolean; error?: string }>
+
+  // Projects (workspace-scoped)
+  getProjects(workspaceId: string): Promise<unknown>
+  getProject(workspaceId: string, projectIdOrSlug: string): Promise<unknown | null>
+  createProject(workspaceId: string, input: import('@craft-agent/shared/projects/types').CreateProjectInput): Promise<import('@craft-agent/shared/projects/types').ProjectConfig>
+  updateProject(workspaceId: string, projectSlug: string, patch: Partial<Omit<import('@craft-agent/shared/projects/types').ProjectConfig, 'id' | 'slug' | 'createdAt'>>): Promise<import('@craft-agent/shared/projects/types').ProjectConfig>
+  deleteProject(workspaceId: string, projectSlug: string): Promise<void>
+  listProjectAssets(workspaceId: string, projectSlug: string): Promise<unknown>
+  uploadProjectAsset(workspaceId: string, projectSlug: string, input: { filename: string; base64?: string; text?: string; sourcePath?: string }): Promise<import('@craft-agent/shared/projects/types').ProjectAsset>
+  deleteProjectAsset(workspaceId: string, projectSlug: string, filename: string): Promise<void>
+  onProjectsChanged(callback: (workspaceId: string, projects: unknown) => void): () => void
+
+  // Automations
+  getAutomations(workspaceId: string): Promise<unknown>
+
+  // Automation testing (manual trigger)
+  testAutomation(payload: TestAutomationPayload): Promise<TestAutomationResult>
+
+  // Automation state management
+  setAutomationEnabled(workspaceId: string, eventName: string, matcherIndex: number, enabled: boolean): Promise<void>
+  duplicateAutomation(workspaceId: string, eventName: string, matcherIndex: number): Promise<void>
+  deleteAutomation(workspaceId: string, eventName: string, matcherIndex: number): Promise<void>
+  getAutomationHistory(workspaceId: string, automationId: string, limit?: number): Promise<Array<{ id: string; ts: number; ok: boolean; sessionId?: string; prompt?: string; error?: string; webhook?: { method: string; url: string; statusCode: number; durationMs: number; attempts?: number; error?: string; responseBody?: string } }>>
+  getAutomationLastExecuted(workspaceId: string): Promise<Record<string, number>>
+  replayAutomation(workspaceId: string, automationId: string, eventName: string): Promise<{ results: Array<{ type: string; url: string; statusCode: number; success: boolean; error?: string; duration: number }> }>
+
+  // Automations change listener
+  onAutomationsChanged(callback: (workspaceId: string) => void): () => void
+
+  // Language
+  changeLanguage(lang: string): Promise<void>
+
+  // Resources (cross-workspace export/import)
+  exportResources(workspaceId: string, options: ExportResourcesOptions): Promise<ExportResult>
+  importResources(workspaceId: string, bundle: ResourceBundle, mode: ResourceImportMode): Promise<ResourceImportResult>
+
+  // Messaging gateway — workspaceId is taken from the client handshake (ctx.workspaceId)
+  getMessagingConfig(): Promise<{
+    enabled: boolean
+    platforms: Record<string, { enabled: boolean; accessMode?: MessagingPlatformAccessMode; owners?: MessagingPlatformOwnerInfo[] } | undefined>
+    runtime: Record<string, MessagingPlatformRuntimeInfo | undefined>
+  } | null>
+  updateMessagingConfig(config: Record<string, unknown>): Promise<void>
+  testTelegramToken(token: string): Promise<{ success: boolean; botName?: string; botUsername?: string; error?: string }>
+  saveTelegramToken(token: string): Promise<void>
+  testLarkCredentials(creds: { appId: string; appSecret: string; domain: 'lark' | 'feishu' }): Promise<{ success: boolean; botName?: string; error?: string }>
+  saveLarkCredentials(creds: { appId: string; appSecret: string; domain: 'lark' | 'feishu' }): Promise<void>
+  testDiscordCredentials(creds: { token: string }): Promise<{ success: boolean; botName?: string; error?: string }>
+  saveDiscordCredentials(creds: { token: string }): Promise<void>
+  disconnectMessagingPlatform(platform: string): Promise<void>
+  forgetMessagingPlatform(platform: string): Promise<void>
+  getMessagingBindings(): Promise<Array<{ id: string; workspaceId: string; sessionId: string; platform: string; channelId: string; threadId?: number; channelName?: string; enabled: boolean; createdAt: number; accessMode?: MessagingBindingAccessMode; allowedSenderIds?: string[] }>>
+  generateMessagingPairingCode(sessionId: string, platform: string): Promise<{ code: string; expiresAt: number; botUsername?: string }>
+  /** Telegram supergroup pairing — returns a code typed in the supergroup to capture its chatId. */
+  generateMessagingSupergroupCode(platform: string): Promise<{ code: string; expiresAt: number; botUsername?: string }>
+  /** Read the workspace's currently paired Telegram supergroup, if any. */
+  getMessagingSupergroup(): Promise<{ chatId: string; title: string; capturedAt: number } | null>
+  /** Forget the paired Telegram supergroup (existing topic bindings stay on disk but stop matching). */
+  unbindMessagingSupergroup(): Promise<{ success: boolean }>
+  unbindMessagingSession(sessionId: string, platform?: string): Promise<void>
+  unbindMessagingBinding(bindingId: string): Promise<{ success: boolean }>
+  onMessagingBindingChanged(callback: (workspaceId: string) => void): () => void
+  onMessagingPlatformStatus(callback: (workspaceId: string, platform: string, status: MessagingPlatformRuntimeInfo) => void): () => void
+  // WhatsApp (subprocess-based Baileys adapter)
+  startWhatsAppConnect(): Promise<{ success: boolean }>
+  submitWhatsAppPhone(phoneNumber: string): Promise<{ success: boolean }>
+  onWhatsAppEvent(callback: (payload: { workspaceId: string; event: WhatsAppUiEvent }) => void): () => void
+  // WeChat (微信 iLink ClawBot adapter)
+  startWeChatConnect(): Promise<{ success: boolean }>
+  submitWeChatVerifyCode(code: string): Promise<{ success: boolean }>
+  onWeChatEvent(callback: (payload: { workspaceId: string; event: WeChatUiEvent }) => void): () => void
+  // Messaging access control (Phase 3)
+  getMessagingPlatformOwners(platform: string): Promise<MessagingPlatformOwnerInfo[]>
+  setMessagingPlatformOwners(platform: string, owners: MessagingPlatformOwnerInfo[]): Promise<MessagingPlatformOwnerInfo[]>
+  getMessagingPlatformAccessMode(platform: string): Promise<MessagingPlatformAccessMode>
+  setMessagingPlatformAccessMode(platform: string, mode: MessagingPlatformAccessMode): Promise<{ success: boolean }>
+  getMessagingPendingSenders(platform?: string): Promise<MessagingPendingSenderInfo[]>
+  dismissMessagingPendingSender(platform: string, userId: string, opts?: { reason?: MessagingPendingRejectReason; bindingId?: string }): Promise<{ success: boolean }>
+  allowMessagingPendingSender(
+    platform: string,
+    userId: string,
+    entryKey?: { reason?: MessagingPendingRejectReason; bindingId?: string },
+  ): Promise<{ owners: MessagingPlatformOwnerInfo[]; bindingId?: string }>
   setMessagingBindingAccess(bindingId: string, access: { mode: MessagingBindingAccessMode; allowedSenderIds?: string[] }): Promise<{ success: boolean }>
   onMessagingPendingChanged(callback: (workspaceId: string) => void): () => void
 
