@@ -1,110 +1,103 @@
 import { describe, expect, test } from 'bun:test';
-import { deriveSessionMindMap, groupSessionTurns } from '../derive-session.ts';
-
-describe('groupSessionTurns', () => {
-  test('groups user then assistant/tools', () => {
-    const turns = groupSessionTurns([
-      { id: 'u1', type: 'user', content: 'Hi' },
-      { id: 'a1', type: 'assistant', content: 'Hello' },
-      { id: 't1', type: 'tool', content: '', toolName: 'bash', toolUseId: 'tu1' },
-      { id: 'u2', type: 'user', content: 'Next' },
-    ]);
-    expect(turns).toHaveLength(2);
-    expect(turns[0]!.user.id).toBe('u1');
-    expect(turns[0]!.rest.map((m) => m.id)).toEqual(['a1', 't1']);
-    expect(turns[1]!.user.id).toBe('u2');
-  });
-});
+import { deriveSessionMindMap } from '../derive-session.ts';
 
 describe('deriveSessionMindMap', () => {
-  test('builds turn tree with tools under assistant', () => {
+  test('builds turn tree with user, assistant, tools', () => {
     const graph = deriveSessionMindMap({
       sessionId: 's1',
-      title: 'Research',
-      now: 1000,
+      title: 'Plan launch',
       messages: [
-        { id: 'u1', type: 'user', content: 'Look up X', turnId: 't1' },
-        { id: 'a1', type: 'assistant', content: 'Searching', turnId: 't1' },
+        { id: 'u1', type: 'user', content: 'Ship the feature\nmore detail' },
         {
-          id: 'tool1',
+          id: 'a1',
+          type: 'assistant',
+          content: 'Sure, starting work',
+          turnId: 't1',
+        },
+        {
+          id: 't-read',
           type: 'tool',
           content: 'ok',
-          toolName: 'web_search',
+          toolName: 'Read',
           toolUseId: 'tu1',
           turnId: 't1',
         },
-        { id: 'u2', type: 'user', content: 'Summarize', turnId: 't2' },
-        { id: 'a2', type: 'assistant', content: 'Done', turnId: 't2' },
+        {
+          id: 't-edit',
+          type: 'tool',
+          content: 'ok',
+          toolName: 'Edit',
+          toolUseId: 'tu2',
+          parentToolUseId: 'tu1',
+          turnId: 't1',
+        },
+        { id: 'u2', type: 'user', content: 'Also fix tests' },
+        {
+          id: 'a2',
+          type: 'assistant',
+          content: 'Done',
+        },
+        { id: 'st1', type: 'status', content: 'compacting…' },
       ],
     });
 
     expect(graph.entity).toEqual({ type: 'session', sessionId: 's1' });
-    expect(graph.derivation).toBe('outline');
-    expect(graph.derivedAt).toBe(1000);
-    expect(graph.contentHash).toMatch(/^[0-9a-f]+$/);
+    expect(graph.derivation).toBe('session');
+    expect(graph.nodes.root!.label).toBe('Plan launch');
+    expect(graph.nodes.root!.children).toEqual(['turn:u1', 'turn:u2']);
 
-    const root = graph.nodes[graph.rootId]!;
-    expect(root.label).toBe('Research');
-    expect(root.children).toHaveLength(2);
+    expect(graph.nodes['turn:u1']!.children).toContain('msg:u1');
+    expect(graph.nodes['turn:u1']!.children).toContain('msg:a1');
+    expect(graph.nodes['msg:u1']!.kind).toBe('user');
+    expect(graph.nodes['msg:u1']!.label).toBe('Ship the feature');
+    expect(graph.nodes['msg:a1']!.kind).toBe('assistant');
 
-    const turn1 = graph.nodes[root.children[0]!]!;
-    expect(turn1.kind).toBe('turn');
-    expect(turn1.label).toContain('Look up');
-    expect(turn1.source).toEqual({ kind: 'message', id: 'u1' });
+    // Tools nest under last assistant (or parentToolUseId).
+    expect(graph.nodes['msg:a1']!.children).toContain('tool:tu1');
+    expect(graph.nodes['tool:tu1']!.label).toBe('Read');
+    expect(graph.nodes['tool:tu1']!.children).toContain('tool:tu2');
+    expect(graph.nodes['tool:tu2']!.label).toBe('Edit');
 
-    const assistant = graph.nodes[turn1.children[0]!]!;
-    expect(assistant.id).toBe('msg:a1');
-    expect(assistant.children.some((id) => id === 'tool:tu1')).toBe(true);
-    expect(graph.nodes['tool:tu1']!.label).toBe('web_search');
+    // status skipped
+    expect(graph.nodes['msg:st1']).toBeUndefined();
+
+    expect(graph.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(graph.derivedAt).toBeGreaterThan(0);
   });
 
-  test('truncates to maxTurns and sets meta', () => {
-    const messages = [];
-    for (let i = 0; i < 5; i++) {
-      messages.push({ id: `u${i}`, type: 'user', content: `Q${i}` });
-      messages.push({ id: `a${i}`, type: 'assistant', content: `A${i}` });
-    }
+  test('truncates to last maxTurns and sets meta.truncated', () => {
     const graph = deriveSessionMindMap({
       sessionId: 's2',
-      title: 'Long',
-      messages,
-      maxTurns: 2,
-      now: 1,
+      title: '',
+      maxTurns: 1,
+      messages: [
+        { id: 'u1', type: 'user', content: 'first' },
+        { id: 'a1', type: 'assistant', content: 'ok1' },
+        { id: 'u2', type: 'user', content: 'second' },
+        { id: 'a2', type: 'assistant', content: 'ok2' },
+      ],
     });
-    const root = graph.nodes[graph.rootId]!;
-    expect(root.children).toHaveLength(2);
-    expect(root.meta?.truncated).toBe(true);
-    expect(root.meta?.turnCount).toBe(5);
-    // last two user questions
-    expect(graph.nodes[root.children[0]!]!.label).toContain('Q3');
-    expect(graph.nodes[root.children[1]!]!.label).toContain('Q4');
+
+    expect(graph.nodes.root!.label).toBe('Session');
+    expect(graph.nodes.root!.children).toEqual(['turn:u2']);
+    expect(graph.nodes.root!.meta?.truncated).toBe(true);
+    expect(graph.nodes.root!.meta?.totalTurns).toBe(2);
+    expect(graph.nodes['turn:u1']).toBeUndefined();
+    expect(graph.nodes['msg:u2']!.label).toBe('second');
   });
 
-  test('stable hash for identical input', () => {
+  test('stable ids across re-derive', () => {
     const input = {
       sessionId: 's3',
       title: 'T',
-      now: 1,
       messages: [
-        { id: 'u1', type: 'user', content: 'Hi' },
-        { id: 'a1', type: 'assistant', content: 'Yo' },
+        { id: 'u1', type: 'user', content: 'hi' },
+        { id: 'a1', type: 'assistant', content: 'yo' },
       ],
     };
-    expect(deriveSessionMindMap(input).contentHash).toBe(deriveSessionMindMap(input).contentHash);
-  });
-
-  test('skips status/compaction noise', () => {
-    const graph = deriveSessionMindMap({
-      sessionId: 's4',
-      title: 'T',
-      now: 1,
-      messages: [
-        { id: 'u1', type: 'user', content: 'Hi' },
-        { id: 'st', type: 'assistant', content: '…', statusType: 'compacting' },
-        { id: 'a1', type: 'assistant', content: 'Ok' },
-      ],
-    });
-    const turn = graph.nodes[graph.nodes[graph.rootId]!.children[0]!]!;
-    expect(turn.children).toEqual(['msg:a1']);
+    const a = deriveSessionMindMap(input);
+    const b = deriveSessionMindMap(input);
+    expect(a.contentHash).toBe(b.contentHash);
+    expect(Object.keys(a.nodes).sort()).toEqual(Object.keys(b.nodes).sort());
   });
 });

@@ -1,13 +1,66 @@
-/**
- * @craft-agent/core/mindmap — entity → outline mind-map projection.
- * Spec: docs/superpowers/specs/2026-08-08-entity-mindmap-views-design.md
- */
+export type {
+  MindMapDerivation,
+  MindMapEdge,
+  MindMapEdgeKind,
+  MindMapEntityRef,
+  MindMapGraph,
+  MindMapLayout,
+  MindMapNode,
+  MindMapNodeId,
+  MindMapNodeKind,
+  MindMapNodeSource,
+  PinnedMap,
+} from './types.ts';
+export { MIND_MAP_ROOT_ID } from './types.ts';
 
-export * from './types.ts';
-export * from './hash.ts';
-export * from './graph.ts';
-export * from './outline.ts';
-export * from './derive-session.ts';
-export * from './derive-note.ts';
-export * from './derive-knowledge.ts';
-export * from './pin.ts';
+export { hashMindMapSource, normalizeMindMapPart } from './hash.ts';
+
+export {
+  addChild,
+  addEdge,
+  createEmptyGraph,
+  entityKey,
+  finalizeGraph,
+  truncateLabel,
+  type MindMapChildInput,
+} from './graph.ts';
+
+export {
+  headingsToTree,
+  MAX_OUTLINE_HEADINGS,
+  parseOutlineHeadings,
+  type OutlineHeading,
+} from './outline.ts';
+
+export {
+  deriveSessionMindMap,
+  type MindMapSessionInput,
+  type MindMapSessionMessage,
+} from './derive-session.ts';
+
+export {
+  deriveNoteMindMap,
+  type MindMapNoteBacklink,
+  type MindMapNoteInput,
+} from './derive-note.ts';
+
+export {
+  deriveKnowledgeMindMap,
+  type MindMapKnowledgeBacklink,
+  type MindMapKnowledgeChild,
+  type MindMapKnowledgeInput,
+} from './derive-knowledge.ts';
+
+export {
+  createPinnedMap,
+  entityPinKey,
+  isStale,
+  loadPinnedMap,
+  parsePinnedMap,
+  pinFilename,
+  sanitizePinFilenamePart,
+  savePinnedMap,
+  serializePinnedMap,
+  type PinReadIO,
+  type PinWriteIO,
+} from './pin.ts';

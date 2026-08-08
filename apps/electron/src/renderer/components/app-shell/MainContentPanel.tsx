@@ -44,6 +44,7 @@ import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
 import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage } from '@/pages'
 import NotesPage from '@/pages/NotesPage'
+import KnowledgeEntityPage from '@/pages/KnowledgeEntityPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import { AutomationInfoPage } from '../automations/AutomationInfoPage'
@@ -444,7 +445,7 @@ export function MainContentPanel({
     if (details) {
       return wrapWithStoplight(
         <Panel variant="grow" className={className}>
-          <KnowledgeSurfacePage kind={details.kind} id={details.id} panelId={panelId} />
+          <KnowledgeEntityPage kind={details.kind} id={details.id} panelId={panelId} />
         </Panel>
       )
     }

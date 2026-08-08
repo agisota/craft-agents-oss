@@ -2,90 +2,81 @@ import { describe, expect, test } from 'bun:test';
 import { deriveNoteMindMap } from '../derive-note.ts';
 import {
   createPinnedMap,
-  entityPinFilename,
-  isPinnedMapStale,
+  entityPinKey,
+  isStale,
   loadPinnedMap,
   parsePinnedMap,
+  pinFilename,
+  sanitizePinFilenamePart,
   savePinnedMap,
   serializePinnedMap,
 } from '../pin.ts';
 
 describe('pin helpers', () => {
-  test('entityPinFilename sanitizes ids', () => {
-    expect(entityPinFilename({ type: 'session', sessionId: 'abc/def' })).toBe(
-      'session_abc_def.json',
-    );
+  test('entityPinKey and filename sanitize', () => {
+    expect(entityPinKey({ type: 'session', sessionId: 'abc' })).toBe('session_abc');
+    expect(entityPinKey({ type: 'note', noteId: 'n/../x' })).toBe('note_n_x');
     expect(
-      entityPinFilename({
+      entityPinKey({
         type: 'knowledge',
         ref: { scheme: 'siyuan', kind: 'document', id: 'd1' },
       }),
-    ).toBe('knowledge_document_d1.json');
+    ).toBe('knowledge_document_d1');
+    expect(pinFilename({ type: 'session', sessionId: 's1' })).toBe('session_s1.json');
+    expect(sanitizePinFilenamePart('a b/c')).toBe('a_b_c');
   });
 
-  test('round-trip serialize/parse', () => {
+  test('serialize/parse round-trip', () => {
     const graph = deriveNoteMindMap({
       noteId: 'n1',
       title: 'T',
-      markdown: '# H\n',
-      now: 10,
+      markdown: '# H',
     });
-    const pin = createPinnedMap({
-      entity: { type: 'note', noteId: 'n1' },
-      graph,
-      layout: { positions: { root: { x: 0, y: 0 } }, collapsed: [] },
-      sourceContentHash: graph.contentHash,
-      now: 10,
-    });
-    const again = parsePinnedMap(serializePinnedMap(pin));
-    expect(again.entity).toEqual(pin.entity);
-    expect(again.graph.contentHash).toBe(graph.contentHash);
-    expect(again.graph.derivation).toBe('pinned');
-    expect(again.layout.positions.root).toEqual({ x: 0, y: 0 });
+    const pin = createPinnedMap(graph, { positions: { root: { x: 1, y: 2 } }, collapsed: [] }, 1000);
+    const json = serializePinnedMap(pin);
+    const back = parsePinnedMap(json);
+    expect(back.entity).toEqual(pin.entity);
+    expect(back.sourceContentHash).toBe(graph.contentHash);
+    expect(back.layout.positions.root).toEqual({ x: 1, y: 2 });
+    expect(back.graph.nodes.root!.label).toBe('T');
   });
 
-  test('load/save with memory io', async () => {
+  test('load/save with in-memory io', async () => {
     const store = new Map<string, string>();
     const io = {
-      read: async (path: string) => store.get(path) ?? null,
-      write: async (path: string, data: string) => {
+      async read(path: string) {
+        return store.has(path) ? store.get(path)! : null;
+      },
+      async write(path: string, data: string) {
         store.set(path, data);
       },
     };
+
+    const entity = { type: 'note' as const, noteId: 'n-io' };
+    expect(await loadPinnedMap(io, '/pins', entity)).toBeNull();
+
     const graph = deriveNoteMindMap({
-      noteId: 'n2',
-      title: 'T',
+      noteId: 'n-io',
+      title: 'IO',
       markdown: 'body only',
-      now: 1,
     });
-    const pin = createPinnedMap({
-      entity: { type: 'note', noteId: 'n2' },
-      graph,
-      layout: { positions: {}, collapsed: ['section:body'] },
-      sourceContentHash: graph.contentHash,
-      now: 1,
-    });
-    await savePinnedMap(io, '/ws/mindmaps', pin);
-    const loaded = await loadPinnedMap(io, '/ws/mindmaps', { type: 'note', noteId: 'n2' });
-    expect(loaded?.layout.collapsed).toEqual(['section:body']);
-    expect(await loadPinnedMap(io, '/ws/mindmaps', { type: 'note', noteId: 'missing' })).toBeNull();
+    const pin = createPinnedMap(graph);
+    await savePinnedMap(io, '/pins', pin);
+
+    expect(store.has('/pins/note_n-io.json')).toBe(true);
+    const loaded = await loadPinnedMap(io, '/pins', entity);
+    expect(loaded?.sourceContentHash).toBe(graph.contentHash);
+    expect(loaded?.graph.nodes['section:body']?.kind).toBe('section');
   });
 
-  test('isPinnedMapStale', () => {
+  test('isStale compares sourceContentHash', () => {
     const graph = deriveNoteMindMap({
-      noteId: 'n3',
+      noteId: 'n',
       title: 'T',
-      markdown: '# A\n',
-      now: 1,
+      markdown: '# A',
     });
-    const pin = createPinnedMap({
-      entity: { type: 'note', noteId: 'n3' },
-      graph,
-      layout: { positions: {}, collapsed: [] },
-      sourceContentHash: graph.contentHash,
-      now: 1,
-    });
-    expect(isPinnedMapStale(pin, graph.contentHash)).toBe(false);
-    expect(isPinnedMapStale(pin, 'other')).toBe(true);
+    const pin = createPinnedMap(graph);
+    expect(isStale(pin, graph.contentHash)).toBe(false);
+    expect(isStale(pin, 'deadbeef')).toBe(true);
   });
 });
