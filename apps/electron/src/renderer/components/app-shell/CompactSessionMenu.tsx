@@ -10,7 +10,7 @@
  * Status submenu in particular falls off the right edge.
  *
  * Pattern matches the other compact pickers (`CompactSessionListFilter`,
- * `CompactWorkspaceSwitcher`, `CompactPermissionModeSelector`) and also
+ * `CompactPermissionModeSelector`) and also
  * follows the iOS-style drill-in behaviour established by `MobileAppMenu`.
  *
  * Side-effect handlers (share / refresh title / copy path / share submenu /

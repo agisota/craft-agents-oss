@@ -1274,4 +1274,59 @@ describe('BrowserPaneManager', () => {
       })
     })
   })
+
+  describe('omnibox chord from page webContents', () => {
+    it('sends omnibox:open to embed host on ⌘K when unlocked', () => {
+      manager.createInstance('omnibox-chord')
+      const instance = (manager as any).instances.get('omnibox-chord')
+      const hostSend = mock((_channel: string) => {})
+      instance.embeddedHostWindow = {
+        isDestroyed: () => false,
+        webContents: { send: hostSend },
+      }
+
+      const preventDefault = mock(() => {})
+      const handlers = instance.pageView.webContents._listeners['before-input-event'] || []
+      expect(handlers.length).toBeGreaterThan(0)
+      handlers[0]({ preventDefault }, { type: 'keyDown', key: 'k', meta: true })
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect(hostSend).toHaveBeenCalledWith('omnibox:open')
+    })
+
+    it('blocks omnibox chord while lockState is active', () => {
+      manager.createInstance('omnibox-locked')
+      const instance = (manager as any).instances.get('omnibox-locked')
+      const hostSend = mock((_channel: string) => {})
+      instance.embeddedHostWindow = {
+        isDestroyed: () => false,
+        webContents: { send: hostSend },
+      }
+      instance.lockState.active = true
+
+      const preventDefault = mock(() => {})
+      const handlers = instance.pageView.webContents._listeners['before-input-event'] || []
+      handlers[0]({ preventDefault }, { type: 'keyDown', key: 'k', meta: true })
+
+      expect(preventDefault).toHaveBeenCalled()
+      expect(hostSend).not.toHaveBeenCalled()
+    })
+
+    it('does not send omnibox:open for non-chord keys', () => {
+      manager.createInstance('omnibox-other')
+      const instance = (manager as any).instances.get('omnibox-other')
+      const hostSend = mock((_channel: string) => {})
+      instance.embeddedHostWindow = {
+        isDestroyed: () => false,
+        webContents: { send: hostSend },
+      }
+
+      const preventDefault = mock(() => {})
+      const handlers = instance.pageView.webContents._listeners['before-input-event'] || []
+      handlers[0]({ preventDefault }, { type: 'keyDown', key: 'a', meta: true })
+
+      expect(preventDefault).not.toHaveBeenCalled()
+      expect(hostSend).not.toHaveBeenCalled()
+    })
+  })
 })

@@ -4,8 +4,8 @@
  * Place near DismissibleLayerProvider in App.tsx (inside ActionRegistryProvider
  * so useAction / useActionRegistry are available).
  *
- * Residual (documented, out of W3 exit scope): embedded SiYuan webContents
- * ⌘K interception via main global-input-router — renderer ⌘K is enough for exit.
+ * Embedded SiYuan/browser page ⌘K is bridged from main via onOmniboxOpen
+ * (browser-pane-manager → omnibox:open IPC) because BrowserView holds focus.
  */
 
 import { useEffect, useMemo } from 'react'
@@ -49,6 +49,12 @@ export function OmniboxHost() {
   useAction('app.omnibox', () => {
     setOpen((v) => !v)
   })
+
+  // Embedded BrowserView focus path: main sends omnibox:open on ⌘K/Ctrl+K
+  useEffect(() => {
+    const off = window.electronAPI.onOmniboxOpen?.(() => setOpen(true))
+    return () => off?.()
+  }, [setOpen])
 
   return (
     <Omnibox

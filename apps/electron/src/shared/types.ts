@@ -518,6 +518,8 @@ export interface ElectronAPI {
   sshResolveWorkspaceConnection(remoteServer: RemoteServerConfig): Promise<{ url: string; token: string; remoteWorkspaceId: string }>
   onSshBootstrapProgress(cb: (progress: SshBootstrapProgress) => void): () => void
   onSshConnectionStatus(cb: (status: SshConnectionStatus) => void): () => void
+  /** Main → renderer: open omnibox when ⌘K arrives from embedded BrowserView focus. */
+  onOmniboxOpen(cb: () => void): () => void
 
   // Remote session transfer (main-process orchestrated, supports chunked upload)
   transferSessionToWorkspace(sessionId: string, targetWorkspaceId: string, sessionIndex?: number, sessionCount?: number): Promise<{ sessionId: string }>

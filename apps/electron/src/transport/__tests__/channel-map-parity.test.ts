@@ -50,6 +50,7 @@ type ApiToChannelMapKeys = Exclude<
   | 'sshResolveWorkspaceConnection'
   | 'onSshBootstrapProgress'
   | 'onSshConnectionStatus'
+  | 'onOmniboxOpen' // direct IPC listener — embedded BrowserView ⌘K bridge
 > | BrowserPaneKeys
   | KnowledgeKeys
   | SiyuanEngineKeys

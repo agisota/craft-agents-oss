@@ -1,11 +1,9 @@
 /**
  * Global input helpers for omnibox chords when BrowserView holds focus.
  *
- * Residual (W6): BrowserView focus path is incomplete — attachOmniboxChordListener
- * is ready for SiYuan/browser page webContents, but wiring from handlers/siyuan.ts
- * CREATE_EMBEDDED is deferred so pane tests stay stable. Main-window ⌘K continues
- * via renderer ActionRegistry (app.omnibox / mod+k). When attaching, send IPC
- * 'omnibox:open' to the owning BrowserWindow webContents.
+ * browser-pane-manager composes isOmniboxChord into pageWc before-input-event
+ * and sends IPC 'omnibox:open' to the owning BrowserWindow webContents.
+ * Main-window ⌘K continues via renderer ActionRegistry (app.omnibox / mod+k).
  */
 
 export type OmniboxChordInput = {
