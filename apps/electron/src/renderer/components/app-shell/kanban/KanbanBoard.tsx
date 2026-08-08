@@ -89,6 +89,10 @@ interface KanbanBoardProps {
   onToggleProjectGroup?: (groupKey: string) => void
   /** Label for the "no project" group. */
   noProjectLabel?: string
+  /**
+   * Custom per-column task sort (B6). Default = recency (createdAt/lastMessageAt desc).
+   */
+  sortTasks?: (a: KanbanTask, b: KanbanTask) => number
 }
 
 /**
