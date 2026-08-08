@@ -223,8 +223,16 @@ bun run scripts/build/stage-servers.ts darwin "$ARCH"
 echo "Packaging app with electron-builder..."
 cd "$ELECTRON_DIR"
 
-# Set up environment for electron-builder
-export CSC_IDENTITY_AUTO_DISCOVERY=true
+# Avoid selecting an arbitrary keychain identity during a local smoke build.
+# A caller may still explicitly override this; configured signing credentials
+# retain the existing automatic-discovery behavior.
+if [ -z "${CSC_IDENTITY_AUTO_DISCOVERY+x}" ]; then
+    if [ -n "$APPLE_SIGNING_IDENTITY" ] || [ -n "${CSC_NAME:-}" ] || [ -n "${CSC_LINK:-}" ]; then
+        export CSC_IDENTITY_AUTO_DISCOVERY=true
+    else
+        export CSC_IDENTITY_AUTO_DISCOVERY=false
+    fi
+fi
 
 # Build electron-builder arguments
 BUILDER_ARGS="--mac --${ARCH}"
