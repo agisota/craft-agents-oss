@@ -16,9 +16,12 @@ type BrowserPaneApi = ElectronAPI['browserPane']
 type KnowledgeApi = ElectronAPI['knowledge']
 // SiYuan engine surfaces (P2) nest the same way.
 type SiyuanEngineApi = ElectronAPI['siyuanEngine']
+// Extension UI surfaces (S-05) nest the same way.
+type ExtensionSurfaceApi = ElectronAPI['extensionSurface']
 type BrowserPaneKeys = `browserPane.${FunctionKeys<BrowserPaneApi>}`
 type KnowledgeKeys = `knowledge.${FunctionKeys<KnowledgeApi>}`
 type SiyuanEngineKeys = `siyuanEngine.${FunctionKeys<SiyuanEngineApi>}`
+type ExtensionSurfaceKeys = `extensionSurface.${FunctionKeys<ExtensionSurfaceApi>}`
 
 // Methods excluded from CHANNEL_MAP because they are implemented directly in the preload
 // (no IPC round-trip to the main process). Each reads local state or orchestrates client-side.
@@ -54,6 +57,7 @@ type ApiToChannelMapKeys = Exclude<
 > | BrowserPaneKeys
   | KnowledgeKeys
   | SiyuanEngineKeys
+  | ExtensionSurfaceKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 
 type AssertNever<T extends never> = true

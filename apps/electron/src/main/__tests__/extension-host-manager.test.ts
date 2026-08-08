@@ -7,11 +7,19 @@ import { credentialIdToAccount } from '@craft-agent/shared/credentials'
 import {
   ExtensionHostManager,
   getExtensionHostManager,
+  listExtensionHostStatuses,
   resetExtensionHostManager,
+  resetExtensionHostManagers,
+  setExtensionHostManagerForTests,
+  DEFAULT_WORKSPACE_KEY,
   type ExtensionHostChild,
   type ExtensionHostForkFn,
 } from '../extension-host-manager'
 import { CapabilityBroker } from '../extension-host/capability-broker'
+import {
+  resetUrlAllowlistCacheForTests,
+  setUrlAllowlist,
+} from '../extension-host/extension-url-allowlist'
 import { buildScrubbedWorkerEnv } from '../extension-host/protocol'
 import { isPathAllowlisted, resolveSandboxRoots } from '../extension-host/path-allowlist'
 import { startWorker } from '../extension-host/worker'
@@ -187,6 +195,7 @@ describe('ExtensionHostManager', () => {
 
   afterEach(async () => {
     resetExtensionHostManager()
+    resetUrlAllowlistCacheForTests()
     if (tmp) {
       try {
         rmSync(tmp, { recursive: true, force: true })
@@ -362,13 +371,79 @@ describe('ExtensionHostManager', () => {
     expect((await mgr.stop()).executesSiyuanPlugins).toBe(false)
   })
 
-  it('singleton getExtensionHostManager is stable until reset', () => {
+  it('registry keys hosts by workspaceId with default alias', () => {
     const a = getExtensionHostManager()
     const b = getExtensionHostManager()
+    const c = getExtensionHostManager(null)
+    const d = getExtensionHostManager(undefined)
+    const e = getExtensionHostManager('   ')
     expect(a).toBe(b)
+    expect(a).toBe(c)
+    expect(a).toBe(d)
+    expect(a).toBe(e)
+
+    const wsA = getExtensionHostManager('ws-a')
+    const wsB = getExtensionHostManager('ws-b')
+    const wsA2 = getExtensionHostManager('ws-a')
+    expect(wsA).toBe(wsA2)
+    expect(wsA).not.toBe(wsB)
+    expect(wsA).not.toBe(a)
+
+    resetExtensionHostManagers()
+    const after = getExtensionHostManager()
+    expect(after).not.toBe(a)
+    // alias still clears
+    const again = getExtensionHostManager('ws-a')
     resetExtensionHostManager()
-    const c = getExtensionHostManager()
-    expect(c).not.toBe(a)
+    expect(getExtensionHostManager('ws-a')).not.toBe(again)
+  })
+
+  it('two workspaces start independently; stop one leaves the other', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    let pidSeq = 5000
+
+    const makeFork = (): ExtensionHostForkFn => {
+      return () => {
+        const child = new FakeChild()
+        child.pid = ++pidSeq
+        queueMicrotask(() => child.emit('message', { type: 'ready' }))
+        return child
+      }
+    }
+
+    // Install distinct managers so each workspace gets its own fork + pid.
+    const mgrA = new ExtensionHostManager({
+      forkFn: makeFork(),
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker: new CapabilityBroker(),
+    })
+    const mgrB = new ExtensionHostManager({
+      forkFn: makeFork(),
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker: new CapabilityBroker(),
+    })
+    setExtensionHostManagerForTests(mgrA, 'ws-a')
+    setExtensionHostManagerForTests(mgrB, 'ws-b')
+
+    const statusA = await getExtensionHostManager('ws-a').start()
+    const statusB = await getExtensionHostManager('ws-b').start()
+    expect(statusA.status).toBe('running')
+    expect(statusB.status).toBe('running')
+    expect(statusA.pid).toBeDefined()
+    expect(statusB.pid).toBeDefined()
+    expect(statusA.pid).not.toBe(statusB.pid)
+
+    const all = listExtensionHostStatuses()
+    expect(all.some((s) => s.workspaceId === 'ws-a' && s.status === 'running')).toBe(true)
+    expect(all.some((s) => s.workspaceId === 'ws-b' && s.status === 'running')).toBe(true)
+    expect(all.some((s) => s.workspaceId === DEFAULT_WORKSPACE_KEY)).toBe(false)
+
+    await getExtensionHostManager('ws-a').stop()
+    expect(getExtensionHostManager('ws-a').getStatus().status).toBe('stopped')
+    expect(getExtensionHostManager('ws-b').getStatus().status).toBe('running')
+    expect(getExtensionHostManager('ws-b').getStatus().pid).toBe(statusB.pid)
   })
 
   it('concurrent start shares one in-flight attempt and forks once', async () => {
@@ -562,14 +637,97 @@ describe('ExtensionHostManager', () => {
     const result = await mgr.proxyFetch({
       token: minted.token,
       url: 'https://api.example/v1',
-      fetchImpl: (async (_u, init) => {
+      fetchImpl: async (_u, init) => {
         seenAuth = (init?.headers as Record<string, string>)?.Authorization
         return new Response('ok', { status: 200 })
-      }) as typeof fetch,
+      },
     })
     expect(seenAuth).toBe(`Bearer ${secret}`)
     expect(result.status).toBe(200)
     expect(result.body).not.toContain(secret)
+  })
+
+  it('proxyFetch uses durable URL allowlist only when set (caller cannot widen)', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'net')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    setUrlAllowlist('net', ['https://allowed.example/'], tmp)
+
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+    })
+    await mgr.start()
+    await mgr.loadExtension('net', entry, ['network.request'])
+    const minted = mgr.mintCapability({
+      extensionId: 'net',
+      permission: 'network.request',
+    })
+
+    await expect(
+      mgr.proxyFetch({
+        token: minted.token,
+        url: 'https://blocked.example/x',
+        fetchImpl: async () => new Response('nope', { status: 200 }),
+      }),
+    ).rejects.toThrow(/allowlist/i)
+
+    const ok = await mgr.proxyFetch({
+      token: minted.token,
+      url: 'https://allowed.example/v1',
+      fetchImpl: async () => new Response('yes', { status: 200 }),
+    })
+    expect(ok.status).toBe(200)
+    expect(ok.body).toBe('yes')
+
+    // Durable non-empty: extra caller prefix must not widen the allowlist.
+    await expect(
+      mgr.proxyFetch({
+        token: minted.token,
+        url: 'https://caller.example/z',
+        allowedUrlPrefixes: ['https://caller.example/'],
+        fetchImpl: async () => new Response('caller', { status: 201 }),
+      }),
+    ).rejects.toThrow(/allowlist/i)
+  })
+
+  it('proxyFetch allows all when durable allowlist empty and no caller prefixes', async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'eh-'))
+    const sandbox = join(tmp, 'extensions', 'sandbox', 'net-open')
+    mkdirSync(sandbox, { recursive: true })
+    const entry = join(sandbox, 'index.mjs')
+    writeFileSync(entry, 'export function ping() { return 1 }\n')
+
+    // No setUrlAllowlist → durable empty for this extension.
+    const { forkFn } = createInProcessFork(tmp)
+    const broker = new CapabilityBroker()
+    const mgr = new ExtensionHostManager({
+      forkFn,
+      configDir: tmp,
+      workerPath: '/virtual/worker.cjs',
+      broker,
+    })
+    await mgr.start()
+    await mgr.loadExtension('net-open', entry, ['network.request'])
+    const minted = mgr.mintCapability({
+      extensionId: 'net-open',
+      permission: 'network.request',
+    })
+
+    const ok = await mgr.proxyFetch({
+      token: minted.token,
+      url: 'https://anywhere.example/path',
+      fetchImpl: async () => new Response('open', { status: 200 }),
+    })
+    expect(ok.status).toBe(200)
+    expect(ok.body).toBe('open')
   })
 
   it('worker __craftCapability mint never receives secret', async () => {

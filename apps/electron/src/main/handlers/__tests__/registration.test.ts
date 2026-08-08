@@ -156,13 +156,14 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('@craft-agent/server-core/handlers/rpc/projects'),
   ])
 
-  const [browser, guiSystem, guiWorkspace, guiSettings, siyuan, extensionHost] = await Promise.all([
+  const [browser, guiSystem, guiWorkspace, guiSettings, siyuan, extensionHost, extensionSurface] = await Promise.all([
     import('../browser'),
     import('../system'),
     import('../workspace'),
     import('../settings'),
     import('../siyuan'),
     import('../extension-host'),
+    import('../extension-surface'),
   ])
 
   return new Set([
@@ -204,6 +205,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...guiSettings.GUI_HANDLED_CHANNELS,
     ...siyuan.HANDLED_CHANNELS,
     ...extensionHost.HANDLED_CHANNELS,
+    ...extensionSurface.HANDLED_CHANNELS,
   ])
 }
 

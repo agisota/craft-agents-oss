@@ -31,6 +31,7 @@ import {
   type CapabilityBroker,
   type GetCredentialFn,
 } from './extension-host/capability-broker'
+import { getUrlAllowlist } from './extension-host/extension-url-allowlist'
 import {
   buildScrubbedWorkerEnv,
   type BrokerRequestMessage,
@@ -365,6 +366,22 @@ export class ExtensionHostManager {
     this.broker.revokeExtension(extensionId)
   }
 
+  /**
+   * Resolve effective URL allowlist for proxyFetch.
+   * Non-empty durable store is authoritative — caller/renderer prefixes must not widen it.
+   * Empty durable → caller prefixes only; empty caller too → undefined (broker allow-all / dev default).
+   */
+  private mergeUrlAllowlist(
+    token: string,
+    callerPrefixes?: string[],
+  ): string[] | undefined {
+    const cap = this.broker.peek(token)
+    const durable = cap ? getUrlAllowlist(cap.extensionId, this.configDir) : []
+    const effective =
+      durable.length > 0 ? durable : (callerPrefixes ?? [])
+    return effective.length > 0 ? effective : undefined
+  }
+
   /** Main-side authenticated fetch via capability token (no worker hop). */
   async proxyFetch(input: {
     token: string
@@ -378,13 +395,17 @@ export class ExtensionHostManager {
       init?: RequestInit,
     ) => Promise<Response>
   }): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+    const allowedUrlPrefixes = this.mergeUrlAllowlist(
+      input.token,
+      input.allowedUrlPrefixes,
+    )
     return this.broker.proxyFetch({
       token: input.token,
       url: input.url,
       method: input.method,
       headers: input.headers,
       body: input.body,
-      allowedUrlPrefixes: input.allowedUrlPrefixes,
+      allowedUrlPrefixes,
       fetchImpl: input.fetchImpl,
       getCredential: this.getCredential,
     })
@@ -648,12 +669,14 @@ export class ExtensionHostManager {
       }
 
       if (msg.action === 'fetch') {
+        const allowedUrlPrefixes = this.mergeUrlAllowlist(msg.capabilityToken)
         const result = await this.broker.proxyFetch({
           token: msg.capabilityToken,
           url: msg.url,
           method: msg.method,
           headers: msg.headers,
           body: msg.body,
+          allowedUrlPrefixes,
           getCredential: this.getCredential,
         })
         const response: MainToWorkerMessage = {
@@ -795,22 +818,59 @@ function unwrapMessage(raw: unknown): WorkerToMainMessage | null {
   return null
 }
 
-let singleton: ExtensionHostManager | null = null
+const hosts = new Map<string, ExtensionHostManager>()
 
-export function getExtensionHostManager(): ExtensionHostManager {
-  if (!singleton) singleton = new ExtensionHostManager()
-  return singleton
+/** Registry key used when workspaceId is absent/blank. */
+export const DEFAULT_WORKSPACE_KEY = '_default'
+
+function resolveWorkspaceKey(workspaceId?: string | null): string {
+  if (typeof workspaceId === 'string' && workspaceId.trim()) return workspaceId.trim()
+  return DEFAULT_WORKSPACE_KEY
 }
 
-/** Test helper — drop singleton. */
-export function resetExtensionHostManager(): void {
-  if (singleton) {
-    void singleton.stop()
+/** Per-workspace Extension Host manager (lazy). */
+export function getExtensionHostManager(workspaceId?: string | null): ExtensionHostManager {
+  const key = resolveWorkspaceKey(workspaceId)
+  let mgr = hosts.get(key)
+  if (!mgr) {
+    mgr = new ExtensionHostManager()
+    hosts.set(key, mgr)
   }
-  singleton = null
+  return mgr
 }
 
-/** Test helper — install a preconfigured manager as singleton. */
-export function setExtensionHostManagerForTests(manager: ExtensionHostManager | null): void {
-  singleton = manager
+/** Snapshot status of every live workspace host. */
+export function listExtensionHostStatuses(): Array<
+  { workspaceId: string } & ExtensionHostStatus
+> {
+  return [...hosts.entries()].map(([workspaceId, mgr]) => ({
+    workspaceId,
+    ...mgr.getStatus(),
+  }))
+}
+
+/** Stop every registered host (app quit / tests). */
+export async function stopAllExtensionHosts(): Promise<void> {
+  await Promise.all([...hosts.values()].map((m) => m.stop()))
+}
+
+/** Test helper — stop all and clear registry. */
+export function resetExtensionHostManagers(): void {
+  for (const m of hosts.values()) void m.stop()
+  hosts.clear()
+}
+
+/** Backward-compat alias. */
+export function resetExtensionHostManager(): void {
+  resetExtensionHostManagers()
+}
+
+/** Test helper — install a preconfigured manager for a workspace key. */
+export function setExtensionHostManagerForTests(
+  manager: ExtensionHostManager | null,
+  workspaceId?: string | null,
+): void {
+  const key = resolveWorkspaceKey(workspaceId)
+  if (!manager) hosts.delete(key)
+  else hosts.set(key, manager)
 }

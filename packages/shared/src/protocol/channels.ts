@@ -322,6 +322,7 @@ export const RPC_CHANNELS = {
   // Capability broker: mint/revoke/proxyFetch stay LOCAL_ONLY in main.
   extensionHost: {
     STATUS: 'extensionHost:status',
+    STATUS_ALL: 'extensionHost:statusAll',
     START: 'extensionHost:start',
     STOP: 'extensionHost:stop',
     RESTART: 'extensionHost:restart',
@@ -330,6 +331,20 @@ export const RPC_CHANNELS = {
     MINT_CAPABILITY: 'extensionHost:mintCapability',
     REVOKE_CAPABILITY: 'extensionHost:revokeCapability',
     PROXY_FETCH: 'extensionHost:proxyFetch',
+    GET_URL_ALLOWLIST: 'extensionHost:getUrlAllowlist',
+    SET_URL_ALLOWLIST: 'extensionHost:setUrlAllowlist',
+  },
+
+  // extensionSurface — sandboxed embedded BrowserView for extension UI
+  // (partition persist:ext-${extensionId}). LOCAL_ONLY.
+  extensionSurface: {
+    CREATE_EMBEDDED: 'extensionSurface:createEmbedded',
+    DESTROY: 'extensionSurface:destroy',
+    LIST: 'extensionSurface:list',
+    SYNC_BOUNDS: 'extensionSurface:syncBounds',
+    FOCUS: 'extensionSurface:focus',
+    STATE_CHANGED: 'extensionSurface:stateChanged',
+    REMOVED: 'extensionSurface:removed',
   },
 
 

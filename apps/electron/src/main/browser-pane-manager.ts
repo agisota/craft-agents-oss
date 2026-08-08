@@ -2155,15 +2155,26 @@ export class BrowserPaneManager implements IBrowserPaneManager {
    * windowed instance but with `window: null`. Views stay detached from any host
    * window (i.e. invisible) until the renderer reports a rect via
    * `syncEmbeddedBounds`.
+   *
+   * Optional `partition` isolates the session (e.g. `persist:ext-${extensionId}`
+   * for sandboxed extension UI). Defaults to SESSION_PARTITION.
    */
-  createEmbeddedInstance(input?: { url?: string; workspaceId?: string | null }): string {
+  createEmbeddedInstance(input?: {
+    url?: string
+    workspaceId?: string | null
+    partition?: string
+  }): string {
     const instanceId = `browser-embedded-${++instanceCounter}`
     if (this.instances.has(instanceId)) {
       mainLog.warn(`[browser-pane] Embedded instance already exists, reusing: ${instanceId}`)
       return instanceId
     }
 
-    const ses = session.fromPartition(SESSION_PARTITION)
+    const partition =
+      typeof input?.partition === 'string' && input.partition.trim().length > 0
+        ? input.partition.trim()
+        : SESSION_PARTITION
+    const ses = session.fromPartition(partition)
     this.setupSessionPermissions(ses)
     this.setupSessionObservers(ses)
 
@@ -2172,7 +2183,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
     const toolbarView = new BrowserView({
       webPreferences: {
         preload: join(__dirname, 'browser-toolbar-preload.cjs'),
-        partition: SESSION_PARTITION,
+        partition,
         session: ses,
         contextIsolation: true,
         nodeIntegration: false,
@@ -2182,7 +2193,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
     const pageView = new BrowserView({
       webPreferences: {
-        partition: SESSION_PARTITION,
+        partition,
         session: ses,
         contextIsolation: true,
         nodeIntegration: false,
@@ -2192,7 +2203,7 @@ export class BrowserPaneManager implements IBrowserPaneManager {
 
     const nativeOverlayView = new BrowserView({
       webPreferences: {
-        partition: SESSION_PARTITION,
+        partition,
         session: ses,
         contextIsolation: true,
         nodeIntegration: false,

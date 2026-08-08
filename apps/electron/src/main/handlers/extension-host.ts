@@ -4,16 +4,28 @@
  * LOCAL_ONLY lifecycle + craft-sandbox load/call over ExtensionHostManager.
  * Capability mint/revoke/proxyFetch never return raw secrets to callers.
  * Does not execute SiYuan plugins (executesSiyuanPlugins always false).
+ *
+ * Per-workspace hosts: optional workspaceId on args selects the manager key.
+ * URL allowlist is durable per extensionId under configDir/extensions/.
  */
 
 import { RPC_CHANNELS } from '../../shared/types'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from './handler-deps'
-import { getExtensionHostManager } from '../extension-host-manager'
+import {
+  getExtensionHostManager,
+  listExtensionHostStatuses,
+} from '../extension-host-manager'
+import {
+  getUrlAllowlist,
+  setUrlAllowlist,
+} from '../extension-host/extension-url-allowlist'
 import type { ExtensionHostStatus } from '@craft-agent/shared/extensions'
+import { CONFIG_DIR } from '@craft-agent/shared/config'
 
 export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensionHost.STATUS,
+  RPC_CHANNELS.extensionHost.STATUS_ALL,
   RPC_CHANNELS.extensionHost.START,
   RPC_CHANNELS.extensionHost.STOP,
   RPC_CHANNELS.extensionHost.RESTART,
@@ -22,7 +34,11 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.extensionHost.MINT_CAPABILITY,
   RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY,
   RPC_CHANNELS.extensionHost.PROXY_FETCH,
+  RPC_CHANNELS.extensionHost.GET_URL_ALLOWLIST,
+  RPC_CHANNELS.extensionHost.SET_URL_ALLOWLIST,
 ] as const
+
+type WorkspaceArgs = { workspaceId?: string | null }
 
 export function registerExtensionHostHandlers(
   server: RpcServer,
@@ -30,29 +46,36 @@ export function registerExtensionHostHandlers(
 ): void {
   server.handle(
     RPC_CHANNELS.extensionHost.STATUS,
-    async (): Promise<ExtensionHostStatus> => {
-      return getExtensionHostManager().getStatus()
+    async (_ctx, args?: WorkspaceArgs): Promise<ExtensionHostStatus> => {
+      return getExtensionHostManager(args?.workspaceId).getStatus()
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.extensionHost.STATUS_ALL,
+    async (): Promise<Array<{ workspaceId: string } & ExtensionHostStatus>> => {
+      return listExtensionHostStatuses()
     },
   )
 
   server.handle(
     RPC_CHANNELS.extensionHost.START,
-    async (): Promise<ExtensionHostStatus> => {
-      return getExtensionHostManager().start()
+    async (_ctx, args?: WorkspaceArgs): Promise<ExtensionHostStatus> => {
+      return getExtensionHostManager(args?.workspaceId).start()
     },
   )
 
   server.handle(
     RPC_CHANNELS.extensionHost.STOP,
-    async (): Promise<ExtensionHostStatus> => {
-      return getExtensionHostManager().stop()
+    async (_ctx, args?: WorkspaceArgs): Promise<ExtensionHostStatus> => {
+      return getExtensionHostManager(args?.workspaceId).stop()
     },
   )
 
   server.handle(
     RPC_CHANNELS.extensionHost.RESTART,
-    async (): Promise<ExtensionHostStatus> => {
-      return getExtensionHostManager().restart()
+    async (_ctx, args?: WorkspaceArgs): Promise<ExtensionHostStatus> => {
+      return getExtensionHostManager(args?.workspaceId).restart()
     },
   )
 
@@ -64,12 +87,13 @@ export function registerExtensionHostHandlers(
         extensionId: string
         entryPath: string
         grantedPermissions?: string[]
+        workspaceId?: string | null
       },
     ): Promise<{ ok: true }> => {
       if (!args || typeof args.extensionId !== 'string' || typeof args.entryPath !== 'string') {
         throw new Error('extensionHost.load requires { extensionId, entryPath }')
       }
-      await getExtensionHostManager().loadExtension(
+      await getExtensionHostManager(args.workspaceId).loadExtension(
         args.extensionId,
         args.entryPath,
         args.grantedPermissions,
@@ -87,12 +111,13 @@ export function registerExtensionHostHandlers(
         method: string
         args?: unknown[]
         permissions?: string[]
+        workspaceId?: string | null
       },
     ): Promise<unknown> => {
       if (!args || typeof args.extensionId !== 'string' || typeof args.method !== 'string') {
         throw new Error('extensionHost.call requires { extensionId, method }')
       }
-      return getExtensionHostManager().callExtension(
+      return getExtensionHostManager(args.workspaceId).callExtension(
         args.extensionId,
         args.method,
         args.args,
@@ -110,6 +135,7 @@ export function registerExtensionHostHandlers(
         permission: string
         ttlMs?: number
         singleUse?: boolean
+        workspaceId?: string | null
       },
     ): Promise<{ token: string; expiresAt: number; permission: string }> => {
       if (
@@ -122,7 +148,7 @@ export function registerExtensionHostHandlers(
         )
       }
       // Never trust renderer-supplied grantedPermissions — loadExtension only.
-      return getExtensionHostManager().mintCapability({
+      return getExtensionHostManager(args.workspaceId).mintCapability({
         extensionId: args.extensionId,
         permission: args.permission,
         ttlMs: args.ttlMs,
@@ -135,14 +161,14 @@ export function registerExtensionHostHandlers(
     RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY,
     async (
       _ctx,
-      args: { token?: string; extensionId?: string },
+      args: { token?: string; extensionId?: string; workspaceId?: string | null },
     ): Promise<{ ok: true }> => {
       if (!args || (typeof args.token !== 'string' && typeof args.extensionId !== 'string')) {
         throw new Error(
           'extensionHost.revokeCapability requires { token } or { extensionId }',
         )
       }
-      const mgr = getExtensionHostManager()
+      const mgr = getExtensionHostManager(args.workspaceId)
       if (typeof args.token === 'string') mgr.revokeCapability(args.token)
       if (typeof args.extensionId === 'string') {
         mgr.revokeExtensionCapabilities(args.extensionId)
@@ -162,12 +188,14 @@ export function registerExtensionHostHandlers(
         headers?: Record<string, string>
         body?: string
         allowedUrlPrefixes?: string[]
+        workspaceId?: string | null
       },
     ): Promise<{ status: number; body: string; headers: Record<string, string> }> => {
       if (!args || typeof args.token !== 'string' || typeof args.url !== 'string') {
         throw new Error('extensionHost.proxyFetch requires { token, url }')
       }
-      return getExtensionHostManager().proxyFetch({
+      // Manager merges durable store allowlist; do not trust renderer alone.
+      return getExtensionHostManager(args.workspaceId).proxyFetch({
         token: args.token,
         url: args.url,
         method: args.method,
@@ -175,6 +203,38 @@ export function registerExtensionHostHandlers(
         body: args.body,
         allowedUrlPrefixes: args.allowedUrlPrefixes,
       })
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.extensionHost.GET_URL_ALLOWLIST,
+    async (
+      _ctx,
+      args: { extensionId: string },
+    ): Promise<{ prefixes: string[] }> => {
+      if (!args || typeof args.extensionId !== 'string') {
+        throw new Error('extensionHost.getUrlAllowlist requires { extensionId }')
+      }
+      return {
+        prefixes: getUrlAllowlist(args.extensionId, CONFIG_DIR),
+      }
+    },
+  )
+
+  server.handle(
+    RPC_CHANNELS.extensionHost.SET_URL_ALLOWLIST,
+    async (
+      _ctx,
+      args: { extensionId: string; prefixes: string[] },
+    ): Promise<{ prefixes: string[] }> => {
+      if (!args || typeof args.extensionId !== 'string' || !Array.isArray(args.prefixes)) {
+        throw new Error(
+          'extensionHost.setUrlAllowlist requires { extensionId, prefixes }',
+        )
+      }
+      return {
+        prefixes: setUrlAllowlist(args.extensionId, args.prefixes, CONFIG_DIR),
+      }
     },
   )
 }

@@ -272,6 +272,7 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
 
   // extensionHost — Craft Extension Host lifecycle (local process only; does not run SiYuan plugins)
   RPC_CHANNELS.extensionHost.STATUS,
+  RPC_CHANNELS.extensionHost.STATUS_ALL,
   RPC_CHANNELS.extensionHost.START,
   RPC_CHANNELS.extensionHost.STOP,
   RPC_CHANNELS.extensionHost.RESTART,
@@ -280,6 +281,17 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.extensionHost.MINT_CAPABILITY,
   RPC_CHANNELS.extensionHost.REVOKE_CAPABILITY,
   RPC_CHANNELS.extensionHost.PROXY_FETCH,
+  RPC_CHANNELS.extensionHost.GET_URL_ALLOWLIST,
+  RPC_CHANNELS.extensionHost.SET_URL_ALLOWLIST,
+
+  // extensionSurface — sandboxed extension UI BrowserViews (partition persist:ext-*)
+  RPC_CHANNELS.extensionSurface.CREATE_EMBEDDED,
+  RPC_CHANNELS.extensionSurface.DESTROY,
+  RPC_CHANNELS.extensionSurface.LIST,
+  RPC_CHANNELS.extensionSurface.SYNC_BOUNDS,
+  RPC_CHANNELS.extensionSurface.FOCUS,
+  RPC_CHANNELS.extensionSurface.STATE_CHANGED,
+  RPC_CHANNELS.extensionSurface.REMOVED,
 
 
   // knowledge — engine status + install detect reflect the answering host, never proxied
