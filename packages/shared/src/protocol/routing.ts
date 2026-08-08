@@ -447,6 +447,15 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   // credentials — remote server's credential state
   RPC_CHANNELS.credentials.HEALTH_CHECK,
 
+  // identity — profile + service connections (Identity Center, S-07)
+  RPC_CHANNELS.identity.GET_STATE,
+  RPC_CHANNELS.identity.UPDATE_PROFILE,
+  RPC_CHANNELS.identity.CONNECT,
+  RPC_CHANNELS.identity.DISCONNECT,
+  RPC_CHANNELS.identity.REFRESH_STATUS,
+  RPC_CHANNELS.identity.CHANGED,
+
+
   // llmConnections — LLM config lives on server running workspace
   RPC_CHANNELS.llmConnections.LIST,
   RPC_CHANNELS.llmConnections.LIST_WITH_STATUS,

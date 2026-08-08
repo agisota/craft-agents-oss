@@ -57,6 +57,7 @@ export interface BroadcastEventMap {
   [RPC_CHANNELS.notes.CHANGED]: [payload: NoteChangedPayload]
   [RPC_CHANNELS.knowledge.CHANGED]: [payload: KnowledgeChangedPayload]
   [RPC_CHANNELS.llmConnections.CHANGED]: []
+  [RPC_CHANNELS.identity.CHANGED]: []
   [RPC_CHANNELS.permissions.DEFAULTS_CHANGED]: [value: null]
 
   // Theme broadcasts (global)

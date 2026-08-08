@@ -3,6 +3,7 @@ import { join } from 'path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
+import { getIdentityStore, resetIdentityStoreCache } from '@craft-agent/core/platform'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import { requestClientConfirmDialog } from '@craft-agent/server-core/transport'
@@ -64,7 +65,7 @@ export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void
     return result.response === 1
   })
 
-  // Logout - clear all credentials and config
+  // Logout - clear all credentials, identity, and config
   server.handle(RPC_CHANNELS.auth.LOGOUT, async () => {
     try {
       const manager = getCredentialManager()
@@ -75,13 +76,22 @@ export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void
         await manager.delete(credId)
       }
 
+      // Clear Identity Center state (connections/entitlements + local profile shell)
+      try {
+        const identityDir = process.env.CRAFT_CONFIG_DIR || CONFIG_DIR
+        getIdentityStore(identityDir).clear()
+        resetIdentityStoreCache()
+      } catch (identityError) {
+        deps.platform.logger.warn('Logout: failed to clear identity store', identityError)
+      }
+
       // Delete the config file
       const configPath = join(CONFIG_DIR, 'config.json')
       await unlink(configPath).catch(() => {
         // Ignore if file doesn't exist
       })
 
-      deps.platform.logger.info('Logout complete - cleared all credentials and config')
+      deps.platform.logger.info('Logout complete - cleared credentials, identity, and config')
     } catch (error) {
       deps.platform.logger.error('Logout error:', error)
       throw error

@@ -27,8 +27,7 @@ import { SquarePenRounded } from "../icons/SquarePenRounded"
 import { useEffect, useRef, useState } from "react"
 import { BrowserTabStrip } from "../browser/BrowserTabStrip"
 import type { Workspace } from "../../../shared/types"
-import { WorkspaceSwitcher } from "./WorkspaceSwitcher"
-import { CompactWorkspaceSwitcher } from "./CompactWorkspaceSwitcher"
+import { AccountMenu } from "./AccountMenu"
 import { getDocUrl } from "@craft-agent/shared/docs/doc-links"
 import { AppMenu } from "../AppMenu"
 import type { ReactNode } from "react"
@@ -222,26 +221,15 @@ export function TopBar({
 
           {showWorkspaceSelector && (
             <div className="min-w-0 flex-1">
-              {isCompact ? (
-                <CompactWorkspaceSwitcher
-                  workspaces={workspaces}
-                  activeWorkspaceId={activeWorkspaceId}
-                  onSelect={onSelectWorkspace}
-                  onWorkspaceCreated={onWorkspaceCreated}
-                  onWorkspaceRemoved={onWorkspaceRemoved}
-                  workspaceUnreadMap={workspaceUnreadMap}
-                />
-              ) : (
-                <WorkspaceSwitcher
-                  variant="topbar"
-                  workspaces={workspaces}
-                  activeWorkspaceId={activeWorkspaceId}
-                  onSelect={onSelectWorkspace}
-                  onWorkspaceCreated={onWorkspaceCreated}
-                  onWorkspaceRemoved={onWorkspaceRemoved}
-                  workspaceUnreadMap={workspaceUnreadMap}
-                />
-              )}
+              <AccountMenu
+                compact={!!isCompact}
+                workspaces={workspaces}
+                activeWorkspaceId={activeWorkspaceId}
+                onSelectWorkspace={onSelectWorkspace}
+                onWorkspaceCreated={onWorkspaceCreated}
+                onWorkspaceRemoved={onWorkspaceRemoved}
+                workspaceUnreadMap={workspaceUnreadMap}
+              />
             </div>
           )}
         </div>

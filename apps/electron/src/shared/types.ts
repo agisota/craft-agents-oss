@@ -101,6 +101,15 @@ export interface SshBootstrapProgress {
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
 
+// Identity Center (S-07)
+import type {
+  IdentityState,
+  UpdateProfileInput,
+  ServiceProvider,
+  ServiceConnection,
+} from '@craft-agent/core/platform';
+export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
+
 // Source types for session source selection
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
@@ -767,6 +776,20 @@ export interface ElectronAPI {
 
   // Credential health check (startup validation)
   getCredentialHealth(): Promise<CredentialHealthStatus>
+
+  // Identity Center (S-07)
+  identityGetState(args?: { workspaceId?: string }): Promise<IdentityState>
+  identityUpdateProfile(input: UpdateProfileInput): Promise<IdentityState>
+  identityConnect(args: {
+    provider: ServiceProvider
+    workspaceId: string
+    accountLabel?: string
+    credentialValue?: string
+    connectionId?: string
+  }): Promise<IdentityState>
+  identityDisconnect(args: { connectionId: string }): Promise<IdentityState>
+  identityRefreshStatus(args?: { workspaceId?: string }): Promise<IdentityState>
+  onIdentityChanged(callback: () => void): () => void
 
   // Onboarding
   getAuthState(): Promise<AuthState>

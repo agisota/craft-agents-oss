@@ -168,6 +168,14 @@ export const CHANNEL_MAP = {
   logout: invoke(RPC_CHANNELS.auth.LOGOUT),
   getCredentialHealth: invoke(RPC_CHANNELS.credentials.HEALTH_CHECK),
 
+  // Identity Center (S-07)
+  identityGetState: invoke(RPC_CHANNELS.identity.GET_STATE),
+  identityUpdateProfile: invoke(RPC_CHANNELS.identity.UPDATE_PROFILE),
+  identityConnect: invoke(RPC_CHANNELS.identity.CONNECT),
+  identityDisconnect: invoke(RPC_CHANNELS.identity.DISCONNECT),
+  identityRefreshStatus: invoke(RPC_CHANNELS.identity.REFRESH_STATUS),
+  onIdentityChanged: listener(RPC_CHANNELS.identity.CHANGED),
+
   // Onboarding
   getAuthState: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE),
   getSetupNeeds: invoke(RPC_CHANNELS.onboarding.GET_AUTH_STATE, r => r.setupNeeds),
