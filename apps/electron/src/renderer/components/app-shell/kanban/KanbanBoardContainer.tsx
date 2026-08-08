@@ -963,7 +963,7 @@ export function KanbanBoardContainer() {
           onUpdateColumn={handleUpdateColumn}
           onRemoveColumn={handleRemoveColumn}
           onAddColumn={handleAddColumn}
-          groupByProject={groupBy === 'project'}
+          groupByProject={groupBy === 'project' || collectionDisplay.groupBy === 'project'}
           collapsedGroupKeys={collapsedGroupKeys}
           onToggleProjectGroup={handleToggleProjectGroup}
           noProjectLabel={t('kanban.noProject')}
