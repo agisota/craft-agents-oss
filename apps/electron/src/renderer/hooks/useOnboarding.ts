@@ -570,7 +570,7 @@ export function useOnboarding({
     setRoxConnectError(undefined)
     try {
       const result = await window.electronAPI.startRoxConnect()
-      if (!result?.success) {
+      if (!result?.success || !result.userCode || !result.verificationUri || !result.verificationUriComplete) {
         setRoxConnectStatus('error')
         setRoxConnectError(result?.error || 'Failed to start Rox Connect')
         return
