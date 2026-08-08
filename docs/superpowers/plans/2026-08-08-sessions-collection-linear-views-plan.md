@@ -13,8 +13,9 @@
 | Slice | Status | Evidence |
 |-------|--------|----------|
 | **B0** | **Done** | `9f8ff55ce` routes · `91406d8c1` toggle+i18n · `f3a2c709c` SessionTableHost |
-| **B1** | **Done** | `c8c28c118` DTO · `43775fb6f` lexorank · `2e297c7d3` SessionManager+RPC · test harness stabilize |
-| **B2** | Todo | CollectionDisplay + Filters + OpsBar (list first) |
+| **B1** | **Done** | `c8c28c118` DTO · `43775fb6f` lexorank · `2e297c7d3` SessionManager+RPC · test harness |
+| **B0/B1 audit** | **Done** | `08c795229` table navigator collapse + rank max length + auto-select skip |
+| **B2** | **Done** | `8e96ece13` display RPC, pure query, OpsBar/Display popover, i18n |
 | **B3** | Todo | Full SessionTable UI |
 | **B4** | Todo | Multi-select bulk RPC+UI |
 | **B5** | Todo | LexoRank drag |
