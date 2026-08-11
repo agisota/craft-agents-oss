@@ -70,6 +70,21 @@ describe('channel routing behavior', () => {
   })
 })
 
+describe('Rox Cloud onboarding routing', () => {
+  const ROX_CLOUD_CHANNELS = [
+    RPC_CHANNELS.onboarding.START_ROX_CONNECT,
+    RPC_CHANNELS.onboarding.GET_ROX_CLOUD_STATE,
+    RPC_CHANNELS.onboarding.CLEAR_ROX_CLOUD,
+  ]
+
+  test('keeps desktop-wide credential flows local', () => {
+    for (const channel of ROX_CLOUD_CHANNELS) {
+      expect(LOCAL_ONLY_CHANNELS.has(channel)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(channel)).toBe(false)
+    }
+  })
+})
+
 describe('knowledge channel routing (P1+P3+P4+P5)', () => {
   const REMOTE_READ_CHANNELS = [
     RPC_CHANNELS.knowledge.LIST_CONNECTIONS,

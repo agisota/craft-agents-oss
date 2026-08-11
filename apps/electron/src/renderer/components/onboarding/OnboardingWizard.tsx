@@ -145,6 +145,18 @@ export function OnboardingWizard({
           />
         )
 
+      case 'rox-connect':
+        return (
+          <RoxConnectStep
+            codes={roxConnectCodes ?? null}
+            status={roxConnectStatus}
+            errorMessage={roxConnectError}
+            onStart={onStartRoxConnect!}
+            onOpenBrowser={onOpenRoxConnectBrowser!}
+            authBaseUrl={roxAuthBaseUrl}
+          />
+        )
+
       case 'git-bash':
         return (
           <GitBashWarning
