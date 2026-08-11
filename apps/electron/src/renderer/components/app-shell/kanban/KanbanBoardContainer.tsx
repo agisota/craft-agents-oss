@@ -10,7 +10,7 @@ import { useAppShellContext } from '@/context/AppShellContext'
 import { sessionMetaMapAtom, updateSessionMetaAtom, type SessionMeta } from '@/atoms/sessions'
 import { collectionDisplayAtom } from '@/atoms/collection-display'
 import { collectionFiltersAtom } from '@/atoms/collection-filters'
-import { filterSessionMeta, compareSessions } from '@craft-agent/shared/sessions'
+import { filterSessionMeta, compareSessions } from '@craft-agent/shared/sessions/collection'
 import { projectsAtom } from '@/atoms/projects'
 import {
   kanbanProjectFilterAtom,

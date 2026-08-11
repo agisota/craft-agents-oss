@@ -3,11 +3,42 @@
  */
 
 import type { SessionMeta } from '@/atoms/sessions'
-import type { CollectionOrderBy, CollectionOrderDir } from '@craft-agent/shared/sessions'
 
 export interface RankNeighbors {
   prevId?: string
   nextId?: string
+}
+
+export interface RankReorderRequest extends RankNeighbors {
+  sessionId: string
+}
+
+export function isStaleRankNeighborsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /RANK_NEIGHBORS_STALE/.test(message)
+}
+
+/**
+ * Runs one authoritative stale-neighbor recovery. The second command error is
+ * deliberately surfaced so callers can roll back their optimistic rank.
+ */
+export async function retryStaleRankReorder(
+  initial: RankReorderRequest,
+  command: (request: RankReorderRequest) => Promise<unknown>,
+  refresh: () => Promise<void>,
+  recompute: () => RankReorderRequest | null,
+): Promise<void> {
+  try {
+    await command(initial)
+    return
+  } catch (error) {
+    if (!isStaleRankNeighborsError(error)) throw error
+  }
+
+  await refresh()
+  const retry = recompute()
+  if (!retry) throw new Error('RANK_NEIGHBORS_UNAVAILABLE')
+  await command(retry)
 }
 
 /**
@@ -23,22 +54,3 @@ export function rankNeighborsForDrop(list: SessionMeta[], beforeIndex: number): 
   return { prevId: prev?.id, nextId: next?.id }
 }
 
-/**
- * Invoke reorderRank with a single stale-retry. Renderer handles refresh of the
- * meta map between attempts when required.
- */
-export async function reorderRankWithRetry(
-  sessionId: string,
-  prevId: string | undefined,
-  nextId: string | undefined,
-): Promise<void> {
-  try {
-    await window.electronAPI.sessionCommand(sessionId, { type: 'reorderRank', prevId, nextId })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!/RANK_NEIGHBORS_STALE/.test(msg)) throw e
-    // Single retry — server recomputes from current sessions map (it may already have
-    // refreshed through metadata events); worst case it throws again and UI reverts.
-    await window.electronAPI.sessionCommand(sessionId, { type: 'reorderRank', prevId, nextId })
-  }
-}

@@ -104,7 +104,7 @@ import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSourc
 import { sessionMetaMapAtom, sendToWorkspaceAtom, type SessionMeta } from "@/atoms/sessions"
 import { collectionDisplayAtom } from "@/atoms/collection-display"
 import { collectionFiltersAtom } from "@/atoms/collection-filters"
-import { compareSessions, DEFAULT_COLLECTION_FILTERS, filterSessionMeta } from "@craft-agent/shared/sessions"
+import { compareSessions, DEFAULT_COLLECTION_FILTERS, filterSessionMeta } from "@craft-agent/shared/sessions/collection"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
 import { panelStackAtom, panelCountAtom, focusedPanelIdAtom, focusedSessionIdAtom, focusNextPanelAtom, focusPrevPanelAtom, parseSessionIdFromRoute } from "@/atoms/panel-stack"

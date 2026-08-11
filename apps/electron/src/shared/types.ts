@@ -107,7 +107,7 @@ import type {
   UpdateProfileInput,
   ServiceProvider,
   ServiceConnection,
-} from '@craft-agent/core/platform';
+} from '@craft-agent/core/platform/identity/types';
 export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
 
 // Extension Center (S-05) + SiYuan plugin bridge / Extension Host (W6)

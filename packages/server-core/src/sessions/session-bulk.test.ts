@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { BulkUpdateSessionsPatch } from '@craft-agent/shared/protocol/dto'
+import { assertValidBulkLabelPatch, resolveBulkLabels } from './bulk-labels'
 
 /**
  * B4 bulk lifecycle tests cover server handler logic through a small simulation
@@ -30,17 +31,23 @@ function runBulk(
 ): { ok: string[]; failed: Array<{ id: string; error: string }> } {
   const ok: string[] = []
   const failed: Array<{ id: string; error: string }> = []
+  assertValidBulkLabelPatch(patch)
+
+  const resolved = new Map<string, FakeSession>()
+  for (const id of ids) {
+    const session = sessions.get(id)
+    if (!session) {
+      failed.push({ id, error: 'not_found' })
+    } else if (session.workspaceId !== workspaceId) {
+      failed.push({ id, error: 'foreign' })
+    } else {
+      resolved.set(id, session)
+    }
+  }
+  if (failed.length > 0) return { ok: [], failed }
 
   for (const id of ids) {
-    const s = sessions.get(id)
-    if (!s) {
-      failed.push({ id, error: 'not_found' })
-      continue
-    }
-    if (s.workspaceId !== workspaceId) {
-      failed.push({ id, error: 'foreign' })
-      continue
-    }
+    const s = resolved.get(id)!
     if (patch.isArchived === true && s.isProcessing) {
       failed.push({ id, error: 'busy' })
       continue
@@ -51,7 +58,8 @@ function runBulk(
     if (patch.priority !== undefined) s.priority = patch.priority
     if (patch.dueDate !== undefined) s.dueDate = patch.dueDate
     if (patch.projectId !== undefined) s.projectId = patch.projectId
-    if (patch.labels !== undefined) s.labels = patch.labels
+    const nextLabels = resolveBulkLabels(s.labels, patch)
+    if (nextLabels !== undefined) s.labels = nextLabels
     if (patch.kanbanColumn !== undefined) s.kanbanColumn = patch.kanbanColumn
     ok.push(id)
   }
@@ -89,6 +97,17 @@ describe('session bulk update (B4)', () => {
     expect(m.get('b')!.isArchived).toBe(true)
   })
 
+  it('rejects a mixed valid and missing request before mutating the valid target', () => {
+    const m = new Map<string, FakeSession>([
+      ['valid', { id: 'valid', workspaceId: 'w', isProcessing: false, sessionStatus: 'todo', isArchived: false, isFlagged: false, priority: 'none' }],
+    ])
+
+    const res = runBulk(m, ['valid', 'missing'], { priority: 'high' }, 'w')
+
+    expect(res).toEqual({ ok: [], failed: [{ id: 'missing', error: 'not_found' }] })
+    expect(m.get('valid')?.priority).toBe('none')
+  })
+
   it('foreign workspace id fails', () => {
     const m = new Map<string, FakeSession>([
       ['a', { id: 'a', workspaceId: 'other', isProcessing: false, sessionStatus: 'todo', isArchived: false, isFlagged: false, priority: 'none' }],
@@ -102,5 +121,27 @@ describe('session bulk update (B4)', () => {
     // The patch type does not allow rank; also the handler would throw bulk_rank_forbidden.
     const patch: BulkUpdateSessionsPatch = { priority: 'medium' }
     expect('rank' in patch).toBe(false)
+  })
+
+  it('adds and removes labels per session without replacing retained labels', () => {
+    const m = new Map<string, FakeSession>([
+      ['a', { id: 'a', workspaceId: 'w', isProcessing: false, sessionStatus: 'todo', isArchived: false, isFlagged: false, priority: 'none', labels: ['keep', 'remove'] }],
+      ['b', { id: 'b', workspaceId: 'w', isProcessing: false, sessionStatus: 'todo', isArchived: false, isFlagged: false, priority: 'none', labels: ['other'] }],
+    ])
+
+    const res = runBulk(m, ['a', 'b'], { addLabels: ['new'], removeLabels: ['remove'] }, 'w')
+
+    expect(res).toEqual({ ok: ['a', 'b'], failed: [] })
+    expect(m.get('a')?.labels).toEqual(['keep', 'new'])
+    expect(m.get('b')?.labels).toEqual(['other', 'new'])
+  })
+
+  it('rejects ambiguous replacement and delta label patches before mutation', () => {
+    const m = new Map<string, FakeSession>([
+      ['a', { id: 'a', workspaceId: 'w', isProcessing: false, sessionStatus: 'todo', isArchived: false, isFlagged: false, priority: 'none', labels: ['keep'] }],
+    ])
+
+    expect(() => runBulk(m, ['a'], { labels: [], addLabels: ['new'] }, 'w')).toThrow('bulk_labels_conflict')
+    expect(m.get('a')?.labels).toEqual(['keep'])
   })
 })

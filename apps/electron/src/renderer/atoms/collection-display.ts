@@ -8,10 +8,8 @@
  */
 
 import { atom } from 'jotai'
-import {
-  DEFAULT_COLLECTION_DISPLAY,
-  type CollectionDisplay,
-} from '@craft-agent/shared/sessions'
+import { DEFAULT_COLLECTION_DISPLAY,
+type CollectionDisplay, } from '@craft-agent/shared/sessions/collection'
 import { windowWorkspaceIdAtom } from './sessions'
 
 function cloneDisplay(display: CollectionDisplay = DEFAULT_COLLECTION_DISPLAY): CollectionDisplay {

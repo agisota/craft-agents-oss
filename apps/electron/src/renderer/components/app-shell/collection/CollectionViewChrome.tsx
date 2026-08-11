@@ -1,9 +1,7 @@
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import {
-  type CollectionDisplay,
-  type SessionPriority,
-} from '@craft-agent/shared/sessions'
+import { type CollectionDisplay,
+type SessionPriority, } from '@craft-agent/shared/sessions/collection'
 import type { SessionStatus } from '@/config/session-status-config'
 import {
   collectionDisplayAtom,

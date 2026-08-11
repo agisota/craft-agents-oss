@@ -6,14 +6,16 @@ export interface SessionTableGroupHeaderProps {
   bucket: { key: string; label: string; count: number }
   collapsed: boolean
   onToggle: () => void
+  style?: React.CSSProperties
 }
 
-export function SessionTableGroupHeader({ bucket, collapsed, onToggle }: SessionTableGroupHeaderProps) {
+export function SessionTableGroupHeader({ bucket, collapsed, onToggle, style }: SessionTableGroupHeaderProps) {
   return (
     <li
       className={cn(
-        'sticky top-[29px] z-[5] flex items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-1.5 text-xs font-semibold text-foreground/80 backdrop-blur',
+        'sticky top-[29px] z-[5] flex min-h-8 items-center gap-2 border-b border-border/40 bg-background/95 px-3 py-1.5 text-xs font-semibold text-foreground/80 backdrop-blur',
       )}
+      style={style}
     >
       <button
         type="button"

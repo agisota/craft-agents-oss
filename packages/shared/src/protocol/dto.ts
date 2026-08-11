@@ -470,7 +470,12 @@ export interface BulkUpdateSessionsPatch {
   /** null clears dueDate. */
   dueDate?: number | null
   projectId?: string | null
+  /** Replaces every target's labels. Cannot be combined with label delta operations. */
   labels?: string[]
+  /** Adds labels without removing target-specific labels. */
+  addLabels?: string[]
+  /** Removes labels without removing other target-specific labels. */
+  removeLabels?: string[]
   isFlagged?: boolean
   isArchived?: boolean
   kanbanColumn?: string | null

@@ -1,11 +1,12 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { Flag as FlagIcon, GripVertical } from 'lucide-react'
-import type { SessionPriority } from '@craft-agent/shared/sessions'
+import type { SessionPriority } from '@craft-agent/shared/sessions/collection'
 import type { SessionMeta } from '@/atoms/sessions'
 import type { SessionStatusConfig } from '@/config/session-status-config'
 import { getSessionTitle } from '@/utils/session'
 import { cn } from '@/lib/utils'
+import { isDueOverdue } from './table-due'
 
 export interface SessionTableRowProps {
   meta: SessionMeta
@@ -30,6 +31,7 @@ export interface SessionTableRowProps {
   onDragStartRow?: (sessionId: string) => void
   onDragOverRow?: (sessionId: string, event: React.DragEvent) => void
   dropIndicator?: 'before' | 'after' | null
+  style?: React.CSSProperties
 }
 
 const PRIORITY_ORDER: SessionPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
@@ -51,15 +53,16 @@ function formatDate(ts: number | null | undefined): string {
   return new Date(ts).toLocaleDateString()
 }
 
-function formatDue(dueDate: number | null | undefined): { text: string; overdue: boolean } {
+
+function formatDue(
+  dueDate: number | null | undefined,
+  sessionStatus: string | null | undefined,
+): { text: string; overdue: boolean } {
   if (dueDate == null || !Number.isFinite(dueDate)) return { text: '—', overdue: false }
   const d = new Date(dueDate)
-  const today = new Date()
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-  const overdue = dueDate < start
   return {
     text: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-    overdue,
+    overdue: isDueOverdue(dueDate, sessionStatus),
   }
 }
 
@@ -85,10 +88,11 @@ export function SessionTableRow({
   onDragStartRow,
   onDragOverRow,
   dropIndicator,
+  style,
 }: SessionTableRowProps) {
   const { t } = useTranslation()
   const title = getSessionTitle(meta as never) || meta.id.slice(0, 8)
-  const due = formatDue(meta.dueDate)
+  const due = formatDue(meta.dueDate, meta.sessionStatus)
   const priority = meta.priority ?? 'none'
   const sessionStatus: string = meta.sessionStatus ?? 'todo'
 
@@ -118,11 +122,12 @@ export function SessionTableRow({
   return (
     <li
       className={cn(
-        'group flex items-center gap-2 border-b border-border/30 px-3 py-1.5 text-sm hover:bg-foreground/[0.02]',
+        'group flex min-h-10 items-center gap-2 border-b border-border/30 px-3 py-1.5 text-sm hover:bg-foreground/[0.02]',
         selected && 'bg-foreground/[0.05]',
         dropIndicator === 'before' && 'border-t-2 border-t-foreground/40',
         dropIndicator === 'after' && 'border-b-2 border-b-foreground/40',
       )}
+      style={style}
       aria-selected={selected}
       draggable={showGrip}
       onDragStart={() => onDragStartRow?.(meta.id)}
