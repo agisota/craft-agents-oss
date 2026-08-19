@@ -31,10 +31,12 @@ import {
   inspectorVisibleAtom,
   type InspectorSectionId,
 } from '@/atoms/unified-shell'
-import { useNavigationState } from '@/contexts/NavigationContext'
+import { selectedConnectionAtom } from '@/atoms/connections'
+import { isConnectionsNavigation, useNavigationState } from '@/contexts/NavigationContext'
 import { cn } from '@/lib/utils'
 import { getSessionTitle } from '@/utils/session'
 import { RADIUS_INNER } from '@/components/app-shell/panel-constants'
+import { projectConnectionInspector } from './connection-inspector-model'
 import {
   INSPECTOR_LIVE_SECTIONS,
   INSPECTOR_SECTION_IDS,
@@ -70,12 +72,43 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
   )
 }
 
+function ConnectionInfoSection() {
+  const { t } = useTranslation()
+  const selected = useAtomValue(selectedConnectionAtom)
+  if (!selected) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+        <Info className="h-6 w-6 text-muted-foreground/40" />
+        <span className="text-[13px] font-medium text-foreground/80">
+          {t('inspector.empty.connections.title')}
+        </span>
+        <span className="text-[12px] leading-relaxed text-muted-foreground/60">
+          {t('inspector.empty.connections.body')}
+        </span>
+      </div>
+    )
+  }
+  const fields = projectConnectionInspector(selected)
+  return (
+    <div className="flex min-h-0 flex-1 flex-col divide-y divide-foreground/5 overflow-y-auto">
+      <InfoRow label={t('inspector.field.provider')} value={fields.provider} />
+      <InfoRow label={t('inspector.field.storageMode')} value={fields.storageMode} mono />
+      <InfoRow label={t('inspector.field.credentialRef')} value={fields.credentialRef} mono />
+      <InfoRow label={t('inspector.field.scopes')} value={fields.scopes} mono />
+    </div>
+  )
+}
+
 function InfoSection() {
   const { t } = useTranslation()
   const route = useAtomValue(focusedPanelRouteAtom)
   const panelId = useAtomValue(focusedPanelIdAtom)
   const navState = useNavigationState()
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+
+  if (isConnectionsNavigation(navState)) {
+    return <ConnectionInfoSection />
+  }
 
   const sessionId = route ? parseSessionIdFromRoute(route) : null
   const panelType = route ? getPanelTypeFromRoute(route) : null
