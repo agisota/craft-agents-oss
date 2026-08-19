@@ -941,3 +941,5 @@ class WorkGraphIntegrityError extends Error {}
 
 export { revokeConnectionAndRevalidate } from './revalidation.ts'
 export type { RevokeConnectionInput, RevalidatedConsumer } from './revalidation.ts'
+export { isGithubEnvCandidate, performGithubUser, runGithubVertical } from './github-vertical.ts'
+export type { GithubFetch, GithubVerticalInput, GithubVerticalResult } from './github-vertical.ts'

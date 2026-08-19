@@ -2,7 +2,7 @@
 
 **Author:** Craft Agents session (ROX Connection Fabric)
 **Date:** 2026-08-13
-**Status:** Partial — CF-6.2 route + native page landed; live list and inspector host stay out
+**Status:** Partial — CF-6.3 live metadata list + ElectronAPI map landed; inspector host and GitHub stay out
 **Reviewers:** Product owner — continue after CF-5
 **Related specs:** `07-native-ui-ux.md`, `10-pr-dag-and-acceptance.md` (CF-6 row)
 

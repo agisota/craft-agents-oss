@@ -15,4 +15,10 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page.toLowerCase()).not.toContain('infisical')
     expect(page).not.toMatch(/\bvalue\b|\bpayload\b|\bsecret\b|\brefreshToken\b/)
   })
+
+  it('loads the workgraph connection list for the active workspace', () => {
+    expect(page).toContain('listConnections')
+    expect(page).toContain('sanitizeConnectionRows')
+  })
 })
+

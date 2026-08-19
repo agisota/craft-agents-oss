@@ -34,6 +34,7 @@ export {
   isStorageMode,
 } from './credential-types.ts';
 export { attachCredentialRef } from './attach-credential-ref.ts';
+export type { AttachCredentialRefInput } from './attach-credential-ref.ts';
 
 export {
   IdentityStore,
