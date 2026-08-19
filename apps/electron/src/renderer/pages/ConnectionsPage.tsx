@@ -20,10 +20,10 @@ export default function ConnectionsPage() {
   const [tab, setTab] = useState<ConnectionsTab>('services')
   const [selected, setSelected] = useAtom(selectedConnectionAtom)
   const [rows, setRows] = useState<ConnectionListRow[] | null>(null)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [envPath, setEnvPath] = useState('')
   const [gitConfigPath, setGitConfigPath] = useState('')
   const [previews, setPreviews] = useState<PreviewRow[]>([])
-  const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   useEffect(() => {
     const workspaceId = workspace?.id
@@ -43,6 +43,7 @@ export default function ConnectionsPage() {
     return () => {
       stale = true
       setSelected(null)
+      setConfirmingId(null)
     }
   }, [workspace?.id, setSelected])
 
@@ -52,10 +53,43 @@ export default function ConnectionsPage() {
     setRows(sanitizeConnectionRows(await listConnections(workspaceId)))
   }
 
-  const list = rows ?? []
-  const services = tab === 'services' ? list : []
-  const credentials = tab === 'credentials' ? list : []
-  const policies = tab === 'policies' ? list : []
+  const listed = rows ?? []
+  const services = tab === 'services' ? listed : []
+  const credentialRows = tab === 'credentials' ? listed : []
+  const policyRows = tab === 'policies' ? listed : []
+
+  const confirmRevoke = async (connectionId: string) => {
+    const workspaceId = workspace?.id
+    const revokeConnection = window.electronAPI?.workgraph?.revokeConnection
+    if (!workspaceId || typeof revokeConnection !== 'function') return
+    await revokeConnection({ workspaceId, connectionId })
+    if (selected?.id === connectionId) setSelected(null)
+    setConfirmingId(null)
+    await refreshRows(workspaceId)
+  }
+
+  const renderRevokeControls = (row: ConnectionListRow) => (
+    confirmingId === row.id ? (
+      <div className="flex gap-1">
+        <button type="button" className="rounded border px-2 py-1" onClick={() => confirmRevoke(row.id)}>
+          {t('connections.revokeConfirm')}
+        </button>
+        <button type="button" className="rounded border px-2 py-1" onClick={() => setConfirmingId(null)}>
+          {t('connections.revokeCancel')}
+        </button>
+      </div>
+    ) : (
+      <button type="button" className="rounded border px-2 py-1" onClick={() => setConfirmingId(row.id)}>
+        {t('connections.revoke')}
+      </button>
+    )
+  )
+
+  const empty = (
+    <div className="flex flex-1 items-center justify-center">
+      <p className="text-sm">{t('connections.empty')}</p>
+    </div>
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="connections-page">
@@ -176,55 +210,23 @@ export default function ConnectionsPage() {
                   <div className="text-muted-foreground">{row.storageMode}</div>
                   <div className="font-mono text-xs">{row.credentialRefId}</div>
                 </button>
-                {confirmingId === row.id ? (
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      type="button"
-                      className="rounded border px-2 py-1"
-                      onClick={async () => {
-                        const workspaceId = workspace?.id
-                        const revokeConnection = window.electronAPI?.workgraph?.revokeConnection
-                        if (!workspaceId || typeof revokeConnection !== 'function') return
-                        await revokeConnection({ workspaceId, connectionId: row.id })
-                        setConfirmingId(null)
-                        if (selected?.id === row.id) setSelected(null)
-                        await refreshRows(workspaceId)
-                      }}
-                    >
-                      {t('connections.revokeConfirm')}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border px-2 py-1"
-                      onClick={() => setConfirmingId(null)}
-                    >
-                      {t('connections.revokeCancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="shrink-0 rounded border px-2 py-1"
-                    onClick={() => setConfirmingId(row.id)}
-                  >
-                    {t('connections.revoke')}
-                  </button>
-                )}
+                {renderRevokeControls(row)}
               </li>
             ))}
           </ul>
-        ) : tab === 'credentials' && credentials.length > 0 ? (
+        ) : tab === 'credentials' && credentialRows.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">
-            {credentials.map((row) => (
+            {credentialRows.map((row) => (
               <li key={row.id} className="rounded border px-3 py-2">
+                <div className="font-medium">{row.integrationId}</div>
                 <div className="font-mono text-xs">{row.credentialRefId}</div>
                 <div className="text-muted-foreground">{row.storageMode}</div>
               </li>
             ))}
           </ul>
-        ) : tab === 'policies' && policies.length > 0 ? (
+        ) : tab === 'policies' && policyRows.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">
-            {policies.map((row) => (
+            {policyRows.map((row) => (
               <li key={row.id} className="rounded border px-3 py-2">
                 <div className="font-medium">{row.integrationId}</div>
                 <div className="font-mono text-xs">{row.scopes.join(', ') || '—'}</div>
@@ -232,9 +234,7 @@ export default function ConnectionsPage() {
             ))}
           </ul>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm">{t('connections.empty')}</p>
-          </div>
+          empty
         )}
       </div>
     </div>

@@ -541,6 +541,8 @@
   "connections.import.envPath": "Path to .env",
   "connections.import.gitConfigPath": "Path to git config",
   "connections.revoke": "Revoke",
+  "connections.revokeCancel": "Cancel",
+  "connections.revokeConfirm": "Confirm revoke",
   "connections.tab.audit": "Audit",
   "connections.tab.credentials": "Credentials",
   "connections.tab.imports": "Imports",

@@ -541,6 +541,8 @@
   "connections.import.envPath": "Путь к .env",
   "connections.import.gitConfigPath": "Путь к git config",
   "connections.revoke": "Отозвать",
+  "connections.revokeCancel": "Отмена",
+  "connections.revokeConfirm": "Подтвердить отзыв",
   "connections.tab.audit": "Аудит",
   "connections.tab.credentials": "Учётные данные",
   "connections.tab.imports": "Импорт",

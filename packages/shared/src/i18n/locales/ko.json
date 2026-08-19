@@ -541,6 +541,8 @@
   "connections.import.envPath": ".env 경로",
   "connections.import.gitConfigPath": "git config 경로",
   "connections.revoke": "취소",
+  "connections.revokeCancel": "취소",
+  "connections.revokeConfirm": "취소 확인",
   "connections.tab.audit": "감사",
   "connections.tab.credentials": "자격 증명",
   "connections.tab.imports": "가져오기",

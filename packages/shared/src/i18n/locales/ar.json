@@ -541,6 +541,8 @@
   "connections.import.envPath": "مسار ملف .env",
   "connections.import.gitConfigPath": "مسار git config",
   "connections.revoke": "إلغاء",
+  "connections.revokeCancel": "إلغاء",
+  "connections.revokeConfirm": "تأكيد الإلغاء",
   "connections.tab.audit": "التدقيق",
   "connections.tab.credentials": "بيانات الاعتماد",
   "connections.tab.imports": "الاستيراد",

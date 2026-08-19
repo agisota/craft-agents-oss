@@ -541,6 +541,8 @@
   "connections.import.envPath": ".env のパス",
   "connections.import.gitConfigPath": "git config のパス",
   "connections.revoke": "取り消し",
+  "connections.revokeCancel": "キャンセル",
+  "connections.revokeConfirm": "取り消しを確認",
   "connections.tab.audit": "監査",
   "connections.tab.credentials": "認証情報",
   "connections.tab.imports": "インポート",

@@ -541,6 +541,8 @@
   "connections.import.envPath": ".env 路径",
   "connections.import.gitConfigPath": "git config 路径",
   "connections.revoke": "撤销",
+  "connections.revokeCancel": "取消",
+  "connections.revokeConfirm": "确认撤销",
   "connections.tab.audit": "审计",
   "connections.tab.credentials": "凭证",
   "connections.tab.imports": "导入",
