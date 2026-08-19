@@ -25,6 +25,7 @@
 - [x] CF-6.1 connection RPC + wave-gated nav
 - [x] CF-6.2 ConnectionsPage on the connections navigator
 - [x] CF-6.3 live metadata list via workgraph.listConnections
+- [x] CF-7.1 GitHub vertical (injected fetch, no live network)
 - [x] CF-5 WorkGraph connections + v1→v2 upgrade
 - [x] CF-5.2 revokeConnectionAndRevalidate
 

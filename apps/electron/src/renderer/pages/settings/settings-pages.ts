@@ -31,6 +31,7 @@ import OrganizationsSettingsPage from './OrganizationsSettingsPage'
 import MessagingSettingsPage from './MessagingSettingsPage'
 import ServerSettingsPage from './ServerSettingsPage'
 import CloudRunsSettingsPage from './CloudRunsSettingsPage'
+import SecuritySettingsPage from './SecuritySettingsPage'
 import ShortcutsPage from './ShortcutsPage'
 
 
@@ -55,6 +56,7 @@ export const SETTINGS_PAGE_COMPONENTS: Record<SettingsSubpage, ComponentType> = 
   organizations: OrganizationsSettingsPage,
   messaging: MessagingSettingsPage,
   server: ServerSettingsPage,
+  security: SecuritySettingsPage,
   cloudRuns: CloudRunsSettingsPage,
   shortcuts: ShortcutsPage,
 }

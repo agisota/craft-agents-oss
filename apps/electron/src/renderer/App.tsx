@@ -11,6 +11,7 @@ import { generateMessageId } from '../shared/types'
 import { useEventProcessor } from './event-processor'
 import type { AgentEvent, Effect } from './event-processor'
 import { AppShell } from '@/components/app-shell/AppShell'
+import { collectionBulkOperationRegistry } from '@/components/app-shell/collection/collection-bulk-optimistic'
 import { WorkspaceIconRail } from '@/components/app-shell/WorkspaceIconRail'
 import { getTopBarLeftInset, shouldShowWorkspaceIconRail, WORKSPACE_SELECTOR_RAIL_CHANGED_EVENT } from '@/components/app-shell/workspace-rail'
 import type { AppShellContextType } from '@/context/AppShellContext'
@@ -1152,6 +1153,10 @@ export default function App() {
   useEffect(() => {
     const cleanup = window.electronAPI.onSessionsBulkChanged((event) => {
       if (event.workspaceId !== windowWorkspaceId) return
+      // The originating call performs an authoritative read after its result.
+      // Ignore its earlier coalesced push so it cannot clobber a newer local
+      // optimistic operation on an overlapping session.
+      if (collectionBulkOperationRegistry.hasCurrentTargets()) return
       void refreshSessionListMetadataFromServer({
         removeMissing: false,
         reason: 'bulk-changed',

@@ -33,6 +33,7 @@ Owner selected **A+B+C end-to-end**. Hard stops still apply. This session delive
 - [x] CF-6.1 list/get/create RPC + wave-gated nav
 - [x] CF-6.2 connections route + ConnectionsPage + MainContentPanel
 - [x] CF-6.3 workgraph ElectronAPI + live metadata list
+- [x] CF-7.1 GitHub env import → brokered /user → revoke
 - [x] CF-5 schema v2 + metadata Connection/bindings
 - [x] CF-5.2 revoke → closure → revalidate (no RPC/UI)
 
