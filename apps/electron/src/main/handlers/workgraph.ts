@@ -1,6 +1,10 @@
 import { CredentialRefRegistry } from '@craft-agent/core/platform'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import { LocalFileSecretProvider, SecureStorageBackend } from '@craft-agent/shared/credentials'
+import {
+  InProcessCredentialBroker,
+  LocalFileSecretProvider,
+  SecureStorageBackend,
+} from '@craft-agent/shared/credentials'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import {
   commitGithubEnvImport,
@@ -21,13 +25,17 @@ export const HANDLED_CHANNELS = [
 
 export interface GithubEnvImportHost {
   readonly provider: LocalFileSecretProvider
+  readonly broker: InProcessCredentialBroker
   readonly preview: typeof previewGithubEnvImport
   readonly commit: typeof commitGithubEnvImport
 }
 
 export function createGithubEnvImportHost(): GithubEnvImportHost {
+  const registry = new CredentialRefRegistry()
+  const provider = new LocalFileSecretProvider(new SecureStorageBackend(), registry)
   return {
-    provider: new LocalFileSecretProvider(new SecureStorageBackend(), new CredentialRefRegistry()),
+    provider,
+    broker: new InProcessCredentialBroker(provider, (id) => registry.get(id)),
     preview: previewGithubEnvImport,
     commit: commitGithubEnvImport,
   }
@@ -60,7 +68,7 @@ function assertConnectionMetadata(input: unknown): CreateConnectionInput {
  */
 export function registerWorkGraphHandlers(
   server: RpcServer,
-  workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection'>,
+  workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection' | 'bindConsumer'>,
   githubImport?: GithubEnvImportHost,
 ): void {
   server.handle(RPC_CHANNELS.workgraph.GET_HEALTH, () => workGraph.getHealth(), { access: 'localElectron' })
@@ -101,6 +109,7 @@ export function registerWorkGraphHandlers(
         candidateId: input.candidateId,
         provider: githubImport.provider,
         kernel: workGraph,
+        broker: githubImport.broker,
         workspaceId: input.workspaceId,
         requestedBy: 'owner',
       })

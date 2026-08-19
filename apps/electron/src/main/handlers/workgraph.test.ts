@@ -35,12 +35,13 @@ describe('WorkGraph handler profile', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection'> = {
+    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection' | 'bindConsumer'> = {
       async getHealth() { return health },
       async getVersion() { return { state: health.state, schemaVersion: 0 } },
       async listConnections() { return [created] },
       async getConnection() { return created },
       async createConnection() { return created },
+      async bindConsumer() { return { id: 'bind-1' } },
     }
 
     registerWorkGraphHandlers(server, workGraph)

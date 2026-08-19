@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { CredentialRefRegistry } from '@craft-agent/core/platform'
 import type { CredentialBackend } from '@craft-agent/shared/credentials'
 import type { CredentialId, StoredCredential } from '@craft-agent/shared/credentials'
-import { credentialIdToAccount, LocalFileSecretProvider } from '@craft-agent/shared/credentials'
+import {
+  credentialIdToAccount,
+  InProcessCredentialBroker,
+  LocalFileSecretProvider,
+} from '@craft-agent/shared/credentials'
 
 import { createWorkGraphKernel } from './index'
 import { commitGithubEnvImport, previewGithubEnvImport } from './github-import.ts'
@@ -70,6 +74,44 @@ describe('CF-7.2 GitHub env import', () => {
     expect(connection.integrationId).toBe('github')
     expect(connection.credentialRefId).toMatch(/^cred_/)
     expect(JSON.stringify(connection)).not.toContain('super-secret')
+    await kernel.close()
+  })
+
+  nativeIt('grants the importer so the broker can lease without exposing the token', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'craft-cf72-broker-'))
+    roots.push(root)
+    const envPath = join(root, '.env')
+    writeFileSync(envPath, 'GH_TOKEN=super-secret\n')
+    const registry = new CredentialRefRegistry()
+    const provider = new LocalFileSecretProvider(new MemoryBackend(), registry)
+    const broker = new InProcessCredentialBroker(provider, (id) => registry.get(id))
+    const kernel = createWorkGraphKernel({
+      configDir: root,
+      platform: { platform: 'darwin', arch: 'arm64' },
+    })
+    await kernel.getHealth()
+    const connection = await commitGithubEnvImport({
+      envPath,
+      candidateId: 'GH_TOKEN',
+      provider,
+      kernel,
+      broker,
+      workspaceId: 'workspace_a',
+      requestedBy: 'owner',
+    })
+    const lease = await broker.acquireLease({
+      credentialRef: connection.credentialRefId,
+      consumer: { kind: 'human', id: 'owner', workspaceId: 'workspace_a' },
+      purpose: 'github.user',
+      action: 'github.api',
+      resources: ['github:user'],
+      audience: 'local-broker',
+      ttl: 5_000,
+    })
+    expect(lease.status).toBe('active')
+    expect(lease).not.toHaveProperty('payload')
+    expect(lease).not.toHaveProperty('value')
+    expect(JSON.stringify(lease)).not.toContain('super-secret')
     await kernel.close()
   })
 })

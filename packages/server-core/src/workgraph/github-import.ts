@@ -1,4 +1,8 @@
-import { EnvFileImporter, type LocalFileSecretProvider } from '@craft-agent/shared/credentials'
+import {
+  EnvFileImporter,
+  type InProcessCredentialBroker,
+  type LocalFileSecretProvider,
+} from '@craft-agent/shared/credentials'
 
 import type { ConnectionRecord, WorkGraphKernel } from './index'
 import { isGithubEnvCandidate } from './github-vertical.ts'
@@ -32,9 +36,10 @@ export async function commitGithubEnvImport(input: {
   readonly envPath: string
   readonly candidateId: string
   readonly provider: LocalFileSecretProvider
-  readonly kernel: Pick<WorkGraphKernel, 'createConnection'>
+  readonly kernel: Pick<WorkGraphKernel, 'createConnection' | 'bindConsumer'>
   readonly workspaceId: string
   readonly requestedBy: string
+  readonly broker?: InProcessCredentialBroker
 }): Promise<ConnectionRecord> {
   if (!isGithubEnvCandidate(input.candidateId)) throw new Error('not_github_candidate')
   const importer = new EnvFileImporter(input.envPath, input.provider)
@@ -46,11 +51,28 @@ export async function commitGithubEnvImport(input: {
     workspaceId: input.workspaceId,
     requestedBy: input.requestedBy,
   })
-  return input.kernel.createConnection({
+  const connection = await input.kernel.createConnection({
     workspaceId: input.workspaceId,
     integrationId: 'github',
     credentialRefId: committed.credentialRefId,
     storageMode: 'copy',
     scopes: ['github:user'],
   })
+  if (!input.broker) return connection
+  await input.kernel.bindConsumer({
+    workspaceId: input.workspaceId,
+    connectionId: connection.id,
+    consumerId: input.requestedBy,
+    purpose: 'github.user',
+    allowedActions: ['github.api'],
+    resources: ['github:user'],
+  })
+  input.broker.grant({
+    workspaceId: input.workspaceId,
+    consumerId: input.requestedBy,
+    credentialRefId: committed.credentialRefId,
+    actions: ['github.api'],
+    resources: ['github:user'],
+  })
+  return connection
 }
