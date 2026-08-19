@@ -32,6 +32,11 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
 import type { ContextDocContent, ContextDocInfo } from '@craft-agent/shared/context-docs';
+import type {
+  AutomationGraphProjection,
+  SaveAutomationGraphPayload,
+  SavedAutomationGraph,
+} from '@craft-agent/shared/automations';
 export type { ContextDocContent, ContextDocInfo };
 import type { BundledSkillPackStatus } from '@craft-agent/shared/skills';
 export type { BundledSkillPackStatus };
@@ -65,6 +70,29 @@ export type {
   ToolDisplayMeta,
   AnnotationV1,
 };
+
+/**
+ * Client-side request authority for local workspace creation. Team creation
+ * requires a selected organization; personal creation must never carry one.
+ */
+export type WorkspaceCreationAuthority =
+  | { kind: 'team'; orgId: string }
+  | { kind?: 'personal'; orgId?: never };
+
+/** Lifecycle evidence returned only after a local workspace is durable and active. */
+export interface WorkspaceActivation {
+  workspaceId: string;
+  activeWorkspaceId: string;
+  session: {
+    id: string;
+    name?: string;
+    createdAt: number;
+    lastUsedAt: number;
+  };
+}
+
+/** Local creation includes activation; remote creation retains its legacy workspace response. */
+export type WorkspaceCreationResult = Workspace & { activation?: WorkspaceActivation };
 
 // Auth types for onboarding
 import type { AuthState, SetupNeeds } from '@craft-agent/shared/auth/types';
@@ -223,6 +251,21 @@ export type { KnowledgeViewConfig };
 // Toolchain manager types (first-run download manager, spec 2026-08-06)
 import type { ToolStatus as ToolchainToolStatus, ToolName as ToolchainToolName } from '@craft-agent/shared/toolchain/types';
 export type { ToolchainToolStatus, ToolchainToolName };
+
+// OpenClaw runtime and security audit data contracts. These are data-only,
+// remote-safe projections; native host controls live on window.openClawHostControl?.
+import type {
+  AcceptSecurityRiskRequest,
+  AuditMode,
+  OpenClawRuntimeStatus,
+  SecurityAuditSnapshot,
+} from '@craft-agent/shared/openclaw';
+export type {
+  AcceptSecurityRiskRequest,
+  AuditMode,
+  OpenClawRuntimeStatus,
+  SecurityAuditSnapshot,
+};
 
 // =============================================================================
 // GUI-only types (not used by server/handler code)
@@ -404,6 +447,17 @@ import type {
   ExtensionSurfaceState,
 } from '@craft-agent/shared/protocol'
 
+export interface WorkGraphConnectionRecord {
+  readonly id: string
+  readonly workspaceId: string
+  readonly integrationId: string
+  readonly credentialRefId: string
+  readonly storageMode: 'reference' | 'copy' | 'mirror' | 'managed' | 'ephemeral'
+  readonly scopes: readonly string[]
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
 export interface ElectronAPI {
   // Cloud Runs (PRD docs/cloud-runs-prd.md)
   getCloudRunsConfig(): Promise<{
@@ -576,13 +630,21 @@ export interface ElectronAPI {
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
-  createWorkspace(folderPath: string, name: string, remoteServer?: RemoteServerConfig): Promise<Workspace>
+  createWorkspace(
+    folderPath: string,
+    name: string,
+    remoteServer?: RemoteServerConfig,
+    authority?: WorkspaceCreationAuthority,
+  ): Promise<WorkspaceCreationResult>
   checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
   updateWorkspaceRemoteServer(workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }): Promise<{ success: boolean }>
 
   // Server-level workspace operations (for thin client / remote workspace discovery)
   getServerWorkspaces(): Promise<WorkspaceInfo[]>
-  createServerWorkspace(name: string): Promise<WorkspaceInfo>
+  createServerWorkspace(
+    name: string,
+    authority?: WorkspaceCreationAuthority,
+  ): Promise<WorkspaceInfo & { activation: WorkspaceActivation }>
 
   testRemoteConnection(url: string, token: string): Promise<{
     ok: boolean
@@ -663,6 +725,46 @@ export interface ElectronAPI {
   // P3 write-back mutation proposals — spec 05; P4 publication pipeline — spec 06).
   // Nested namespace via dotted CHANNEL_MAP keys + buildClientApi (browserPane pattern);
   // the WS-mode preload needs no per-domain wiring.
+  workgraph: {
+    listConnections(workspaceId: string): Promise<WorkGraphConnectionRecord[]>
+    getConnection(args: { workspaceId: string; connectionId: string }): Promise<WorkGraphConnectionRecord | null>
+    createConnection(input: {
+      workspaceId: string
+      integrationId: string
+      credentialRefId: string
+      storageMode: WorkGraphConnectionRecord['storageMode']
+      scopes?: readonly string[]
+    }): Promise<WorkGraphConnectionRecord>
+    previewGithubEnv(envPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importGithubEnv(input: {
+      envPath: string
+      candidateId: string
+      workspaceId: string
+    }): Promise<WorkGraphConnectionRecord>
+    previewGitHelper(configPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importGitHelper(input: {
+      configPath: string
+      candidateId: string
+      workspaceId: string
+    }): Promise<WorkGraphConnectionRecord>
+    revokeConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    repairConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    rotateConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    testConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ login: string }>
+  }
+
   knowledge: {
     listConnections(): Promise<KnowledgeConnection[]>
     capabilities(args: { workspaceId: string; connectionId: string }): Promise<KnowledgeCapabilities>
@@ -770,17 +872,19 @@ export interface ElectronAPI {
     /** P6: start polling watcher → AutomationSystem knowledge events. */
     watch(args: { connectionId: string; workspaceId: string; intervalMs?: number }): Promise<{ ok: true }>
     unwatch(args: { connectionId: string; workspaceId: string }): Promise<{ ok: true }>
-    /** P4.4: user-initiated Craft notes vault → SiYuan migration (does not delete vault). */
+    /** User-initiated local Craft Markdown import into the Notes store. */
     migrateNotes(args: {
       workspaceId: string
-      connectionId: string
-      notebookName?: string
+      sourceRoot: string
+      format?: 'craft-markdown'
     }): Promise<{
       migrated: number
       skipped: number
       failed: Array<{ noteId: string; error: string }>
       mapPath: string
-      notebookId: string
+      sourceRoot: string
+      destinationRoot: string
+      format: 'craft-markdown'
     }>
     /** LOCAL_ONLY routing: reflects the engine on the answering host. */
     engineStatus(args: { workspaceId?: string; connectionId?: string }): Promise<KnowledgeEngineStatus>
@@ -791,6 +895,22 @@ export interface ElectronAPI {
     /** LOCAL_ONLY: detect user-installed SiYuan + default port (never downloads). */
     detectEngine(): Promise<KnowledgeDetectEngineResult>
     onChanged(callback: (payload: KnowledgeChangedPayload) => void): () => void
+  }
+
+  // OpenClaw safe data APIs. Dotted CHANNEL_MAP keys expose these names in both
+  // local Electron and remote WebUI; native host controls are deliberately absent.
+  openclawRuntime: {
+    getStatus(args: { workspaceId: string }): Promise<OpenClawRuntimeStatus>
+    install(args: { workspaceId: string }): Promise<OpenClawRuntimeStatus>
+    provision(args: { workspaceId: string }): Promise<OpenClawRuntimeStatus>
+    start(args: { workspaceId: string }): Promise<OpenClawRuntimeStatus>
+    stop(args: { workspaceId: string }): Promise<OpenClawRuntimeStatus>
+  }
+  securityAudit: {
+    run(args: { workspaceId: string; mode: AuditMode }): Promise<SecurityAuditSnapshot>
+    getLatest(args: { workspaceId: string }): Promise<SecurityAuditSnapshot | null>
+    acceptRisk(args: AcceptSecurityRiskRequest): Promise<void>
+    revokeRiskAcceptance(args: { workspaceId: string; fingerprint: string }): Promise<void>
   }
   // Debug: send renderer logs to main process log file
   debugLog(...args: unknown[]): void
@@ -1285,7 +1405,6 @@ export interface ElectronAPI {
   listOrganizationMembers(orgId: string): Promise<import('@craft-agent/shared/orgs').OrgMember[]>
   getOrgIdentity(): Promise<{ userId: string; username?: string; email?: string; name?: string }>
   updateOrgIdentity(updates: { username?: string; email?: string; name?: string }): Promise<{ userId: string; username?: string; email?: string; name?: string }>
-  setWorkspaceOrganization(workspaceId: string, orgId: string | null): Promise<Workspace>
 
   // LLM connections change listener
   onLlmConnectionsChanged(callback: () => void): () => void
@@ -1490,6 +1609,8 @@ export interface ElectronAPI {
 
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
+  getAutomationGraph(workspaceId: string): Promise<AutomationGraphProjection>
+  saveAutomationGraph(payload: SaveAutomationGraphPayload): Promise<SavedAutomationGraph>
 
   // Automation testing (manual trigger)
   testAutomation(payload: TestAutomationPayload): Promise<TestAutomationResult>
@@ -1603,10 +1724,10 @@ export interface MessagingPlatformRuntimeInfo {
  * Workspace-level access policy for a messaging platform.
  * Mirrors the canonical type in `@craft-agent/messaging-gateway`.
  */
-export type MessagingPlatformAccessMode = 'open' | 'owner-only'
+export type MessagingPlatformAccessMode = 'public-inbox' | 'owner-control' | 'disabled'
 
 /** Per-binding access policy. */
-export type MessagingBindingAccessMode = 'inherit' | 'allow-list' | 'open'
+export type MessagingBindingAccessMode = 'public-inbox' | 'owner-control' | 'disabled'
 
 export interface MessagingPlatformOwnerInfo {
   userId: string
@@ -1788,6 +1909,12 @@ export interface MemoryNavigationState {
   rightSidebar?: RightSidebarPanel
 }
 
+export interface ConnectionsNavigationState {
+  navigator: 'connections'
+  details: null
+  rightSidebar?: RightSidebarPanel
+}
+
 /**
  * Knowledge ref kinds, mirrored from the Knowledge Provider contract
  * (spec K-03 §3.1: `KnowledgeRef { scheme:'siyuan'; kind; id }`). Declared
@@ -1854,6 +1981,7 @@ export type NavigationState =
   | CloudRunNavigationState
   | ExtensionNavigationState
   | DiffNavigationState
+  | ConnectionsNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -1889,6 +2017,10 @@ export const isBrowserNavigation = (
 export const isMemoryNavigation = (
   state: NavigationState
 ): state is MemoryNavigationState => state.navigator === 'memory'
+
+export const isConnectionsNavigation = (
+  state: NavigationState
+): state is ConnectionsNavigationState => state.navigator === 'connections'
 
 export const isKnowledgeNavigation = (
   state: NavigationState
@@ -1926,11 +2058,10 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return 'skills'
   }
   if (state.navigator === 'notes') {
-    // Legacy vault surface only (P4.2); primary IA uses knowledge.
     if (state.details?.type === 'note') {
-      return `notes-legacy/note/${encodeURIComponent(state.details.noteId)}`
+      return `notes/note/${encodeURIComponent(state.details.noteId)}`
     }
-    return 'notes-legacy'
+    return 'notes'
   }
   if (state.navigator === 'automations') {
     if (state.details?.type === 'automation') {
@@ -1956,6 +2087,9 @@ export const getNavigationStateKey = (state: NavigationState): string => {
   }
   if (state.navigator === 'memory') {
     return 'memory'
+  }
+  if (state.navigator === 'connections') {
+    return 'connections'
   }
   // Unified-shell surfaces (W1) — key format mirrors the route format
   if (state.navigator === 'knowledge') {
@@ -2020,19 +2154,16 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     return { navigator: 'skills', details: null }
   }
 
-  // P4.2: bare `notes` / `notes/note/*` alias to Knowledge home (IA unify).
-  // Legacy vault uses `notes-legacy` so migration tooling can still open Tiptap.
-  if (key === 'notes' || key.startsWith('notes/note/')) {
-    return { navigator: 'knowledge', details: null }
-  }
-  if (key === 'notes-legacy') return { navigator: 'notes', details: null }
-  if (key.startsWith('notes-legacy/note/')) {
-    const noteId = decodeURIComponent(key.slice(18))
+  // Canonical local Markdown Notes keys.
+  if (key === 'notes') return { navigator: 'notes', details: null }
+  if (key.startsWith('notes/note/')) {
+    const noteId = decodeURIComponent(key.slice('notes/note/'.length))
     if (noteId) {
       return { navigator: 'notes', details: { type: 'note', noteId } }
     }
     return { navigator: 'notes', details: null }
   }
+
 
   // Handle automations
   if (key === 'automations') return { navigator: 'automations', details: null }
@@ -2133,6 +2264,8 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     }
     return { navigator: 'diff', details: null }
   }
+
+  if (key === 'connections') return { navigator: 'connections', details: null }
 
   // Handle sessions
   const parseSessionsKey = (filterKey: string, sessionId?: string): NavigationState | null => {

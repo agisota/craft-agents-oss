@@ -143,6 +143,34 @@ describe('manager status transitions', () => {
     expect((await fresh.status()).find((s) => s.name === 'jq')?.phase).toBe('missing');
   });
 
+  it('OpenClaw status never retains path or secret-like download diagnostics', async () => {
+    const openclaw: ToolEntry[] = [{
+      name: 'openclaw',
+      version: '2026.7.1-2',
+      kind: 'npm',
+      tier: 'opt-in',
+      displayName: 'OpenClaw',
+      dependsOn: ['node'],
+      artifacts: {
+        [currentPlatform()]: {
+          url: 'https://registry.npmjs.org/openclaw/-/openclaw-2026.7.1-2.tgz',
+          sha256: '5bb525f36f471a41239615d321c441778c7e1c007018ed6d84b795be77803276',
+          size: 19728152,
+          archive: 'tar.gz',
+          binPaths: ['package/openclaw.mjs'],
+        },
+      },
+    }];
+    const leakingFetch = (async () => {
+      throw new Error('Bearer fixture-token-abcdefghijklmnopqrstuvwxyz at /private/tmp/openclaw/npm-error.log');
+    }) as unknown as typeof fetch;
+    const { manager } = makeManager(openclaw, leakingFetch);
+    const status = await manager.update('openclaw');
+    expect(status).toMatchObject({ phase: 'offline', error: 'OPENCLAW_INSTALL_NETWORK_ERROR' });
+    expect(JSON.stringify(status)).not.toContain('fixture-token-abcdefghijklmnopqrstuvwxyz');
+    expect(JSON.stringify(status)).not.toContain('/private/tmp/openclaw/npm-error.log');
+  });
+
   it('инструмент без артефакта под платформу: git -> ready/system если есть в PATH, иначе missing', async () => {
     const gitEntry: ToolEntry[] = [
       { name: 'git', version: '2.0', displayName: 'git', artifacts: {} },

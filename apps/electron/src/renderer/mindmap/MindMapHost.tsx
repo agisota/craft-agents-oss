@@ -21,6 +21,7 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import {
+  createMindMapStarterGraph,
   createPinnedMap,
   entityPinKey,
   graphToMarkdown,
@@ -116,6 +117,7 @@ export function MindMapHost({
   const [fitKey, setFitKey] = React.useState(0)
   const [zen, setZen] = React.useState(false)
   const [pin, setPin] = React.useState<PinnedMap | null>(null)
+  const [pinLoaded, setPinLoaded] = React.useState(false)
   /** User dismissed a stale banner without rebuilding. */
   const [staleDismissed, setStaleDismissed] = React.useState(false)
   const [enrichDraft, setEnrichDraft] = React.useState<MindMapGraph | null>(null)
@@ -137,20 +139,56 @@ export function MindMapHost({
   const contentHash = graph?.contentHash ?? null
   const rootId = graph?.rootId ?? null
 
+  const starterGraph = React.useMemo(() => {
+    if (graph || pin) return null
+    return createMindMapStarterGraph(entity, {
+      input: t('settings.input.title'),
+      plan: t('tasks.generatePlan'),
+      execute: t('mode.execute'),
+      review: t('knowledge.publish.step.review'),
+      result: t('tasks.tabResults'),
+    })
+  }, [entity, graph, pin, t])
+
   // Load pin when entity/workspace changes (workspace FS + localStorage fallback).
   React.useEffect(() => {
     let cancelled = false
+    setPin(null)
+    setPinLoaded(false)
     setStaleDismissed(false)
     setEnrichDraft(null)
     const workspaceId = workspaceIdProp || activeWorkspaceId
-    void loadPinAsync(entity, workspaceId).then((loaded) => {
-      if (!cancelled) setPin(loaded)
-    })
+    void loadPinAsync(entity, workspaceId)
+      .then((loaded) => {
+        if (!cancelled) setPin(loaded)
+      })
+      .finally(() => {
+        if (!cancelled) setPinLoaded(true)
+      })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- entityKey + workspace
   }, [entityKey, workspaceIdProp, activeWorkspaceId])
+
+  React.useLayoutEffect(() => {
+    if (!starterGraph || pin || !pinLoaded) return
+    const next = createPinnedMap(
+      starterGraph,
+      layoutFromCollapsed(new Set()),
+      Date.now(),
+      starterGraph.contentHash,
+    )
+    enqueuePinOperation(entityKey, () => savePinAsync(next, workspaceIdProp || activeWorkspaceId))
+    setPin(next)
+  }, [
+    activeWorkspaceId,
+    entityKey,
+    pin,
+    pinLoaded,
+    starterGraph,
+    workspaceIdProp,
+  ])
 
   // Reset collapse on graph identity change; restore pin collapsed when fresh.
   React.useEffect(() => {
@@ -201,11 +239,47 @@ export function MindMapHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only collapse/layout
   }, [collapsed, activeWorkspaceId, entityKey, workspaceIdProp])
 
-  const pinFresh = Boolean(pin && graph && !isStale(pin, graph.contentHash))
+  const pinFresh = Boolean(pin && (!graph || !isStale(pin, graph.contentHash)))
   const pinStale = Boolean(pin && graph && isStale(pin, graph.contentHash) && !staleDismissed)
-  // Draft > pin (fresh or Keep) > live. Never write back to entity.
+  // Draft > pin (fresh or Keep) > live > localized starter. Never write back to entity.
   const showPinnedStructure = Boolean(pin && (pinFresh || staleDismissed))
-  const displayGraph = enrichDraft ?? (showPinnedStructure && pin ? pin.graph : graph)
+  const displayGraph =
+    enrichDraft ?? (showPinnedStructure && pin ? pin.graph : graph ?? starterGraph)
+  // Only the active persisted snapshot may receive structural changes.
+  const isPinned = Boolean(pin && showPinnedStructure && !enrichDraft)
+
+  const handleGraphChange = React.useCallback(
+    (nextGraph: MindMapGraph) => {
+      if (
+        !pin ||
+        !showPinnedStructure ||
+        enrichDraft ||
+        nextGraph.derivation !== 'pinned'
+      ) {
+        return
+      }
+      const next: PinnedMap = {
+        ...pin,
+        graph: nextGraph,
+        layout: layoutFromCollapsed(collapsed),
+        updatedAt: Date.now(),
+      }
+      enqueuePinOperation(entityKey, () =>
+        savePinAsync(next, workspaceIdProp || activeWorkspaceId),
+      )
+      setPin(next)
+    },
+    [
+      activeWorkspaceId,
+      collapsed,
+      enrichDraft,
+      entityKey,
+      pin,
+      showPinnedStructure,
+      workspaceIdProp,
+    ],
+  )
+
 
   const handleTogglePin = React.useCallback(() => {
     if (!graph) return
@@ -231,12 +305,19 @@ export function MindMapHost({
 
   const handleRebuildPin = React.useCallback(() => {
     if (!graph) return
-    const next = createPinnedMap(graph, layoutFromCollapsed(collapsed), Date.now(), graph.contentHash)
+    const nextCollapsed = new Set<MindMapNodeId>()
+    const next = createPinnedMap(
+      graph,
+      layoutFromCollapsed(nextCollapsed),
+      Date.now(),
+      graph.contentHash,
+    )
     enqueuePinOperation(entityKey, () => savePinAsync(next, workspaceIdProp || activeWorkspaceId))
+    setCollapsed(nextCollapsed)
     setPin(next)
     setEnrichDraft(null)
     setStaleDismissed(false)
-  }, [activeWorkspaceId, collapsed, entityKey, graph, workspaceIdProp])
+  }, [activeWorkspaceId, entityKey, graph, workspaceIdProp])
 
   const handleKeepStale = React.useCallback(() => {
     setStaleDismissed(true)
@@ -329,7 +410,7 @@ export function MindMapHost({
       enqueuePinOperation(entityKey, () => savePinAsync(next, workspaceIdProp || activeWorkspaceId))
       setPin(next)
       toast.success(t('mindmap.materializeDone'))
-      navigate(routes.view.notesLegacy(created.id))
+      navigate(routes.view.notes(created.id))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('mindmap.materializeFailed'))
     } finally {
@@ -384,7 +465,7 @@ export function MindMapHost({
     )
   }
 
-  if (!graph) {
+  if (!displayGraph) {
     return (
       <div
         className={cn(
@@ -401,7 +482,8 @@ export function MindMapHost({
   }
 
   const childCount = Object.keys((displayGraph ?? graph).nodes).length
-  const onlyRoot = childCount <= 1
+  // A pinned root-only graph must still render so users can add the first custom node.
+  const onlyRoot = childCount <= 1 && !isPinned
   const showMapChrome = mode === 'map' && !onlyRoot
 
   const renderMap = () => (
@@ -409,10 +491,11 @@ export function MindMapHost({
       ref={engineRef}
       graph={displayGraph!}
       layout="auto"
-      readOnlyStructure
+      readOnlyStructure={!isPinned}
       searchQuery={search}
       selectedId={selectedId}
       collapsed={collapsed}
+      onGraphChange={isPinned ? handleGraphChange : undefined}
       onSelect={handleSelect}
       onNavigate={onNavigate}
       onToggleCollapse={handleToggleCollapse}
@@ -458,6 +541,7 @@ export function MindMapHost({
                 type="button"
                 className="h-7 w-7 grid place-items-center rounded-[6px] hover:bg-foreground/5 text-muted-foreground hover:text-foreground"
                 title={t('mindmap.fit')}
+                aria-label={t('mindmap.fit')}
                 onClick={() => {
                   engineRef.current?.fitView()
                   setFitKey((k) => k + 1)
@@ -468,7 +552,8 @@ export function MindMapHost({
               <button
                 type="button"
                 className="h-7 w-7 grid place-items-center rounded-[6px] hover:bg-foreground/5 text-muted-foreground hover:text-foreground"
-                title="Zoom in"
+                title={t('menu.zoomIn')}
+                aria-label={t('menu.zoomIn')}
                 onClick={() => engineRef.current?.zoomBy(1.1)}
               >
                 <ZoomIn className="h-3.5 w-3.5" />
@@ -476,7 +561,8 @@ export function MindMapHost({
               <button
                 type="button"
                 className="h-7 w-7 grid place-items-center rounded-[6px] hover:bg-foreground/5 text-muted-foreground hover:text-foreground"
-                title="Zoom out"
+                title={t('menu.zoomOut')}
+                aria-label={t('menu.zoomOut')}
                 onClick={() => engineRef.current?.zoomBy(1 / 1.1)}
               >
                 <ZoomOut className="h-3.5 w-3.5" />
@@ -490,6 +576,8 @@ export function MindMapHost({
                     : 'text-muted-foreground hover:text-foreground',
                 )}
                 title={t('mindmap.split')}
+                aria-label={t('mindmap.split')}
+                aria-pressed={split}
                 onClick={() => setSplit((v) => !v)}
               >
                 <Columns2 className="h-3.5 w-3.5" />
@@ -506,6 +594,7 @@ export function MindMapHost({
                 : 'text-muted-foreground hover:text-foreground',
             )}
             title={showPinnedStructure ? t('mindmap.unpin') : t('mindmap.pin')}
+            aria-label={showPinnedStructure ? t('mindmap.unpin') : t('mindmap.pin')}
             aria-pressed={showPinnedStructure}
             onClick={handleTogglePin}
           >
@@ -524,6 +613,7 @@ export function MindMapHost({
                 : 'text-muted-foreground hover:text-foreground',
             )}
             title={t('mindmap.zen')}
+            aria-label={t('mindmap.zen')}
             aria-pressed={zen}
             onClick={() => {
               setZen((v) => {
@@ -544,6 +634,7 @@ export function MindMapHost({
               materializing && 'opacity-60',
             )}
             title={t('mindmap.materialize')}
+            aria-label={t('mindmap.materialize')}
             disabled={materializing || !graph}
             onClick={() => void handleMaterialize()}
           >
@@ -563,6 +654,7 @@ export function MindMapHost({
               enriching && 'opacity-60',
             )}
             title={t('mindmap.enrich')}
+            aria-label={t('mindmap.enrich')}
             disabled={enriching || !graph}
             onClick={() => void handleEnrich()}
           >
@@ -581,6 +673,8 @@ export function MindMapHost({
                 : 'text-muted-foreground hover:text-foreground',
             )}
             title={t('common.search')}
+            aria-label={t('common.search')}
+            aria-pressed={searchOpen}
             onClick={() => setSearchOpen((v) => !v)}
           >
             <Search className="h-3.5 w-3.5" />
@@ -589,11 +683,11 @@ export function MindMapHost({
       </div>
 
       {enrichDraft ? (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-violet-500/30 bg-violet-500/10 text-[11px] text-violet-950 dark:text-violet-100 shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/60 text-[11px] text-foreground shrink-0">
           <span className="flex-1 truncate">{t('mindmap.enrichDraftBanner')}</span>
           <button
             type="button"
-            className="h-6 rounded-[6px] px-2 font-medium hover:bg-violet-500/20"
+            className="h-6 rounded-[6px] px-2 font-medium hover:bg-foreground/5"
             onClick={handleDiscardEnrich}
           >
             {t('mindmap.enrichDiscard')}
@@ -609,11 +703,11 @@ export function MindMapHost({
       ) : null}
 
       {pinStale ? (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-950 dark:text-amber-100 shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-muted/60 text-[11px] text-foreground shrink-0">
           <span className="flex-1 truncate">{t('mindmap.staleBanner')}</span>
           <button
             type="button"
-            className="h-6 rounded-[6px] px-2 font-medium hover:bg-amber-500/20"
+            className="h-6 rounded-[6px] px-2 font-medium hover:bg-foreground/5"
             onClick={handleKeepStale}
           >
             {t('mindmap.keepPin')}
@@ -673,6 +767,7 @@ export function MindMapHost({
             <button
               type="button"
               className="h-7 inline-flex items-center gap-1 rounded-[6px] px-2 text-[11px] font-medium text-foreground hover:bg-foreground/5"
+              aria-label={t('common.close')}
               onClick={() => {
                 setZen(false)
                 window.dispatchEvent(new CustomEvent('craft-mindmap-zen', { detail: { zen: false } }))

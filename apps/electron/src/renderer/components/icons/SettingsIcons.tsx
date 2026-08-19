@@ -16,6 +16,7 @@ import {
   Palette,
   Server,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
@@ -39,6 +40,7 @@ export const LabelsIcon = ({ className }: IconProps) => <Tag className={classNam
 export const OrganizationsIcon = ({ className }: IconProps) => <Users className={className} />
 export const MessagingSettingsIcon = ({ className }: IconProps) => <MessageSquare className={className} />
 export const ServerSettingsIcon = ({ className }: IconProps) => <Server className={className} />
+export const SecuritySettingsIcon = ({ className }: IconProps) => <ShieldAlert className={className} />
 export const ShortcutsIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const RuntimeIcon = ({ className }: IconProps) => <Settings className={className} />
 export const ContextIcon = ({ className }: IconProps) => <FileText className={className} />
@@ -66,6 +68,7 @@ export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconPro
   organizations: OrganizationsIcon,
   messaging: MessagingSettingsIcon,
   server: ServerSettingsIcon,
+  security: SecuritySettingsIcon,
   cloudRuns: CloudRunsIcon,
   shortcuts: ShortcutsIcon,
 }

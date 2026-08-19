@@ -9,9 +9,8 @@
  * Kind mapping lives in `surface-tab-model.ts`: session/browser map onto real
  * SurfaceTab kinds; legacy navigator panels (source/settings/skills/other)
  * degrade to labelled tabs until wave M3.
- *
- * Mounted by `UnifiedShellLayout` (platform/index.tsx) — rendered only when
- * `featureUnifiedShellAtom` is ON.
+ * Mounted by `WorkspaceSurfaceHost` (platform/index.tsx) — rendered only when
+ * the two-key Workbench rollout is enabled.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'

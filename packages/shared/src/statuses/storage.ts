@@ -30,20 +30,13 @@ const STATUS_CONFIG_FILE = 'statuses/config.json';
 const STATUS_ICONS_DIR = 'statuses/icons';
 
 /**
- * Get default status configuration (matches current hardcoded behavior)
- * Note: icon field is omitted - uses auto-discovered files in statuses/icons/{id}.svg
+ * Get default status configuration (matches current hardcoded behavior).
+ * Icons and colors are intentionally omitted: icons are auto-discovered, and
+ * colors resolve through the canonical shared palette. Persisted `color`
+ * values remain explicit user overrides. Built-in status IDs continue to map
+ * to their existing i18n label keys at presentation time.
  */
 export function getDefaultStatusConfig(): WorkspaceStatusConfig {
-  // Note: color is omitted - defaults from colors/defaults.ts are applied:
-  // - backlog: foreground/50 (muted slate)
-  // - todo: info (blue)
-  // - in-progress: amber hex
-  // - needs-review: violet hex
-  // - done: success (emerald)
-  // - cancelled: foreground/50 (muted)
-  //
-  // Note: icon is omitted - auto-discovered from statuses/icons/{id}.svg
-  // Orders: backlog=0, todo=1, in-progress=2, needs-review=3, done=4, cancelled=5
   return {
     version: 1,
     statuses: [

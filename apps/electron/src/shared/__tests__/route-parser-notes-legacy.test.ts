@@ -1,75 +1,49 @@
 import { describe, it, expect } from 'bun:test'
 import { routes } from '../routes'
 import {
-  parseRoute,
+  buildCompoundRoute,
+  buildRouteFromNavigationState,
+  isCompoundRoute,
   parseCompoundRoute,
   parseRouteToNavigationState,
-  isCompoundRoute,
 } from '../route-parser'
+import { getNavigationStateKey, parseNavigationStateKey } from '../types'
 
-describe('route-parser: notes-legacy vault routes', () => {
-  it('treats notes-legacy as a compound route prefix', () => {
-    expect(isCompoundRoute('notes-legacy')).toBe(true)
-    expect(isCompoundRoute('notes-legacy/note/foo')).toBe(true)
-  })
-
-  it('parses notes-legacy as notes navigator', () => {
-    const compound = parseCompoundRoute('notes-legacy')
-    expect(compound).not.toBeNull()
-    expect(compound!.navigator).toBe('notes')
-    expect(compound!.details).toBeNull()
-
-    const parsed = parseRoute('notes-legacy')
-    expect(parsed).not.toBeNull()
-    expect(parsed!.type).toBe('view')
-    expect(parsed!.name).toBe('notes')
-
-    const state = parseRouteToNavigationState('notes-legacy')
-    expect(state).not.toBeNull()
-    expect(state!.navigator).toBe('notes')
-    if (state && 'details' in state) {
-      expect(state.details).toBeNull()
-    }
-  })
-
-  it('parses notes-legacy/note/{id} as notes detail', () => {
-    const compound = parseCompoundRoute('notes-legacy/note/foo')
-    expect(compound).not.toBeNull()
-    expect(compound!.navigator).toBe('notes')
-    expect(compound!.details).toEqual({ type: 'note', id: 'foo' })
-
-    const parsed = parseRoute('notes-legacy/note/foo')
-    expect(parsed).not.toBeNull()
-    expect(parsed!.type).toBe('view')
-    expect(parsed!.name).toBe('note-info')
-    expect(parsed!.id).toBe('foo')
-
-    const state = parseRouteToNavigationState('notes-legacy/note/foo')
-    expect(state).not.toBeNull()
-    expect(state!.navigator).toBe('notes')
-    if (state && state.navigator === 'notes') {
-      expect(state.details).toEqual({ type: 'note', noteId: 'foo' })
-    }
-  })
-
-  it('decodes encoded note ids under notes-legacy', () => {
-    const id = 'folder/my note.md'
-    const route = routes.view.notesLegacy(id)
-    expect(route).toBe(`notes-legacy/note/${encodeURIComponent(id)}`)
+describe('route-parser: canonical Notes routes', () => {
+  it('builds canonical local Notes routes and round-trips nested note ids', () => {
+    const noteId = 'folder/my note.md'
+    const route = routes.view.notes(noteId)
+    expect(routes.view.notes()).toBe('notes')
+    expect(route).toBe(`notes/note/${encodeURIComponent(noteId)}`)
 
     const compound = parseCompoundRoute(route)
-    expect(compound).not.toBeNull()
-    expect(compound!.navigator).toBe('notes')
-    expect(compound!.details).toEqual({ type: 'note', id })
+    expect(compound).toEqual({
+      navigator: 'notes',
+      details: { type: 'note', id: noteId },
+    })
+    expect(buildCompoundRoute(compound!)).toBe(route)
+
+    const state = parseRouteToNavigationState(route)
+    expect(state).toEqual({
+      navigator: 'notes',
+      details: { type: 'note', noteId },
+    })
+    expect(buildRouteFromNavigationState(state!)).toBe(route)
   })
 
-  it('keeps notesLegacy() emitter on notes-legacy keys', () => {
-    expect(routes.view.notesLegacy()).toBe('notes-legacy')
-    expect(routes.view.notesLegacy('abc')).toBe('notes-legacy/note/abc')
+  it('does not expose retired legacy Notes routes', () => {
+    expect(isCompoundRoute('notes-legacy')).toBe(false)
+    expect(parseCompoundRoute('notes-legacy/note/foo')).toBeNull()
+    expect(parseRouteToNavigationState('notes-legacy/note/foo')).toBeNull()
+    expect(parseNavigationStateKey('notes-legacy/note/foo')).toBeNull()
   })
 
-  it('still parses plain notes routes as notes navigator', () => {
-    expect(parseCompoundRoute('notes')!.navigator).toBe('notes')
-    expect(parseCompoundRoute('notes/note/bar')!.details).toEqual({ type: 'note', id: 'bar' })
+  it('uses canonical Notes navigation-state keys', () => {
+    const state = {
+      navigator: 'notes' as const,
+      details: { type: 'note' as const, noteId: 'folder/foo' },
+    }
+    expect(getNavigationStateKey(state)).toBe('notes/note/folder%2Ffoo')
+    expect(parseNavigationStateKey('notes/note/folder%2Ffoo')).toEqual(state)
   })
 })

@@ -3,12 +3,14 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { pathToFileURL } from 'url'
-import type { RemoteServerConfig } from '@craft-agent/core/types'
+import type { RemoteServerConfig, Workspace } from '@craft-agent/core/types'
 
 /** SSH-backed workspaces record sshHostId durably (not the ephemeral port);
  * plain-ws workspaces round-trip unchanged (backward compat). */
 
 const STORAGE_MODULE_PATH = pathToFileURL(join(import.meta.dir, '..', 'storage.ts')).href
+
+const SPKI_SHA256 = Buffer.alloc(32, 7).toString('base64')
 
 async function freshStorage() {
   const configDir = mkdtempSync(join(tmpdir(), 'craft-agent-ssh-persist-'))
@@ -61,6 +63,7 @@ describe('RemoteServerConfig SSH persistence', () => {
     const found = (storage.getWorkspaces() as any[]).find((w) => w.id === ws.id)
     expect(found.remoteServer.sshHostId).toBeUndefined()
     expect(found.remoteServer.url).toBe('wss://my-server:8443')
+    expect(found.remoteServer.tlsTrust).toEqual({ mode: 'public-ca' })
   })
 
   it('updateWorkspaceRemoteServer preserves sshHostId when re-binding', async () => {
@@ -74,5 +77,90 @@ describe('RemoteServerConfig SSH persistence', () => {
     })
     const found = (storage.getWorkspaces() as any[]).find((w) => w.id === ws.id)
     expect(found.remoteServer.sshHostId).toBe('host-42')
+  })
+
+  it('persists a canonical matching SPKI pin across save and reload', async () => {
+    const storage = await freshStorage()
+    const remoteServer: RemoteServerConfig = {
+      url: 'wss://my-server:8443',
+      token: 't',
+      remoteWorkspaceId: 'rw',
+      tlsTrust: {
+        mode: 'spki-pin',
+        origin: 'wss://my-server:8443',
+        spkiSha256: SPKI_SHA256,
+        enrolledAt: 1_725_000_000_000,
+      },
+    }
+    const workspace = {
+      name: 'Pinned',
+      rootPath: join(tmpdir(), 'pinned'),
+      remoteServer,
+    } satisfies Omit<Workspace, 'id' | 'createdAt' | 'slug'>
+    const ws = storage.addWorkspace(workspace)
+
+    const reloaded = await import(`${STORAGE_MODULE_PATH}?t=${Date.now()}-${Math.random()}`)
+    const found = reloaded
+      .getWorkspaces()
+      .find((workspace: Workspace) => workspace.id === ws.id)
+    expect(found?.remoteServer?.tlsTrust).toEqual(remoteServer.tlsTrust)
+  })
+
+  it('preserves a stored pin when reconnect details omit tlsTrust', async () => {
+    const storage = await freshStorage()
+    const workspace = {
+      name: 'Pinned',
+      rootPath: join(tmpdir(), 'pinned-rebind'),
+      remoteServer: {
+        url: 'wss://my-server:8443',
+        token: 'old-token',
+        remoteWorkspaceId: 'old-remote-workspace',
+        tlsTrust: {
+          mode: 'spki-pin',
+          origin: 'wss://my-server:8443',
+          spkiSha256: SPKI_SHA256,
+          enrolledAt: 1_725_000_000_000,
+        },
+      },
+    } satisfies Omit<Workspace, 'id' | 'createdAt' | 'slug'>
+    const ws = storage.addWorkspace(workspace)
+
+    storage.updateWorkspaceRemoteServer(ws.id, {
+      url: 'wss://my-server:8443',
+      token: 'new-token',
+      remoteWorkspaceId: 'new-remote-workspace',
+    })
+
+    const found = storage.getWorkspaces().find((workspace) => workspace.id === ws.id)
+    expect(found?.remoteServer?.tlsTrust).toEqual({
+      mode: 'spki-pin',
+      origin: 'wss://my-server:8443',
+      spkiSha256: SPKI_SHA256,
+      enrolledAt: 1_725_000_000_000,
+    })
+  })
+
+  it('rejects an invalid pin before it can be persisted', async () => {
+    const storage = await freshStorage()
+    const workspace = {
+      name: 'Rejected pin',
+      rootPath: join(tmpdir(), 'rejected-pin'),
+      remoteServer: {
+        url: 'wss://my-server:8443',
+        token: 't',
+        remoteWorkspaceId: 'rw',
+        tlsTrust: {
+          mode: 'spki-pin',
+          origin: 'wss://other-server:8443',
+          spkiSha256: SPKI_SHA256,
+          enrolledAt: 1_725_000_000_000,
+        },
+      },
+    } satisfies Omit<Workspace, 'id' | 'createdAt' | 'slug'>
+
+    expect(() => storage.addWorkspace(workspace)).toThrow('origin must match')
+    expect(
+      storage.getWorkspaces().some((candidate) => candidate.name === 'Rejected pin'),
+    ).toBeFalse()
   })
 })

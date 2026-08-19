@@ -15,12 +15,14 @@ import { SmartPointerSensor } from '@/components/ui/sortable-list'
 import type { ProjectColorTreatment } from '@/utils/project-colors'
 import type { SessionStatus } from '@/config/session-status-config'
 import { useKanbanColumnColors, makeColumnColor } from '@/hooks/useKanbanColumnColors'
+import { sessionSelection } from '@/hooks/useEntitySelection'
 import {
   KanbanColumn,
   parseProjectGroupDropId,
   type KanbanProjectGroup,
 } from './KanbanColumn'
 import { buildPriorityGroups } from './priority-groups'
+import { flattenVisibleKanbanTaskIds } from './kanban-selection'
 import { TaskTile } from './TaskTile'
 import type {
   KanbanColumnId,
@@ -96,7 +98,10 @@ interface KanbanBoardProps {
    * Custom per-column task sort (B6). Default = recency (createdAt/lastMessageAt desc).
    */
   sortTasks?: (a: KanbanTask, b: KanbanTask) => number
+  /** Render collection actions against the board's exact flattened visible order. */
+  renderBulkActions?: (visibleTaskIds: readonly string[]) => React.ReactNode
 }
+
 
 /**
  * The board. Renders the supplied `columns` and buckets tiles strictly by
@@ -134,6 +139,7 @@ export function KanbanBoard({
   onToggleProjectGroup,
   noProjectLabel,
   sortTasks,
+  renderBulkActions,
 }: KanbanBoardProps) {
   const { t } = useTranslation()
   const firstColumnId = columns[0]?.id
@@ -221,6 +227,38 @@ export function KanbanBoard({
     }
     return result
   }, [groupByPriority, columns, tasksByColumn, t])
+  const visibleTaskIds = React.useMemo(
+    () =>
+      flattenVisibleKanbanTaskIds(
+        columns,
+        tasksByColumn,
+        groupsByColumn,
+        priorityGroupsByColumn,
+        collapsedGroupKeys,
+      ),
+    [
+      collapsedGroupKeys,
+      columns,
+      groupsByColumn,
+      priorityGroupsByColumn,
+      tasksByColumn,
+    ],
+  )
+  const visibleIndexById = React.useMemo(
+    () => new Map(visibleTaskIds.map((id, index) => [id, index])),
+    [visibleTaskIds],
+  )
+  const { toggle, selectRange, isSelected, isMultiSelectActive } =
+    sessionSelection.useSelection()
+  const handleSelectTask = React.useCallback(
+    (taskId: string, shiftKey: boolean) => {
+      const index = visibleIndexById.get(taskId)
+      if (index === undefined) return
+      if (shiftKey) selectRange(index, visibleTaskIds)
+      else toggle(taskId, index)
+    },
+    [selectRange, toggle, visibleIndexById, visibleTaskIds],
+  )
 
   const columnColors = useKanbanColumnColors()
 
@@ -340,10 +378,15 @@ export function KanbanBoard({
             priorityGroups={priorityGroupsByColumn?.get(column.id)}
             collapsedGroupKeys={collapsedGroupKeys}
             onToggleProjectGroup={onToggleProjectGroup}
+            isTaskSelected={isSelected}
+            multiSelectActive={isMultiSelectActive}
+            onSelectTask={handleSelectTask}
           />
         ))}
         {addColumnButton('right')}
       </div>
+      {renderBulkActions?.(visibleTaskIds)}
+
 
       <DragOverlay dropAnimation={null} style={{ zIndex: 'var(--z-floating-menu, 400)' }}>
         {activeTask ? (

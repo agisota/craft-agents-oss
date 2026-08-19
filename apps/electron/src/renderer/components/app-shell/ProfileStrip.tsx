@@ -1,12 +1,29 @@
 /**
- * Sidebar footer profile strip — avatar, display name, level, XP bar, balance.
- * Click opens Settings.
+ * Sidebar profile strip — compact identity trigger for account actions.
+ *
+ * Legacy gamification values remain in ProfileStripData for host compatibility,
+ * but this surface deliberately renders no progress, level, or balance state.
  */
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown, LogOut, RefreshCw, Settings } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  StyledDropdownMenuContent,
+  StyledDropdownMenuItem,
+  StyledDropdownMenuSeparator,
+} from '@/components/ui/styled-dropdown'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+
+const bundledDefaultAvatar = new URL(
+  '../../../../resources/default-avatar.svg',
+  import.meta.url,
+).href
 
 export interface ProfileStripData {
   displayName: string
@@ -23,84 +40,97 @@ interface ProfileStripProps {
   data: ProfileStripData
   onClick: () => void
   className?: string
+  defaultAvatarFallback?: React.ReactNode
 }
 
-function initialsFromName(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
-}
-
-export function ProfileStrip({ data, onClick, className }: ProfileStripProps) {
+export function ProfileStrip({
+  data,
+  onClick,
+  className,
+  defaultAvatarFallback,
+}: ProfileStripProps) {
   const { t } = useTranslation()
-  const initials = initialsFromName(data.displayName)
-  const balanceLabel =
-    data.balance === null || data.balance === undefined
-      ? t('profile.balanceEmpty')
-      : t('profile.balance', { amount: data.balance })
+  const [open, setOpen] = React.useState(false)
+  const displayName = data.displayName || t('profile.defaultName')
+  const avatarFallback = defaultAvatarFallback ?? (
+    <img
+      src={bundledDefaultAvatar}
+      alt=""
+      className="h-full w-full object-cover"
+    />
+  )
 
-  const xpLabel =
-    data.nextThreshold == null
-      ? t('profile.xpMax', { xp: data.xp })
-      : t('profile.xpProgress', {
-          current: data.xpIntoLevel,
-          next: data.xpForNext + data.xpIntoLevel,
-        })
+  const openSettings = () => {
+    setOpen(false)
+    onClick()
+  }
 
-  const pct = Math.round(Math.min(1, Math.max(0, data.progress)) * 100)
+  const checkForUpdates = () => {
+    setOpen(false)
+    void window.electronAPI.checkForUpdates().catch(() => {
+      toast.error(t('toast.failedToCheckUpdates'))
+    })
+  }
+
+  const handleLogout = async () => {
+    try {
+      const confirmed = await window.electronAPI.showLogoutConfirmation()
+      if (!confirmed) return
+      setOpen(false)
+      await window.electronAPI.logout()
+      toast.success(t('settings.accounts.disconnected'))
+    } catch {
+      toast.error(t('common.failed'))
+    }
+  }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-2 py-2 rounded-md',
-        'text-left hover:bg-foreground/5 transition-colors',
-        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-        className,
-      )}
-      aria-label={t('profile.openSettings', { name: data.displayName })}
-      data-tutorial="profile-strip"
-    >
-      <Avatar className="h-8 w-8 shrink-0">
-        <AvatarFallback className="text-[11px] font-medium bg-foreground/10 text-foreground/80">
-          {initials}
-        </AvatarFallback>
-      </Avatar>
-
-      <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="truncate text-[13px] font-medium text-foreground/90">
-            {data.displayName}
-          </span>
-          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80 tabular-nums">
-            {t('profile.level', { level: data.level })}
-          </span>
-        </div>
-
-        <div
-          className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden"
-          role="progressbar"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={xpLabel}
-          title={xpLabel}
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'w-full flex items-center gap-2 px-2 py-2 rounded-md',
+            'text-left hover:bg-foreground/5 transition-colors',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            className,
+          )}
+          aria-label={t('accountMenu.openMenu')}
+          data-tutorial="profile-strip"
         >
-          <div
-            className="h-full rounded-full bg-primary/80 transition-[width] duration-300 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/70 tabular-nums">
-          <span className="truncate">{xpLabel}</span>
-          <span className="shrink-0" title={t('profile.balanceLabel')}>
-            {balanceLabel}
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback
+              delayMs={0}
+              className="bg-foreground/10 text-foreground/80"
+            >
+              {avatarFallback}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground/90">
+            {displayName}
           </span>
-        </div>
-      </div>
-    </button>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+
+      <StyledDropdownMenuContent align="start" sideOffset={6} minWidth="min-w-52">
+        <StyledDropdownMenuItem className="font-sans" onClick={openSettings}>
+          <Settings className="h-4 w-4" />
+          {t('menu.settings')}
+        </StyledDropdownMenuItem>
+        <StyledDropdownMenuItem className="font-sans" onClick={checkForUpdates}>
+          <RefreshCw className="h-4 w-4" />
+          {t('menu.checkForUpdates')}
+        </StyledDropdownMenuItem>
+        <StyledDropdownMenuSeparator />
+        <StyledDropdownMenuItem
+          className="font-sans text-destructive focus:text-destructive"
+          onClick={() => void handleLogout()}
+        >
+          <LogOut className="h-4 w-4" />
+          {t('settings.accounts.signOut')}
+        </StyledDropdownMenuItem>
+      </StyledDropdownMenuContent>
+    </DropdownMenu>
   )
 }

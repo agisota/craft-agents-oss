@@ -3,10 +3,18 @@
  */
 
 import * as React from 'react'
+import { GitFork, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import {
+  addPinnedCustomNode,
   autoLayout,
+  deletePinnedCustomNode,
   layoutBounds,
+  MAX_CUSTOM_MIND_MAP_LABEL_LENGTH,
+  PinnedMindMapEditError,
+  reparentPinnedCustomNode,
+  renamePinnedCustomNode,
   type MindMapLayout,
   type MindMapNodeId,
 } from '@craft-agent/core/mindmap'
@@ -16,15 +24,11 @@ import {
   MIND_MAP_NODE_WIDTH,
   type MindMapEngineProps,
 } from './types'
-
-const MIN_ZOOM = 0.2
-const MAX_ZOOM = 2.75
+import { clampMindMapZoom, fitMindMapViewport } from './fit'
 const ZOOM_IN = 1.1
 const ZOOM_OUT = 1 / ZOOM_IN
 
-function clampZoom(z: number): number {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
-}
+
 
 function normalizeCollapsed(
   collapsed: MindMapEngineProps['collapsed'],
@@ -44,6 +48,11 @@ function truncateLabel(label: string, max: number): string {
   if (t.length <= max) return t
   return `${t.slice(0, Math.max(1, max - 1))}…`
 }
+
+type StructureEditor =
+  | { mode: 'add'; parentId: MindMapNodeId; label: string }
+  | { mode: 'rename'; nodeId: MindMapNodeId; label: string }
+  | { mode: 'reparent'; nodeId: MindMapNodeId; parentId: MindMapNodeId }
 
 export type SvgMindMapViewProps = Omit<MindMapEngineProps, 'layout' | 'mode'> & {
   layout?: MindMapLayout | 'auto'
@@ -67,6 +76,7 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       searchQuery = '',
       collapsed: collapsedProp,
       className,
+      onGraphChange,
       onLayoutChange,
       onNavigate,
       onSelect,
@@ -87,7 +97,10 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       origPanY: number
     } | null>(null)
     const [isPanning, setIsPanning] = React.useState(false)
-    const fittedGraphKey = React.useRef<string | null>(null)
+    const { t } = useTranslation()
+    const [structureEditor, setStructureEditor] = React.useState<StructureEditor | null>(null)
+    const [structureError, setStructureError] = React.useState<string | null>(null)
+    const [structureNotice, setStructureNotice] = React.useState<string | null>(null)
 
     const collapsedList = React.useMemo(
       () => normalizeCollapsed(collapsedProp),
@@ -138,24 +151,10 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
     }, [layout])
 
     const fitView = React.useCallback(() => {
-      const { width, height } = size
-      if (width <= 0 || height <= 0) return
-      if (bounds.width <= 0 || bounds.height <= 0) {
-        setPan({ x: width / 2, y: height / 2 })
-        setZoom(1)
-        return
-      }
-      const pad = 36
-      const zx = (width - pad * 2) / bounds.width
-      const zy = (height - pad * 2) / bounds.height
-      const nextZoom = clampZoom(Math.min(zx, zy, 1.35))
-      const cx = bounds.minX + bounds.width / 2
-      const cy = bounds.minY + bounds.height / 2
-      setZoom(nextZoom)
-      setPan({
-        x: width / 2 - cx * nextZoom,
-        y: height / 2 - cy * nextZoom,
-      })
+      const viewport = fitMindMapViewport(size, bounds)
+      if (!viewport) return
+      setZoom(viewport.zoom)
+      setPan({ x: viewport.x, y: viewport.y })
     }, [bounds, size])
 
     const zoomBy = React.useCallback(
@@ -164,7 +163,7 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
         const mx = width / 2
         const my = height / 2
         setZoom((prev) => {
-          const next = clampZoom(prev * factor)
+          const next = clampMindMapZoom(prev * factor)
           const worldX = (mx - pan.x) / prev
           const worldY = (my - pan.y) / prev
           setPan({
@@ -189,13 +188,10 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
 
     const graphKey = `${graph.contentHash}:${graph.rootId}`
 
-    // Fit when graph identity changes and container has size
-    React.useEffect(() => {
-      if (size.width <= 0 || size.height <= 0) return
-      if (fittedGraphKey.current === graphKey) return
-      fittedGraphKey.current = graphKey
+    // Re-fit after graph layout, mount sizing, and every container resize.
+    React.useLayoutEffect(() => {
       fitView()
-    }, [graphKey, size.width, size.height, fitView])
+    }, [graphKey, layout, size.width, size.height, fitView])
 
     React.useEffect(() => {
       if (fitRequestKey > 0) fitView()
@@ -210,7 +206,7 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       const my = e.clientY - rect.top
       const factor = e.deltaY < 0 ? ZOOM_IN : ZOOM_OUT
       setZoom((prev) => {
-        const next = clampZoom(prev * factor)
+        const next = clampMindMapZoom(prev * factor)
         const worldX = (mx - pan.x) / prev
         const worldY = (my - pan.y) / prev
         setPan({
@@ -267,6 +263,93 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       },
       [size.width, size.height, zoom],
     )
+
+    const canEditStructure = !readOnlyStructure && Boolean(onGraphChange)
+    const selectedNode = selectedId ? graph.nodes[selectedId] : undefined
+    const selectedCustomNode = selectedNode?.kind === 'custom' ? selectedNode : undefined
+    const parentOptions = React.useMemo(() => Object.values(graph.nodes), [graph.nodes])
+
+    React.useEffect(() => {
+      if (canEditStructure) return
+      setStructureEditor(null)
+      setStructureError(null)
+      setStructureNotice(null)
+    }, [canEditStructure])
+
+    const structureErrorMessage = (error: unknown): string => {
+      if (error instanceof PinnedMindMapEditError) {
+        switch (error.code) {
+          case 'invalid-label':
+            return t('mindmap.invalidNodeLabel')
+          case 'cannot-delete-root':
+            return t('mindmap.cannotDeleteRoot')
+          case 'cannot-reparent-root':
+            return t('mindmap.cannotReparentRoot')
+          case 'cannot-reparent-descendant':
+            return t('mindmap.cannotReparentDescendant')
+          default:
+            return t('mindmap.invalidParent')
+        }
+      }
+      return t('mindmap.invalidParent')
+    }
+
+    const submitStructureEdit = (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!structureEditor || !onGraphChange) return
+      try {
+        let nextGraph = graph
+        let nextSelection: MindMapNodeId | null | undefined
+        let notice = ''
+
+        if (structureEditor.mode === 'add') {
+          nextGraph = addPinnedCustomNode(
+            graph,
+            structureEditor.parentId,
+            structureEditor.label,
+          )
+          nextSelection =
+            Object.keys(nextGraph.nodes).find((nodeId) => !graph.nodes[nodeId]) ?? null
+          notice = t('mindmap.nodeAdded')
+        } else if (structureEditor.mode === 'rename') {
+          nextGraph = renamePinnedCustomNode(graph, structureEditor.nodeId, structureEditor.label)
+          notice = t('mindmap.nodeRenamed')
+        } else {
+          nextGraph = reparentPinnedCustomNode(
+            graph,
+            structureEditor.nodeId,
+            structureEditor.parentId,
+          )
+          notice = t('mindmap.nodeReparented')
+        }
+
+        onGraphChange(nextGraph)
+        if (nextSelection !== undefined) onSelect?.(nextSelection)
+        setStructureEditor(null)
+        setStructureError(null)
+        setStructureNotice(notice)
+      } catch (error) {
+        setStructureError(structureErrorMessage(error))
+      }
+    }
+
+    const deleteSelectedCustomNode = () => {
+      if (!selectedCustomNode || !onGraphChange) return
+      try {
+        const nextGraph = deletePinnedCustomNode(graph, selectedCustomNode.id)
+        onGraphChange(nextGraph)
+        const nextSelection =
+          selectedCustomNode.parentId && nextGraph.nodes[selectedCustomNode.parentId]
+            ? selectedCustomNode.parentId
+            : nextGraph.rootId
+        onSelect?.(nextSelection)
+        setStructureEditor(null)
+        setStructureError(null)
+        setStructureNotice(t('mindmap.nodeDeleted'))
+      } catch (error) {
+        setStructureError(structureErrorMessage(error))
+      }
+    }
 
     const visibleIds = React.useMemo(
       () => new Set(Object.keys(layout.positions)),
@@ -336,7 +419,6 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
       return list
     }, [layout.positions, graph.nodes, collapsedSet, selectedId, q])
 
-    void readOnlyStructure
 
     return (
       <div
@@ -430,7 +512,17 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
                           e.stopPropagation()
                           onToggleCollapse?.(n.id)
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault()
+                          e.stopPropagation()
+                          onToggleCollapse?.(n.id)
+                        }}
                         className="cursor-pointer"
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={!n.isCollapsed}
+                        aria-label={t(n.isCollapsed ? 'mindmap.expandNode' : 'mindmap.collapseNode')}
                       >
                         <circle
                           cx={9}
@@ -467,6 +559,176 @@ export const SvgMindMapView = React.forwardRef<SvgMindMapViewHandle, SvgMindMapV
             </g>
           </g>
         </svg>
+
+        {canEditStructure ? (
+          <div
+            className="absolute left-3 top-3 z-10 max-w-[min(20rem,calc(100%-1.5rem))] rounded-lg border border-border/60 bg-background/95 p-1.5 shadow-sm backdrop-blur"
+            data-mindmap-structure-controls
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                title={t('mindmap.addNode')}
+                aria-label={t('mindmap.addNode')}
+                onClick={() => {
+                  setStructureEditor({
+                    mode: 'add',
+                    parentId: selectedNode?.id ?? graph.rootId,
+                    label: '',
+                  })
+                  setStructureError(null)
+                  setStructureNotice(null)
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+
+              {selectedCustomNode ? (
+                <>
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    title={t('mindmap.renameNode')}
+                    aria-label={t('mindmap.renameNode')}
+                    onClick={() => {
+                      setStructureEditor({
+                        mode: 'rename',
+                        nodeId: selectedCustomNode.id,
+                        label: selectedCustomNode.label,
+                      })
+                      setStructureError(null)
+                      setStructureNotice(null)
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    title={t('mindmap.reparentNode')}
+                    aria-label={t('mindmap.reparentNode')}
+                    onClick={() => {
+                      setStructureEditor({
+                        mode: 'reparent',
+                        nodeId: selectedCustomNode.id,
+                        parentId: selectedCustomNode.parentId ?? graph.rootId,
+                      })
+                      setStructureError(null)
+                      setStructureNotice(null)
+                    }}
+                  >
+                    <GitFork className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    title={t('mindmap.deleteNode')}
+                    aria-label={t('mindmap.deleteNode')}
+                    onClick={deleteSelectedCustomNode}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </>
+              ) : null}
+            </div>
+
+            {structureNotice ? (
+              <p className="px-1 pt-1 text-[11px] text-muted-foreground" role="status">
+                {structureNotice}
+              </p>
+            ) : null}
+
+            {structureEditor ? (
+              <form
+                className="mt-1.5 space-y-1.5 border-t border-border/50 pt-1.5"
+                aria-label={
+                  structureEditor.mode === 'add'
+                    ? t('mindmap.addNode')
+                    : structureEditor.mode === 'rename'
+                      ? t('mindmap.renameNode')
+                      : t('mindmap.reparentNode')
+                }
+                onSubmit={submitStructureEdit}
+              >
+                {structureEditor.mode !== 'rename' ? (
+                  <label className="block space-y-0.5 px-1 text-[11px] text-muted-foreground">
+                    <span>{t('mindmap.parentNode')}</span>
+                    <select
+                      className="h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-foreground/30"
+                      value={structureEditor.parentId}
+                      onChange={(event) => {
+                        const parentId = event.target.value
+                        setStructureEditor((current) =>
+                          current && current.mode !== 'rename' ? { ...current, parentId } : current,
+                        )
+                      }}
+                    >
+                      {parentOptions.map((node) => (
+                        <option
+                          key={node.id}
+                          value={node.id}
+                          disabled={
+                            structureEditor.mode === 'reparent' &&
+                            node.id === structureEditor.nodeId
+                          }
+                        >
+                          {node.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {structureEditor.mode !== 'reparent' ? (
+                  <label className="block space-y-0.5 px-1 text-[11px] text-muted-foreground">
+                    <span>{t('mindmap.nodeLabel')}</span>
+                    <input
+                      autoFocus
+                      required
+                      maxLength={MAX_CUSTOM_MIND_MAP_LABEL_LENGTH}
+                      className="h-7 w-full rounded-md border border-border/60 bg-background px-1.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-foreground/30"
+                      value={structureEditor.label}
+                      aria-invalid={Boolean(structureError)}
+                      onChange={(event) => {
+                        const label = event.target.value
+                        setStructureEditor((current) =>
+                          current && current.mode !== 'reparent' ? { ...current, label } : current,
+                        )
+                      }}
+                    />
+                  </label>
+                ) : null}
+
+                {structureError ? (
+                  <p className="px-1 text-[11px] text-destructive" role="alert">
+                    {structureError}
+                  </p>
+                ) : null}
+
+                <div className="flex justify-end gap-1 px-1">
+                  <button
+                    type="button"
+                    className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    onClick={() => {
+                      setStructureEditor(null)
+                      setStructureError(null)
+                    }}
+                  >
+                    {t('mindmap.cancel')}
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-7 rounded-md bg-foreground px-2 text-xs font-medium text-background hover:bg-foreground/90"
+                  >
+                    {t('mindmap.saveNode')}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+          </div>
+        ) : null}
 
         <MindMapMinimap
           layout={layout}

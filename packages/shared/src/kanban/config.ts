@@ -1,3 +1,4 @@
+import { DEFAULT_BUILTIN_STATUS_PALETTE } from '../colors/defaults.ts'
 import type { KanbanBoardColumnConfig, KanbanBoardConfig, KanbanGroupBy } from './types.ts'
 
 /** Built-in column ids in left-to-right board order. */
@@ -11,21 +12,13 @@ export const BUILTIN_KANBAN_COLUMN_IDS = [
 
 export type BuiltinKanbanColumnId = (typeof BUILTIN_KANBAN_COLUMN_IDS)[number]
 
-const BUILTIN_DEFAULT_COLORS: Record<BuiltinKanbanColumnId, string> = {
-  backlog: '#94a3b8',
-  todo: '#3b82f6',
-  'in-progress': '#f59e0b',
-  'needs-review': '#8b5cf6',
-  done: '#10b981',
-}
-
 export function getDefaultKanbanBoardConfig(): KanbanBoardConfig {
   return {
     version: 1,
     groupBy: 'project',
     columns: BUILTIN_KANBAN_COLUMN_IDS.map((id) => ({
       id,
-      color: BUILTIN_DEFAULT_COLORS[id],
+      color: DEFAULT_BUILTIN_STATUS_PALETTE[id].light,
       collapsed: id === 'backlog',
       dropStatusId: id,
       isBuiltIn: true,

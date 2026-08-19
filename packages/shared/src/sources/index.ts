@@ -90,17 +90,19 @@ export type {
   BuiltServers,
 } from './server-builder.ts';
 
-// Built-in Sources (always available in every workspace)
+// Built-in source templates and generated local source seeders
 export {
   getDocsSource,
   getBuiltinSources,
   isBuiltinSource,
   ensureBuiltinSources,
+  ensureLocalNotesSource,
   hasExaKey,
   hasFirecrawlKey,
   estimateSourceGuideTokens,
   formatTokenEstimate,
   BUILTIN_SOURCE_SLUGS,
+  DEFAULT_ENABLED_LOCAL_SOURCE_SLUGS,
   type BuiltinSourceSlug,
 } from './builtin-sources.ts';
 

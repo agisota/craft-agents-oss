@@ -1,7 +1,13 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join } from 'path'
-import { RPC_CHANNELS, type FileAttachment, type SendMessageOptions, type Session, type SessionEvent } from '@craft-agent/shared/protocol'
-import type { BulkUpdateSessionsInput, BulkUpdateSessionsResult } from '@craft-agent/shared/protocol/dto'
+import {
+  RPC_CHANNELS,
+  type BulkUpdateSessionsInput,
+  type BulkUpdateSessionsResult,
+  type FileAttachment,
+  type SendMessageOptions,
+  type SessionEvent,
+} from '@craft-agent/shared/protocol'
 import type { StoredAttachment, SessionMemoryMode } from '@craft-agent/core/types'
 import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
 import { perf } from '@craft-agent/shared/utils'
@@ -11,7 +17,7 @@ const VALID_THINKING_LEVELS_LIST = THINKING_LEVEL_IDS.map(id => `'${id}'`).join(
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 import { setTransferableHandler } from './transfer'
-import { assertValidBulkLabelPatch, resolveBulkLabels } from '../../sessions/bulk-labels'
+import { assertValidBulkUpdateInput, assertValidBulkUpdatePatch } from '../../sessions/bulk-labels'
 
 interface ClientSessionWatchState {
   watcher: import('fs').FSWatcher
@@ -401,99 +407,45 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
     }
   })
 
-  // B4: Multi-select bulk updates over sessions:command setters.
+  // B4: one caller-authorized, per-target atomic collection update.
   server.handle(RPC_CHANNELS.sessions.BULK_UPDATE, async (
-    _ctx,
+    ctx,
     input: BulkUpdateSessionsInput,
   ): Promise<BulkUpdateSessionsResult> => {
-    if (!input || !Array.isArray(input.ids)) {
-      throw new Error('bulk_update: invalid input')
+    const callerWorkspaceId = ctx.workspaceId ?? (
+      ctx.webContentsId === null
+        ? undefined
+        : deps.windowManager?.getWorkspaceForWindow(ctx.webContentsId)
+    )
+    if (!callerWorkspaceId) {
+      throw new Error('bulk_workspace_context_required')
     }
+
+    assertValidBulkUpdateInput(input)
+    if (input.workspaceId !== callerWorkspaceId) {
+      throw new Error('bulk_workspace_mismatch')
+    }
+    assertValidBulkUpdatePatch(input.patch)
     if (input.ids.length === 0) {
       return { ok: [], failed: [] }
     }
-    if (input.ids.length > 200) {
-      throw new Error('bulk_limit')
-    }
-    const patch = input.patch ?? {}
-    if ('rank' in (patch as Record<string, unknown>)) {
-      throw new Error('bulk_rank_forbidden')
-    }
-    assertValidBulkLabelPatch(patch)
 
-    // Resolve and authorize every target before calling a setter. This prevents
-    // an earlier valid target from being mutated when a later id is missing or
-    // belongs to another workspace.
-    const resolvedSessions = new Map<string, Session>()
-    const failed: Array<{ id: string; error: string }> = []
+    await sessionManager.waitForInit()
+    const result = await sessionManager.bulkUpdateSessions(
+      callerWorkspaceId,
+      { ids: input.ids, patch: input.patch },
+    )
 
-    for (const sessionId of input.ids) {
-      const existing = await sessionManager.getSession(sessionId).catch(() => null)
-      if (!existing) {
-        failed.push({ id: sessionId, error: 'not_found' })
-      } else if (existing.workspaceId !== input.workspaceId) {
-        failed.push({ id: sessionId, error: 'foreign' })
-      } else {
-        resolvedSessions.set(sessionId, existing)
-      }
-    }
-
-    if (failed.length > 0) {
-      return { ok: [], failed }
-    }
-
-    const ok: string[] = []
-    for (const sessionId of input.ids) {
-      const existing = resolvedSessions.get(sessionId)!
-      try {
-        if (patch.isArchived === true && existing.isProcessing) {
-          failed.push({ id: sessionId, error: 'busy' })
-          continue
-        }
-
-        if (typeof patch.isArchived === 'boolean') {
-          if (patch.isArchived) await sessionManager.archiveSession(sessionId)
-          else await sessionManager.unarchiveSession(sessionId)
-        }
-        if (typeof patch.isFlagged === 'boolean') {
-          if (patch.isFlagged) await sessionManager.flagSession(sessionId)
-          else await sessionManager.unflagSession(sessionId)
-        }
-        if (patch.sessionStatus !== undefined) {
-          await sessionManager.setSessionStatus(sessionId, patch.sessionStatus)
-        }
-        if (patch.priority !== undefined) {
-          await sessionManager.setPriority(sessionId, patch.priority)
-        }
-        if (patch.dueDate !== undefined) {
-          await sessionManager.setDueDate(sessionId, patch.dueDate)
-        }
-        if (patch.projectId !== undefined) {
-          await sessionManager.setSessionProjectId(sessionId, patch.projectId)
-        }
-        const nextLabels = resolveBulkLabels(existing.labels, patch)
-        if (nextLabels !== undefined) {
-          await sessionManager.setSessionLabels(sessionId, nextLabels)
-        }
-        if (patch.kanbanColumn !== undefined) {
-          await sessionManager.setKanbanColumn(sessionId, patch.kanbanColumn)
-        }
-        ok.push(sessionId)
-      } catch (e) {
-        failed.push({ id: sessionId, error: e instanceof Error ? e.message : String(e) })
-      }
-    }
-
-    if (ok.length > 0) {
+    if (result.ok.length > 0) {
       pushTyped(
         server,
         RPC_CHANNELS.sessions.BULK_CHANGED,
-        { to: 'workspace', workspaceId: input.workspaceId },
-        { workspaceId: input.workspaceId, ids: ok, patch },
+        { to: 'workspace', workspaceId: callerWorkspaceId },
+        { workspaceId: callerWorkspaceId, ids: result.ok, patch: input.patch },
       )
     }
 
-    return { ok, failed }
+    return result
   })
 
   // Get pending plan execution state (for reload recovery)

@@ -3,7 +3,6 @@ import {
   acceptInvite,
   createOrganization,
   getLocalIdentity,
-  getOrganization,
   inviteToOrganization,
   listOrgMembers,
   listOrganizations,
@@ -14,12 +13,12 @@ import type {
   InviteToOrgInput,
   OrgRole,
 } from '@craft-agent/shared/orgs'
+import { setWorkspaceOrganization } from '@craft-agent/shared/config'
 import {
   ensureLocalUserIdentity,
   loadPreferences,
   updatePreferences,
 } from '@craft-agent/shared/config/preferences'
-import { loadStoredConfig, saveConfig } from '@craft-agent/shared/config'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
@@ -115,19 +114,16 @@ export function registerOrgsHandlers(server: RpcServer, deps: HandlerDeps): void
   server.handle(
     RPC_CHANNELS.orgs.SET_WORKSPACE_ORG,
     async (_ctx, workspaceId: string, orgId: string | null) => {
-      const config = loadStoredConfig()
-      if (!config) throw new Error('No config found')
-      const ws = config.workspaces.find((w) => w.id === workspaceId)
-      if (!ws) throw new Error(`Workspace not found: ${workspaceId}`)
-      if (orgId) {
-        const org = getOrganization(orgId)
-        if (!org) throw new Error(`Organization not found: ${orgId}`)
-        ws.orgId = orgId
-      } else {
-        delete ws.orgId
+      if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+        throw new Error('workspaceId is required')
       }
-      saveConfig(config)
-      return ws
+      if (orgId !== null && typeof orgId !== 'string') {
+        throw new Error('orgId must be a string or null')
+      }
+
+      // The storage lifecycle resolves the local server identity and requires
+      // durable membership before it writes either folder or registry metadata.
+      return setWorkspaceOrganization(workspaceId.trim(), orgId)
     },
   )
 }

@@ -13,6 +13,11 @@
 
 import type { PermissionMode } from '../agent/mode-manager.ts';
 import type { ThinkingLevel } from '../agent/thinking-levels.ts';
+import type { Workspace } from '@craft-agent/core/types';
+
+/** Kept aligned with the core workspace DTO without duplicating its union. */
+export type WorkspaceKind = NonNullable<Workspace['kind']>;
+
 
 /**
  * Local MCP server configuration
@@ -34,6 +39,15 @@ export interface WorkspaceConfig {
   id: string;
   name: string;
   slug: string; // Folder name (URL-safe)
+  /**
+   * Canonical workspace authority metadata. Persisted records are normalized
+   * to an explicit value; optionality preserves compatibility with folders
+   * created before TeamSpace existed.
+   */
+  kind?: WorkspaceKind;
+  /** Required for `kind: 'team'`; omitted for personal workspaces. */
+  orgId?: string;
+
 
   /**
    * Default settings for new sessions in this workspace
@@ -82,6 +96,8 @@ export interface WorkspaceConfig {
  */
 export interface CreateWorkspaceInput {
   name: string;
+  kind?: WorkspaceKind;
+  orgId?: string;
   defaults?: WorkspaceConfig['defaults'];
 }
 

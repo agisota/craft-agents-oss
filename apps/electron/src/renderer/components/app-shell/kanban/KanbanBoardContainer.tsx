@@ -23,7 +23,7 @@ import { useProjectColorTreatment } from '@/hooks/useProjectColorTreatment'
 import { useLabels } from '@/hooks/useLabels'
 import { getSessionTitle } from '@/utils/session'
 import { routes } from '@/lib/navigate'
-import { resolveTaskScopeLabelId } from '@craft-agent/shared/labels'
+import { flattenLabels, resolveTaskScopeLabelId } from '@craft-agent/shared/labels'
 import { DEFAULT_MODEL, getModelShortName } from '@config/models'
 import { getDefaultModelsForConnection, type LlmConnectionWithStatus } from '@config/llm-connections'
 import type { SessionStatus } from '@/config/session-status-config'
@@ -32,6 +32,7 @@ import { parsePriorityGroupId } from './priority-groups'
 import { KANBAN_COLUMNS, statusToColumn } from './status-column'
 import { DEFAULT_KANBAN_COLUMN_COLORS } from './kanban-colors'
 import { CollectionViewChrome } from '../collection/CollectionViewChrome'
+import { CollectionBulkBar } from '../collection/CollectionBulkBar'
 import { KanbanProjectFilter, type KanbanProjectFilterOption } from './KanbanProjectFilter'
 import { TaskEditor } from './TaskEditor'
 import { mergeSubtaskRows, type SpecNodeSummary, type SubtaskChildRow } from './subtask-merge'
@@ -333,6 +334,22 @@ export function KanbanBoardContainer() {
   const projectOptions = React.useMemo<KanbanProjectFilterOption[]>(
     () => projects.map(p => ({ id: p.config.id, name: p.config.name, color: p.config.color })),
     [projects],
+  )
+  const labelOptions = React.useMemo(
+    () => flattenLabels(labelConfigs).map(label => ({ id: label.id, name: label.name })),
+    [labelConfigs],
+  )
+  const renderBulkActions = React.useCallback(
+    (visibleTaskIds: readonly string[]) => (
+      <CollectionBulkBar
+        workspaceId={activeWorkspaceId}
+        visibleSessionIds={visibleTaskIds}
+        statuses={sessionStatuses}
+        projects={projectOptions}
+        labels={labelOptions}
+      />
+    ),
+    [activeWorkspaceId, labelOptions, projectOptions, sessionStatuses],
   )
 
   const { groups: subtaskModelGroups, modelToConnection } = React.useMemo(
@@ -959,6 +976,7 @@ export function KanbanBoardContainer() {
           columns={visibleColumns}
           tasks={visibleTasks}
           sortTasks={displayDrivenSort}
+          renderBulkActions={renderBulkActions}
           projectsById={projectsById}
           statusesById={statusesById}
           statuses={sessionStatuses ?? []}

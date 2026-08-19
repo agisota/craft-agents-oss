@@ -9,7 +9,12 @@ import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { ensureContextDocs } from '@craft-agent/shared/context-docs'
 import { ensureBundledSkills } from '@craft-agent/shared/skills'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
-import { WsRpcServer, type WsRpcTlsOptions } from '../transport/server'
+import {
+  WsRpcServer,
+  type LocalClientBindingCandidate,
+  type TrustedLocalClientBinding,
+  type WsRpcTlsOptions,
+} from '../transport/server'
 import type { EventSink, RpcServer } from '../transport/types'
 import { createHeadlessPlatform } from '../runtime/platform-headless'
 import type { PlatformServices } from '../runtime/platform'
@@ -44,7 +49,13 @@ export interface ServerBootstrapOptions<TSessionManager, THandlerDeps> {
   initModelRefreshService: () => ModelRefreshServiceLike
   cleanupSessionManager?: (sessionManager: TSessionManager) => Promise<void> | void
   cleanupClientResources?: (clientId: string) => void
-  onClientConnected?: (info: { clientId: string; webContentsId: number | null; workspaceId: string | null; capabilities: string[] }) => void
+  onClientConnected?: (info: {
+    clientId: string
+    webContentsId: number | null
+    workspaceId: string | null
+    capabilities: string[]
+    isLocalElectronClient: boolean
+  }) => void
   serverId?: string
   /** App version string, included in handshake_ack for client compatibility checks. */
   serverVersion?: string
@@ -52,6 +63,8 @@ export interface ServerBootstrapOptions<TSessionManager, THandlerDeps> {
   tls?: WsRpcTlsOptions
   /** Cookie-based session validator for web UI auth on WebSocket upgrade. */
   validateSessionCookie?: (cookieHeader: string | null) => Promise<boolean>
+  /** Electron main resolves an ephemeral renderer proof into trusted scope. */
+  resolveLocalClientBinding?: (candidate: LocalClientBindingCandidate) => TrustedLocalClientBinding | null
   /**
    * Optional HTTP request handler for non-WebSocket requests on the RPC port.
    * When provided, the WsRpcServer serves HTTP (e.g. WebUI) on the same port.
@@ -410,6 +423,7 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
     tls: options.tls,
     httpHandler: options.httpHandler,
     onClientConnected: options.onClientConnected,
+    resolveLocalClientBinding: options.resolveLocalClientBinding,
     onClientDisconnected: (clientId) => {
       options.cleanupClientResources?.(clientId)
       // Best-effort: notify SM so it can drop browser-host pins for this client.

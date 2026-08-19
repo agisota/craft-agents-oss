@@ -1,8 +1,9 @@
 /**
- * AccountsSettingsPage — Identity Center settings (S-07 / W4).
+ * AccountsSettingsPage — profile, service connections, Notes, and security.
  *
- * Settings → Accounts & Connections
- * Blocks: Profile / Service Connections / Knowledge Sync / Account & Security
+ * The Notes section is the sole owner of its cloud connection. Generic service
+ * connections deliberately exclude Notes providers so users never see the same
+ * connection represented twice.
  */
 
 import * as React from 'react'
@@ -44,6 +45,7 @@ function providerLabel(provider: ServiceProvider | string, t: (k: string) => str
   const translated = t(key)
   return translated === key ? String(provider) : translated
 }
+
 
 export default function AccountsSettingsPage() {
   const { t } = useTranslation()
@@ -137,8 +139,9 @@ export default function AccountsSettingsPage() {
       setCloudToken('')
       setCloudFormOpen(false)
       toast.success(t('settings.accounts.connected'))
-    } catch (error) {
-      toast.error(t('settings.accounts.connectFailed', { message: errorMessage(error) }))
+    } catch {
+      setCloudToken('')
+      toast.error(t('settings.accounts.connectFailed', { message: t('common.failed') }))
     } finally {
       setConnecting(false)
     }
@@ -181,15 +184,19 @@ export default function AccountsSettingsPage() {
     }
   }
 
-  const profile = state?.profile
   const connections = state?.connections ?? []
-  const owned = connections.filter((c) => !c.readOnly)
-  const reflections = connections.filter((c) => c.readOnly)
-  const siyuanCloud = connections.find((c) => c.provider === 'siyuan-cloud' && !c.readOnly)
-  const entitlement = state?.entitlements.find(
-    (e) => e.provider === 'siyuan-cloud' && e.product === 'cloud-sync',
+  const genericConnections = connections.filter(
+    (connection) => connection.provider !== 'siyuan-cloud' && connection.provider !== 'siyuan-local',
   )
-  const entitlementExpired = entitlement?.status === 'expired'
+  const owned = genericConnections.filter((connection) => !connection.readOnly)
+  const reflections = genericConnections.filter((connection) => connection.readOnly)
+  const notesCloud = connections.find(
+    (connection) => connection.provider === 'siyuan-cloud' && !connection.readOnly,
+  )
+  const notesLocal = connections.find((connection) => connection.provider === 'siyuan-local')
+  const entitlement = state?.entitlements.find(
+    (item) => item.provider === 'siyuan-cloud' && item.product === 'cloud-sync',
+  )
 
   const healthOk = health ? health.healthy : null
   const issueCount = health?.issues?.length ?? 0
@@ -198,7 +205,6 @@ export default function AccountsSettingsPage() {
     <div className="flex h-full flex-col">
       <div className="px-6 py-4 border-b border-border/60">
         <h1 className="text-lg font-semibold">{t('settings.accounts.title')}</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">{t('settings.accounts.description')}</p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
@@ -207,14 +213,6 @@ export default function AccountsSettingsPage() {
           <SettingsCard>
             <SettingsRow
               label={t('settings.accounts.displayName')}
-              description={
-                profile
-                  ? t('settings.accounts.profileMeta', {
-                      id: profile.id,
-                      mode: profile.mode,
-                    })
-                  : undefined
-              }
             >
               <div className="flex items-center gap-2 min-w-[240px]">
                 <Input
@@ -235,136 +233,140 @@ export default function AccountsSettingsPage() {
           </SettingsCard>
         </SettingsSection>
 
-        {/* SERVICE CONNECTIONS */}
-        <SettingsSection
-          title={t('settings.accounts.connectionsSection')}
-          action={
-            <Button variant="ghost" size="sm" onClick={() => void handleRefresh()}>
-              {t('settings.accounts.refresh')}
-            </Button>
-          }
-        >
-          <SettingsCard>
-            {owned.length === 0 && reflections.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-muted-foreground">
-                {t('settings.accounts.noConnections')}
-              </div>
-            ) : (
-              <>
-                {owned.map((conn) => (
+        {genericConnections.length > 0 && (
+          <SettingsSection
+            title={t('settings.accounts.connectionsSection')}
+            action={
+              <Button variant="ghost" size="sm" onClick={() => void handleRefresh()}>
+                {t('settings.accounts.refresh')}
+              </Button>
+            }
+          >
+            <SettingsCard>
+              {owned.map((conn) => (
+                <SettingsRow
+                  key={conn.id}
+                  label={providerLabel(conn.provider, t)}
+                  description={
+                    conn.accountLabel
+                      ? `${conn.accountLabel} · ${t(`settings.accounts.status.${conn.status}`)}`
+                      : t(`settings.accounts.status.${conn.status}`)
+                  }
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${STATUS_TONE[conn.status]}`}>
+                      {t(`settings.accounts.status.${conn.status}`)}
+                    </span>
+                    {conn.status !== 'disconnected' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === conn.id}
+                        onClick={() => void handleDisconnect(conn.id)}
+                      >
+                        {t('settings.accounts.signOut')}
+                      </Button>
+                    )}
+                  </div>
+                </SettingsRow>
+              ))}
+              {reflections.map((conn) => {
+                const managedLabel = t('settings.accounts.managedInAi')
+                return (
                   <SettingsRow
                     key={conn.id}
                     label={providerLabel(conn.provider, t)}
                     description={
                       conn.accountLabel
-                        ? `${conn.accountLabel} · ${t(`settings.accounts.status.${conn.status}`)}`
-                        : t(`settings.accounts.status.${conn.status}`)
+                        ? `${conn.accountLabel} · ${managedLabel}`
+                        : managedLabel
                     }
                   >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs ${STATUS_TONE[conn.status]}`}>
-                        {t(`settings.accounts.status.${conn.status}`)}
-                      </span>
-                      {conn.status !== 'disconnected' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busyId === conn.id}
-                          onClick={() => void handleDisconnect(conn.id)}
-                        >
-                          {t('settings.accounts.signOut')}
-                        </Button>
-                      )}
-                    </div>
-                  </SettingsRow>
-                ))}
-                {reflections.map((conn) => {
-                  const isKnowledge = conn.id.startsWith('knowledge:') || conn.provider === 'siyuan-local'
-                  const managedLabel = isKnowledge
-                    ? t('settings.accounts.managedInKnowledge')
-                    : t('settings.accounts.managedInAi')
-                  const openLabel = isKnowledge
-                    ? t('settings.accounts.openKnowledgeSettings')
-                    : t('settings.accounts.openAiSettings')
-                  const target = isKnowledge ? 'knowledge' : 'ai'
-                  return (
-                    <SettingsRow
-                      key={conn.id}
-                      label={providerLabel(conn.provider, t)}
-                      description={
-                        conn.accountLabel
-                          ? `${conn.accountLabel} · ${managedLabel}`
-                          : managedLabel
-                      }
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => navigate(routes.view.settings('ai'))}
                     >
+                      {t('settings.accounts.openAiSettings')}
+                    </Button>
+                  </SettingsRow>
+                )
+              })}
+            </SettingsCard>
+          </SettingsSection>
+        )}
+
+        {/* NOTES — sole owner of Notes connection presentation */}
+        <SettingsSection title={t('sidebar.notes')}>
+          <SettingsCard>
+            {notesLocal && (
+              <SettingsRow
+                label={t('sidebar.notes')}
+                description={
+                  notesLocal.readOnly
+                    ? t('settings.accounts.managedInKnowledge')
+                    : t(`settings.accounts.status.${notesLocal.status}`)
+                }
+              >
+                {notesLocal.readOnly ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => navigate(routes.view.settings('knowledge'))}
+                  >
+                    {t('settings.accounts.openKnowledgeSettings')}
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${STATUS_TONE[notesLocal.status]}`}>
+                      {t(`settings.accounts.status.${notesLocal.status}`)}
+                    </span>
+                    {notesLocal.status !== 'disconnected' && (
                       <Button
                         size="sm"
-                        variant="ghost"
-                        onClick={() => navigate(routes.view.settings(target))}
+                        variant="outline"
+                        disabled={busyId === notesLocal.id}
+                        onClick={() => void handleDisconnect(notesLocal.id)}
                       >
-                        {openLabel}
+                        {t('settings.accounts.signOut')}
                       </Button>
-                    </SettingsRow>
-                  )
-                })}
-              </>
-            )}
-          </SettingsCard>
-        </SettingsSection>
-
-        {/* KNOWLEDGE SYNC — siyuan-cloud */}
-        <SettingsSection title={t('settings.accounts.knowledgeSyncSection')}>
-          <SettingsCard>
-            <SettingsRow
-              label={t('settings.accounts.siyuanCloud')}
-              description={t('settings.accounts.siyuanCloudDesc')}
-            >
-              <span className={`text-xs ${siyuanCloud ? STATUS_TONE[siyuanCloud.status] : 'text-muted-foreground'}`}>
-                {siyuanCloud
-                  ? t(`settings.accounts.status.${siyuanCloud.status}`)
-                  : t('settings.accounts.status.disconnected')}
-              </span>
-            </SettingsRow>
-
-            {entitlementExpired && (
-              <div className="mx-4 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
-                {t('settings.accounts.entitlementExpiredBanner')}
-              </div>
+                    )}
+                  </div>
+                )}
+              </SettingsRow>
             )}
 
             <SettingsRow label={t('settings.accounts.account')}>
               <span className="text-sm text-muted-foreground">
-                {siyuanCloud?.accountLabel || t('settings.accounts.notConnected')}
-              </span>
-            </SettingsRow>
-            <SettingsRow label={t('settings.accounts.syncStatus')}>
-              <span className="text-sm text-muted-foreground">
-                {siyuanCloud
-                  ? t(`settings.accounts.status.${siyuanCloud.status}`)
-                  : t('settings.accounts.status.disconnected')}
-              </span>
-            </SettingsRow>
-            <SettingsRow label={t('settings.accounts.subscription')}>
-              <span className="text-sm text-muted-foreground">
-                {entitlement
-                  ? t(`settings.accounts.entitlement.${entitlement.status}`, {
-                      product: entitlement.product,
-                    })
-                  : t('settings.accounts.entitlement.none')}
-              </span>
-            </SettingsRow>
-            <SettingsRow label={t('settings.accounts.devices')}>
-              <span className="text-sm text-muted-foreground">
-                {t('settings.accounts.devicesPlaceholder')}
+                {notesCloud?.accountLabel || t('settings.accounts.notConnected')}
               </span>
             </SettingsRow>
 
-            {(!siyuanCloud || siyuanCloud.status === 'disconnected' || cloudFormOpen) && (
+            <SettingsRow label={t('settings.accounts.syncStatus')}>
+              <span
+                className={`text-sm ${notesCloud ? STATUS_TONE[notesCloud.status] : 'text-muted-foreground'}`}
+              >
+                {notesCloud
+                  ? t(`settings.accounts.status.${notesCloud.status}`)
+                  : t('settings.accounts.status.disconnected')}
+              </span>
+            </SettingsRow>
+            {entitlement && (
+              <SettingsRow label={t('settings.accounts.subscription')}>
+                <span className="text-sm text-muted-foreground">
+                  {t(`settings.accounts.entitlement.${entitlement.status}`, {
+                    product: entitlement.product,
+                  })}
+                </span>
+              </SettingsRow>
+            )}
+
+            {(!notesCloud || notesCloud.status === 'disconnected' || cloudFormOpen) && (
               <div className="px-4 py-3 space-y-2 border-t border-border/40">
                 <div className="text-xs font-medium text-muted-foreground">
-                  {cloudFormOpen && siyuanCloud && siyuanCloud.status !== 'disconnected'
+                  {cloudFormOpen && notesCloud && notesCloud.status !== 'disconnected'
                     ? t('settings.accounts.reconnect')
-                    : t('settings.accounts.connectCloud')}
+                    : t('settings.accounts.connect')}
                 </div>
                 <Input
                   placeholder={t('settings.accounts.accountLabelPlaceholder')}
@@ -385,11 +387,11 @@ export default function AccountsSettingsPage() {
                     onClick={() => void handleConnectCloud()}
                     disabled={connecting || !workspaceId || !cloudToken.trim()}
                   >
-                    {cloudFormOpen && siyuanCloud && siyuanCloud.status !== 'disconnected'
+                    {cloudFormOpen && notesCloud && notesCloud.status !== 'disconnected'
                       ? t('settings.accounts.reconnect')
                       : t('settings.accounts.connect')}
                   </Button>
-                  {cloudFormOpen && siyuanCloud && siyuanCloud.status !== 'disconnected' && (
+                  {cloudFormOpen && notesCloud && notesCloud.status !== 'disconnected' && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -406,13 +408,13 @@ export default function AccountsSettingsPage() {
               </div>
             )}
 
-            {siyuanCloud && siyuanCloud.status !== 'disconnected' && !cloudFormOpen && (
+            {notesCloud && notesCloud.status !== 'disconnected' && !cloudFormOpen && (
               <div className="px-4 py-3 flex gap-2 border-t border-border/40">
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    setCloudLabel(siyuanCloud.accountLabel || '')
+                    setCloudLabel(notesCloud.accountLabel || '')
                     setCloudToken('')
                     setCloudFormOpen(true)
                   }}
@@ -423,8 +425,8 @@ export default function AccountsSettingsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busyId === siyuanCloud.id}
-                  onClick={() => void handleDisconnect(siyuanCloud.id)}
+                  disabled={busyId === notesCloud.id}
+                  onClick={() => void handleDisconnect(notesCloud.id)}
                 >
                   {t('settings.accounts.signOut')}
                 </Button>

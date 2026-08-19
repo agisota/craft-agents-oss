@@ -23,11 +23,35 @@ import type { CustomEndpointConfig } from '@config/llm-connections'
 import type { SetupNeeds, LlmConnectionSetup, ClaudeOAuthIdentityDto } from '../../shared/types'
 import { cancelOnboardingOAuth, isProviderManagedOAuthMethod } from './oauth-cancel'
 
+/**
+ * Identifies how the setup surface was opened. Existing callers are explicit
+ * user actions by default; startup code must opt in before it can honor a
+ * server-requested launch gate.
+ */
+export type OnboardingEntryPoint = 'explicit' | 'startup'
+
+/**
+ * A setup recommendation must never become a startup gate by itself.
+ *
+ * Older server payloads omit the flag, which intentionally remains non-blocking.
+ */
+export function shouldApplyOnboardingLaunchGate(
+  entryPoint: OnboardingEntryPoint,
+  setupNeeds?: Pick<SetupNeeds, 'shouldShowOnboardingOnLaunch'>,
+): boolean {
+  return entryPoint === 'startup' && setupNeeds?.shouldShowOnboardingOnLaunch === true
+}
+
 interface UseOnboardingOptions {
   /** Called when onboarding is complete */
   onComplete: () => void
   /** Initial setup needs from auth state check */
   initialSetupNeeds?: SetupNeeds
+  /**
+   * Where the wizard was opened. Defaults to an explicit user action, so
+   * setup state alone cannot begin a credential, billing, or OAuth flow.
+   */
+  entryPoint?: OnboardingEntryPoint
   /** Start the wizard at a specific step (default: 'welcome') */
   initialStep?: OnboardingStep
   /** Pre-select an API setup method (useful when editing an existing connection) */
@@ -207,6 +231,7 @@ export function apiSetupMethodToConnectionSetup(
 export function useOnboarding({
   onComplete,
   initialSetupNeeds,
+  entryPoint = 'explicit',
   initialStep = 'provider-select',
   initialApiSetupMethod,
   onDismiss,
@@ -214,6 +239,8 @@ export function useOnboarding({
   editingSlug = null,
   existingSlugs = new Set(),
 }: UseOnboardingOptions): UseOnboardingReturn {
+  const shouldApplyStartupGate = shouldApplyOnboardingLaunchGate(entryPoint, initialSetupNeeds)
+
   // Main wizard state
   const [state, setState] = useState<OnboardingState>({
     step: initialStep,
@@ -227,12 +254,13 @@ export function useOnboarding({
     isCheckingGitBash: true, // Start as true until check completes
   })
 
-  // Rox cloud gate: if product requires Connect and not connected, force step.
+  // A cloud connection is optional unless the startup caller and server both
+  // explicitly request a launch gate.
   useEffect(() => {
-    if (initialSetupNeeds?.needsRoxCloud) {
+    if (shouldApplyStartupGate && initialSetupNeeds?.needsRoxCloud) {
       setState(s => (s.step === 'rox-connect' ? s : { ...s, step: 'rox-connect' }))
     }
-  }, [initialSetupNeeds?.needsRoxCloud])
+  }, [initialSetupNeeds?.needsRoxCloud, shouldApplyStartupGate])
 
   // Check Git Bash on Windows at mount. If missing, redirect to git-bash step
   // regardless of the initial step (provider-select skips the welcome gate).
@@ -337,8 +365,9 @@ export function useOnboarding({
         break
 
       case 'welcome':
-        // Rox cloud Connect gate (product policy: required by default)
-        if (initialSetupNeeds?.needsRoxCloud) {
+        // A cloud connection only gates a startup flow when the server has
+        // explicitly requested it. Direct settings/onboarding actions stay optional.
+        if (shouldApplyStartupGate && initialSetupNeeds?.needsRoxCloud) {
           setState(s => ({ ...s, step: 'rox-connect' }))
         } else if (state.gitBashStatus?.platform === 'win32' && !state.gitBashStatus?.found) {
           setState(s => ({ ...s, step: 'git-bash' }))
@@ -367,7 +396,7 @@ export function useOnboarding({
         onComplete()
         break
     }
-  }, [state.step, state.gitBashStatus, state.apiSetupMethod, onComplete])
+  }, [state.step, state.gitBashStatus, state.apiSetupMethod, onComplete, initialSetupNeeds?.needsRoxCloud, shouldApplyStartupGate])
 
   // Go back to previous step. If at the initial step, call onDismiss instead.
   const handleBack = useCallback(() => {

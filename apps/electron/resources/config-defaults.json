@@ -3,13 +3,13 @@
   "description": "Default configuration values for Craft Agents",
   "defaults": {
     "notificationsEnabled": true,
-    "colorTheme": "default",
+    "colorTheme": "pierre",
     "autoCapitalisation": true,
     "sendMessageKey": "enter",
     "spellCheck": false,
     "keepAwakeWhileRunning": false,
     "richToolDescriptions": true,
-    "defaultZoomLevel": 100,
+    "defaultZoomLevel": 90,
     "extendedPromptCache": false,
     "browserToolEnabled": true,
     "allowRemoteEvaluate": true

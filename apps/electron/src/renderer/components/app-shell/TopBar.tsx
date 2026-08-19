@@ -47,7 +47,6 @@ interface TopBarProps {
   onNewWindow?: () => void
   onOpenSettings: () => void
   onOpenSettingsSubpage: (subpage: SettingsMenuItem['id']) => void
-  onOpenKeyboardShortcuts: () => void
   onOpenStoredUserPreferences: () => void
   onBack: () => void
   onForward: () => void
@@ -57,10 +56,6 @@ interface TopBarProps {
   onToggleFocusMode: () => void
   onAddSessionPanel: () => void
   onAddBrowserPanel: () => void
-  /** Open What's New overlay (release notes). */
-  onWhatsNew?: () => void
-  /** Show unseen badge on What's New control. */
-  hasUnseenWhatsNew?: boolean
   /** Active panel header rendered beside the workspace switcher on compact screens. */
   compactHeaderRenderer?: () => ReactNode
   /** Chat detail uses a minimal back/title/menu bar on compact screens. */
@@ -87,7 +82,6 @@ export function TopBar({
   onNewWindow,
   onOpenSettings,
   onOpenSettingsSubpage,
-  onOpenKeyboardShortcuts,
   onOpenStoredUserPreferences,
   onBack,
   onForward,
@@ -97,8 +91,6 @@ export function TopBar({
   onToggleFocusMode,
   onAddSessionPanel,
   onAddBrowserPanel,
-  onWhatsNew,
-  hasUnseenWhatsNew = false,
   compactHeaderRenderer,
   isCompactChatMode,
   isCompactSettingsMode,
@@ -187,7 +179,6 @@ export function TopBar({
           onNewWindow={onNewWindow}
           onOpenSettings={onOpenSettings}
           onOpenSettingsSubpage={onOpenSettingsSubpage}
-          onOpenKeyboardShortcuts={onOpenKeyboardShortcuts}
           onOpenStoredUserPreferences={onOpenStoredUserPreferences}
           onToggleSidebar={onToggleSidebar}
           onToggleFocusMode={onToggleFocusMode}
@@ -272,38 +263,7 @@ export function TopBar({
           </StyledDropdownMenuContent>
         </DropdownMenu>
 
-        {/* Shortcuts */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <TopBarButton
-              onClick={onOpenKeyboardShortcuts}
-              aria-label={t("menu.keyboardShortcuts")}
-              className="h-[26px] w-[26px] rounded-lg"
-            >
-              <span className="text-[13px] font-medium leading-none text-foreground/50">⌥</span>
-            </TopBarButton>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t("menu.keyboardShortcuts")}</TooltipContent>
-        </Tooltip>
 
-        {/* What's New */}
-        {onWhatsNew && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <TopBarButton
-                onClick={onWhatsNew}
-                aria-label={t("sidebar.whatsNew")}
-                className="relative h-[26px] w-[26px] rounded-lg"
-              >
-                <Icons.Cake className="h-4 w-4 text-foreground/50" strokeWidth={1.5} />
-                {hasUnseenWhatsNew && (
-                  <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-accent" />
-                )}
-              </TopBarButton>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t("sidebar.whatsNew")}</TooltipContent>
-          </Tooltip>
-        )}
 
         {/* Help button */}
         <DropdownMenu>

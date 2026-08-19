@@ -48,6 +48,65 @@ export function createEmptyGraph(entity: MindMapEntityRef, rootLabel: string): M
   };
 }
 
+/** Localized labels supplied by the renderer for a new empty map. */
+export interface MindMapStarterLabels {
+  input: string;
+  plan: string;
+  execute: string;
+  review: string;
+  result: string;
+}
+
+/**
+ * Build a small, editable pinned pipeline when an entity has no derived
+ * structure yet. It deliberately has no source-bearing nodes.
+ */
+export function createMindMapStarterGraph(
+  entity: MindMapEntityRef,
+  labels: MindMapStarterLabels,
+): MindMapGraph {
+  const graph = createEmptyGraph(entity, labels.input);
+  let parentId = graph.rootId;
+  for (const [id, label] of [
+    ['starter:plan', labels.plan],
+    ['starter:execute', labels.execute],
+    ['starter:review', labels.review],
+    ['starter:result', labels.result],
+  ] as const) {
+    addChild(graph, parentId, { id, label, kind: 'custom' });
+    parentId = id;
+  }
+  return finalizeGraph(graph, 'pinned');
+}
+
+/**
+ * Copy a graph before changing a pinned snapshot. Derived/live projections stay
+ * isolated from pin-local structure and label edits.
+ */
+export function cloneMindMapGraph(graph: MindMapGraph): MindMapGraph {
+  const nodes: Record<MindMapNodeId, MindMapNode> = {};
+  for (const [id, node] of Object.entries(graph.nodes)) {
+    nodes[id] = {
+      ...node,
+      children: [...node.children],
+      ...(node.meta ? { meta: { ...node.meta } } : {}),
+      ...(node.source ? { source: { ...node.source } } : {}),
+    };
+  }
+
+  const entity: MindMapEntityRef =
+    graph.entity.type === 'knowledge'
+      ? { type: 'knowledge', ref: { ...graph.entity.ref } }
+      : { ...graph.entity };
+
+  return {
+    ...graph,
+    entity,
+    nodes,
+    edges: graph.edges.map((edge) => ({ ...edge })),
+  };
+}
+
 /**
  * Add a child under parentId. Assigns children[], parentId, and a parent edge.
  * Returns the created (or existing) node.

@@ -375,8 +375,15 @@ export function createManager(
       await persistTool(entry.name, result);
       setStatus({ name: entry.name, phase: 'ready', ...result });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof NetworkError || message.startsWith('offline:')) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const message = entry.name === 'openclaw'
+        ? error instanceof NetworkError || rawMessage.startsWith('offline:')
+          ? 'OPENCLAW_INSTALL_NETWORK_ERROR'
+          : error instanceof ShaMismatchError || error instanceof HttpError
+            ? 'OPENCLAW_INSTALL_INTEGRITY_ERROR'
+            : 'OPENCLAW_INSTALL_FAILED'
+        : rawMessage;
+      if (error instanceof NetworkError || rawMessage.startsWith('offline:')) {
         setStatus({ name: entry.name, phase: 'offline', error: message });
         return;
       }

@@ -42,7 +42,6 @@ import { resolveInheritedFilterParams, type FilterMode } from "./inherited-filte
 import { HeaderMenu } from "@/components/ui/HeaderMenu"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@craft-agent/ui"
-import { WhatsNewTimeline, parseCombinedReleaseNotes, type WhatsNewNote } from "./WhatsNewTimeline"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -84,11 +83,12 @@ import {
 
 import { APP_NAV_DESTINATIONS_BY_ID } from "./nav-destinations"
 import {
-  UnifiedShellLayout,
+  WorkspaceSurfaceHost,
   ACTIVITY_RAIL_WIDTH,
   ACTIVITY_RAIL_COLLAPSED_WIDTH,
+  resolveWorkbenchAvailability,
 } from "../../platform"
-import { featureUnifiedShellAtom, activityRailCollapsedAtom } from "@/atoms/unified-shell"
+import { featureWorkbenchAtom, activityRailCollapsedAtom } from "@/atoms/unified-shell"
 import { useSession, useSessionSelection } from "@/hooks/useSession"
 import { ensureSessionMessagesLoadedAtom } from "@/atoms/sessions"
 import { AppShellProvider, type AppShellContextType } from "@/context/AppShellContext"
@@ -129,6 +129,7 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isMemoryNavigation,
+  isConnectionsNavigation,
   isNotesNavigation,
   isAutomationsNavigation,
   isProjectsNavigation,
@@ -193,6 +194,8 @@ interface AppShellProps {
   showTopBarWorkspaceSelector?: boolean
   /** Left offset for a full-height rail rendered outside the top bar. */
   topBarLeftInset?: number
+  /** Main-process capability injection for the Workbench two-key rollout. */
+  workbenchOperatorCapability?: unknown
 }
 
 export function AppShell(props: AppShellProps) {
@@ -216,6 +219,7 @@ function AppShellContent({
   isFocusedMode = false,
   showTopBarWorkspaceSelector = true,
   topBarLeftInset = 0,
+  workbenchOperatorCapability = false,
 }: AppShellProps) {
   // Destructure commonly used values from context
   // Note: sessions is NOT destructured here - we use sessionMetaMapAtom instead
@@ -252,11 +256,15 @@ function AppShellContent({
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
     return storage.get(storage.KEYS.sidebarVisible, !defaultCollapsed)
   })
-  // W1 unified shell: when the activity rail is mounted, the absolute sidebar
-  // sashes shift right by the rail width (+ one PANEL_GAP); zero when OFF.
-  const unifiedShellEnabled = useAtomValue(featureUnifiedShellAtom)
+  // PR-2: the rail offset follows the same two-key decision as the host.
+  const workbenchUserPreference = useAtomValue(featureWorkbenchAtom)
+  const workbenchAvailability = resolveWorkbenchAvailability(
+    workbenchOperatorCapability,
+    workbenchUserPreference,
+  )
+  const workbenchEnabled = workbenchAvailability === 'enabled'
   const activityRailCollapsed = useAtomValue(activityRailCollapsedAtom)
-  const unifiedRailOffset = unifiedShellEnabled
+  const unifiedRailOffset = workbenchEnabled
     ? (activityRailCollapsed ? ACTIVITY_RAIL_COLLAPSED_WIDTH : ACTIVITY_RAIL_WIDTH) + PANEL_GAP
     : 0
   const [sidebarWidth, setSidebarWidth] = React.useState(() => {
@@ -306,10 +314,6 @@ function AppShellContent({
 
   const effectiveSidebarAndNavigatorHidden = isSidebarAndNavigatorHidden || isAutoCompact
 
-  // What's New timeline
-  const [showWhatsNew, setShowWhatsNew] = React.useState(false)
-  const [whatsNewNotes, setWhatsNewNotes] = React.useState<WhatsNewNote[]>([])
-  const [hasUnseenReleaseNotes, setHasUnseenReleaseNotes] = React.useState(false)
 
   // Profile strip (gamification footer)
   const [profileStrip, setProfileStrip] = React.useState<ProfileStripData>({
@@ -378,16 +382,6 @@ function AppShellContent({
   }, [t])
 
 
-  // Check for unseen release notes on mount
-  useEffect(() => {
-    window.electronAPI.getLatestReleaseVersion().then((latestVersion) => {
-      if (!latestVersion) return
-      const lastSeen = storage.get(storage.KEYS.whatsNewLastSeenVersion, '')
-      const seenVersions = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
-      const seenSet = new Set(Array.isArray(seenVersions) ? seenVersions : [])
-      setHasUnseenReleaseNotes(lastSeen !== latestVersion && !seenSet.has(latestVersion))
-    })
-  }, [])
 
   const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | null>(null)
   const [sidebarHandleY, setSidebarHandleY] = React.useState<number | null>(null)
@@ -1478,10 +1472,6 @@ function AppShellContent({
     window.electronAPI.reorderStatuses(activeWorkspaceId, orderedIds)
   }, [activeWorkspaceId])
 
-  // Handler for knowledge home (knowledge navigator root, SiYuan surface)
-  const handleKnowledgeClick = useCallback(() => {
-    navigate(routes.view.knowledge())
-  }, [])
 
   // Handler for sources view (all sources)
   const handleSourcesClick = useCallback(() => {
@@ -1511,9 +1501,9 @@ function AppShellContent({
     navigate(routes.view.memory())
   }, [])
 
-  // P4.2: Notes IA → Knowledge (legacy vault via notesLegacy / settings)
+  // Handler for workspace-local Notes.
   const handleNotesClick = useCallback(() => {
-    navigate(routes.view.knowledge())
+    navigate(routes.view.notes())
   }, [])
 
   // Handlers for automations view
@@ -1544,20 +1534,6 @@ function AppShellContent({
     navigate(routes.view.settings(subpage))
   }, [])
 
-  // Handler for What's New timeline
-  const handleWhatsNewClick = useCallback(async () => {
-    const content = await window.electronAPI.getReleaseNotes()
-    setWhatsNewNotes(parseCombinedReleaseNotes(content ?? ''))
-    setShowWhatsNew(true)
-    setHasUnseenReleaseNotes(false)
-    const latestVersion = await window.electronAPI.getLatestReleaseVersion()
-    if (latestVersion) {
-      storage.set(storage.KEYS.whatsNewLastSeenVersion, latestVersion)
-      const prev = storage.get<string[]>(storage.KEYS.whatsNewSeenVersions, [])
-      const next = Array.from(new Set([...(Array.isArray(prev) ? prev : []), latestVersion]))
-      storage.set(storage.KEYS.whatsNewSeenVersions, next)
-    }
-  }, [])
 
   // ============================================================================
   // EDIT POPOVER STATE
@@ -1834,13 +1810,12 @@ function AppShellContent({
     result.push({ id: 'nav:memory', type: 'nav', action: handleMemoryClick })
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
-    // notes nav removed P4.2 — knowledge is primary PKM
-    result.push({ id: 'nav:knowledge', type: 'nav', action: handleKnowledgeClick })
+    result.push({ id: 'nav:notes', type: 'nav', action: handleNotesClick })
     result.push({ id: 'nav:automations', type: 'nav', action: handleAutomationsClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick() })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleKnowledgeClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleProjectsClick, handleAutomationsClick, handleSettingsClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleMemoryClick, handleNotesClick, handleProjectsClick, handleAutomationsClick, handleSettingsClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -1969,6 +1944,10 @@ function AppShellContent({
       return t("sidebar.memory")
     }
 
+    if (isConnectionsNavigation(navState)) {
+      return t("sidebar.connections")
+    }
+
     // Projects navigator
     if (isProjectsNavigation(navState)) {
       return t("sidebar.allProjects")
@@ -1976,7 +1955,7 @@ function AppShellContent({
 
     // Notes navigator
     if (isNotesNavigation(navState)) {
-      return "Notes"
+      return t("sidebar.notes")
     }
 
     // Automations navigator
@@ -2083,7 +2062,6 @@ function AppShellContent({
           onNewWindow={() => window.electronAPI.menuNewWindow()}
           onOpenSettings={onOpenSettings}
           onOpenSettingsSubpage={handleSettingsClick}
-          onOpenKeyboardShortcuts={onOpenKeyboardShortcuts}
           onOpenStoredUserPreferences={onOpenStoredUserPreferences}
           onBack={goBack}
           onForward={goForward}
@@ -2093,8 +2071,6 @@ function AppShellContent({
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
-          onWhatsNew={handleWhatsNewClick}
-          hasUnseenWhatsNew={hasUnseenReleaseNotes}
           compactHeaderRenderer={compactHeaderRenderer}
           isCompactChatMode={isAutoCompact && isSessionsNavigation(navState) && !!navState.details}
           isCompactSettingsMode={isWebUI && isAutoCompact && isSettingsNavigation(navState)}
@@ -2117,10 +2093,10 @@ function AppShellContent({
           gap: PANEL_GAP,
         }}
       >
-        {/* W1 unified shell: rail left, surface tabs above the stack, inspector
-            right — UnifiedShellLayout renders children unchanged when OFF. */}
-        <UnifiedShellLayout>
-        <PanelStackContainer
+        {/* PR-2 Workbench host: legacy children remain unchanged until both
+            operator capability and explicit user preference are true. */}
+        <WorkspaceSurfaceHost operatorCapability={workbenchOperatorCapability}>
+          <PanelStackContainer
           sidebarSlot={
             <div
               ref={sidebarRef}
@@ -2367,14 +2343,14 @@ function AppShellContent({
                       },
                     },
                     {
-                      id: "nav:knowledge",
-                      title: t(APP_NAV_DESTINATIONS_BY_ID.knowledge.labelKey),
-                      icon: APP_NAV_DESTINATIONS_BY_ID.knowledge.icon,
-                      variant: isKnowledgeNavigation(navState) ? "default" : "ghost",
-                      onClick: handleKnowledgeClick,
+                      id: "nav:notes",
+                      title: t(APP_NAV_DESTINATIONS_BY_ID.notes.labelKey),
+                      icon: APP_NAV_DESTINATIONS_BY_ID.notes.icon,
+                      variant: isNotesNavigation(navState) ? "default" : "ghost",
+                      onClick: handleNotesClick,
                     },
                     // --- Separator before footer ---
-                    { id: "separator:knowledge-automations", type: "separator" },
+                    { id: "separator:notes-automations", type: "separator" },
                     {
                       id: "nav:automations",
                       title: t(APP_NAV_DESTINATIONS_BY_ID.automations.labelKey),
@@ -2445,7 +2421,7 @@ function AppShellContent({
           </div>
           }
           sidebarWidth={effectiveSidebarAndNavigatorHidden ? 0 : (isSidebarVisible ? sidebarWidth : 0)}
-          navigatorSlot={isNotesNavigation(navState) ? null : (
+          navigatorSlot={(isNotesNavigation(navState) || isConnectionsNavigation(navState)) ? null : (
             <div
               style={{ width: isAutoCompact ? '100%' : sessionListWidth }}
               className="h-full flex flex-col min-w-0 relative z-panel"
@@ -2628,13 +2604,13 @@ function AppShellContent({
             )}
             </div>
           )}
-          navigatorWidth={isNotesNavigation(navState) ? 0 : (isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth))}
+          navigatorWidth={(isNotesNavigation(navState) || isConnectionsNavigation(navState)) ? 0 : (isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isBoardView ? 0 : sessionListWidth))}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
           isRightSidebarVisible={false}
           isCompact={isAutoCompact}
           isResizing={!!isResizing}
         />
-        </UnifiedShellLayout>
+        </WorkspaceSurfaceHost>
 
         {/* Sidebar Resize Handle (absolute, hidden in focused mode) */}
         {!effectiveSidebarAndNavigatorHidden && (
@@ -2886,17 +2862,6 @@ function AppShellContent({
         </>
       )}
 
-      {/* What's New timeline */}
-      <WhatsNewTimeline
-        isOpen={showWhatsNew}
-        onClose={() => setShowWhatsNew(false)}
-        notes={whatsNewNotes}
-        onOpenUrl={(url) => window.electronAPI.openUrl(url)}
-        onSeenChange={(seen) => {
-          const latest = whatsNewNotes[0]?.version
-          if (latest && seen.includes(latest)) setHasUnseenReleaseNotes(false)
-        }}
-      />
 
       {/* Delete automation confirmation dialog */}
       <Dialog open={!!automationPendingDelete} onOpenChange={(open) => { if (!open) setAutomationPendingDelete(null) }}>

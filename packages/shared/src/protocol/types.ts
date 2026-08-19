@@ -41,6 +41,12 @@ export interface MessageEnvelope {
   serverId?: string
   /** Electron webContents.id, sent on handshake by local clients. */
   webContentsId?: number
+  /**
+   * Ephemeral proof issued by Electron main for its own local renderer.
+   * It is accepted only by a server-side trusted binding resolver and is never
+   * retained, logged, or used as a general authentication credential.
+   */
+  localClientProof?: string
   /** Client capabilities advertised on handshake. */
   clientCapabilities?: string[]
   /** Server-registered channels, sent in handshake_ack. Clients use this to avoid calling unavailable channels. */

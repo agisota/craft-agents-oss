@@ -3,7 +3,7 @@
 import { loadShellEnv } from './shell-env'
 loadShellEnv()
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, nativeTheme, session, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { hostname, homedir } from 'os'
 import * as Sentry from '@sentry/electron/main'
@@ -87,6 +87,7 @@ import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@craft-agent/server-core/sessions'
 import { registerAllRpcHandlers } from './handlers/index'
 import { registerCoreRpcHandlers, cleanupCoreClientResources } from '@craft-agent/server-core/handlers/rpc'
+import { createWorkGraphKernel, type WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 import type { PlatformServices } from '../runtime/platform'
 import { createElectronPlatform } from './platform'
 import type { HandlerDeps } from './handlers/handler-deps'
@@ -123,6 +124,10 @@ import { initNotificationService, initBadgeIcon, initInstanceBadge, updateBadgeC
 import { checkForUpdatesOnLaunch, setAutoUpdateEventSink, isUpdating, setBeforeUpdateQuitHook, setBeforeUpdateInstallHook, setInstallQuitFailedHook } from './auto-update'
 import type { EventSink } from '@craft-agent/server-core/transport'
 import { validateGitBashPath, checkVCRedistInstalled } from '@craft-agent/server-core/services'
+import { createOpenClawSecurityComposition } from './openclaw-security'
+import { createOpenClawHostControlConfirmation, registerOpenClawHostControlIpc } from './openclaw-host-control'
+import { createLocalClientBindingRegistry } from './local-client-binding'
+import type { OpenClawRuntimeManager, OpenClawSecurityAuditService } from '@craft-agent/server-core/openclaw'
 
 // Initialize electron-log for renderer process support
 log.initialize()
@@ -217,6 +222,10 @@ let browserPaneManager: BrowserPaneManager | null = null
 let oauthFlowStore: OAuthFlowStore | null = null
 let moduleSink: EventSink | null = null
 let moduleClientResolver: ((webContentsId: number) => string | undefined) | null = null
+let openClawRuntimeManager: OpenClawRuntimeManager | null = null
+let openClawSecurityAuditService: OpenClawSecurityAuditService | null = null
+let workGraphKernel: WorkGraphKernel | null = null
+const localClientBindingRegistry = createLocalClientBindingRegistry()
 
 // Messaging gateway: the bootstrap handle is created once sessionManager is
 // available (inside createHandlerDeps) and populated with the WS publisher
@@ -247,43 +256,6 @@ if (process.defaultApp) {
 // Apply network proxy settings early (Node-level only — Electron sessions require app.whenReady)
 import { applyConfiguredProxySettings } from './network-proxy'
 void applyConfiguredProxySettings()
-
-// Accept self-signed / untrusted certificates when connecting to a user-configured remote server.
-// Only bypasses cert validation for the exact CRAFT_SERVER_URL origin — all other connections
-// use standard certificate verification. Without this, wss:// to self-signed servers fails with
-// ERR_CERT_AUTHORITY_INVALID because Chromium's WebSocket rejects untrusted certs.
-//
-// Electron's certificate-error always reports URLs with https:// scheme, so we normalize
-// wss:// → https:// (and ws:// → http://) to ensure origins compare correctly.
-function normalizeOriginForCert(urlStr: string): string {
-  const u = new URL(urlStr)
-  if (u.protocol === 'wss:') u.protocol = 'https:'
-  else if (u.protocol === 'ws:') u.protocol = 'http:'
-  return u.origin
-}
-
-if (process.env.CRAFT_SERVER_URL) {
-  let serverOrigin: string | undefined
-  try {
-    serverOrigin = normalizeOriginForCert(process.env.CRAFT_SERVER_URL)
-  } catch {
-    // Invalid URL — will fail later during connection, no need to handle here
-  }
-  if (serverOrigin) {
-    app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
-      try {
-        if (normalizeOriginForCert(url) === serverOrigin) {
-          event.preventDefault()
-          callback(true)
-          return
-        }
-      } catch {
-        // URL parse failure — fall through to default rejection
-      }
-      callback(false)
-    })
-  }
-}
 
 // Register thumbnail:// custom protocol for file preview thumbnails in the sidebar.
 // Must happen before app.whenReady() — Electron requires early scheme registration.
@@ -523,6 +495,12 @@ app.whenReady().then(async () => {
     ipcMain.on('__get-workspace-id', (e) => {
       e.returnValue = windowManager?.getWorkspaceForWindow(e.sender.id) ?? ''
     })
+    ipcMain.on('__get-local-client-proof', (e) => {
+      const owner = windowManager?.getWindowByWebContentsId(e.sender.id)
+      e.returnValue = owner && !owner.isDestroyed() && owner.webContents === e.sender
+        ? localClientBindingRegistry.issue(e.sender)
+        : ''
+    })
 
     // Transport diagnostics bridge — preload reports remote WS connection state changes
     // so failures are visible in terminal/main.log (not only renderer console).
@@ -656,6 +634,44 @@ app.whenReady().then(async () => {
       const clientMap = new Map<number, string>()
       const resolveClientId = (wcId: number) => clientMap.get(wcId)
 
+      // WorkGraph is an Electron-main capability. Constructor work is inert;
+      // native database provisioning remains lazy behind its local-only RPCs.
+      workGraphKernel = isHeadless ? null : createWorkGraphKernel({ configDir: CONFIG_DIR })
+
+      // Native Electron is the only host that composes a managed runtime.
+      // Headless and thin-client paths intentionally leave the optional core
+      // service absent, so they return its controlled unsupported response.
+      const openClawSecurity = isHeadless ? null : createOpenClawSecurityComposition()
+      if (openClawSecurity) {
+        openClawSecurityAuditService = openClawSecurity.auditService
+        openClawRuntimeManager = openClawSecurity.runtimeManager
+        if (windowManager) {
+          const confirmOpenClawHostControl = createOpenClawHostControlConfirmation({
+            translate: (key, interpolation) => i18n.t(key, interpolation),
+            showMessageBox: (owner, options) => dialog.showMessageBox(owner as BrowserWindow, options),
+          })
+          registerOpenClawHostControlIpc({
+            ipcMain,
+            windowManager,
+            runtimeManager: openClawSecurity.runtimeManager,
+            clipboard,
+            createEphemeralSession: partition => session.fromPartition(partition),
+            createControlUiWindow: options => {
+              // This object is built solely by the host-control module, not
+              // from IPC input. Electron's richer structural type is required
+              // only at this main-process construction boundary.
+              const browserWindowOptions = options as unknown as BrowserWindowConstructorOptions
+              return new BrowserWindow(browserWindowOptions)
+            },
+            confirm: async ({ action, workspaceId, owner }) => {
+              const ownerWindow = windowManager?.getWindowByWebContentsId(owner.webContents.id)
+              if (!ownerWindow) return false
+              return confirmOpenClawHostControl({ action, workspaceId, owner: ownerWindow })
+            },
+          })
+        }
+      }
+
       // Read embedded server config (Server settings page)
       const { getServerConfig } = await import('@craft-agent/shared/config')
       const embeddedServerConfig = getServerConfig()
@@ -767,13 +783,19 @@ app.whenReady().then(async () => {
             browserPaneManager: browserPaneManager ?? undefined,
             oauthFlowStore: ofs,
             messagingRegistry: messagingHandle.registry,
+            ...(openClawSecurity ? { openClawSecurity: openClawSecurity.service } : {}),
           }
         },
         // Headless: register only core handlers (no GUI handlers for browser, settings, etc.)
-        // GUI: register all handlers (core + GUI)
+        // GUI: register all handlers plus the main-process-owned WorkGraph profile.
         registerAllRpcHandlers: isHeadless
           ? (server, deps, serverCtx) => registerCoreRpcHandlers(server, deps, serverCtx)
-          : registerAllRpcHandlers,
+          : (server, deps, serverCtx) => registerAllRpcHandlers(
+              server,
+              deps,
+              serverCtx,
+              workGraphKernel ?? undefined,
+            ),
         setSessionEventSink: (sm, sink) => sm.setEventSink(sink),
         initializeSessionManager: (sm) => sm.initialize(),
         initModelRefreshService: () => initModelRefreshService(async (slug: string) => {
@@ -790,8 +812,18 @@ app.whenReady().then(async () => {
             oauthIdToken: oauth?.idToken,
           }
         }),
-        onClientConnected: ({ clientId, webContentsId }) => {
-          if (webContentsId != null) clientMap.set(webContentsId, clientId)
+        resolveLocalClientBinding: candidate => localClientBindingRegistry.resolve(candidate, webContentsId => {
+          const owner = windowManager?.getWindowByWebContentsId(webContentsId)
+          const workspaceId = windowManager?.getWorkspaceForWindow(webContentsId)
+          if (!owner || owner.isDestroyed() || !workspaceId) return null
+          return {
+            webContentsId: owner.webContents.id,
+            renderer: owner.webContents,
+            workspaceId,
+          }
+        }),
+        onClientConnected: ({ clientId, webContentsId, isLocalElectronClient }) => {
+          if (isLocalElectronClient && webContentsId != null) clientMap.set(webContentsId, clientId)
         },
         cleanupClientResources: (clientId) => {
           for (const [wcId, cId] of clientMap) {
@@ -1034,6 +1066,34 @@ app.whenReady().then(async () => {
         if (!wsId) { e.returnValue = null; return }
         const ws = getWorkspaceByNameOrId(wsId)
         e.returnValue = ws?.remoteServer ?? null
+      })
+
+      ipcMain.handle('remoteTls:inspect', async (_event, url: string) => {
+        const { inspectRemoteTlsPeer, beginEnrollment } = await import('./remote-tls-enrollment')
+        const result = await inspectRemoteTlsPeer(url)
+        return { nonce: beginEnrollment(result), result }
+      })
+      ipcMain.handle('remoteTls:decide', async (_event, payload: {
+        nonce: string
+        action: 'accept' | 'reject' | 'confirm-rollover'
+        workspaceId?: string
+      }) => {
+        const { applyEnrollmentDecision } = await import('./remote-tls-enrollment')
+        const { updateWorkspaceRemoteServer } = await import('@craft-agent/shared/config')
+        const ws = payload.workspaceId ? getWorkspaceByNameOrId(payload.workspaceId) : null
+        const stored = ws?.remoteServer?.tlsTrust
+        const storedPin = stored?.mode === 'spki-pin'
+          ? { origin: stored.origin, spkiSha256: stored.spkiSha256 }
+          : undefined
+        const decision = applyEnrollmentDecision({
+          nonce: payload.nonce,
+          action: payload.action,
+          storedPin,
+        })
+        if (decision.persist && ws?.remoteServer) {
+          updateWorkspaceRemoteServer(ws.id, { ...ws.remoteServer, tlsTrust: decision.persist })
+        }
+        return decision
       })
 
       // Server config RPC handlers (LOCAL_ONLY — Electron-specific)
@@ -1345,6 +1405,35 @@ async function performQuitCleanup(): Promise<void> {
       await messagingHandle.dispose()
     } catch (err) {
       mainLog.error('[messaging] dispose failed:', err)
+    }
+  }
+
+  // Stop and await in-flight managed audits before their runtime disappears.
+  if (openClawSecurityAuditService) {
+    try {
+      await openClawSecurityAuditService.dispose()
+    } catch {
+      mainLog.warn('[openclaw] security audit disposal failed')
+    }
+  }
+
+  // Stop only manager-owned OpenClaw children; never inspect or affect a
+  // user-managed OpenClaw process outside this runtime manager.
+  if (openClawRuntimeManager) {
+    try {
+      await openClawRuntimeManager.shutdown()
+    } catch {
+      mainLog.warn('[openclaw] managed runtime shutdown failed')
+    }
+  }
+
+  if (workGraphKernel) {
+    try {
+      await workGraphKernel.close()
+    } catch {
+      mainLog.warn('[workgraph] local database close failed')
+    } finally {
+      workGraphKernel = null
     }
   }
 

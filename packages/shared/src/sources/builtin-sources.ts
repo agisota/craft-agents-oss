@@ -1,10 +1,10 @@
 /**
  * Built-in Sources
  *
- * System-level API sources seeded into every workspace (Exa research, Firecrawl
- * crawl). They live on disk under sources/{slug}/ so the normal UI/list path
- * picks them up. Credentials come from env (EXA_API_KEY / FIRECRAWL_API_KEY) or
- * a future rox proxy — without keys the source stays enabled but needs_auth.
+ * Bundled API source templates (Exa research, Firecrawl crawl) are seeded into
+ * new workspaces under sources/{slug}/ so the normal UI/list path picks them up.
+ * They always require an explicit opt-in; credentials come from env
+ * (EXA_API_KEY / FIRECRAWL_API_KEY) or a future rox proxy.
  *
  * craft-agents-docs remains an always-available MCP server configured in
  * craft-agent.ts, not a folder source.
@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FolderSourceConfig, LoadedSource } from './types.ts';
+import { toPortablePath } from '../utils/paths.ts';
 import { estimateTokens } from '../utils/large-response.ts';
 
 function sourcesDir(workspaceRootPath: string): string {
@@ -21,6 +22,9 @@ function sourcesDir(workspaceRootPath: string): string {
 
 export const BUILTIN_SOURCE_SLUGS = ['exa', 'firecrawl'] as const;
 export type BuiltinSourceSlug = (typeof BUILTIN_SOURCE_SLUGS)[number];
+
+/** Source defaults that are usable without credentials, network access, or onboarding. */
+export const DEFAULT_ENABLED_LOCAL_SOURCE_SLUGS = ['notes'] as const;
 
 const EXA_ENV_KEYS = ['EXA_API_KEY', 'CRAFT_EXA_API_KEY', 'ROX_EXA_API_KEY'] as const;
 const FIRECRAWL_ENV_KEYS = [
@@ -51,7 +55,7 @@ function buildExaConfig(now: number): FolderSourceConfig {
     id: 'builtin-exa',
     name: 'Exa',
     slug: 'exa',
-    enabled: true,
+    enabled: false,
     provider: 'exa',
     type: 'api',
     api: {
@@ -75,7 +79,7 @@ function buildFirecrawlConfig(now: number): FolderSourceConfig {
     id: 'builtin-firecrawl',
     name: 'Firecrawl',
     slug: 'firecrawl',
-    enabled: true,
+    enabled: false,
     provider: 'firecrawl',
     type: 'api',
     api: {
@@ -155,6 +159,62 @@ function writeSourceFolder(
   if (!existsSync(guidePath)) {
     writeFileSync(guidePath, guide, 'utf-8');
   }
+}
+
+function buildNotesSourceGuide(notesPath: string): string {
+  return `# Notes vault
+
+Workspace markdown notes live at:
+
+${notesPath}
+
+## Scope
+
+Use this source when the user asks you to use their notes as context, search personal/work knowledge, update markdown notes, or create new notes.
+
+## Guidelines
+
+- Notes are plain markdown files under the path above.
+- Use file tools to read, search, create, rename, and update notes in that folder.
+- Preserve wiki links such as [[Note name]], markdown links, tags, YAML frontmatter, and asset references.
+- Assets are stored under ${join(notesPath, 'assets')}.
+- Daily notes are stored under ${join(notesPath, 'daily')}.
+- When you mention a note in chat, prefer [[Note name]] or notes/path/to/note.md so the UI can open it directly.
+
+## Context
+
+This source is maintained automatically from the built-in Notes feature. It has no external API or authentication.
+`;
+}
+
+/**
+ * Create the generated local Notes source only when its config is absent.
+ * An existing source config, including a disabled or custom one, is authoritative.
+ */
+export function ensureLocalNotesSource(workspaceRootPath: string, notesPath: string): void {
+  const configPath = join(sourcesDir(workspaceRootPath), 'notes', 'config.json');
+  if (existsSync(configPath)) return;
+
+  mkdirSync(notesPath, { recursive: true });
+  const now = Date.now();
+  writeSourceFolder(workspaceRootPath, {
+    id: 'notes-vault',
+    name: 'Notes vault',
+    slug: 'notes',
+    enabled: true,
+    provider: 'craft-notes',
+    type: 'local',
+    local: {
+      path: toPortablePath(notesPath),
+      format: 'craft-markdown',
+    },
+    icon: '📓',
+    tagline: 'Markdown notes, backlinks, tags, properties, daily notes, and assets',
+    isAuthenticated: true,
+    connectionStatus: 'connected',
+    createdAt: now,
+    updatedAt: now,
+  }, buildNotesSourceGuide(notesPath));
 }
 
 /**

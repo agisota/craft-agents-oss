@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { BulkUpdateSessionsPatch } from '@craft-agent/shared/protocol/dto'
-import { assertValidBulkLabelPatch, resolveBulkLabels } from './bulk-labels'
+import { assertValidBulkLabelPatch, resolveBulkLabels } from '@craft-agent/shared/sessions/collection'
 
 /**
  * B4 bulk lifecycle tests cover server handler logic through a small simulation
