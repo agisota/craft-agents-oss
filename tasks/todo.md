@@ -1,0 +1,35 @@
+# Todo: A+B+C 2026-08-13
+
+## Owner still must send
+- [ ] `АПPLY HMA-20260809-A1`
+- [ ] `APPROVE A1 BACKUP` / `APPROVE A2 HERMES SMART` / `APPROVE A3 PERMISSIONS` in order
+- [ ] Gate 0 datastore + microVM owner names
+- [ ] Sign branding charter
+
+## Done this session
+- [x] Live config getback (`approvals.mode=off`, Tirith fail-open)
+- [x] Syncthing absent; Tailscale 600 peers; env backups 644
+- [x] Target FAIL CLOSED
+- [x] Gate 0 block worksheet
+- [x] Architecture HTML
+- [x] CF-1 11/11 tests
+- [x] Program C four docs
+- [x] Increment A TLS/SPKI (already in tree)
+- [x] Increment B Task 4+5 public messaging authority
+- [x] Increment B Task 6 settings UI labels
+- [x] migrateNotes LOCAL_ONLY
+- [x] OwnedRootPolicy + absolute import paths
+- [x] CF-4.1 InProcessCredentialBroker
+- [x] CF-4.2 JsonAccessGrantStore + repair_required + delivery selection
+- [x] CF-5 WorkGraph connections (already landed)
+- [x] CF-6.1 connection RPC + wave-gated nav
+- [x] CF-6.2 ConnectionsPage on the connections navigator
+- [x] CF-6.3 live metadata list via workgraph.listConnections
+- [x] CF-5 WorkGraph connections + v1→v2 upgrade
+- [x] CF-5.2 revokeConnectionAndRevalidate
+
+## Never
+- [x] Did not restore or keep planning to restore `approvals.mode=off`
+- [x] Did not start managed SiYuan
+- [x] Did not implement Notes
+- [x] Did not merge leftover remotes
