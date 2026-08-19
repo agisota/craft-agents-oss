@@ -130,10 +130,10 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     }
   })
 
-  test('knowledge P4.4 migrateNotes is REMOTE_ELIGIBLE', () => {
+  test('knowledge P4.4 migrateNotes is LOCAL_ONLY', () => {
     for (const ch of P4_MIGRATE_CHANNELS) {
-      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(true)
-      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(false)
+      expect(LOCAL_ONLY_CHANNELS.has(ch)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(ch)).toBe(false)
     }
   })
 

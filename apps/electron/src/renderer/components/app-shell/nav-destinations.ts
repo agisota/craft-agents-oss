@@ -29,7 +29,7 @@ import {
 import { routes, type ViewRoute } from '../../../shared/routes'
 import {
   isAutomationsNavigation,
-  isKnowledgeNavigation,
+  isNotesNavigation,
   isMemoryNavigation,
   isProjectsNavigation,
   isSessionsNavigation,
@@ -42,7 +42,7 @@ import {
 
 export type AppNavDestinationId =
   | 'sessions'
-  | 'knowledge'
+  | 'notes'
   | 'sources'
   | 'skills'
   | 'memory'
@@ -116,12 +116,12 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     isActive: isSkillsNavigation,
   },
   {
-    id: 'knowledge',
-    linkId: 'nav:knowledge',
+    id: 'notes',
+    linkId: 'nav:notes',
     icon: NotebookPen,
-    labelKey: 'knowledge.nav.title',
-    route: () => routes.view.knowledge(),
-    isActive: isKnowledgeNavigation,
+    labelKey: 'sidebar.notes',
+    route: () => routes.view.notes(),
+    isActive: isNotesNavigation,
   },
   {
     id: 'automations',

@@ -29,6 +29,11 @@ function toQueryString(params?: Record<string, string | undefined>): string {
   )
   return `?${searchParams.toString()}`
 }
+function buildNotesRoute(noteId?: string) {
+  if (!noteId) return 'notes' as const
+  return `notes/note/${encodeURIComponent(noteId)}` as const
+}
+
 
 /**
  * Route definitions with type-safe builders
@@ -164,18 +169,9 @@ export const routes = {
     /** Connections view (native Workbench Connections surface) */
     connections: () => 'connections' as const,
 
-    /**
-     * P4.2: Notes IA aliases to Knowledge home.
-     * Legacy vault remains at `notesLegacy` until migration (P4.4).
-     * noteId is accepted for call-site compatibility but ignored until import map lands.
-     */
-    notes: (_noteId?: string) => 'knowledge' as const,
+    /** Canonical local Markdown Notes route. */
+    notes: buildNotesRoute,
 
-    /** Legacy markdown notes vault (pre-SiYuan). Prefer knowledge. */
-    notesLegacy: (noteId?: string) => {
-      if (!noteId) return 'notes-legacy' as const
-      return `notes-legacy/note/${encodeURIComponent(noteId)}` as const
-    },
 
     /** Automations view (automations navigator) - supports type filtering */
     automations: (params?: { automationId?: string; type?: 'scheduled' | 'event' | 'agentic' }) => {

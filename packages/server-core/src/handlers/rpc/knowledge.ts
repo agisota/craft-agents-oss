@@ -4,19 +4,17 @@
  * 7 write-back mutation-proposal channels (P3, spec 05 05-mutation-safety.md)
  * plus 8 Session→Knowledge publication channels (P4, spec 06) plus 6 P5
  * saved-views / work-envelope channels (K-09 §3.5 / S-08) plus P4.3
- * getExportPayload (Craft chrome copy/export, read-only) plus P4.4
- * migrateNotes (Craft notes vault → SiYuan).
+ * getExportPayload (Craft chrome copy/export, read-only) plus local Notes
+ * import.
  *
  * WRITE-BACK BOUNDARY: HANDLED_CHANNELS below is exactly the 9 spec-03 read
  * channels + getExportPayload + the 7 spec-05 proposal channels + the 8
  * spec-06 publication channels + the 6 P5 view/envelope channels + 2 P6
  * watch channels + migrateNotes. Every mutation channel routes through
  * KnowledgeBridgeService (the spec-05 pipeline: validate → base-hash →
- * draft → diff → review → apply, with inverse-ops rollback) — no direct
- * provider write path is registered from this file except migrateNotes,
- * which uses SiyuanKernelClient.createDocWithMd (whitelist) for bulk vault
- * import. ENGINE_STATUS/START/DETECT are LOCAL_ONLY bootstrap assist;
- * full managed lifecycle (stop/pin) remains P7.
+ * draft → diff → review → apply, with inverse-ops rollback) except the
+ * user-initiated local Notes import. It writes only to the Markdown Notes
+ * store; no knowledge provider, credential, or network access is involved.
  * Publication APPLY only creates a proposal; FINALIZE commits
  * publications/links after the proposal reaches 'applied' via P3 UI.
  * VIEW_SET_ATTRIBUTE also only proposes (never applies).
@@ -105,7 +103,7 @@ import {
   KnowledgePublishDraftsStore,
   KnowledgeWorkEnvelopesStore,
   credentialIdFromRef,
-  migrateCraftNotesToSiyuan,
+  importNotes,
   resolveWorkspaceNotesRoot,
   type MigrateNotesArgs,
   type MigrateNotesResult,
@@ -114,7 +112,6 @@ import {
   ensureLocalKernel,
   getKernelBootstrapStatus,
   KnowledgeMetricsStore,
-  maybeAutoStartLocalKernel,
   SIYUAN_INSTALL_URL,
   SIYUAN_LOCAL_CONNECTION_ID,
 } from '../../knowledge'
@@ -453,12 +450,6 @@ function assertKnowledgeRef(ref: unknown): asserts ref is KnowledgeRef {
 export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps): void {
   const log = deps.platform.logger
 
-  // Non-blocking local kernel bootstrap (detect binary → open/spawn if down).
-  // Never awaits readiness; UI polls ENGINE_STATUS / uses ENGINE_START CTA.
-  // Skipped under the same test seam as watch auto-start.
-  if (!skipKnowledgeWatchAutoStart) {
-    maybeAutoStartLocalKernel({ log: log ?? undefined })
-  }
 
   // Per-registration registry: factory re-runs on every connect(), picking up
   // the current token from tokensByConnection (set just before connect()).
@@ -614,13 +605,11 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
   }
 
   // ——— LIST_CONNECTIONS({}) → KnowledgeConnection[] ———
-  // Seeds a default local connection row when the registry is empty so Settings
-  // / Home always have something to show (token still user-supplied).
-  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () => {
-    const store = new KnowledgeConnectionsStore()
-    ensureDefaultLocalConnection(store)
-    return store.list().map(toContractConnection)
-  })
+  // Pure read: local Notes must work before any optional knowledge engine is
+  // configured. ENGINE_START is the explicit opt-in that can seed a connection.
+  server.handle(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, () =>
+    new KnowledgeConnectionsStore().list().map(toContractConnection),
+  )
 
   // ——— CAPABILITIES({connectionId}) → KnowledgeCapabilities ———
   server.handle(RPC_CHANNELS.knowledge.CAPABILITIES, (_ctx, args: KnowledgeConnectionArgs) =>
@@ -1628,45 +1617,39 @@ export function registerKnowledgeHandlers(server: RpcServer, deps: HandlerDeps):
     },
   )
 
-  // ——— MIGRATE_NOTES({workspaceId, connectionId, notebookName?}) → MigrateNotesResult ———
-  // P4.4 user-initiated Craft notes vault → SiYuan. Soft-fail per note; never deletes vault.
-  // createNotebook is not on the kernel whitelist — docs land under /Craft Notes/... path
-  // prefix in the named notebook when present, else the first open notebook.
+  // ——— MIGRATE_NOTES({workspaceId, sourceRoot, format?}) → MigrateNotesResult ———
+  // User-initiated local import into the Markdown Notes store. It has no
+  // knowledge-provider, credential, or network dependency.
   server.handle(
     RPC_CHANNELS.knowledge.MIGRATE_NOTES,
     async (_ctx, args: MigrateNotesArgs): Promise<MigrateNotesResult> => {
       if (!args?.workspaceId || typeof args.workspaceId !== 'string') {
         throw new Error('knowledge.migrateNotes: workspaceId is required')
       }
-      if (!args?.connectionId || typeof args.connectionId !== 'string') {
-        throw new Error('knowledge.migrateNotes: connectionId is required')
+      if (!args.sourceRoot || typeof args.sourceRoot !== 'string') {
+        throw new Error('knowledge.migrateNotes: sourceRoot is required')
+      }
+      if (args.format !== undefined && typeof args.format !== 'string') {
+        throw new Error('knowledge.migrateNotes: format must be a string')
       }
       const rootPath = requireWorkspaceRoot(args.workspaceId)
-      const record = requireConnection(args.connectionId)
-      const token = await readToken(record)
-      if (!token) {
-        throw new CodedError(
-          'CONNECTION_UNAVAILABLE',
-          `Knowledge connection '${record.id}' has no token — save a SiYuan API token first`,
-        )
-      }
-      let client: InstanceType<SiyuanKernelClientCtor>
-      try {
-        client = new siyuanKernelClientCtor({ baseUrl: record.baseUrl, token })
-      } catch (error) {
-        throw new CodedError(
-          'CONNECTION_UNAVAILABLE',
-          error instanceof Error ? error.message : String(error),
-        )
-      }
       const notesRoot = resolveWorkspaceNotesRoot(args.workspaceId)
       try {
-        return await migrateCraftNotesToSiyuan({
+        const result = await importNotes({
           workspaceRoot: rootPath,
-          notesRoot,
-          client,
-          notebookName: args.notebookName,
+          sourceRoot: args.sourceRoot,
+          destinationRoot: notesRoot,
+          format: args.format,
         })
+        if (result.migrated > 0) {
+          pushTyped(
+            server,
+            RPC_CHANNELS.notes.CHANGED,
+            { to: 'workspace', workspaceId: args.workspaceId },
+            { workspaceId: args.workspaceId },
+          )
+        }
+        return result
       } catch (error) {
         throw toTransportError(error)
       }

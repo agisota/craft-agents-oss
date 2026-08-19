@@ -306,6 +306,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.ENGINE_STATUS,
   RPC_CHANNELS.knowledge.DETECT_ENGINE,
   RPC_CHANNELS.knowledge.ENGINE_START,
+  // Local vault/kernel import: remote clients must not drive host filesystem paths.
+  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
   RPC_CHANNELS.mindmap.ENRICH,
   RPC_CHANNELS.mindmap.PIN_LOAD,
   RPC_CHANNELS.mindmap.PIN_SAVE,
@@ -497,7 +499,6 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.knowledge.VIEW_SET_ATTRIBUTE,
   RPC_CHANNELS.knowledge.WATCH,
   RPC_CHANNELS.knowledge.UNWATCH,
-  RPC_CHANNELS.knowledge.MIGRATE_NOTES,
   RPC_CHANNELS.knowledge.METRICS_GET,
 
   // memory — lesson/context data served by workspace host

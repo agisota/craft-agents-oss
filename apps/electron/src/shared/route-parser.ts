@@ -91,7 +91,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory', 'connections',
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'automations', 'projects', 'settings', 'browser', 'memory', 'connections',
   // Unified-shell surfaces (W1)
   'knowledge', 'cloud-run', 'extension', 'diff',
 ]
@@ -162,11 +162,9 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     }
     // Legacy subpages.
     // toolchain → runtime (PRD runtime-context-marketplace §5.1)
-    // marketplace → extensions (S-05 / W5 Extension Center)
     // preferences → context (P2.1 Context ↔ Preferences merge)
     const LEGACY_SETTINGS_REDIRECT: Record<string, SettingsSubpage> = {
       toolchain: 'runtime',
-      marketplace: 'extensions',
       preferences: 'context',
     }
     const redirected = LEGACY_SETTINGS_REDIRECT[subpage] ?? subpage
@@ -265,8 +263,8 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return null
   }
 
-  // Notes navigator (notes-legacy is the P4 vault surface; same navigator/details)
-  if (first === 'notes' || first === 'notes-legacy') {
+  // Notes navigator.
+  if (first === 'notes') {
     if (segments.length === 1) {
       return { navigator: 'notes' as NavigatorType, details: null }
     }
