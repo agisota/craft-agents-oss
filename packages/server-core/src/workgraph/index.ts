@@ -959,3 +959,16 @@ export { previewGithubEnvImport, commitGithubEnvImport } from './github-import.t
 export type { GithubImportPreview } from './github-import.ts'
 export { previewGitHelperImport, commitGitHelperImport } from './git-helper-import.ts'
 export type { GitHelperImportPreview } from './git-helper-import.ts'
+export {
+  previewAdcImport,
+  commitAdcImport,
+  previewAwsProfileImport,
+  commitAwsProfileImport,
+  previewDockerHelperImport,
+  commitDockerHelperImport,
+  previewKeychainImport,
+  commitKeychainImport,
+  previewSshAgentImport,
+  commitSshAgentImport,
+} from './local-imports.ts'
+export type { LocalImportPreview } from './local-imports.ts'
