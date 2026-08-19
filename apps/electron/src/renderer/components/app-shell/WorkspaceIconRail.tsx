@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { fullscreenOverlayOpenAtom } from "@/atoms/overlay";
 import { CrossfadeAvatar } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@craft-agent/ui";
-import { WorkspaceCreationScreen } from "@/components/workspace";
+import { WorkspaceCreationScreen, type WorkspaceCreationSuccess } from "@/components/workspace";
 import { waitForTransportConnected } from "@/lib/transport-wait";
 import { useTransportConnectionState } from "@/hooks/useTransportConnectionState";
 import { useWorkspaceIcons } from "@/hooks/useWorkspaceIcon";
@@ -182,12 +182,14 @@ export function WorkspaceIconRail({
 	}, [setFullscreenOverlayOpen]);
 
 	const handleWorkspaceCreated = React.useCallback(
-		(workspace: Workspace) => {
+		({ workspace, activation }: WorkspaceCreationSuccess) => {
+			setShowCreationScreen(false);
+			setFullscreenOverlayOpen(false);
 			toast.success(t("toast.createdWorkspace", { name: workspace.name }));
 			onWorkspaceCreated?.(workspace);
-			onSelect(workspace.id);
+			void onSelect(activation?.activeWorkspaceId ?? workspace.id);
 		},
-		[onSelect, onWorkspaceCreated, t],
+		[onSelect, onWorkspaceCreated, setFullscreenOverlayOpen, t],
 	);
 
 	const handleCloseCreationScreen = React.useCallback(() => {
@@ -253,8 +255,7 @@ export function WorkspaceIconRail({
 				return;
 			}
 			if (link.kind === "notes") {
-				// P4.2: notes rail links open Knowledge (legacy note ids ignored until migrate map)
-				navigate(routes.view.knowledge());
+				navigate(routes.view.notes());
 				return;
 			}
 			const url = link.target?.trim();
