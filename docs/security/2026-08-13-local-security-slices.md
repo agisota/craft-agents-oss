@@ -32,7 +32,7 @@ bun test packages/server-core/src/workgraph
 
 ## CF-5 / CF-6.1
 
-CF-5 WorkGraph connections, bindings, immutable audit, workspace-scoped closure, and revoke/revalidate are in tree. CF-6.1 adds LOCAL_ONLY list/get/create RPC. CF-6.2 enables the Workbench Connections rail, route, and native tabbed page. CF-6.3 lists metadata via `workgraph.listConnections` and rejects secret fields. CF-7.1 imports `GH_TOKEN`/`GITHUB_TOKEN`, brokers GitHub `/user` inside `perform`, then revoke kills unused leases. Tests inject `fetch`; they do not call api.github.com. Legacy AppShell `links[]` stays unchanged.
+CF-5 WorkGraph connections, bindings, immutable audit, workspace-scoped closure, and revoke/revalidate are in tree. CF-6.1 adds LOCAL_ONLY list/get/create RPC. CF-6.2 enables the Workbench Connections rail, route, and native tabbed page. CF-6.3 lists metadata via `workgraph.listConnections` and rejects secret fields. CF-7.1 imports `GH_TOKEN`/`GITHUB_TOKEN`, brokers GitHub `/user` inside `perform`, then revoke kills unused leases. CF-7.2 previews/imports those tokens from the Connections Imports tab. CF-9.2 does the same for a local gitconfig helper path. CF-7.3 revokes a listed connection after confirm. Tests inject `fetch`/helper fill; they do not call api.github.com or spawn git. Legacy AppShell `links[]` stays unchanged.
 
 ## CF-4 broker (partial)
 

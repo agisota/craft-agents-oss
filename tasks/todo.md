@@ -30,6 +30,8 @@
 - [x] CF-4 trusted-http-header apply/redact
 - [x] CF-8.1 InfisicalSecretProvider (injected HTTP, fail-closed)
 - [x] CF-9.1 GitCredentialHelperImporter (injected config, no secret in discover)
+- [x] CF-9.2 git-helper import RPC + Connections Imports tab
+- [x] CF-7.3 revoke from Connections with confirm + credentials/policies tabs
 - [x] CF-5 WorkGraph connections + v1→v2 upgrade
 - [x] CF-5.2 revokeConnectionAndRevalidate
 - [x] CF-6.4 InspectorHost connection metadata
