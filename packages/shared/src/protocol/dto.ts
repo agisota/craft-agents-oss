@@ -1153,3 +1153,53 @@ export interface ExtensionSurfaceState {
 
 // Toolchain wire types (re-export for RPC payloads; source of truth: toolchain module)
 export type { ToolName, ToolPhase, ToolStatus } from '../toolchain/types'
+
+// ---------------------------------------------------------------------------
+// Controlled credential migration (secret-free desktop RPC)
+// ---------------------------------------------------------------------------
+
+export type CredentialMigrationErrorCode =
+  | 'not_ready'
+  | 'unavailable'
+  | 'stale_source'
+  | 'rollback_unavailable'
+  | 'rollback_stale'
+  | 'operation_failed'
+
+export type CredentialMigrationPublicState = 'none' | 'applied' | 'rolled_back'
+
+export interface CredentialMigrationCountsDto {
+  ready: number
+  alreadyEnvelope: number
+  skipped: number
+  invalid: number
+}
+
+export interface CredentialMigrationPreviewDto extends CredentialMigrationCountsDto {}
+
+export interface CredentialMigrationApplyDto extends CredentialMigrationCountsDto {
+  migrationId: string
+  applied: number
+  status: 'applied'
+}
+
+export interface CredentialMigrationStatusDto extends CredentialMigrationCountsDto {
+  migrationId: string | null
+  state: CredentialMigrationPublicState
+  createdAt?: number
+  appliedAt?: number
+  rolledBackAt?: number
+  applied?: number
+  rollbackAvailable: boolean
+}
+
+export interface CredentialMigrationRollbackDto extends CredentialMigrationCountsDto {
+  migrationId: string
+  state: 'rolled_back'
+  applied?: number
+  rollbackAvailable: false
+}
+
+export type CredentialMigrationResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; code: CredentialMigrationErrorCode }

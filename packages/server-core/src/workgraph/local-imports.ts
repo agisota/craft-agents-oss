@@ -6,11 +6,13 @@ import {
   GoogleAdcImporter,
   KeychainImporter,
   SshAgentImporter,
+  type InProcessCredentialBroker,
   type KeychainGet,
   type KeychainList,
   type LocalFileSecretProvider,
   type SshAgentList,
 } from '@craft-agent/shared/credentials'
+import type { CredentialRefId } from '@craft-agent/core/platform'
 
 import type { ConnectionRecord, WorkGraphKernel } from './index'
 
@@ -40,7 +42,7 @@ async function commitConnection(input: {
   kernel: Pick<WorkGraphKernel, 'createConnection'>
   workspaceId: string
   integrationId: string
-  credentialRefId: string
+  credentialRefId: CredentialRefId
   storageMode: ConnectionRecord['storageMode']
   scopes: readonly string[]
 }): Promise<ConnectionRecord> {

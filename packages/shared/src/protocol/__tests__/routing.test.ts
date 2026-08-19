@@ -207,6 +207,34 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
   })
 })
 
+describe('credential migration routing (desktop vault)', () => {
+  const MIGRATION_CHANNELS = [
+    RPC_CHANNELS.credentials.PREVIEW_MIGRATION,
+    RPC_CHANNELS.credentials.APPLY_MIGRATION,
+    RPC_CHANNELS.credentials.GET_MIGRATION_STATUS,
+    RPC_CHANNELS.credentials.ROLLBACK_MIGRATION,
+  ]
+
+  const IDENTITY_CHANNELS = Object.values(RPC_CHANNELS.identity)
+
+  test('keeps the four migration channels LOCAL_ONLY like identity', () => {
+    expect(IDENTITY_CHANNELS.length).toBeGreaterThan(0)
+    for (const channel of IDENTITY_CHANNELS) {
+      expect(LOCAL_ONLY_CHANNELS.has(channel)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(channel)).toBe(false)
+    }
+
+    for (const channel of MIGRATION_CHANNELS) {
+      expect(LOCAL_ONLY_CHANNELS.has(channel)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(channel)).toBe(false)
+    }
+  })
+
+  test('leaves credentials HEALTH_CHECK REMOTE_ELIGIBLE', () => {
+    expect(REMOTE_ELIGIBLE_CHANNELS.has(RPC_CHANNELS.credentials.HEALTH_CHECK)).toBe(true)
+    expect(LOCAL_ONLY_CHANNELS.has(RPC_CHANNELS.credentials.HEALTH_CHECK)).toBe(false)
+  })
+})
 
 describe('OpenClaw security data channel routing', () => {
   const DATA_CHANNELS = [

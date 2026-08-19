@@ -18,6 +18,33 @@ export interface CredentialMigrationRecord {
   readonly credential: StoredCredential;
 }
 
+export type CredentialMigrationBackendState = 'applied' | 'rolled_back';
+
+/** Sanitized aggregate counts. Never includes identifiers or secrets. */
+export interface CredentialMigrationCounts {
+  readonly ready: number;
+  readonly alreadyEnvelope: number;
+  readonly skipped: number;
+  readonly invalid: number;
+}
+
+/**
+ * Sanitized projection of persisted migration metadata.
+ * Checksums, paths, ciphertext, and credential identities are omitted.
+ */
+export interface CredentialMigrationStatus {
+  readonly migrationId: string;
+  readonly state: CredentialMigrationBackendState;
+  readonly createdAt: number;
+  readonly appliedAt: number | null;
+  readonly rolledBackAt: number | null;
+  readonly ready: number;
+  readonly alreadyEnvelope: number;
+  readonly skipped: number;
+  readonly invalid: number;
+  readonly rollbackAvailable: boolean;
+}
+
 export interface CredentialBackend {
   /** Backend name for logging/debugging */
   readonly name: string;
@@ -49,8 +76,10 @@ export interface CredentialMigrationBackend extends CredentialBackend {
   applyMigration(
     snapshot: CredentialMigrationSnapshot,
     replacements: readonly CredentialMigrationRecord[],
+    counts: CredentialMigrationCounts,
   ): Promise<void>;
-  rollbackMigration(snapshot: CredentialMigrationSnapshot): Promise<void>;
+  rollbackMigration(migrationId: string): Promise<void>;
+  getLatestMigrationStatus(): Promise<CredentialMigrationStatus | null>;
 }
 
 export function isCredentialMigrationBackend(value: CredentialBackend): value is CredentialMigrationBackend {
@@ -60,6 +89,8 @@ export function isCredentialMigrationBackend(value: CredentialBackend): value is
     'applyMigration' in value &&
     typeof value.applyMigration === 'function' &&
     'rollbackMigration' in value &&
-    typeof value.rollbackMigration === 'function'
+    typeof value.rollbackMigration === 'function' &&
+    'getLatestMigrationStatus' in value &&
+    typeof value.getLatestMigrationStatus === 'function'
   );
 }

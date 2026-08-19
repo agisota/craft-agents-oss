@@ -1,7 +1,8 @@
 import type {
   CredentialMigrationBackend,
+  CredentialMigrationCounts,
   CredentialMigrationRecord,
-  CredentialMigrationSnapshot,
+  CredentialMigrationStatus,
 } from './backends/types.ts';
 import { encodeCredentialEnvelope } from './envelope.ts';
 import {
@@ -11,23 +12,25 @@ import {
 } from './manager.ts';
 import type { CredentialId } from './types.ts';
 
-export type CredentialMigrationEntryStatus = 'ready' | 'already-envelope' | 'skipped';
-
-export interface CredentialMigrationEntry {
-  readonly id: CredentialId;
-  readonly status: CredentialMigrationEntryStatus;
-}
+export type { CredentialMigrationCounts, CredentialMigrationStatus } from './backends/types.ts';
 
 export interface CredentialMigrationPreview {
-  readonly entries: readonly CredentialMigrationEntry[];
   readonly ready: number;
   readonly alreadyEnvelope: number;
   readonly skipped: number;
+  readonly invalid: number;
 }
 
 export interface CredentialMigrationApplyResult extends CredentialMigrationPreview {
   readonly applied: number;
-  readonly snapshot: CredentialMigrationSnapshot | null;
+  readonly migrationId: string | null;
+  readonly state: 'applied' | null;
+}
+
+export interface CredentialMigrationRollbackResult extends CredentialMigrationPreview {
+  readonly migrationId: string;
+  readonly state: 'rolled_back';
+  readonly rollbackAvailable: false;
 }
 
 interface EvaluatedMigration {
@@ -46,29 +49,35 @@ function cloneCredentialId(id: CredentialId): CredentialId {
   };
 }
 
+function countsFromPreview(preview: CredentialMigrationPreview): CredentialMigrationCounts {
+  return {
+    ready: preview.ready,
+    alreadyEnvelope: preview.alreadyEnvelope,
+    skipped: preview.skipped,
+    invalid: preview.invalid,
+  };
+}
+
 async function evaluateMigration(manager: CredentialManager): Promise<EvaluatedMigration> {
-  const entries: CredentialMigrationEntry[] = [];
-  const replacements: CredentialMigrationRecord[] = [];
   let ready = 0;
   let alreadyEnvelope = 0;
   let skipped = 0;
+  let invalid = 0;
+  const replacements: CredentialMigrationRecord[] = [];
 
   for (const id of await manager.list()) {
     const classified = await manager.inspect(id);
-    const safeId = cloneCredentialId(id);
     if (!classified) {
-      entries.push({ id: safeId, status: 'skipped' });
-      skipped += 1;
+      invalid += 1;
       continue;
     }
     if (classified.encoding === 'envelope-v1') {
-      entries.push({ id: safeId, status: 'already-envelope' });
       alreadyEnvelope += 1;
       continue;
     }
     try {
       replacements.push({
-        id: safeId,
+        id: cloneCredentialId(id),
         credential: {
           value: encodeCredentialEnvelope({
             kind: credentialKindForType(id.type),
@@ -76,16 +85,14 @@ async function evaluateMigration(manager: CredentialManager): Promise<EvaluatedM
           }),
         },
       });
-      entries.push({ id: safeId, status: 'ready' });
       ready += 1;
     } catch {
-      entries.push({ id: safeId, status: 'skipped' });
-      skipped += 1;
+      invalid += 1;
     }
   }
 
   return {
-    preview: { entries, ready, alreadyEnvelope, skipped },
+    preview: { ready, alreadyEnvelope, skipped, invalid },
     replacements,
   };
 }
@@ -107,20 +114,44 @@ export async function applyCredentialMigration(
   const backend = await migrationBackend(manager);
   const evaluated = await evaluateMigration(manager);
   if (evaluated.replacements.length === 0) {
-    return { ...evaluated.preview, applied: 0, snapshot: null };
+    return { ...evaluated.preview, applied: 0, migrationId: null, state: null };
   }
   const snapshot = await backend.createMigrationSnapshot();
-  await backend.applyMigration(snapshot, evaluated.replacements);
+  await backend.applyMigration(snapshot, evaluated.replacements, countsFromPreview(evaluated.preview));
   return {
     ...evaluated.preview,
     applied: evaluated.replacements.length,
-    snapshot,
+    migrationId: snapshot.migrationId,
+    state: 'applied',
   };
 }
 
-export async function rollbackCredentialMigration(
-  snapshot: CredentialMigrationSnapshot,
+export async function getCredentialMigrationStatus(
   manager: CredentialManager = getCredentialManager(),
-): Promise<void> {
-  await (await migrationBackend(manager)).rollbackMigration(snapshot);
+): Promise<CredentialMigrationStatus | null> {
+  return (await migrationBackend(manager)).getLatestMigrationStatus();
+}
+
+export async function rollbackCredentialMigration(
+  migrationId: string,
+  manager: CredentialManager = getCredentialManager(),
+): Promise<CredentialMigrationRollbackResult> {
+  if (typeof migrationId !== 'string' || migrationId.length === 0) {
+    throw new Error('Credential migration snapshot is invalid');
+  }
+  const backend = await migrationBackend(manager);
+  await backend.rollbackMigration(migrationId);
+  const status = await backend.getLatestMigrationStatus();
+  if (!status || status.migrationId !== migrationId || status.state !== 'rolled_back') {
+    throw new Error('Credential migration rollback is unavailable');
+  }
+  return {
+    migrationId: status.migrationId,
+    state: 'rolled_back',
+    rollbackAvailable: false,
+    ready: status.ready,
+    alreadyEnvelope: status.alreadyEnvelope,
+    skipped: status.skipped,
+    invalid: status.invalid,
+  };
 }

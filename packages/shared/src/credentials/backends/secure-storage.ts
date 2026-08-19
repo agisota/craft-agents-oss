@@ -40,6 +40,7 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -48,10 +49,11 @@ import { hostname, userInfo, homedir } from 'os';
 import { join, dirname } from 'path';
 
 import type {
-  CredentialBackend,
   CredentialMigrationBackend,
+  CredentialMigrationCounts,
   CredentialMigrationRecord,
   CredentialMigrationSnapshot,
+  CredentialMigrationStatus,
 } from './types.ts';
 import type { CredentialId, StoredCredential } from '../types.ts';
 import { credentialIdToAccount, accountToCredentialId } from '../types.ts';
@@ -129,6 +131,20 @@ interface CredentialMigrationManifest {
   sourceChecksum: string;
   state: 'snapshot' | 'applied' | 'rolled_back';
   appliedChecksum?: string;
+  appliedAt?: number;
+  rolledBackAt?: number;
+  counts?: CredentialMigrationCounts;
+}
+
+function isCredentialMigrationCounts(value: unknown): value is CredentialMigrationCounts {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.ready === 'number' &&
+    typeof record.alreadyEnvelope === 'number' &&
+    typeof record.skipped === 'number' &&
+    typeof record.invalid === 'number'
+  );
 }
 
 function isCredentialMigrationManifest(value: unknown): value is CredentialMigrationManifest {
@@ -141,8 +157,15 @@ function isCredentialMigrationManifest(value: unknown): value is CredentialMigra
     typeof value.createdAt === 'number' &&
     typeof value.sourceChecksum === 'string' &&
     (value.state === 'snapshot' || value.state === 'applied' || value.state === 'rolled_back') &&
-    (!('appliedChecksum' in value) || typeof value.appliedChecksum === 'string')
+    (!('appliedChecksum' in value) || typeof value.appliedChecksum === 'string') &&
+    (!('appliedAt' in value) || typeof value.appliedAt === 'number') &&
+    (!('rolledBackAt' in value) || typeof value.rolledBackAt === 'number') &&
+    (!('counts' in value) || isCredentialMigrationCounts(value.counts))
   );
+}
+
+function cloneStore(store: CredentialStore): CredentialStore {
+  return JSON.parse(JSON.stringify(store)) as CredentialStore;
 }
 
 
@@ -264,15 +287,20 @@ export class SecureStorageBackend implements CredentialMigrationBackend {
   async applyMigration(
     snapshot: CredentialMigrationSnapshot,
     replacements: readonly CredentialMigrationRecord[],
+    counts: CredentialMigrationCounts,
   ): Promise<void> {
     this.readSnapshot(snapshot);
-    if (this.checksum(readFileSync(this.credentialsFile)) !== snapshot.sourceChecksum) {
+    if (!existsSync(this.credentialsFile)) {
+      throw new Error('Credential migration source is unavailable');
+    }
+    const source = readFileSync(this.credentialsFile);
+    if (this.checksum(source) !== snapshot.sourceChecksum) {
       throw new Error('Credential migration source changed');
     }
 
-    this.clearCache();
-    const store = this.loadStoreSync();
-    if (!store) throw new Error('Credential migration source is unavailable');
+    const loaded = this.decryptFileData(source);
+    if (!loaded) throw new Error('Credential migration source is unavailable');
+    const store = cloneStore(loaded);
 
     const keys = new Set<string>();
     for (const replacement of replacements) {
@@ -288,23 +316,92 @@ export class SecureStorageBackend implements CredentialMigrationBackend {
       store.credentials[credentialIdToAccount(replacement.id)] = replacement.credential;
     }
     store.metadata.updatedAt = Date.now();
-    this.saveStoreSync(store);
-    this.setSnapshotState(snapshot, 'applied', this.checksum(readFileSync(this.credentialsFile)));
+
+    const encrypted = this.encryptStore(store);
+    const appliedChecksum = this.checksum(encrypted);
+    const appliedAt = Date.now();
+    // Persist applied metadata before replacing the live file so a crash cannot
+    // leave a new credentials file without rollback eligibility.
+    this.writeManifest(this.snapshotDir(snapshot.migrationId), {
+      migrationId: snapshot.migrationId,
+      createdAt: snapshot.createdAt,
+      sourceChecksum: snapshot.sourceChecksum,
+      state: 'applied',
+      appliedChecksum,
+      appliedAt,
+      counts,
+    });
+    this.writePrivateFile(this.credentialsFile, encrypted);
+    this.cachedStore = store;
   }
 
-  async rollbackMigration(snapshot: CredentialMigrationSnapshot): Promise<void> {
+  async rollbackMigration(migrationId: string): Promise<void> {
+    const snapshot = this.snapshotFromManifest(this.readManifest(migrationId));
     const { backup, manifest } = this.readSnapshot(snapshot);
-    if (
-      manifest.state !== 'applied' ||
-      !manifest.appliedChecksum ||
-      !existsSync(this.credentialsFile) ||
-      this.checksum(readFileSync(this.credentialsFile)) !== manifest.appliedChecksum
-    ) {
+    if (manifest.state !== 'applied' || !manifest.appliedChecksum) {
+      throw new Error('Credential migration rollback is unavailable');
+    }
+    if (!existsSync(this.credentialsFile)) {
+      throw new Error('Credential migration source changed');
+    }
+    const currentChecksum = this.checksum(readFileSync(this.credentialsFile));
+    if (currentChecksum !== manifest.appliedChecksum && currentChecksum !== manifest.sourceChecksum) {
       throw new Error('Credential migration source changed');
     }
     this.writePrivateFile(this.credentialsFile, backup);
-    this.clearCache();
-    this.setSnapshotState(snapshot, 'rolled_back');
+    this.cachedStore = null;
+    this.writeManifest(this.snapshotDir(migrationId), {
+      ...manifest,
+      state: 'rolled_back',
+      rolledBackAt: Date.now(),
+    });
+  }
+
+  async getLatestMigrationStatus(): Promise<CredentialMigrationStatus | null> {
+    if (!existsSync(this.migrationsDir)) return null;
+
+    let names: string[];
+    try {
+      names = readdirSync(this.migrationsDir);
+    } catch {
+      throw new Error('Credential migration snapshot is unavailable');
+    }
+
+    const completed: CredentialMigrationManifest[] = [];
+    for (const name of names) {
+      if (name.startsWith('.')) continue;
+      if (!/^credential-migration-[0-9a-f-]{36}$/i.test(name)) {
+        throw new Error('Credential migration snapshot is invalid');
+      }
+      const manifest = this.readManifest(name);
+      const backupPath = join(this.snapshotDir(name), CREDENTIALS_FILE_NAME);
+      let backup: Buffer;
+      try {
+        backup = readFileSync(backupPath);
+      } catch {
+        throw new Error('Credential migration snapshot is unavailable');
+      }
+      if (this.checksum(backup) !== manifest.sourceChecksum) {
+        throw new Error('Credential migration snapshot is invalid');
+      }
+      if (manifest.state === 'applied' || manifest.state === 'rolled_back') {
+        if (!manifest.counts || !manifest.appliedChecksum) {
+          throw new Error('Credential migration snapshot is invalid');
+        }
+        completed.push(manifest);
+      }
+    }
+
+    if (completed.length === 0) return null;
+    completed.sort((a, b) => {
+      const timeA = a.appliedAt ?? a.createdAt;
+      const timeB = b.appliedAt ?? b.createdAt;
+      if (timeA !== timeB) return timeB - timeA;
+      return b.migrationId.localeCompare(a.migrationId);
+    });
+    const candidate = completed[0];
+    if (!candidate) return null;
+    return this.sanitizeStatus(candidate);
   }
 
   // ============================================================
@@ -397,39 +494,46 @@ export class SecureStorageBackend implements CredentialMigrationBackend {
   }
 
   private saveStoreSync(store: CredentialStore): void {
+    const fileData = this.encryptStore(store);
+    this.writePrivateFile(this.credentialsFile, fileData);
+    this.cachedStore = store;
+  }
+
+  private encryptStore(store: CredentialStore): Buffer {
     if (!existsSync(this.credentialsDir)) {
       mkdirSync(this.credentialsDir, { recursive: true, mode: 0o700 });
     }
 
-    // Use existing salt or generate new one
     const salt = this.salt || randomBytes(SALT_SIZE);
     this.salt = salt;
-
-    // Get encryption key
     const key = this.getEncryptionKey(salt);
-
-    // Serialize payload
     const plaintext = Buffer.from(JSON.stringify(store), 'utf8');
-
-    // Generate new IV for each write (critical for GCM security)
     const iv = randomBytes(IV_SIZE);
-
-    // Encrypt
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     const authTag = cipher.getAuthTag();
-
-    // Build header
     const header = Buffer.alloc(HEADER_SIZE);
     MAGIC_BYTES.copy(header, 0);
-    header.writeUInt32LE(0, MAGIC_SIZE); // Flags (reserved)
+    header.writeUInt32LE(0, MAGIC_SIZE);
     salt.copy(header, MAGIC_SIZE + FLAGS_SIZE);
+    return Buffer.concat([header, iv, authTag, ciphertext]);
+  }
 
-    // Combine all parts
-    const fileData = Buffer.concat([header, iv, authTag, ciphertext]);
-
-    this.writePrivateFile(this.credentialsFile, fileData);
-    this.cachedStore = store;
+  private decryptFileData(fileData: Buffer): CredentialStore | null {
+    if (fileData.length < HEADER_SIZE + IV_SIZE + AUTH_TAG_SIZE) {
+      return null;
+    }
+    if (!fileData.subarray(0, MAGIC_SIZE).equals(MAGIC_BYTES)) {
+      return null;
+    }
+    const salt = fileData.subarray(MAGIC_SIZE + FLAGS_SIZE, MAGIC_SIZE + FLAGS_SIZE + SALT_SIZE);
+    this.salt = salt;
+    const encryptedData = fileData.subarray(HEADER_SIZE);
+    const newKey = this.getEncryptionKey(salt);
+    const store = this.tryDecrypt(encryptedData, newKey);
+    if (store) return store;
+    const legacyKey = this.getLegacyEncryptionKey(salt);
+    return this.tryDecrypt(encryptedData, legacyKey);
   }
 
   private checksum(value: Buffer): string {
@@ -477,19 +581,56 @@ export class SecureStorageBackend implements CredentialMigrationBackend {
     return { backup, manifest };
   }
 
-  private setSnapshotState(
-    snapshot: CredentialMigrationSnapshot,
-    state: CredentialMigrationManifest['state'],
-    appliedChecksum?: string,
-  ): void {
-    const { manifest } = this.readSnapshot(snapshot);
-    this.writeManifest(this.snapshotDir(snapshot.migrationId), {
-      migrationId: snapshot.migrationId,
-      createdAt: snapshot.createdAt,
-      sourceChecksum: snapshot.sourceChecksum,
-      state,
-      appliedChecksum: appliedChecksum ?? manifest.appliedChecksum,
-    });
+  private readManifest(migrationId: string): CredentialMigrationManifest {
+    const manifestPath = join(this.snapshotDir(migrationId), 'manifest.json');
+    let raw: string;
+    try {
+      raw = readFileSync(manifestPath, 'utf8');
+    } catch {
+      throw new Error('Credential migration snapshot is unavailable');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Credential migration snapshot is invalid');
+    }
+    if (!isCredentialMigrationManifest(parsed) || parsed.migrationId !== migrationId) {
+      throw new Error('Credential migration snapshot is invalid');
+    }
+    return parsed;
+  }
+
+  private snapshotFromManifest(manifest: CredentialMigrationManifest): CredentialMigrationSnapshot {
+    return {
+      migrationId: manifest.migrationId,
+      createdAt: manifest.createdAt,
+      sourceChecksum: manifest.sourceChecksum,
+    };
+  }
+
+  private sanitizeStatus(manifest: CredentialMigrationManifest): CredentialMigrationStatus {
+    if (!manifest.counts) {
+      throw new Error('Credential migration snapshot is invalid');
+    }
+    let rollbackAvailable = false;
+    if (manifest.state === 'applied' && manifest.appliedChecksum && existsSync(this.credentialsFile)) {
+      const currentChecksum = this.checksum(readFileSync(this.credentialsFile));
+      rollbackAvailable =
+        currentChecksum === manifest.appliedChecksum || currentChecksum === manifest.sourceChecksum;
+    }
+    return {
+      migrationId: manifest.migrationId,
+      state: manifest.state === 'rolled_back' ? 'rolled_back' : 'applied',
+      createdAt: manifest.createdAt,
+      appliedAt: manifest.appliedAt ?? null,
+      rolledBackAt: manifest.rolledBackAt ?? null,
+      ready: manifest.counts.ready,
+      alreadyEnvelope: manifest.counts.alreadyEnvelope,
+      skipped: manifest.counts.skipped,
+      invalid: manifest.counts.invalid,
+      rollbackAvailable,
+    };
   }
 
   private writeManifest(snapshotDir: string, manifest: CredentialMigrationManifest): void {
@@ -498,8 +639,10 @@ export class SecureStorageBackend implements CredentialMigrationBackend {
 
   private writePrivateFile(path: string, data: Buffer): void {
     const parent = dirname(path);
-    mkdirSync(parent, { recursive: true, mode: 0o700 });
-    chmodSync(parent, 0o700);
+    if (!existsSync(parent)) {
+      mkdirSync(parent, { recursive: true, mode: 0o700 });
+      chmodSync(parent, 0o700);
+    }
     const temporary = join(parent, `.${randomUUID()}.tmp`);
     const fd = openSync(temporary, 'wx', 0o600);
     try {
