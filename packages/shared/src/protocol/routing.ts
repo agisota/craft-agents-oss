@@ -55,6 +55,12 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.auth.SHOW_DELETE_SESSION_CONFIRMATION,
   RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION,
 
+  // credentials — local encrypted vault (desktop-only controlled migration)
+  RPC_CHANNELS.credentials.PREVIEW_MIGRATION,
+  RPC_CHANNELS.credentials.APPLY_MIGRATION,
+  RPC_CHANNELS.credentials.GET_MIGRATION_STATUS,
+  RPC_CHANNELS.credentials.ROLLBACK_MIGRATION,
+
   // shell — local OS shell (openFile/showInFolder guarded for remote)
   RPC_CHANNELS.shell.OPEN_URL,
   RPC_CHANNELS.shell.OPEN_FILE,

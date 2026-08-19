@@ -20,6 +20,7 @@ import type {
   ServiceProvider,
 } from '../../../shared/types'
 import { navigate, routes } from '@/lib/navigate'
+import { CredentialMigrationCard } from './CredentialMigrationCard'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -464,6 +465,7 @@ export default function AccountsSettingsPage() {
               </Button>
             </SettingsRow>
           </SettingsCard>
+          <CredentialMigrationCard />
         </SettingsSection>
       </div>
     </div>

@@ -167,6 +167,10 @@ export const CHANNEL_MAP = {
   showDeleteWorkspaceConfirmation: invoke(RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION),
   logout: invoke(RPC_CHANNELS.auth.LOGOUT),
   getCredentialHealth: invoke(RPC_CHANNELS.credentials.HEALTH_CHECK),
+  previewCredentialMigration: invoke(RPC_CHANNELS.credentials.PREVIEW_MIGRATION),
+  applyCredentialMigration: invoke(RPC_CHANNELS.credentials.APPLY_MIGRATION),
+  getCredentialMigrationStatus: invoke(RPC_CHANNELS.credentials.GET_MIGRATION_STATUS),
+  rollbackCredentialMigration: invoke(RPC_CHANNELS.credentials.ROLLBACK_MIGRATION),
 
   // Identity Center (S-07)
   identityGetState: invoke(RPC_CHANNELS.identity.GET_STATE),

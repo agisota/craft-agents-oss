@@ -101,6 +101,25 @@ export interface SshBootstrapProgress {
 import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
 export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
 
+import type {
+  CredentialMigrationApplyDto,
+  CredentialMigrationCountsDto,
+  CredentialMigrationErrorCode,
+  CredentialMigrationPreviewDto,
+  CredentialMigrationResult,
+  CredentialMigrationRollbackDto,
+  CredentialMigrationStatusDto,
+} from '@craft-agent/shared/protocol';
+export type {
+  CredentialMigrationApplyDto,
+  CredentialMigrationCountsDto,
+  CredentialMigrationErrorCode,
+  CredentialMigrationPreviewDto,
+  CredentialMigrationResult,
+  CredentialMigrationRollbackDto,
+  CredentialMigrationStatusDto,
+};
+
 // Identity Center (S-07)
 import type {
   IdentityState,
@@ -860,6 +879,10 @@ export interface ElectronAPI {
 
   // Credential health check (startup validation)
   getCredentialHealth(): Promise<CredentialHealthStatus>
+  previewCredentialMigration(): Promise<CredentialMigrationResult<CredentialMigrationPreviewDto>>
+  applyCredentialMigration(): Promise<CredentialMigrationResult<CredentialMigrationApplyDto>>
+  getCredentialMigrationStatus(): Promise<CredentialMigrationResult<CredentialMigrationStatusDto>>
+  rollbackCredentialMigration(migrationId: string): Promise<CredentialMigrationResult<CredentialMigrationRollbackDto>>
 
   // Identity Center (S-07)
   identityGetState(args?: { workspaceId?: string }): Promise<IdentityState>

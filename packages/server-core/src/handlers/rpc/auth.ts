@@ -1,7 +1,21 @@
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import { getCredentialManager } from '@craft-agent/shared/credentials'
+import type {
+  CredentialMigrationApplyDto,
+  CredentialMigrationErrorCode,
+  CredentialMigrationPreviewDto,
+  CredentialMigrationResult,
+  CredentialMigrationRollbackDto,
+  CredentialMigrationStatusDto,
+} from '@craft-agent/shared/protocol'
+import {
+  applyCredentialMigration,
+  getCredentialManager,
+  getCredentialMigrationStatus,
+  previewCredentialMigration,
+  rollbackCredentialMigration,
+} from '@craft-agent/shared/credentials'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { getIdentityStore, resetIdentityStoreCache } from '@craft-agent/core/platform/identity/store'
 import type { RpcServer } from '@craft-agent/server-core/transport'
@@ -14,7 +28,69 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.auth.SHOW_DELETE_SESSION_CONFIRMATION,
   RPC_CHANNELS.auth.SHOW_DELETE_WORKSPACE_CONFIRMATION,
   RPC_CHANNELS.credentials.HEALTH_CHECK,
+  RPC_CHANNELS.credentials.PREVIEW_MIGRATION,
+  RPC_CHANNELS.credentials.APPLY_MIGRATION,
+  RPC_CHANNELS.credentials.GET_MIGRATION_STATUS,
+  RPC_CHANNELS.credentials.ROLLBACK_MIGRATION,
 ] as const
+
+/** Opaque IDs minted by the credential backend (`credential-migration-` + UUID). */
+export const CREDENTIAL_MIGRATION_ID_PATTERN = /^credential-migration-[0-9a-f-]{36}$/i
+
+function fail(code: CredentialMigrationErrorCode): CredentialMigrationResult<never> {
+  return { ok: false, code }
+}
+
+function ok<T>(data: T): CredentialMigrationResult<T> {
+  return { ok: true, data }
+}
+
+export function isCredentialMigrationId(value: unknown): value is string {
+  return typeof value === 'string' && CREDENTIAL_MIGRATION_ID_PATTERN.test(value)
+}
+
+function publicCounts(value: {
+  ready: number
+  alreadyEnvelope: number
+  skipped: number
+  invalid: number
+}): CredentialMigrationPreviewDto {
+  return {
+    ready: value.ready,
+    alreadyEnvelope: value.alreadyEnvelope,
+    skipped: value.skipped,
+    invalid: value.invalid,
+  }
+}
+
+function mapMigrationError(error: unknown, kind: 'preview' | 'apply' | 'status' | 'rollback'): CredentialMigrationErrorCode {
+  const text = error instanceof Error ? error.message.toLowerCase() : ''
+  if (text.includes('unavailable')) return 'unavailable'
+  if (text.includes('source changed')) {
+    return kind === 'rollback' ? 'rollback_stale' : 'stale_source'
+  }
+  if (
+    text.includes('snapshot is invalid')
+    || text.includes('snapshot is unavailable')
+    || text.includes('rollback is unavailable')
+  ) {
+    return 'rollback_unavailable'
+  }
+  if (text.includes('not_ready') || text.includes('no valid legacy')) return 'not_ready'
+  return 'operation_failed'
+}
+
+function emptyStatus(): CredentialMigrationStatusDto {
+  return {
+    ready: 0,
+    alreadyEnvelope: 0,
+    skipped: 0,
+    invalid: 0,
+    migrationId: null,
+    state: 'none',
+    rollbackAvailable: false,
+  }
+}
 
 export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void {
   // Show logout confirmation dialog (routed to client)
@@ -103,5 +179,73 @@ export function registerAuthHandlers(server: RpcServer, deps: HandlerDeps): void
   server.handle(RPC_CHANNELS.credentials.HEALTH_CHECK, async () => {
     const manager = getCredentialManager()
     return manager.checkHealth()
+  })
+
+  server.handle(RPC_CHANNELS.credentials.PREVIEW_MIGRATION, async (): Promise<CredentialMigrationResult<CredentialMigrationPreviewDto>> => {
+    try {
+      return ok(publicCounts(await previewCredentialMigration()))
+    } catch (error) {
+      return fail(mapMigrationError(error, 'preview'))
+    }
+  })
+
+  server.handle(RPC_CHANNELS.credentials.APPLY_MIGRATION, async (): Promise<CredentialMigrationResult<CredentialMigrationApplyDto>> => {
+    try {
+      const result = await applyCredentialMigration()
+      if (!result.migrationId || result.applied === 0 || result.state !== 'applied') {
+        return fail('not_ready')
+      }
+      const data: CredentialMigrationApplyDto = {
+        ...publicCounts(result),
+        migrationId: result.migrationId,
+        applied: result.applied,
+        status: 'applied',
+      }
+      return ok(data)
+    } catch (error) {
+      return fail(mapMigrationError(error, 'apply'))
+    }
+  })
+
+  server.handle(RPC_CHANNELS.credentials.GET_MIGRATION_STATUS, async (): Promise<CredentialMigrationResult<CredentialMigrationStatusDto>> => {
+    try {
+      const status = await getCredentialMigrationStatus()
+      if (!status) {
+        return ok(emptyStatus())
+      }
+      const data: CredentialMigrationStatusDto = {
+        ready: status.ready,
+        alreadyEnvelope: status.alreadyEnvelope,
+        skipped: status.skipped,
+        invalid: status.invalid,
+        migrationId: status.migrationId,
+        state: status.state,
+        createdAt: status.createdAt,
+        appliedAt: status.appliedAt ?? undefined,
+        rolledBackAt: status.rolledBackAt ?? undefined,
+        rollbackAvailable: status.rollbackAvailable,
+      }
+      return ok(data)
+    } catch (error) {
+      return fail(mapMigrationError(error, 'status'))
+    }
+  })
+
+  server.handle(RPC_CHANNELS.credentials.ROLLBACK_MIGRATION, async (_ctx, migrationId: unknown): Promise<CredentialMigrationResult<CredentialMigrationRollbackDto>> => {
+    if (!isCredentialMigrationId(migrationId)) {
+      return fail('rollback_unavailable')
+    }
+    try {
+      const result = await rollbackCredentialMigration(migrationId)
+      const data: CredentialMigrationRollbackDto = {
+        ...publicCounts(result),
+        migrationId: result.migrationId,
+        state: 'rolled_back',
+        rollbackAvailable: false,
+      }
+      return ok(data)
+    } catch (error) {
+      return fail(mapMigrationError(error, 'rollback'))
+    }
   })
 }

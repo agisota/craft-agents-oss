@@ -29,19 +29,22 @@ export {
 } from './manager.ts';
 export {
   applyCredentialMigration,
+  getCredentialMigrationStatus,
   previewCredentialMigration,
   rollbackCredentialMigration,
 } from './migration.ts';
 export type {
   CredentialMigrationApplyResult,
-  CredentialMigrationEntry,
   CredentialMigrationPreview,
+  CredentialMigrationRollbackResult,
 } from './migration.ts';
 export type { CredentialId, CredentialType, StoredCredential } from './types.ts';
 export { credentialIdToAccount, accountToCredentialId, SOURCE_CREDENTIAL_TYPES } from './types.ts';
 export type {
   CredentialBackend,
   CredentialMigrationBackend,
+  CredentialMigrationCounts,
   CredentialMigrationRecord,
   CredentialMigrationSnapshot,
+  CredentialMigrationStatus,
 } from './backends/types.ts';

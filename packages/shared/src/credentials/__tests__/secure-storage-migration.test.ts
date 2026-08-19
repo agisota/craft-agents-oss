@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { encodeCredentialEnvelope } from '../envelope.ts';
@@ -7,6 +7,7 @@ import { SecureStorageBackend } from '../backends/secure-storage.ts';
 import type { CredentialId } from '../types.ts';
 
 const temporaryDirectories: string[] = [];
+const emptyCounts = { ready: 1, alreadyEnvelope: 0, skipped: 0, invalid: 0 };
 
 function createBackend(): { backend: SecureStorageBackend; directory: string } {
   const directory = mkdtempSync(join(tmpdir(), 'craft-credential-migration-'));
@@ -36,10 +37,10 @@ describe('SecureStorageBackend controlled migrations', () => {
     await backend.applyMigration(snapshot, [{
       id: credentialId,
       credential: { value: encodeCredentialEnvelope({ kind: 'api_key', payload: { value: 'legacy-value' } }) },
-    }]);
+    }], emptyCounts);
     expect(readFileSync(credentialsFile).equals(before)).toBeFalse();
 
-    await backend.rollbackMigration(snapshot);
+    await backend.rollbackMigration(snapshot.migrationId);
     expect(readFileSync(credentialsFile).equals(before)).toBeTrue();
     expect(await backend.get(credentialId)).toEqual({ value: 'legacy-value' });
   });
@@ -51,11 +52,11 @@ describe('SecureStorageBackend controlled migrations', () => {
     const snapshot = await backend.createMigrationSnapshot();
     await backend.set(credentialId, { value: 'second-value' });
 
-    await expect(backend.applyMigration(snapshot, [{ id: credentialId, credential: { value: 'replacement' } }])).rejects.toThrow('source changed');
+    await expect(backend.applyMigration(snapshot, [{ id: credentialId, credential: { value: 'replacement' } }], emptyCounts)).rejects.toThrow('source changed');
     expect(await backend.get(credentialId)).toEqual({ value: 'second-value' });
   });
 
-  it('refuses rollback after a subsequent credential write', async () => {
+  it('refuses stale rollback after a subsequent credential write', async () => {
     const { backend } = createBackend();
     const credentialId = id('primary');
     await backend.set(credentialId, { value: 'legacy-value' });
@@ -63,11 +64,64 @@ describe('SecureStorageBackend controlled migrations', () => {
     await backend.applyMigration(snapshot, [{
       id: credentialId,
       credential: { value: encodeCredentialEnvelope({ kind: 'api_key', payload: { value: 'legacy-value' } }) },
-    }]);
+    }], emptyCounts);
     await backend.set(credentialId, { value: 'newer-value' });
 
-    await expect(backend.rollbackMigration(snapshot)).rejects.toThrow('source changed');
+    await expect(backend.rollbackMigration(snapshot.migrationId)).rejects.toThrow('source changed');
     expect(await backend.get(credentialId)).toEqual({ value: 'newer-value' });
+  });
+
+  it('discovers latest applied status after a fresh backend restart', async () => {
+    const { backend, directory } = createBackend();
+    const credentialId = id('primary');
+    await backend.set(credentialId, { value: 'legacy-value' });
+    const snapshot = await backend.createMigrationSnapshot();
+    await backend.applyMigration(snapshot, [{
+      id: credentialId,
+      credential: { value: encodeCredentialEnvelope({ kind: 'api_key', payload: { value: 'legacy-value' } }) },
+    }], emptyCounts);
+
+    const restarted = new SecureStorageBackend(directory);
+    const status = await restarted.getLatestMigrationStatus();
+    expect(status).toMatchObject({
+      migrationId: snapshot.migrationId,
+      state: 'applied',
+      ready: 1,
+      rollbackAvailable: true,
+    });
+    expect(JSON.stringify(status)).not.toContain('legacy-value');
+    expect(JSON.stringify(status)).not.toContain('sourceChecksum');
+
+    await restarted.rollbackMigration(snapshot.migrationId);
+    expect(await restarted.get(credentialId)).toEqual({ value: 'legacy-value' });
+    expect(await restarted.getLatestMigrationStatus()).toMatchObject({
+      migrationId: snapshot.migrationId,
+      state: 'rolled_back',
+      rollbackAvailable: false,
+    });
+  });
+
+  it('keeps cached reads on atomic apply failure', async () => {
+    const { backend, directory } = createBackend();
+    const credentialId = id('primary');
+    await backend.set(credentialId, { value: 'original-value' });
+    expect(await backend.get(credentialId)).toEqual({ value: 'original-value' });
+    const snapshot = await backend.createMigrationSnapshot();
+    const credentialsFile = join(directory, 'credentials.enc');
+    const before = readFileSync(credentialsFile);
+
+    chmodSync(directory, 0o500);
+    try {
+      await expect(backend.applyMigration(snapshot, [{
+        id: credentialId,
+        credential: { value: encodeCredentialEnvelope({ kind: 'api_key', payload: { value: 'migrated-value' } }) },
+      }], emptyCounts)).rejects.toThrow();
+    } finally {
+      chmodSync(directory, 0o700);
+    }
+
+    expect(await backend.get(credentialId)).toEqual({ value: 'original-value' });
+    expect(readFileSync(credentialsFile).equals(before)).toBeTrue();
   });
 
   it('preserves a corrupt encrypted file in quarantine', async () => {

@@ -298,6 +298,10 @@ export const RPC_CHANNELS = {
   },
   credentials: {
     HEALTH_CHECK: 'credentials:healthCheck',
+    PREVIEW_MIGRATION: 'credentials:previewMigration',
+    APPLY_MIGRATION: 'credentials:applyMigration',
+    GET_MIGRATION_STATUS: 'credentials:getMigrationStatus',
+    ROLLBACK_MIGRATION: 'credentials:rollbackMigration',
   },
   identity: {
     GET_STATE: 'identity:getState',
