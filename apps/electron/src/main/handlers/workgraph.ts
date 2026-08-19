@@ -15,6 +15,16 @@ import {
   revokeConnectionAndRevalidate,
   rotateConnectionAndRevalidate,
   testGithubConnection,
+  previewAdcImport,
+  commitAdcImport,
+  previewAwsProfileImport,
+  commitAwsProfileImport,
+  previewDockerHelperImport,
+  commitDockerHelperImport,
+  previewKeychainImport,
+  commitKeychainImport,
+  previewSshAgentImport,
+  commitSshAgentImport,
   type CreateConnectionInput,
   type GithubFetch,
   type WorkGraphKernel,
@@ -34,6 +44,16 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
   RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
   RPC_CHANNELS.workgraph.TEST_CONNECTION,
+  RPC_CHANNELS.workgraph.PREVIEW_DOCKER_HELPER,
+  RPC_CHANNELS.workgraph.IMPORT_DOCKER_HELPER,
+  RPC_CHANNELS.workgraph.PREVIEW_AWS_PROFILES,
+  RPC_CHANNELS.workgraph.IMPORT_AWS_PROFILE,
+  RPC_CHANNELS.workgraph.PREVIEW_KEYCHAIN,
+  RPC_CHANNELS.workgraph.IMPORT_KEYCHAIN,
+  RPC_CHANNELS.workgraph.PREVIEW_ADC,
+  RPC_CHANNELS.workgraph.IMPORT_ADC,
+  RPC_CHANNELS.workgraph.PREVIEW_SSH_AGENT,
+  RPC_CHANNELS.workgraph.IMPORT_SSH_AGENT,
 ] as const
 
 export interface FabricImportHost {
@@ -237,6 +257,124 @@ export function registerWorkGraphHandlers(
         workspaceId: input.workspaceId,
         connectionId: input.connectionId,
         fetchImpl: fabric.fetchImpl,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_DOCKER_HELPER,
+    async (_ctx, configPath: string) => {
+      if (!fabric) return []
+      return previewDockerHelperImport({ configPath: assertLocalPath(configPath), provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_DOCKER_HELPER,
+    async (_ctx, input: { configPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('docker_import_unavailable')
+      return commitDockerHelperImport({
+        configPath: assertLocalPath(input?.configPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_AWS_PROFILES,
+    async (_ctx, input: { credentialsPath: string; configPath: string }) => {
+      if (!fabric) return []
+      return previewAwsProfileImport({
+        credentialsPath: assertLocalPath(input?.credentialsPath),
+        configPath: assertLocalPath(input?.configPath),
+        provider: fabric.provider,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_AWS_PROFILE,
+    async (_ctx, input: { credentialsPath: string; configPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('aws_import_unavailable')
+      return commitAwsProfileImport({
+        credentialsPath: assertLocalPath(input?.credentialsPath),
+        configPath: assertLocalPath(input?.configPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_KEYCHAIN,
+    async () => {
+      if (!fabric) return []
+      return previewKeychainImport({ provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_KEYCHAIN,
+    async (_ctx, input: { candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('keychain_import_unavailable')
+      return commitKeychainImport({
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_ADC,
+    async (_ctx, credentialsPath: string) => {
+      if (!fabric) return []
+      return previewAdcImport({ credentialsPath: assertLocalPath(credentialsPath), provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_ADC,
+    async (_ctx, input: { credentialsPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('adc_import_unavailable')
+      return commitAdcImport({
+        credentialsPath: assertLocalPath(input?.credentialsPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_SSH_AGENT,
+    async () => {
+      if (!fabric) return []
+      return previewSshAgentImport({ provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_SSH_AGENT,
+    async (_ctx, input: { candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('ssh_import_unavailable')
+      return commitSshAgentImport({
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
       })
     },
     { access: 'localElectron' },
