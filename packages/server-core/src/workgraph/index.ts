@@ -940,8 +940,10 @@ class WorkGraphSchemaMismatchError extends Error {}
 class WorkGraphIntegrityError extends Error {}
 
 export { revokeConnectionAndRevalidate } from './revalidation.ts'
-export type { RevokeConnectionInput, RevalidatedConsumer } from './revalidation.ts'
+export type { RevokeConnectionInput, RevalidatedConsumer, WorkGraphRevokeSurface } from './revalidation.ts'
 export { isGithubEnvCandidate, performGithubUser, runGithubVertical } from './github-vertical.ts'
 export type { GithubFetch, GithubVerticalInput, GithubVerticalResult } from './github-vertical.ts'
 export { previewGithubEnvImport, commitGithubEnvImport } from './github-import.ts'
 export type { GithubImportPreview } from './github-import.ts'
+export { previewGitHelperImport, commitGitHelperImport } from './git-helper-import.ts'
+export type { GitHelperImportPreview } from './git-helper-import.ts'

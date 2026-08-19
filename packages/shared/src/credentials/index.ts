@@ -69,6 +69,13 @@ export type {
   GitCredentialHelperRunner,
   GitCredentialHelperSecret,
 } from './fabric/git-helper-importer.ts';
+export { DockerCredentialHelperImporter } from './fabric/docker-helper-importer.ts';
+export type {
+  DockerCredentialHelperGet,
+  DockerCredentialHelperImporterOptions,
+  DockerCredentialHelperQuery,
+  DockerCredentialHelperSecret,
+} from './fabric/docker-helper-importer.ts';
 
 export { createProviderMaterialization, maskSecret } from './fabric/materialization.ts';
 export { BrokerDenial, InProcessCredentialBroker } from './fabric/broker.ts';

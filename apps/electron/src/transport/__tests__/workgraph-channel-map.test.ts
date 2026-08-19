@@ -24,5 +24,17 @@ describe('CF-6.3 workgraph channel map', () => {
       type: 'invoke',
       channel: RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
     })
+    expect(CHANNEL_MAP['workgraph.previewGitHelper']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
+    })
+    expect(CHANNEL_MAP['workgraph.importGitHelper']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
+    })
+    expect(CHANNEL_MAP['workgraph.revokeConnection']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+    })
   })
 })

@@ -7,8 +7,11 @@ import {
 } from '@craft-agent/shared/credentials'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import {
+  commitGitHelperImport,
   commitGithubEnvImport,
+  previewGitHelperImport,
   previewGithubEnvImport,
+  revokeConnectionAndRevalidate,
   type CreateConnectionInput,
   type WorkGraphKernel,
 } from '@craft-agent/server-core/workgraph'
@@ -21,23 +24,34 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.CREATE_CONNECTION,
   RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
   RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
+  RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
+  RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
+  RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
 ] as const
 
-export interface GithubEnvImportHost {
+export interface FabricImportHost {
   readonly provider: LocalFileSecretProvider
   readonly broker: InProcessCredentialBroker
-  readonly preview: typeof previewGithubEnvImport
-  readonly commit: typeof commitGithubEnvImport
+  readonly previewGithub: typeof previewGithubEnvImport
+  readonly commitGithub: typeof commitGithubEnvImport
+  readonly previewGitHelper: typeof previewGitHelperImport
+  readonly commitGitHelper: typeof commitGitHelperImport
+  readonly revoke: typeof revokeConnectionAndRevalidate
 }
 
-export function createGithubEnvImportHost(): GithubEnvImportHost {
+export type GithubEnvImportHost = FabricImportHost
+
+export function createGithubEnvImportHost(): FabricImportHost {
   const registry = new CredentialRefRegistry()
   const provider = new LocalFileSecretProvider(new SecureStorageBackend(), registry)
   return {
     provider,
     broker: new InProcessCredentialBroker(provider, (id) => registry.get(id)),
-    preview: previewGithubEnvImport,
-    commit: commitGithubEnvImport,
+    previewGithub: previewGithubEnvImport,
+    commitGithub: commitGithubEnvImport,
+    previewGitHelper: previewGitHelperImport,
+    commitGitHelper: commitGitHelperImport,
+    revoke: revokeConnectionAndRevalidate,
   }
 }
 
@@ -61,6 +75,23 @@ function assertConnectionMetadata(input: unknown): CreateConnectionInput {
   return input as CreateConnectionInput
 }
 
+function assertLocalPath(value: unknown): string {
+  if (typeof value !== 'string' || value.includes('\0')) throw new Error('Invalid path')
+  return value
+}
+
+type WorkGraphSurface = Pick<
+  WorkGraphKernel,
+  | 'getHealth'
+  | 'getVersion'
+  | 'listConnections'
+  | 'getConnection'
+  | 'createConnection'
+  | 'bindConsumer'
+  | 'appendConnectionAudit'
+  | 'affectedClosure'
+>
+
 /**
  * WorkGraph is deliberately composed only by Electron main. The transport's
  * localElectron access class additionally requires the renderer's trusted,
@@ -68,8 +99,8 @@ function assertConnectionMetadata(input: unknown): CreateConnectionInput {
  */
 export function registerWorkGraphHandlers(
   server: RpcServer,
-  workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection' | 'bindConsumer'>,
-  githubImport?: GithubEnvImportHost,
+  workGraph: WorkGraphSurface,
+  fabric?: FabricImportHost,
 ): void {
   server.handle(RPC_CHANNELS.workgraph.GET_HEALTH, () => workGraph.getHealth(), { access: 'localElectron' })
   server.handle(RPC_CHANNELS.workgraph.GET_VERSION, () => workGraph.getVersion(), { access: 'localElectron' })
@@ -93,25 +124,62 @@ export function registerWorkGraphHandlers(
   server.handle(
     RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
     async (_ctx, envPath: string) => {
-      if (!githubImport) return []
-      if (typeof envPath !== 'string' || envPath.includes('\0')) throw new Error('Invalid path')
-      return githubImport.preview({ envPath, provider: githubImport.provider })
+      if (!fabric) return []
+      return fabric.previewGithub({ envPath: assertLocalPath(envPath), provider: fabric.provider })
     },
     { access: 'localElectron' },
   )
   server.handle(
     RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
     async (_ctx, input: { envPath: string; candidateId: string; workspaceId: string }) => {
-      if (!githubImport) throw new Error('github_import_unavailable')
-      if (typeof input?.envPath !== 'string' || input.envPath.includes('\0')) throw new Error('Invalid path')
-      return githubImport.commit({
-        envPath: input.envPath,
+      if (!fabric) throw new Error('github_import_unavailable')
+      return fabric.commitGithub({
+        envPath: assertLocalPath(input?.envPath),
         candidateId: input.candidateId,
-        provider: githubImport.provider,
+        provider: fabric.provider,
         kernel: workGraph,
-        broker: githubImport.broker,
         workspaceId: input.workspaceId,
         requestedBy: 'owner',
+        broker: fabric.broker,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
+    async (_ctx, configPath: string) => {
+      if (!fabric) return []
+      return fabric.previewGitHelper({ configPath: assertLocalPath(configPath), provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
+    async (_ctx, input: { configPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('git_helper_import_unavailable')
+      return fabric.commitGitHelper({
+        configPath: assertLocalPath(input?.configPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+        broker: fabric.broker,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('revoke_unavailable')
+      return fabric.revoke({
+        kernel: workGraph,
+        broker: fabric.broker,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        reason: 'owner-revoke',
       })
     },
     { access: 'localElectron' },

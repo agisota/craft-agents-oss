@@ -35,13 +35,15 @@ describe('WorkGraph handler profile', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection' | 'bindConsumer'> = {
+    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'getConnection' | 'createConnection' | 'bindConsumer' | 'appendConnectionAudit' | 'affectedClosure'> = {
       async getHealth() { return health },
       async getVersion() { return { state: health.state, schemaVersion: 0 } },
       async listConnections() { return [created] },
       async getConnection() { return created },
       async createConnection() { return created },
       async bindConsumer() { return { id: 'bind-1' } },
+      async appendConnectionAudit() { return { id: 'audit-1' } as never },
+      async affectedClosure() { return [] },
     }
 
     registerWorkGraphHandlers(server, workGraph)
@@ -56,6 +58,8 @@ describe('WorkGraph handler profile', () => {
 
     const preview = handlers.get(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV)
     await expect(preview?.({} as never, '/tmp/.env')).resolves.toEqual([])
+    const previewGit = handlers.get(RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER)
+    await expect(previewGit?.({} as never, '/tmp/.gitconfig')).resolves.toEqual([])
 
     const create = handlers.get(RPC_CHANNELS.workgraph.CREATE_CONNECTION)
     expect(() => create?.({} as never, {

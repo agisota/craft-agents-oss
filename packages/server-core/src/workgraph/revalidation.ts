@@ -3,8 +3,13 @@ import type { InProcessCredentialBroker, SecretProvider } from '@craft-agent/sha
 
 import type { WorkGraphKernel } from './index'
 
+export type WorkGraphRevokeSurface = Pick<
+  WorkGraphKernel,
+  'getConnection' | 'appendConnectionAudit' | 'affectedClosure'
+>
+
 export interface RevokeConnectionInput {
-  readonly kernel: WorkGraphKernel
+  readonly kernel: WorkGraphRevokeSurface
   readonly broker: InProcessCredentialBroker
   readonly provider: SecretProvider
   readonly workspaceId: string

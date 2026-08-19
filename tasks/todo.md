@@ -32,6 +32,9 @@
 - [x] CF-9.1 GitCredentialHelperImporter (injected config, no secret in discover)
 - [x] CF-5 WorkGraph connections + v1→v2 upgrade
 - [x] CF-5.2 revokeConnectionAndRevalidate
+- [x] CF-6.4 InspectorHost connection metadata
+- [x] CF-9.2 DockerCredentialHelperImporter (injected helper)
+- [x] CF-9.3 git-helper import + list revoke on ConnectionsPage
 
 ## Never
 - [x] Did not restore or keep planning to restore `approvals.mode=off`

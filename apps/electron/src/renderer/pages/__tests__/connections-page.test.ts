@@ -27,5 +27,38 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain('maskedSummary')
     expect(page.toLowerCase()).not.toContain('infisical')
   })
+
+  it('exposes a masked git-credential-helper import on the Imports tab', () => {
+    expect(page).toContain('previewGitHelper')
+    expect(page).toContain('importGitHelper')
+    expect(page).toContain('gitConfigPath')
+    expect(page.toLowerCase()).not.toContain('infisical')
+  })
+
+  it('revokes a listed connection without exposing secret fields', () => {
+    expect(page).toContain('revokeConnection')
+    expect(page).toContain('connections.revoke')
+    expect(page.toLowerCase()).not.toContain('infisical')
+  })
+
+  it('confirms before revoking a connection', () => {
+    expect(page).toContain('connections.revokeConfirm')
+    expect(page).toContain('connections.revokeCancel')
+    expect(page).toContain('confirmingId')
+  })
+
+  it('renders credential and policy metadata from listed connections', () => {
+    expect(page).toContain("tab === 'credentials'")
+    expect(page).toContain("tab === 'policies'")
+    expect(page).toContain('row.scopes')
+    expect(page).toContain('row.credentialRefId')
+  })
+
+  it('selects a service row for the inspector host', () => {
+    expect(page).toContain('selectedConnectionAtom')
+    expect(page).toContain('aria-selected')
+    expect(page).toContain('data-testid="connections-row"')
+  })
 })
+
 

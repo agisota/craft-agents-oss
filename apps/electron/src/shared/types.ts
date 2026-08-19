@@ -722,6 +722,16 @@ export interface ElectronAPI {
       candidateId: string
       workspaceId: string
     }): Promise<WorkGraphConnectionRecord>
+    previewGitHelper(configPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importGitHelper(input: {
+      configPath: string
+      candidateId: string
+      workspaceId: string
+    }): Promise<WorkGraphConnectionRecord>
+    revokeConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
   }
 
   knowledge: {
