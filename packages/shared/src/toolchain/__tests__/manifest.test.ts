@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { getGitLock } from '../git-locks';
 import { MANIFEST_DATA, TOOL_PLATFORM_MATRIX } from '../manifest-data';
 import { currentPlatform, loadManifest, TOOLCHAIN_MANIFEST, toolchainPaths } from '../manifest';
-import { getNpmLock } from '../npm-locks';
+import { OPENCLAW_NPM_PIN, getNpmLock } from '../npm-locks';
 import { getPipRequirements } from '../pip-locks';
 import type { ToolName } from '../types';
 
@@ -76,6 +76,54 @@ describe('manifest validation', () => {
       return data && data.kind === 'pip' && getPipRequirements(name, data.version) === null;
     });
     expect(pipWithoutLock).toEqual([]);
+  });
+
+  it('OpenClaw is an opt-in exact npm pin with a complete integrity-locked dependency graph', () => {
+    const openclaw = MANIFEST_DATA.openclaw;
+    expect(openclaw).toMatchObject({
+      version: '2026.7.1-2',
+      kind: 'npm',
+      tier: 'opt-in',
+      dependsOn: ['node'],
+    });
+    expect(OPENCLAW_NPM_PIN).toEqual({
+      packageName: 'openclaw',
+      version: '2026.7.1-2',
+      tarballUrl: 'https://registry.npmjs.org/openclaw/-/openclaw-2026.7.1-2.tgz',
+      tarballSha256: '5bb525f36f471a41239615d321c441778c7e1c007018ed6d84b795be77803276',
+      tarballIntegrity: 'sha512-ycF3yPcbjN6bUPeaUx6Mh6vze1hQWoD3CT/wWcmD7a8xaHHHRUaAlaq+lFxMHf1ssEgODVAwjlzYqp2twkYZ7g==',
+      requiredNodeRange: '>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0',
+      entrypoint: 'openclaw.mjs',
+    });
+    expect(MANIFEST_DATA.node?.version).toBe('22.23.2');
+    expect(TOOL_PLATFORM_MATRIX.openclaw).toEqual([
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+      'win32-x64',
+    ]);
+
+    for (const artifact of Object.values(openclaw?.artifacts ?? {})) {
+      expect(artifact?.url).toBe(OPENCLAW_NPM_PIN.tarballUrl);
+      expect(artifact?.sha256).toBe(OPENCLAW_NPM_PIN.tarballSha256);
+      expect(artifact?.size).toBe(19728152);
+    }
+
+    const lock = getNpmLock('openclaw', '2026.7.1-2');
+    expect(lock).not.toBeNull();
+    const parsed = JSON.parse(lock ?? '{}');
+    expect(parsed.lockfileVersion).toBe(3);
+    expect(parsed.packages?.['']?.name).toBe('openclaw');
+    expect(parsed.packages?.['']?.version).toBe('2026.7.1-2');
+    expect(Object.entries(parsed.packages ?? {}).every(([packagePath, pkg]) => {
+      if (packagePath === '') return true;
+      const record = pkg as { resolved?: unknown; integrity?: unknown; link?: unknown };
+      return record.link === true || (
+        typeof record.resolved === 'string' &&
+        record.resolved.startsWith('https://registry.npmjs.org/') &&
+        typeof record.integrity === 'string'
+      );
+    })).toBe(true);
   });
 
   it('gbrain виден ensureAll как default-on git-npm инструмент (регрессия MAJOR)', () => {

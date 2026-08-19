@@ -8,6 +8,14 @@ export { currentPlatform, toolchainPaths, loadManifest, TOOLCHAIN_MANIFEST } fro
 export type { ManifestToolData } from './manifest-data';
 export { createResolver } from './resolver';
 export type { ResolverOptions } from './resolver';
+export { OPENCLAW_CAPABILITIES, probeOpenClawCapabilities } from './openclaw';
+export type {
+  OpenClawCapability,
+  OpenClawCapabilityProbeOptions,
+  OpenClawCapabilityProbeRequest,
+  OpenClawCapabilityProbeResult,
+  OpenClawCapabilityProbeRunner,
+} from './openclaw';
 export { createManager } from './manager';
 export type { ManagerOptions, PipInstallContext } from './manager';
 export { downloadArtifact, ShaMismatchError, HttpError, NetworkError } from './downloader';

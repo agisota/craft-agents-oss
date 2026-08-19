@@ -27,7 +27,7 @@ describe('builtin sources seed', () => {
     expect(isBuiltinSource('linear')).toBe(false);
   });
 
-  it('creates exa and firecrawl folders once', () => {
+  it('creates disabled API source templates once', () => {
     const first = ensureBuiltinSources(dir);
     expect(first.created.sort()).toEqual(['exa', 'firecrawl']);
     expect(existsSync(join(dir, 'sources', 'exa', 'config.json'))).toBe(true);
@@ -36,7 +36,7 @@ describe('builtin sources seed', () => {
     const cfg = JSON.parse(readFileSync(join(dir, 'sources', 'exa', 'config.json'), 'utf-8'));
     expect(cfg.slug).toBe('exa');
     expect(cfg.type).toBe('api');
-    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabled).toBe(false);
 
     const second = ensureBuiltinSources(dir);
     expect(second.created).toEqual([]);

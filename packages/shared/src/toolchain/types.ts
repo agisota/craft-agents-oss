@@ -5,6 +5,9 @@
 
 export type ToolchainPlatform = 'darwin-arm64' | 'darwin-x64' | 'linux-x64' | 'win32-x64';
 
+/** Written only after an installation is complete; resolvers reject partial versions. */
+export const TOOLCHAIN_INSTALL_COMPLETE_MARKER = '.craft-toolchain-install-complete';
+
 export type ToolName =
   // core (11): всегда ставятся ensureAll'ом
   | 'omp'
@@ -40,6 +43,8 @@ export type ToolName =
   | 'opensrc'
   | 'deepsec'
   | 'dev3000'
+  // npm opt-in: isolated managed OpenClaw runtime (never resolves a global binary)
+  | 'openclaw'
   // git-npm default-on: bun install -g github:repo@commit
   | 'gbrain'
   // brew opt-in (mac only): brew install, префлайт command -v brew
@@ -81,6 +86,7 @@ export const ALL_TOOL_NAMES = [
   'opensrc',
   'deepsec',
   'dev3000',
+  'openclaw',
   'gbrain',
   'mole',
   'docker',
@@ -218,10 +224,23 @@ export interface ToolchainStateFile {
   >;
 }
 
+
+/**
+ * Exact managed OpenClaw launcher. `executablePath` is the toolchain-owned
+ * Node binary and `argsPrefix[0]` is the verified package entrypoint.
+ */
+export interface ManagedOpenClawLauncher {
+  executablePath: string;
+  argsPrefix: readonly [string];
+  version: '2026.7.1-2';
+}
+
 /** Публичный API — consumers: OmpAgent, agents env, bootstrap, UI status. */
 export interface ToolchainResolver {
   /** Путь исполняемого с приоритетом: toolchain → bundled → PATH (null если нигде нет). */
   findExecutable(name: string): Promise<string | null>;
+  /** Только pinned managed Node + package/openclaw.mjs; PATH/global OpenClaw запрещены. */
+  resolveOpenClawLauncher(): Promise<ManagedOpenClawLauncher | null>;
   /** Префикс PATH, который должен получить каждый сабпроцесс агента (bin-диры toolchain + bundled). */
   toolchainPathPrefix(): Promise<string>;
   /** Директория toolchain: <CONFIG_DIR>/toolchain. */
