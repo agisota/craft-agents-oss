@@ -6,6 +6,7 @@ import {
 
 const ROW = {
   id: 'c1',
+  workspaceId: 'workspace_a',
   integrationId: 'github',
   credentialRefId: 'cred_123e4567-e89b-12d3-a456-426614174000',
   storageMode: 'copy',
