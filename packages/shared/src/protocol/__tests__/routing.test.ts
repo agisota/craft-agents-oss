@@ -192,6 +192,35 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
   })
 })
 
+
+describe('OpenClaw security data channel routing', () => {
+  const DATA_CHANNELS = [
+    RPC_CHANNELS.openclawRuntime.GET_STATUS,
+    RPC_CHANNELS.openclawRuntime.INSTALL,
+    RPC_CHANNELS.openclawRuntime.PROVISION,
+    RPC_CHANNELS.openclawRuntime.START,
+    RPC_CHANNELS.openclawRuntime.STOP,
+    RPC_CHANNELS.securityAudit.RUN,
+    RPC_CHANNELS.securityAudit.GET_LATEST,
+    RPC_CHANNELS.securityAudit.ACCEPT_RISK,
+    RPC_CHANNELS.securityAudit.REVOKE_RISK_ACCEPTANCE,
+  ]
+
+  test('classifies every safe data operation as REMOTE_ELIGIBLE', () => {
+    for (const channel of DATA_CHANNELS) {
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(channel)).toBe(true)
+      expect(LOCAL_ONLY_CHANNELS.has(channel)).toBe(false)
+    }
+  })
+
+  test('exposes exactly the declared OpenClaw data wire channels', () => {
+    const openClawChannels = getAllChannelValues()
+      .filter(channel => channel.startsWith('openclawRuntime:') || channel.startsWith('securityAudit:'))
+      .sort()
+    expect(openClawChannels).toEqual([...DATA_CHANNELS].sort())
+  })
+})
+
 describe('WorkGraph routing', () => {
   test('keeps every WorkGraph channel local-only', () => {
     for (const channel of Object.values(RPC_CHANNELS.workgraph)) {

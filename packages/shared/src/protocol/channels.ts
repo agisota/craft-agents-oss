@@ -524,6 +524,19 @@ export const RPC_CHANNELS = {
     GET_DISABLED: 'toolchain:getDisabled',
     SET_DISABLED: 'toolchain:setDisabled',
   },
+  openclawRuntime: {
+    GET_STATUS: 'openclawRuntime:getStatus',
+    INSTALL: 'openclawRuntime:install',
+    PROVISION: 'openclawRuntime:provision',
+    START: 'openclawRuntime:start',
+    STOP: 'openclawRuntime:stop',
+  },
+  securityAudit: {
+    RUN: 'securityAudit:run',
+    GET_LATEST: 'securityAudit:getLatest',
+    ACCEPT_RISK: 'securityAudit:acceptRisk',
+    REVOKE_RISK_ACCEPTANCE: 'securityAudit:revokeRiskAcceptance',
+  },
   labels: {
     LIST: 'labels:list',
     CREATE: 'labels:create',
@@ -639,6 +652,8 @@ export const RPC_CHANNELS = {
   },
   automations: {
     GET: 'automations:get',
+    GET_GRAPH: 'automations:getGraph',
+    SAVE_GRAPH: 'automations:saveGraph',
     TEST: 'automations:test',
     SET_ENABLED: 'automations:setEnabled',
     DUPLICATE: 'automations:duplicate',

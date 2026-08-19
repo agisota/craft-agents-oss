@@ -224,6 +224,9 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.onboarding.VALIDATE_MCP,
   RPC_CHANNELS.onboarding.START_MCP_OAUTH,
   RPC_CHANNELS.onboarding.DEFER_SETUP,
+  RPC_CHANNELS.onboarding.START_ROX_CONNECT,
+  RPC_CHANNELS.onboarding.GET_ROX_CLOUD_STATE,
+  RPC_CHANNELS.onboarding.CLEAR_ROX_CLOUD,
   RPC_CHANNELS.settings.GET_NETWORK_PROXY,
   RPC_CHANNELS.settings.SET_NETWORK_PROXY,
 
@@ -631,6 +634,18 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.statuses.REORDER,
   RPC_CHANNELS.statuses.CHANGED,
 
+  // OpenClaw — safe runtime/audit data for the workspace owner. Host control
+  // remains direct Electron IPC and is intentionally absent from this table.
+  RPC_CHANNELS.openclawRuntime.GET_STATUS,
+  RPC_CHANNELS.openclawRuntime.INSTALL,
+  RPC_CHANNELS.openclawRuntime.PROVISION,
+  RPC_CHANNELS.openclawRuntime.START,
+  RPC_CHANNELS.openclawRuntime.STOP,
+  RPC_CHANNELS.securityAudit.RUN,
+  RPC_CHANNELS.securityAudit.GET_LATEST,
+  RPC_CHANNELS.securityAudit.ACCEPT_RISK,
+  RPC_CHANNELS.securityAudit.REVOKE_RISK_ACCEPTANCE,
+
   // labels — workspace metadata
   RPC_CHANNELS.labels.LIST,
   RPC_CHANNELS.labels.CREATE,
@@ -650,6 +665,8 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
 
   // automations — workspace automations
   RPC_CHANNELS.automations.GET,
+  RPC_CHANNELS.automations.GET_GRAPH,
+  RPC_CHANNELS.automations.SAVE_GRAPH,
   RPC_CHANNELS.automations.TEST,
   RPC_CHANNELS.automations.SET_ENABLED,
   RPC_CHANNELS.automations.DUPLICATE,

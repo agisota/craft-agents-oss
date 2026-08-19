@@ -23,6 +23,8 @@ import type {
   PermissionModeState,
   UnreadSummary,
   ShareResult,
+  BulkUpdateSessionsInput,
+  BulkUpdateSessionsResult,
 } from '@craft-agent/shared/protocol'
 import type { SessionBundle, DispatchMode } from '@craft-agent/shared/sessions'
 import type { SessionProvenance } from '@craft-agent/shared/memory/types'
@@ -71,6 +73,10 @@ export interface ISessionManager {
   markSessionUnread(sessionId: string): Promise<void>
   markAllSessionsRead(workspaceId: string): Promise<void>
   setActiveViewingSession(sessionId: string | null, workspaceId: string): void
+  bulkUpdateSessions(
+    workspaceId: string,
+    input: Pick<BulkUpdateSessionsInput, 'ids' | 'patch'>,
+  ): Promise<BulkUpdateSessionsResult>
   clearActiveViewingSession(workspaceId: string): void
 
   // ---------------------------------------------------------------------------
