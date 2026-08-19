@@ -76,6 +76,13 @@ export type {
   DockerCredentialHelperQuery,
   DockerCredentialHelperSecret,
 } from './fabric/docker-helper-importer.ts';
+export { AwsSharedProfileImporter } from './fabric/aws-profile-importer.ts';
+export type {
+  AwsCredentialProcessRun,
+  AwsCredentialProcessQuery,
+  AwsCredentialProcessSecret,
+  AwsSharedProfileImporterOptions,
+} from './fabric/aws-profile-importer.ts';
 
 export { createProviderMaterialization, maskSecret } from './fabric/materialization.ts';
 export { BrokerDenial, InProcessCredentialBroker } from './fabric/broker.ts';
