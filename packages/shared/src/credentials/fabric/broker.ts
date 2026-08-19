@@ -99,6 +99,10 @@ export class InProcessCredentialBroker {
     return [...this.audit];
   }
 
+  async listGrants(): Promise<readonly AccessGrant[]> {
+    return this.grants.list();
+  }
+
   async acquireLease(input: AcquireLeaseInput): Promise<CredentialLease> {
     const deny = (code: string): never => {
       this.audit.push({

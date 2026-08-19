@@ -8,6 +8,16 @@ export type WorkGraphRevokeSurface = Pick<
   'getConnection' | 'appendConnectionAudit' | 'affectedClosure'
 >
 
+export type WorkGraphConvertSurface = WorkGraphRevokeSurface & Pick<
+  WorkGraphKernel,
+  'convertConnectionToReference'
+>
+
+export type WorkGraphBindingSurface = WorkGraphRevokeSurface & Pick<
+  WorkGraphKernel,
+  'getConnection' | 'revokeConnectionBinding'
+>
+
 export interface RevokeConnectionInput {
   readonly kernel: WorkGraphRevokeSurface
   readonly broker: InProcessCredentialBroker
@@ -114,4 +124,66 @@ export async function repairConnectionAndRevalidate(
     eventType: 'connection-repaired',
   })
   return revalidateAffected(input)
+}
+
+export interface ConvertConnectionInput {
+  readonly kernel: WorkGraphConvertSurface
+  readonly broker: InProcessCredentialBroker
+  readonly provider: SecretProvider & { dropCopy?(ref: Parameters<SecretProvider['revoke']>[0]['credentialRef']): Promise<void> }
+  readonly workspaceId: string
+  readonly connectionId: string
+  readonly reason: string
+}
+
+export async function convertCopyToReferenceAndRevalidate(
+  input: ConvertConnectionInput,
+): Promise<{ readonly storageMode: 'reference'; readonly consumers: readonly RevalidatedConsumer[] }> {
+  const connection = await requireConnection(input.kernel, input.workspaceId, input.connectionId)
+  const converted = await input.kernel.convertConnectionToReference(input.workspaceId, input.connectionId)
+  const credentialRefId = connection.credentialRefId as CredentialRefId
+  await input.broker.revokeLeasesForRef(credentialRefId, input.reason)
+  if (typeof input.provider.dropCopy === 'function') {
+    await input.provider.dropCopy({
+      id: credentialRefId,
+      kind: 'bearer_token',
+      providerId: input.provider.id,
+      locator: { type: 'local', key: credentialRefId },
+      createdAt: 0,
+      updatedAt: 0,
+    })
+  }
+  const consumers = await revalidateAffected(input)
+  return { storageMode: 'reference', consumers }
+}
+
+export interface RevokeBindingInput {
+  readonly kernel: WorkGraphBindingSurface
+  readonly broker: InProcessCredentialBroker
+  readonly workspaceId: string
+  readonly bindingId: string
+}
+
+export async function revokeConnectionBindingAndRevalidate(
+  input: RevokeBindingInput,
+): Promise<{ readonly consumers: readonly RevalidatedConsumer[] }> {
+  const binding = await input.kernel.revokeConnectionBinding(input.workspaceId, input.bindingId)
+  const grants = await input.broker.listGrants()
+  const connection = await input.kernel.getConnection(input.workspaceId, binding.connectionId)
+  for (const grant of grants) {
+    if (
+      grant.status === 'active'
+      && grant.workspaceId === input.workspaceId
+      && grant.consumerId === binding.consumerId
+      && connection
+      && grant.credentialRefId === connection.credentialRefId
+    ) {
+      input.broker.revokeGrant(grant.id)
+    }
+  }
+  const result = await input.broker.revalidateConsumer({
+    kind: 'agent',
+    id: binding.consumerId,
+    workspaceId: input.workspaceId,
+  })
+  return { consumers: [{ consumerId: binding.consumerId, status: result.status }] }
 }

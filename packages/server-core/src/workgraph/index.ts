@@ -110,6 +110,15 @@ export interface ConnectionAuditRecord {
   readonly payloadDigest: string
 }
 
+export interface ConnectionBindingRecord {
+  readonly id: string
+  readonly connectionId: string
+  readonly consumerId: string
+  readonly purpose: string
+  readonly actions: readonly string[]
+  readonly resources: readonly string[]
+}
+
 interface ProvisioningRecord {
   readonly installationId: string
   readonly relativeDatabaseFilename: typeof DATABASE_FILENAME
@@ -540,7 +549,7 @@ export class WorkGraphKernel {
     action: string
     decision: 'allow' | 'deny'
     versionFingerprint?: string
-    eventType?: 'connection-audit' | 'connection-revoked' | 'connection-rotated' | 'connection-repaired'
+    eventType?: 'connection-audit' | 'connection-revoked' | 'connection-rotated' | 'connection-repaired' | 'connection-converted' | 'connection-binding-revoked'
   }): Promise<void> {
     const database = await this.requireDatabase()
     assertOpaqueId(input.workspaceId, 'workspace ID')
@@ -599,12 +608,12 @@ export class WorkGraphKernel {
       ? `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
          FROM workgraph_ledger
          WHERE workspace_id = ? AND object_id = ?
-           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired')
+           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired', 'connection-converted', 'connection-binding-revoked')
          ORDER BY sequence DESC LIMIT 100`
       : `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
          FROM workgraph_ledger
          WHERE workspace_id = ?
-           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired')
+           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired', 'connection-converted', 'connection-binding-revoked')
          ORDER BY sequence DESC LIMIT 100`
     const rows = (
       connectionId
@@ -631,6 +640,103 @@ export class WorkGraphKernel {
     })
   }
 
+  async convertConnectionToReference(workspaceId: string, connectionId: string): Promise<ConnectionRecord> {
+    const existing = await this.getConnection(workspaceId, connectionId)
+    if (!existing) throw new Error('Connection not found')
+    if (existing.storageMode !== 'copy') throw new Error('unsupported_convert')
+    const database = await this.requireDatabase()
+    const now = Date.now()
+    const payloadDigest = digest({
+      type: 'connection-converted',
+      connectionId,
+      credentialRefId: existing.credentialRefId,
+      from: 'copy',
+      to: 'reference',
+    })
+    await database.run(
+      'UPDATE workgraph_connections SET storage_mode = ?, updated_at = ? WHERE workspace_id = ? AND id = ?',
+      'reference',
+      now,
+      workspaceId,
+      connectionId,
+    )
+    await this.appendConnectionAudit({
+      workspaceId,
+      connectionId,
+      credentialRefId: existing.credentialRefId,
+      action: 'connection.convert',
+      decision: 'allow',
+      eventType: 'connection-converted',
+      versionFingerprint: payloadDigest,
+    })
+    const updated = await this.getConnection(workspaceId, connectionId)
+    if (!updated) throw new Error('Connection not found')
+    return updated
+  }
+
+  async listConnectionBindings(
+    workspaceId: string,
+    connectionId?: string,
+  ): Promise<readonly ConnectionBindingRecord[]> {
+    const database = await this.requireDatabase()
+    assertOpaqueId(workspaceId, 'workspace ID')
+    if (connectionId) assertOpaqueId(connectionId, 'connection ID')
+    const rows = (
+      connectionId
+        ? await database.all(
+          `SELECT id, connection_id, consumer_id, purpose, actions_json, resources_json
+           FROM workgraph_connection_bindings WHERE workspace_id = ? AND connection_id = ?
+           ORDER BY created_at, id`,
+          workspaceId,
+          connectionId,
+        )
+        : await database.all(
+          `SELECT id, connection_id, consumer_id, purpose, actions_json, resources_json
+           FROM workgraph_connection_bindings WHERE workspace_id = ?
+           ORDER BY created_at, id`,
+          workspaceId,
+        )
+    ) as Array<Record<string, unknown>>
+    return rows.map((row) => {
+      if (typeof row.id !== 'string') throw new Error('Invalid WorkGraph row field: id')
+      if (typeof row.connection_id !== 'string') throw new Error('Invalid WorkGraph row field: connection_id')
+      if (typeof row.consumer_id !== 'string') throw new Error('Invalid WorkGraph row field: consumer_id')
+      if (typeof row.purpose !== 'string') throw new Error('Invalid WorkGraph row field: purpose')
+      const actions = typeof row.actions_json === 'string' ? JSON.parse(row.actions_json) : []
+      const resources = typeof row.resources_json === 'string' ? JSON.parse(row.resources_json) : []
+      if (!Array.isArray(actions) || !Array.isArray(resources)) throw new Error('Invalid connection binding metadata')
+      return {
+        id: row.id,
+        connectionId: row.connection_id,
+        consumerId: row.consumer_id,
+        purpose: row.purpose,
+        actions: actions.filter((item) => typeof item === 'string'),
+        resources: resources.filter((item) => typeof item === 'string'),
+      }
+    })
+  }
+
+  async revokeConnectionBinding(workspaceId: string, bindingId: string): Promise<ConnectionBindingRecord> {
+    const database = await this.requireDatabase()
+    assertOpaqueId(workspaceId, 'workspace ID')
+    assertOpaqueId(bindingId, 'binding ID')
+    const [binding] = (await this.listConnectionBindings(workspaceId)).filter((row) => row.id === bindingId)
+    if (!binding) throw new Error('Binding not found')
+    await database.run(
+      'DELETE FROM workgraph_connection_bindings WHERE workspace_id = ? AND id = ?',
+      workspaceId,
+      bindingId,
+    )
+    await this.appendConnectionAudit({
+      workspaceId,
+      connectionId: binding.connectionId,
+      consumer: binding.consumerId,
+      action: 'connection.unbind',
+      decision: 'allow',
+      eventType: 'connection-binding-revoked',
+    })
+    return binding
+  }
 
   /** Returns null for any cross-workspace selector rather than revealing ownership. */
   async getWorkItem(workspaceId: string, objectId: string): Promise<WorkItem | null> {
@@ -992,12 +1098,16 @@ class WorkGraphSchemaMismatchError extends Error {}
 class WorkGraphIntegrityError extends Error {}
 
 export {
+  convertCopyToReferenceAndRevalidate,
   repairConnectionAndRevalidate,
   revokeConnectionAndRevalidate,
+  revokeConnectionBindingAndRevalidate,
   rotateConnectionAndRevalidate,
 } from './revalidation.ts'
 export type {
+  ConvertConnectionInput,
   RepairConnectionInput,
+  RevokeBindingInput,
   RevokeConnectionInput,
   RevalidatedConsumer,
   RotateConnectionInput,

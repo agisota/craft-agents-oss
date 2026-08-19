@@ -11,8 +11,10 @@ import {
   commitGithubEnvImport,
   previewGitHelperImport,
   previewGithubEnvImport,
+  convertCopyToReferenceAndRevalidate,
   repairConnectionAndRevalidate,
   revokeConnectionAndRevalidate,
+  revokeConnectionBindingAndRevalidate,
   rotateConnectionAndRevalidate,
   testGithubConnection,
   previewAdcImport,
@@ -35,6 +37,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.GET_VERSION,
   RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
   RPC_CHANNELS.workgraph.LIST_CONNECTION_AUDIT,
+  RPC_CHANNELS.workgraph.LIST_CONNECTION_BINDINGS,
+  RPC_CHANNELS.workgraph.CONVERT_CONNECTION,
+  RPC_CHANNELS.workgraph.REVOKE_CONNECTION_BINDING,
   RPC_CHANNELS.workgraph.GET_CONNECTION,
   RPC_CHANNELS.workgraph.CREATE_CONNECTION,
   RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
@@ -69,6 +74,8 @@ export interface FabricImportHost {
   readonly rotate: typeof rotateConnectionAndRevalidate
   readonly testGithub: typeof testGithubConnection
   readonly fetchImpl: GithubFetch
+  readonly convert: typeof convertCopyToReferenceAndRevalidate
+  readonly unbind: typeof revokeConnectionBindingAndRevalidate
 }
 
 export type GithubEnvImportHost = FabricImportHost
@@ -88,6 +95,8 @@ export function createGithubEnvImportHost(): FabricImportHost {
     rotate: rotateConnectionAndRevalidate,
     testGithub: testGithubConnection,
     fetchImpl: globalThis.fetch.bind(globalThis),
+    convert: convertCopyToReferenceAndRevalidate,
+    unbind: revokeConnectionBindingAndRevalidate,
   }
 }
 
@@ -122,6 +131,9 @@ type WorkGraphSurface = Pick<
   | 'getVersion'
   | 'listConnections'
   | 'listConnectionAudit'
+  | 'listConnectionBindings'
+  | 'convertConnectionToReference'
+  | 'revokeConnectionBinding'
   | 'getConnection'
   | 'createConnection'
   | 'bindConsumer'
@@ -151,6 +163,41 @@ export function registerWorkGraphHandlers(
     (_ctx, input: { workspaceId: string; connectionId?: string }) => (
       workGraph.listConnectionAudit(input.workspaceId, input.connectionId)
     ),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.LIST_CONNECTION_BINDINGS,
+    (_ctx, input: { workspaceId: string; connectionId?: string }) => (
+      workGraph.listConnectionBindings(input.workspaceId, input.connectionId)
+    ),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.CONVERT_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('convert_unavailable')
+      return fabric.convert({
+        kernel: workGraph,
+        broker: fabric.broker,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        reason: 'owner-convert',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.REVOKE_CONNECTION_BINDING,
+    async (_ctx, input: { workspaceId: string; bindingId: string }) => {
+      if (!fabric) throw new Error('unbind_unavailable')
+      return fabric.unbind({
+        kernel: workGraph,
+        broker: fabric.broker,
+        workspaceId: input.workspaceId,
+        bindingId: input.bindingId,
+      })
+    },
     { access: 'localElectron' },
   )
   server.handle(

@@ -44,6 +44,8 @@
 - [x] CF-9.7 SshAgentImporter (injected identities)
 - [x] CF-6.6 native Connect control + source list
 - [x] CF-6.7 metadata-only connection audit tab
+- [x] CF-6.8 convert copy to reference
+- [x] CF-6.9 list/revoke connection bindings
 
 ## Never
 - [x] Did not restore or keep planning to restore `approvals.mode=off`

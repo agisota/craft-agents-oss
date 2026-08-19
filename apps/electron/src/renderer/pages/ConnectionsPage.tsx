@@ -5,8 +5,10 @@ import { selectedConnectionAtom } from '@/atoms/connections'
 import { useActiveWorkspace } from '@/context/AppShellContext'
 import {
   sanitizeConnectionAuditRows,
+  sanitizeConnectionBindingRows,
   sanitizeConnectionRows,
   type ConnectionAuditRow,
+  type ConnectionBindingRow,
   type ConnectionListRow,
 } from './connections-list'
 
@@ -29,6 +31,8 @@ export default function ConnectionsPage() {
   const [rows, setRows] = useState<ConnectionListRow[] | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [rotatingId, setRotatingId] = useState<string | null>(null)
+  const [convertingId, setConvertingId] = useState<string | null>(null)
+  const [unbindingId, setUnbindingId] = useState<string | null>(null)
   const [envPath, setEnvPath] = useState('')
   const [gitConfigPath, setGitConfigPath] = useState('')
   const [dockerConfigPath, setDockerConfigPath] = useState('')
@@ -37,6 +41,7 @@ export default function ConnectionsPage() {
   const [adcPath, setAdcPath] = useState('')
   const [previews, setPreviews] = useState<PreviewRow[]>([])
   const [auditRows, setAuditRows] = useState<ConnectionAuditRow[]>([])
+  const [bindingRows, setBindingRows] = useState<ConnectionBindingRow[]>([])
 
   useEffect(() => {
     const workspaceId = workspace?.id
@@ -58,6 +63,8 @@ export default function ConnectionsPage() {
       setSelected(null)
       setConfirmingId(null)
       setRotatingId(null)
+      setConvertingId(null)
+      setUnbindingId(null)
     }
   }, [workspace?.id, setSelected])
 
@@ -76,6 +83,27 @@ export default function ConnectionsPage() {
       })
       .catch(() => {
         if (!stale) setAuditRows([])
+      })
+    return () => {
+      stale = true
+    }
+  }, [tab, workspace?.id])
+
+  useEffect(() => {
+    if (tab !== 'policies') return
+    const workspaceId = workspace?.id
+    const listConnectionBindings = window.electronAPI?.workgraph?.listConnectionBindings
+    if (!workspaceId || typeof listConnectionBindings !== 'function') {
+      setBindingRows([])
+      return
+    }
+    let stale = false
+    listConnectionBindings({ workspaceId })
+      .then((raw) => {
+        if (!stale) setBindingRows(sanitizeConnectionBindingRows(raw))
+      })
+      .catch(() => {
+        if (!stale) setBindingRows([])
       })
     return () => {
       stale = true
@@ -117,6 +145,27 @@ export default function ConnectionsPage() {
     const testConnection = window.electronAPI?.workgraph?.testConnection
     if (!workspaceId || typeof testConnection !== 'function') return
     await testConnection({ workspaceId, connectionId })
+  }
+
+  const confirmConvert = async (connectionId: string) => {
+    const workspaceId = workspace?.id
+    const convertConnection = window.electronAPI?.workgraph?.convertConnection
+    if (!workspaceId || typeof convertConnection !== 'function') return
+    await convertConnection({ workspaceId, connectionId })
+    setConvertingId(null)
+    await refreshRows(workspaceId)
+  }
+
+  const confirmUnbind = async (bindingId: string) => {
+    const workspaceId = workspace?.id
+    const revokeConnectionBinding = window.electronAPI?.workgraph?.revokeConnectionBinding
+    if (!workspaceId || typeof revokeConnectionBinding !== 'function') return
+    await revokeConnectionBinding({ workspaceId, bindingId })
+    setUnbindingId(null)
+    const listConnectionBindings = window.electronAPI?.workgraph?.listConnectionBindings
+    if (typeof listConnectionBindings === 'function') {
+      setBindingRows(sanitizeConnectionBindingRows(await listConnectionBindings({ workspaceId })))
+    }
   }
 
   const runRepair = async (connectionId: string) => {
@@ -450,22 +499,74 @@ export default function ConnectionsPage() {
         ) : tab === 'credentials' && credentialRows.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">
             {credentialRows.map((row) => (
-              <li key={row.id} className="rounded border px-3 py-2">
-                <div className="font-medium">{row.integrationId}</div>
-                <div className="font-mono text-xs">{row.credentialRefId}</div>
-                <div className="text-muted-foreground">{row.storageMode}</div>
+              <li key={row.id} className="flex items-center gap-2 rounded border px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{row.integrationId}</div>
+                  <div className="font-mono text-xs">{row.credentialRefId}</div>
+                  <div className="text-muted-foreground">{row.storageMode}</div>
+                </div>
+                {row.storageMode === 'copy' ? (
+                  convertingId === row.id ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="font-mono text-[11px]">{row.id} {row.credentialRefId}</div>
+                      <div className="flex gap-1">
+                        <button type="button" className="rounded border px-2 py-1" onClick={() => confirmConvert(row.id)}>
+                          {t('connections.convertConfirm')}
+                        </button>
+                        <button type="button" className="rounded border px-2 py-1" onClick={() => setConvertingId(null)}>
+                          {t('connections.convertCancel')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button" className="rounded border px-2 py-1" onClick={() => setConvertingId(row.id)}>
+                      {t('connections.convert')}
+                    </button>
+                  )
+                ) : null}
               </li>
             ))}
           </ul>
-        ) : tab === 'policies' && policyRows.length > 0 ? (
-          <ul className="space-y-2 text-sm text-foreground">
-            {policyRows.map((row) => (
-              <li key={row.id} className="rounded border px-3 py-2">
-                <div className="font-medium">{row.integrationId}</div>
-                <div className="font-mono text-xs">{row.scopes.join(', ') || '—'}</div>
-              </li>
-            ))}
-          </ul>
+        ) : tab === 'policies' && (bindingRows.length > 0 || policyRows.length > 0) ? (
+          <div className="space-y-4 text-sm text-foreground">
+            {policyRows.length > 0 ? (
+              <ul className="space-y-2">
+                {policyRows.map((row) => (
+                  <li key={row.id} className="rounded border px-3 py-2">
+                    <div className="font-medium">{row.integrationId}</div>
+                    <div className="font-mono text-xs">{row.scopes.join(', ') || '—'}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {bindingRows.length > 0 ? (
+              <ul className="space-y-2">
+                {bindingRows.map((row) => (
+                  <li key={row.id} className="flex items-center gap-2 rounded border px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{row.consumerId}</div>
+                      <div className="text-muted-foreground">{row.purpose}</div>
+                      <div className="font-mono text-xs">{row.actions.join(', ')}</div>
+                    </div>
+                    {unbindingId === row.id ? (
+                      <div className="flex gap-1">
+                        <button type="button" className="rounded border px-2 py-1" onClick={() => confirmUnbind(row.id)}>
+                          {t('connections.unbindConfirm')}
+                        </button>
+                        <button type="button" className="rounded border px-2 py-1" onClick={() => setUnbindingId(null)}>
+                          {t('connections.unbindCancel')}
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" className="rounded border px-2 py-1" onClick={() => setUnbindingId(row.id)}>
+                        {t('connections.unbind')}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : tab === 'audit' && auditRows.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">
             {auditRows.map((row) => (

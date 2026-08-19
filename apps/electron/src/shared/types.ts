@@ -719,6 +719,25 @@ export interface ElectronAPI {
       outcome: string
       payloadDigest: string
     }>>
+    listConnectionBindings(input: {
+      workspaceId: string
+      connectionId?: string
+    }): Promise<Array<{
+      id: string
+      connectionId: string
+      consumerId: string
+      purpose: string
+      actions: readonly string[]
+      resources: readonly string[]
+    }>>
+    convertConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ storageMode: 'reference'; consumers: Array<{ consumerId: string; status: string }> }>
+    revokeConnectionBinding(input: {
+      workspaceId: string
+      bindingId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
     getConnection(args: { workspaceId: string; connectionId: string }): Promise<WorkGraphConnectionRecord | null>
     createConnection(input: {
       workspaceId: string

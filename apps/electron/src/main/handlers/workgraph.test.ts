@@ -35,11 +35,16 @@ describe('WorkGraph handler profile', () => {
       createdAt: 1,
       updatedAt: 1,
     }
-    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'listConnectionAudit' | 'getConnection' | 'createConnection' | 'bindConsumer' | 'appendConnectionAudit' | 'affectedClosure'> = {
+    const workGraph: Pick<WorkGraphKernel, 'getHealth' | 'getVersion' | 'listConnections' | 'listConnectionAudit' | 'listConnectionBindings' | 'convertConnectionToReference' | 'revokeConnectionBinding' | 'getConnection' | 'createConnection' | 'bindConsumer' | 'appendConnectionAudit' | 'affectedClosure'> = {
       async getHealth() { return health },
       async getVersion() { return { state: health.state, schemaVersion: 0 } },
       async listConnections() { return [created] },
       async listConnectionAudit() { return [] },
+      async listConnectionBindings() { return [] },
+      async convertConnectionToReference() { return { ...created, storageMode: 'reference' as const } },
+      async revokeConnectionBinding() {
+        return { id: 'bind-1', connectionId: created.id, consumerId: 'owner', purpose: 'github.user', actions: ['github.api'], resources: ['github:user'] }
+      },
       async getConnection() { return created },
       async createConnection() { return created },
       async bindConsumer() { return { id: 'bind-1' } },
