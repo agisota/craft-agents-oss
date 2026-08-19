@@ -5,6 +5,7 @@ import type {
   LocalFileSecretProvider,
   ProviderMaterialization,
 } from '@craft-agent/shared/credentials'
+import { applyTrustedHttpHeader } from '@craft-agent/shared/credentials'
 
 import type { ConnectionRecord, WorkGraphKernel } from './index'
 
@@ -23,14 +24,11 @@ export async function performGithubUser(
   materialization: ProviderMaterialization,
   fetchImpl: GithubFetch,
 ): Promise<{ login: string }> {
-  const token = materialization.payload.value
-  if (typeof token !== 'string' || token.length === 0) throw new Error('operation_failed')
-  const response = await fetchImpl('https://api.github.com/user', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-    },
-  })
+  const headers = applyTrustedHttpHeader(
+    { Accept: 'application/vnd.github+json' },
+    materialization,
+  )
+  const response = await fetchImpl('https://api.github.com/user', { headers })
   const body = await response.json() as { login?: unknown }
   if (typeof body.login !== 'string' || !body.login) throw new Error('operation_failed')
   return { login: body.login }

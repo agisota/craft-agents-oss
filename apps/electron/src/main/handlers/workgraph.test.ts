@@ -53,6 +53,9 @@ describe('WorkGraph handler profile', () => {
     expect(registrations.has(RPC_CHANNELS.workgraph.GET_CONNECTION)).toBe(true)
     expect(registrations.has(RPC_CHANNELS.workgraph.CREATE_CONNECTION)).toBe(true)
 
+    const preview = handlers.get(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV)
+    await expect(preview?.({} as never, '/tmp/.env')).resolves.toEqual([])
+
     const create = handlers.get(RPC_CHANNELS.workgraph.CREATE_CONNECTION)
     expect(() => create?.({} as never, {
       workspaceId: 'workspace_a',
