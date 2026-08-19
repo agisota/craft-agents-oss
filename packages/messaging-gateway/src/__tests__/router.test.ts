@@ -110,7 +110,10 @@ function makeFakeCommands(): { handle: ReturnType<typeof mock> } {
 
 function makeRouter() {
   const store = new BindingStore(storeDir)
-  store.bind('ws1', 'sess-A', 'telegram', 'chat-1')
+  store.bind('ws1', 'sess-A', 'telegram', 'chat-1', undefined, {
+    accessMode: 'owner-control',
+    allowedSenderIds: ['user-1'],
+  })
   const sessionManager = makeFakeSessionManager()
   const commands = makeFakeCommands()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -313,8 +316,8 @@ describe('Router', () => {
   it('routes the same chatId + different threadIds to the per-topic session', async () => {
     // Two topics in the same supergroup → two distinct sessions
     const store = new BindingStore(storeDir)
-    store.bind('ws1', 'sess-Topic5', 'telegram', '-1001', undefined, undefined, 5)
-    store.bind('ws1', 'sess-Topic7', 'telegram', '-1001', undefined, undefined, 7)
+    store.bind('ws1', 'sess-Topic5', 'telegram', '-1001', undefined, { accessMode: 'owner-control', allowedSenderIds: ['user-1'] }, 5)
+    store.bind('ws1', 'sess-Topic7', 'telegram', '-1001', undefined, { accessMode: 'owner-control', allowedSenderIds: ['user-1'] }, 7)
 
     const sessionManager = makeFakeSessionManager()
     const commands = makeFakeCommands()
@@ -333,7 +336,7 @@ describe('Router', () => {
   it('falls through to Commands when message lands in an unbound topic', async () => {
     const store = new BindingStore(storeDir)
     // Only topic 5 is bound; topic 7 inbound has no binding
-    store.bind('ws1', 'sess-A', 'telegram', '-1001', undefined, undefined, 5)
+    store.bind('ws1', 'sess-A', 'telegram', '-1001', undefined, { accessMode: 'owner-control', allowedSenderIds: ['user-1'] }, 5)
     const sessionManager = makeFakeSessionManager()
     const commands = makeFakeCommands()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -351,7 +354,8 @@ describe('Router', () => {
   function makeDiscordRouter(trigger: 'mention' | 'all') {
     const store = new BindingStore(storeDir)
     store.bind('ws1', 'sess-D', 'discord', 'dchan', undefined, {
-      accessMode: 'open',
+      accessMode: 'owner-control',
+      allowedSenderIds: ['user-1'],
       discordGuildTrigger: trigger,
     })
     const sessionManager = makeFakeSessionManager()

@@ -19,6 +19,8 @@ import type { FileAttachment } from '@craft-agent/shared/protocol'
 import {
   evaluateBindingAccess,
   executeRejection,
+  PUBLIC_INBOX_REPLY,
+  REJECT_REPLY_COOLDOWN_MS,
   type AccessRejectReason,
 } from './access-control'
 import type { AttachmentType, StoredAttachment } from '@craft-agent/core/types'
@@ -129,8 +131,15 @@ export class Router {
         workspaceConfig: this.deps.getWorkspaceConfig(),
         binding,
       })
-      if (!verdict.allow) {
+      if (verdict.kind === 'reject') {
         await this.handleReject(adapter, msg, verdict.reason, {
+          bindingId: binding.id,
+          sessionId: binding.sessionId,
+        })
+        return
+      }
+      if (verdict.kind === 'public-inbox') {
+        await this.handlePublicInbox(adapter, msg, {
           bindingId: binding.id,
           sessionId: binding.sessionId,
         })
@@ -190,6 +199,49 @@ export class Router {
    * gating. Delegates to the shared `executeRejection` so text and button
    * paths behave identically.
    */
+  async handlePublicInbox(
+    adapter: PlatformAdapter,
+    msg: IncomingMessage,
+    extra?: { bindingId?: string; sessionId?: string },
+  ): Promise<void> {
+    this.log.info('public-inbox sender held out of session/tools', {
+      event: 'public_inbox_held',
+      platform: msg.platform,
+      channelId: msg.channelId,
+      bindingId: extra?.bindingId,
+    })
+
+    this.deps.pendingStore?.recordRejection({
+      platform: msg.platform,
+      senderId: msg.senderId,
+      ...(msg.senderName ? { senderName: msg.senderName } : {}),
+      ...(msg.senderUsername ? { senderUsername: msg.senderUsername } : {}),
+      reason: extra?.bindingId ? 'not-on-binding-allowlist' : 'not-owner',
+      ...(extra?.bindingId ? { bindingId: extra.bindingId } : {}),
+      ...(extra?.sessionId ? { sessionId: extra.sessionId } : {}),
+      ...(msg.channelId ? { channelId: msg.channelId } : {}),
+      ...(msg.threadId !== undefined ? { threadId: msg.threadId } : {}),
+    })
+
+    const key = `${msg.platform}:${msg.senderId}`
+    const last = this.recentRejectReplies.get(key) ?? 0
+    if (Date.now() - last < REJECT_REPLY_COOLDOWN_MS) return
+    this.recentRejectReplies.set(key, Date.now())
+
+    try {
+      await adapter.sendText(msg.channelId, PUBLIC_INBOX_REPLY, {
+        ...(msg.threadId !== undefined ? { threadId: msg.threadId } : {}),
+      })
+    } catch (err) {
+      this.log.warn('failed to send public-inbox reply (non-fatal)', {
+        event: 'public_inbox_reply_failed',
+        platform: msg.platform,
+        channelId: msg.channelId,
+        error: err,
+      })
+    }
+  }
+
   async handleReject(
     adapter: PlatformAdapter,
     msg: IncomingMessage,
