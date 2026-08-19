@@ -25,7 +25,6 @@ import {
   ChevronDown,
   ChevronRight,
   Hash,
-  LockOpen,
   MessageSquare,
   MessagesSquare,
   MoreHorizontal,
@@ -58,6 +57,9 @@ import { WeChatConnectDialog } from '@/components/messaging/WeChatConnectDialog'
 import {
   BindingAllowListPopover,
   TelegramAccessSection,
+  canCommitOwnerControl,
+  normalizeUiAccessMode,
+  toBindingAccess,
   type BindingAccess,
   type BindingAccessMode,
   type PlatformAccessMode,
@@ -215,11 +217,8 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
   const [supergroup, setSupergroup] = React.useState<{ chatId: string; title: string } | null>(null)
   const [supergroupDialogOpen, setSupergroupDialogOpen] = React.useState(false)
 
-  // Telegram workspace access mode — telegram only. Lifted up so the
-  // dropdown can decide whether to show "Unlock", and TelegramAccessSection
-  // receives it as a controlled prop. Symmetric with `supergroup` state.
   const [telegramAccessMode, setTelegramAccessMode] =
-    React.useState<PlatformAccessMode>('open')
+    React.useState<PlatformAccessMode>('public-inbox')
 
   const refreshSupergroup = React.useCallback(async () => {
     if (platform !== 'telegram') return
@@ -235,9 +234,9 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
     if (platform !== 'telegram') return
     try {
       const mode = await window.electronAPI.getMessagingPlatformAccessMode('telegram')
-      setTelegramAccessMode(mode as PlatformAccessMode)
+      setTelegramAccessMode(normalizeUiAccessMode(mode))
     } catch {
-      // silent — default 'open' covers fresh / disconnected state
+      // silent — default public-inbox covers fresh / disconnected state
     }
   }, [platform])
 
@@ -248,10 +247,9 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
   React.useEffect(() => {
     if (platform !== 'telegram') return
     void refreshTelegramAccessMode()
-    // Lock-down migrates open bindings → inherit, which fires
-    // onMessagingBindingChanged. Unlock doesn't migrate, but PlatformRow
-    // and TelegramAccessSection both call setTelegramAccessMode after the
-    // API write, so the prop stays in sync without an extra event.
+    // Lock-down migrates public-inbox bindings to owner-control and fires
+    // onMessagingBindingChanged. PlatformRow and TelegramAccessSection
+    // both refresh after the API write.
     const off = window.electronAPI.onMessagingBindingChanged((wsId) => {
       if (wsId === workspaceId) void refreshTelegramAccessMode()
     })
@@ -287,10 +285,14 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
 
   const handleAccessChange = React.useCallback(
     async (bindingId: string, next: BindingAccess) => {
+      if (next.mode === 'owner-control' && !canCommitOwnerControl(next.allowedSenderIds)) {
+        toast.error('Select at least one allowed sender before saving owner control.')
+        return
+      }
       try {
         await window.electronAPI.setMessagingBindingAccess(bindingId, {
           mode: next.mode as BindingAccessMode,
-          ...(next.mode === 'allow-list' ? { allowedSenderIds: next.allowedSenderIds } : {}),
+          allowedSenderIds: next.allowedSenderIds,
         })
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to update access')
@@ -331,16 +333,6 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
   const handleReconfigure = () => {
     setReconfigure(true)
     setConnectOpen(true)
-  }
-
-  const handleUnlock = async () => {
-    try {
-      await window.electronAPI.setMessagingPlatformAccessMode('telegram', 'open')
-      toast.success(t('toast.messagingTelegramUnlocked'))
-      setTelegramAccessMode('open')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('common.error'))
-    }
   }
 
   const handleDisconnect = async () => {
@@ -410,12 +402,6 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
                       <Settings2 className="h-3.5 w-3.5" />
                       <span>{t('common.reconfigure')}</span>
                     </StyledDropdownMenuItem>
-                    {telegramAccessMode === 'owner-only' && (
-                      <StyledDropdownMenuItem onClick={() => runAfterMenuClose(handleUnlock)}>
-                        <LockOpen className="h-3.5 w-3.5" />
-                        <span>{t('settings.messaging.telegram.unlock')}</span>
-                      </StyledDropdownMenuItem>
-                    )}
                     <StyledDropdownMenuSeparator />
                     <StyledDropdownMenuItem onClick={handleDisconnect} variant="destructive">
                       <PowerOff className="h-3.5 w-3.5" />
@@ -563,12 +549,7 @@ interface TelegramBindingsBodyProps {
   onUnbind: (binding: MessagingBinding) => void
 }
 
-function bindingToAccess(binding: MessagingBinding): BindingAccess {
-  return {
-    mode: binding.accessMode ?? 'open',
-    allowedSenderIds: binding.allowedSenderIds ?? [],
-  }
-}
+
 
 function TelegramBindingsBody({
   bindings,
@@ -600,10 +581,14 @@ function TelegramBindingsBody({
 
   const handleAccessChange = React.useCallback(
     async (bindingId: string, next: BindingAccess) => {
+      if (next.mode === 'owner-control' && !canCommitOwnerControl(next.allowedSenderIds)) {
+        toast.error('Select at least one allowed sender before saving owner control.')
+        return
+      }
       try {
         await window.electronAPI.setMessagingBindingAccess(bindingId, {
           mode: next.mode as BindingAccessMode,
-          ...(next.mode === 'allow-list' ? { allowedSenderIds: next.allowedSenderIds } : {}),
+          allowedSenderIds: next.allowedSenderIds,
         })
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to update access')
@@ -694,7 +679,7 @@ function DirectSessionRow({
         <div className="mt-0.5 truncate text-xs text-foreground/50">{subtitle}</div>
       </div>
       <BindingAllowListPopover
-        access={bindingToAccess(binding)}
+        access={toBindingAccess(binding)}
         workspaceOwners={workspaceOwners}
         onChange={onAccessChange}
       />
@@ -866,7 +851,7 @@ function TopicBindingRow({
         </div>
       </div>
       <BindingAllowListPopover
-        access={bindingToAccess(binding)}
+        access={toBindingAccess(binding)}
         workspaceOwners={workspaceOwners}
         onChange={onAccessChange}
       />

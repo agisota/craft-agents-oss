@@ -21,9 +21,9 @@ export interface MessagingBinding {
   /**
    * Per-binding access policy. Optional in the wire shape so legacy bindings
    * (created before access control existed) don't break atom updates. The
-   * UI treats missing values as `'open'`.
+   * UI treats missing values as `'public-inbox'`.
    */
-  accessMode?: 'inherit' | 'allow-list' | 'open'
+  accessMode?: 'public-inbox' | 'owner-control' | 'disabled'
   allowedSenderIds?: string[]
 }
 

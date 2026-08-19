@@ -10,6 +10,7 @@
  */
 
 import type { ToolArtifact, ToolKind, ToolName, ToolTier, ToolchainPlatform } from './types';
+import { OPENCLAW_NPM_PIN } from './npm-locks';
 
 export interface ManifestToolData {
   version: string;
@@ -58,7 +59,9 @@ export const TOOL_PLATFORM_MATRIX: Record<ToolName, ToolchainPlatform[]> = {
   'oh-my-codex': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   'oh-my-claude-sisyphus': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   skills: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
-  // npm opt-in (vercel marketplace kind:tool путь)
+  // npm opt-in
+  openclaw: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
+  // Vercel marketplace kind:tool path
   eve: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   'agent-browser': ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
   portless: ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'],
@@ -749,6 +752,46 @@ export const MANIFEST_DATA: Partial<Record<ToolName, ManifestToolData>> = {
         size: 54799521,
         archive: 'zip',
         binPaths: ["infisical.exe"],
+      },
+    },
+  },
+
+  // OpenClaw is deliberately opt-in: exact registry tarball + embedded lock,
+  // installed script-free. Runtime resolution invokes managed Node + openclaw.mjs directly.
+  openclaw: {
+    version: OPENCLAW_NPM_PIN.version,
+    kind: 'npm',
+    tier: 'opt-in',
+    displayName: 'OpenClaw',
+    dependsOn: ['node'],
+    artifacts: {
+      'darwin-arm64': {
+        url: OPENCLAW_NPM_PIN.tarballUrl,
+        sha256: OPENCLAW_NPM_PIN.tarballSha256,
+        size: 19728152,
+        archive: 'tar.gz',
+        binPaths: ['package/openclaw.mjs'],
+      },
+      'darwin-x64': {
+        url: OPENCLAW_NPM_PIN.tarballUrl,
+        sha256: OPENCLAW_NPM_PIN.tarballSha256,
+        size: 19728152,
+        archive: 'tar.gz',
+        binPaths: ['package/openclaw.mjs'],
+      },
+      'linux-x64': {
+        url: OPENCLAW_NPM_PIN.tarballUrl,
+        sha256: OPENCLAW_NPM_PIN.tarballSha256,
+        size: 19728152,
+        archive: 'tar.gz',
+        binPaths: ['package/openclaw.mjs'],
+      },
+      'win32-x64': {
+        url: OPENCLAW_NPM_PIN.tarballUrl,
+        sha256: OPENCLAW_NPM_PIN.tarballSha256,
+        size: 19728152,
+        archive: 'tar.gz',
+        binPaths: ['package/openclaw.mjs'],
       },
     },
   },

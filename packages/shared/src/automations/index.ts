@@ -32,6 +32,20 @@ export type {
   AutomationAction,
   AutomationMatcher,
   AutomationsConfig,
+  AutomationGraphNodeKind,
+  AutomationGraphEdgeKind,
+  AutomationGraphPosition,
+  AutomationGraphMatcherData,
+  AutomationGraphTriggerNode,
+  AutomationGraphMatcherNode,
+  AutomationGraphPromptNode,
+  AutomationGraphWebhookNode,
+  AutomationGraphAnnotationNode,
+  AutomationGraphGroupNode,
+  AutomationGraphDecisionNode,
+  AutomationGraphNode,
+  AutomationGraphEdge,
+  AutomationGraph,
   PromptReferences,
   PromptActionResult,
   WebhookActionResult,
@@ -49,7 +63,7 @@ export type {
   AutomationCondition,
 } from './types.ts';
 
-export { APP_EVENTS, AGENT_EVENTS } from './types.ts';
+export { APP_EVENTS, AGENT_EVENTS, AUTOMATION_GRAPH_VERSION } from './types.ts';
 
 // ============================================================================
 // Validation
@@ -92,6 +106,10 @@ export {
   ActionDefinitionSchema,
   PromptActionSchema,
   WebhookActionSchema,
+  AutomationGraphNodeSchema,
+  AutomationGraphEdgeSchema,
+  AutomationGraphSchema,
+  SaveAutomationGraphPayloadSchema,
   zodErrorToIssues,
   VALID_EVENTS,
 } from './schemas.ts';
@@ -119,6 +137,22 @@ export { resolveAutomationsConfigPath, generateShortId } from './resolve-config-
 
 // Cron matching
 export { matchesCron } from './cron-matcher.ts';
+
+// Graph authoring projection
+export {
+  AutomationGraphError,
+  automationGraphRevision,
+  createDefaultAutomationGraph,
+  compileAutomationGraph,
+  projectAutomationsToGraph,
+  getAutomationGraphProjection,
+  buildAutomationGraphSave,
+  parseSaveAutomationGraphPayload,
+  type SaveAutomationGraphPayload,
+  type CompiledAutomationGraph,
+  type AutomationGraphProjection,
+  type SavedAutomationGraph,
+} from './graph.ts';
 
 
 // Default seeds

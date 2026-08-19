@@ -118,7 +118,7 @@ export default function KnowledgeSettingsPage() {
         ...(connection ? { connectionId: connection.id } : {}),
       })
       setEngineStatus(status)
-      // Refresh connections in case ENGINE_START / list seed created one.
+      // Refresh connections in case an explicit ENGINE_START created one.
       const list = await window.electronAPI.knowledge.listConnections()
       setConnections(list)
       toast.success(t('settings.knowledge.testOk'))
@@ -167,16 +167,30 @@ export default function KnowledgeSettingsPage() {
   }
 
   const handleMigrateNotes = async () => {
-    if (!workspaceId || !connection || migrating) return
+    if (!workspaceId || migrating) return
     const migrate = window.electronAPI.knowledge.migrateNotes
-    if (typeof migrate !== 'function') {
+    if (typeof migrate !== 'function' || !window.electronAPI?.openFolderDialog) {
       toast.error(t('knowledge.migrate.failed'))
       return
     }
+
+    let sourceRoot: string | null
+    try {
+      sourceRoot = await window.electronAPI.openFolderDialog()
+    } catch {
+      toast.error(t('knowledge.migrate.failed'))
+      return
+    }
+    if (!sourceRoot) return
+
     setMigrating(true)
     const progressToast = toast.loading(t('knowledge.migrate.progress'))
     try {
-      const result = await migrate({ workspaceId, connectionId: connection.id })
+      const result = await migrate({
+        workspaceId,
+        sourceRoot,
+        format: 'craft-markdown',
+      })
       const failedCount = result.failed?.length ?? 0
       if (failedCount > 0 && result.migrated === 0) {
         toast.error(t('knowledge.migrate.failed'), {
@@ -320,15 +334,12 @@ export default function KnowledgeSettingsPage() {
 
       <SettingsSection title={t('knowledge.migrate.button')}>
         <SettingsCard>
-          <SettingsRow
-            label={t('knowledge.legacyNotes.banner')}
-            description={t('knowledge.migrate.noConnection')}
-          >
+          <SettingsRow label={t('knowledge.migrate.button')}>
             <Button
               size="sm"
               variant="outline"
               onClick={() => void handleMigrateNotes()}
-              disabled={!workspaceId || !connection || migrating}
+              disabled={!workspaceId || migrating}
             >
               {migrating ? t('knowledge.migrate.progress') : t('knowledge.migrate.button')}
             </Button>

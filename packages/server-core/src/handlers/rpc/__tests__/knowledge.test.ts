@@ -253,6 +253,23 @@ describe('registration', () => {
     expect(handlers.size).toBe(HANDLED_CHANNELS.length)
     for (const ch of HANDLED_CHANNELS) expect(handlers.has(ch)).toBe(true)
   })
+
+  it('does not contact or bootstrap a knowledge engine during fresh handler registration', () => {
+    const previousAutoStart = process.env.CRAFT_SIYUAN_AUTO_START
+    process.env.CRAFT_SIYUAN_AUTO_START = '1'
+    __setSkipKnowledgeWatchAutoStart(false)
+    try {
+      createHarness()
+      expect(fetchCalls).toEqual([])
+    } finally {
+      if (previousAutoStart === undefined) {
+        delete process.env.CRAFT_SIYUAN_AUTO_START
+      } else {
+        process.env.CRAFT_SIYUAN_AUTO_START = previousAutoStart
+      }
+      __setSkipKnowledgeWatchAutoStart(true)
+    }
+  })
 })
 
 describe('listConnections', () => {
@@ -316,12 +333,11 @@ describe('engineStatus', () => {
     expect(status).toMatchObject({ mode: 'external-local', running: false })
   })
 
-  it('seeds a default local connection via listConnections when empty', async () => {
+  it('returns no connections without seeding a local engine on a fresh install', async () => {
     const { invoke } = createHarness()
     const list = await invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS, {}) as KnowledgeConnection[]
-    expect(list.length).toBeGreaterThanOrEqual(1)
-    expect(list[0]!.baseUrl).toMatch(/127\.0\.0\.1:6806|localhost:6806/)
-    expect(list[0]!.provider).toBe('siyuan')
+    expect(list).toEqual([])
+    expect(new KnowledgeConnectionsStore().list()).toEqual([])
   })
 })
 

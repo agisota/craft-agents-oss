@@ -20,7 +20,7 @@ export interface MessagingBindingInfo {
    * Per-binding access policy. Optional for back-compat with legacy clients
    * that don't yet display this field. Phase 3 wires the renderer.
    */
-  accessMode?: 'inherit' | 'allow-list' | 'open'
+  accessMode?: 'public-inbox' | 'owner-control' | 'disabled'
   allowedSenderIds?: string[]
 }
 
@@ -84,9 +84,9 @@ export interface MessagingPendingSenderInfo {
   threadId?: number
 }
 
-export type MessagingPlatformAccessMode = 'open' | 'owner-only'
+export type MessagingPlatformAccessMode = 'public-inbox' | 'owner-control' | 'disabled'
 
-export type MessagingBindingAccessMode = 'inherit' | 'allow-list' | 'open'
+export type MessagingBindingAccessMode = 'public-inbox' | 'owner-control' | 'disabled'
 
 export interface MessagingConfigInfo {
   enabled: boolean

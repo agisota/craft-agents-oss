@@ -85,8 +85,23 @@ export interface SetupNeeds {
   needsCredentials: boolean;
   /** Rox cloud account (rox.one) not connected — product gate */
   needsRoxCloud?: boolean;
-  /** Everything complete → go straight to App */
+  /**
+   * The app can enter its local workspace.
+   *
+   * Credentials, billing, and OAuth setup are optional recommendations; use
+   * `needsBillingConfig` and `needsCredentials` to inspect that state.
+   */
   isFullyConfigured: boolean;
+  /** A persisted, explicit "Setup later" choice; diagnostic only. */
+  isSetupDeferred?: boolean;
+  /**
+   * Whether automatic app launch should open the setup wizard.
+   *
+   * The local-first launch policy leaves this false for unfinished setup so
+   * credentials, billing, and OAuth remain explicit user actions. Optional to
+   * tolerate payloads from older clients.
+   */
+  shouldShowOnboardingOnLaunch?: boolean;
   /** User has legacy tokens that need migration */
   needsMigration?: MigrationInfo;
 }
@@ -343,7 +358,7 @@ export async function getAuthState(): Promise<AuthState> {
 /**
  * Derive what setup steps are needed based on current auth state
  */
-export function getSetupNeeds(state: AuthState, setupDeferred?: boolean): SetupNeeds {
+export function getSetupNeeds(state: AuthState, _setupDeferred?: boolean): SetupNeeds {
   // Need billing config if no billing type is set
   const needsBillingConfig = state.billing.type === null;
 
@@ -353,8 +368,14 @@ export function getSetupNeeds(state: AuthState, setupDeferred?: boolean): SetupN
   return {
     needsBillingConfig,
     needsCredentials,
-    // Fully configured if setup is complete OR user chose "Setup later"
-    isFullyConfigured: (!needsBillingConfig && !needsCredentials) || !!setupDeferred,
+    // Local-first launch: unfinished provider setup is a recommendation, not
+    // a blocker for entering the local workspace.
+    isFullyConfigured: true,
+    // Keep the persisted legacy "Setup later" choice observable to callers.
+    isSetupDeferred: _setupDeferred === true,
+    // Keep setup status separate from launch routing: unfinished setup is
+    // available through explicit onboarding/settings actions, never a launch gate.
+    shouldShowOnboardingOnLaunch: false,
     needsMigration: state.billing.migrationRequired,
   };
 }

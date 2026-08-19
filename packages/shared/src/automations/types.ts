@@ -264,8 +264,124 @@ export interface AutomationMatcher {
   actions: AutomationAction[];
 }
 
+export const AUTOMATION_GRAPH_VERSION = 1 as const;
+
+export type AutomationGraphNodeKind =
+  | 'trigger'
+  | 'matcher'
+  | 'prompt'
+  | 'webhook'
+  | 'annotation'
+  | 'group'
+  | 'decision';
+
+export type AutomationGraphEdgeKind = 'flow' | 'metadata';
+
+export interface AutomationGraphPosition {
+  x: number;
+  y: number;
+}
+
+interface AutomationGraphNodeBase {
+  /** Stable graph-only ID. Runtime matcher IDs live in matcher node data. */
+  id: string;
+  kind: AutomationGraphNodeKind;
+  /** User-authored display label; absent labels are derived by the renderer. */
+  label?: string;
+  position: AutomationGraphPosition;
+}
+
+export interface AutomationGraphTriggerNode extends AutomationGraphNodeBase {
+  kind: 'trigger';
+  data: { event: AutomationEvent };
+}
+
+/**
+ * Runtime matcher fields excluding actions. A matcher node must be connected
+ * to a trigger and one linear prompt/webhook action chain before compilation.
+ */
+export interface AutomationGraphMatcherData {
+  id?: string;
+  name?: string;
+  matcher?: string;
+  cron?: string;
+  timezone?: string;
+  permissionMode?: PermissionMode;
+  labels?: string[];
+  enabled?: boolean;
+  attributeAllowList?: string[];
+  conditions?: AutomationCondition[];
+  telegramTopic?: string;
+}
+
+export interface AutomationGraphMatcherNode extends AutomationGraphNodeBase {
+  kind: 'matcher';
+  data: AutomationGraphMatcherData;
+}
+
+export interface AutomationGraphPromptNode extends AutomationGraphNodeBase {
+  kind: 'prompt';
+  data: Omit<PromptAction, 'type'>;
+}
+
+export interface AutomationGraphWebhookNode extends AutomationGraphNodeBase {
+  kind: 'webhook';
+  data: Omit<WebhookAction, 'type'>;
+}
+
+/**
+ * Metadata-only nodes are deliberately not executable. They may be linked by
+ * metadata edges for layout/annotation, but never by flow edges.
+ */
+export interface AutomationGraphAnnotationNode extends AutomationGraphNodeBase {
+  kind: 'annotation';
+  data: { text?: string };
+}
+
+export interface AutomationGraphGroupNode extends AutomationGraphNodeBase {
+  kind: 'group';
+  data: { memberIds?: string[] };
+}
+
+export interface AutomationGraphDecisionNode extends AutomationGraphNodeBase {
+  kind: 'decision';
+  data: { expression?: string };
+}
+
+export type AutomationGraphNode =
+  | AutomationGraphTriggerNode
+  | AutomationGraphMatcherNode
+  | AutomationGraphPromptNode
+  | AutomationGraphWebhookNode
+  | AutomationGraphAnnotationNode
+  | AutomationGraphGroupNode
+  | AutomationGraphDecisionNode;
+
+export interface AutomationGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: AutomationGraphEdgeKind;
+}
+
+/**
+ * Authoring metadata over the canonical `automations` runtime configuration.
+ * This is not an execution format: save compiles it back to matchers/actions.
+ */
+export interface AutomationGraph {
+  version: typeof AUTOMATION_GRAPH_VERSION;
+  nodes: AutomationGraphNode[];
+  edges: AutomationGraphEdge[];
+}
+
 export interface AutomationsConfig {
+  /** Current automations.json format version when present. */
+  version?: number;
+  /** Seed marker retained to distinguish an intentional empty configuration. */
+  craftSeedVersion?: number;
   automations: Partial<Record<AutomationEvent, AutomationMatcher[]>>;
+  /** Optional graph-authoring metadata; runtime executes only `automations`. */
+  automationGraph?: AutomationGraph;
 }
 
 // ============================================================================

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { DEFAULT_BUILTIN_STATUS_PALETTE } from '../colors/defaults.ts'
 import {
   BUILTIN_KANBAN_COLUMN_IDS,
   getDefaultKanbanBoardConfig,
@@ -11,13 +12,20 @@ describe('Kanban browser config', () => {
     const config = getDefaultKanbanBoardConfig()
 
     expect(config.columns.map((column) => column.id)).toEqual([...BUILTIN_KANBAN_COLUMN_IDS])
+    expect(
+      Object.fromEntries(config.columns.map((column) => [column.id, column.color])),
+    ).toEqual(
+      Object.fromEntries(
+        BUILTIN_KANBAN_COLUMN_IDS.map((id) => [id, DEFAULT_BUILTIN_STATUS_PALETTE[id].light]),
+      ),
+    )
     expect(config.columns.find((column) => column.id === 'backlog')?.collapsed).toBe(true)
   })
 
   it('normalizes malformed input and retains valid custom columns', () => {
     const config = normalizeKanbanBoardConfig({
       groupBy: 'none',
-      columns: [{ id: 'todo', color: '#ffffff' }, { id: 'release', label: 'Release' }, null],
+      columns: [{ id: 'in-progress', color: '#ffffff' }, { id: 'release', label: 'Release' }, null],
     })
 
     expect(config.groupBy).toBe('none')
@@ -25,7 +33,7 @@ describe('Kanban browser config', () => {
       ...BUILTIN_KANBAN_COLUMN_IDS,
       'release',
     ])
-    expect(config.columns.find((column) => column.id === 'todo')?.color).toBe('#ffffff')
+    expect(config.columns.find((column) => column.id === 'in-progress')?.color).toBe('#ffffff')
     expect(config.columns.find((column) => column.id === 'release')).toMatchObject({
       isBuiltIn: false,
       label: 'Release',

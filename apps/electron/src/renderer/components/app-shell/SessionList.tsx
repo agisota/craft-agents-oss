@@ -19,6 +19,7 @@ import { EntityList, type EntityListGroup } from "@/components/ui/entity-list"
 import { RenameDialog } from "@/components/ui/rename-dialog"
 import { SessionSearchHeader } from "./SessionSearchHeader"
 import { SessionItem } from "./SessionItem"
+import { CollectionBulkBar } from "./collection/CollectionBulkBar"
 import { SessionListProvider, type SessionListContextValue } from "@/context/SessionListContext"
 import { useSessionSelection, useSessionSelectionStore } from "@/hooks/useSession"
 import { useSessionSearch, type FilterMode } from "@/hooks/useSessionSearch"
@@ -197,6 +198,10 @@ export function SessionList({
 
   // Pre-flatten label tree once for efficient ID lookups in each SessionItem
   const flatLabels = useMemo(() => flattenLabels(labels), [labels])
+  const bulkLabelOptions = useMemo(
+    () => flatLabels.map(label => ({ id: label.id, name: label.name })),
+    [flatLabels],
+  )
 
   // Get current filter from navigation state (for preserving context in tab routes)
   const currentFilter = isSessionsNavigation(navState) ? navState.filter : undefined
@@ -581,6 +586,7 @@ export function SessionList({
   }, [isSearchMode, matchingFilterItems, otherResultItems, flatItems, groupingMode, sessionStatuses, projects, collapsedGroupsMeta, collapsedGroups, familyBySessionId, t])
 
   const flatRows = rowData.rows
+  const visibleSessionIds = useMemo(() => flatRows.map(row => row.item.id), [flatRows])
 
   const collapseAllGroups = useCallback(() => {
     // Collapse All also collapses session families (family:<rootId> keys).
@@ -984,6 +990,14 @@ export function SessionList({
         onExpandAll={expandAllGroups}
       />
       </SessionListProvider>
+
+      <CollectionBulkBar
+        workspaceId={workspaceId}
+        visibleSessionIds={visibleSessionIds}
+        statuses={sessionStatuses}
+        projects={projects}
+        labels={bulkLabelOptions}
+      />
 
       {/* Rename Dialog */}
       <RenameDialog

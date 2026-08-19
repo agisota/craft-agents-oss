@@ -1,30 +1,36 @@
 import { describe, expect, it } from 'bun:test'
 import {
   findMigrationEntry,
+  loadNotesMigrationMap,
+  lookupImportedNote,
   normalizeNoteMapKey,
   parseNotesMigrationMap,
-  loadNotesMigrationMap,
-  lookupMigratedSiyuanId,
 } from '../notes-migration-map'
 
 const SAMPLE = JSON.stringify({
-  version: 1,
-  notebookId: 'nb-1',
-  notebookName: 'Craft Notes',
+  version: 2,
   entries: [
     {
+      sourceRoot: '/selected/vault',
+      destinationRoot: '/local/notes',
       noteId: 'alpha',
-      path: 'alpha.md',
-      siyuanId: '20240101120000-abcde',
+      sourcePath: 'alpha.md',
+      destinationNoteId: 'imports/abcd/alpha',
+      destinationPath: 'imports/abcd/alpha.md',
       title: 'Alpha',
-      migratedAt: 1,
+      state: 'completed',
+      importedAt: 1,
     },
     {
+      sourceRoot: '/selected/vault',
+      destinationRoot: '/local/notes',
       noteId: 'projects/beta',
-      path: 'projects/beta.md',
-      siyuanId: 'doc-beta',
+      sourcePath: 'projects/beta.md',
+      destinationNoteId: 'imports/abcd/projects/beta',
+      destinationPath: 'imports/abcd/projects/beta.md',
       title: 'Beta',
-      migratedAt: 2,
+      state: 'completed',
+      importedAt: 2,
     },
   ],
 })
@@ -38,36 +44,43 @@ describe('normalizeNoteMapKey', () => {
 })
 
 describe('parseNotesMigrationMap + findMigrationEntry', () => {
-  it('finds by noteId and path variants', () => {
+  it('finds completed imports by source and destination paths', () => {
     const map = parseNotesMigrationMap(SAMPLE)
-    expect(findMigrationEntry(map, 'alpha')?.siyuanId).toBe('20240101120000-abcde')
-    expect(findMigrationEntry(map, 'notes/alpha.md')?.siyuanId).toBe('20240101120000-abcde')
-    expect(findMigrationEntry(map, 'projects/beta.md')?.siyuanId).toBe('doc-beta')
+    expect(findMigrationEntry(map, 'alpha')?.destinationNoteId).toBe('imports/abcd/alpha')
+    expect(findMigrationEntry(map, 'notes/alpha.md')?.destinationNoteId).toBe('imports/abcd/alpha')
+    expect(findMigrationEntry(map, 'imports/abcd/projects/beta.md')?.title).toBe('Beta')
     expect(findMigrationEntry(map, 'missing')).toBeNull()
   })
 
-  it('returns empty on garbage', () => {
+  it('ignores legacy and malformed maps instead of retaining remote redirects', () => {
+    const legacy = parseNotesMigrationMap(JSON.stringify({
+      version: 1,
+      notebookId: 'remote-notebook',
+      entries: [{ noteId: 'old', siyuanId: 'remote-document' }],
+    }))
+    expect(legacy.entries).toEqual([])
+    expect(findMigrationEntry(legacy, 'old')).toBeNull()
     expect(parseNotesMigrationMap('not-json').entries).toEqual([])
   })
 })
 
-describe('loadNotesMigrationMap / lookupMigratedSiyuanId', () => {
-  it('loads via readFile and looks up', async () => {
+describe('loadNotesMigrationMap / lookupImportedNote', () => {
+  it('loads via readFile and looks up a local destination', async () => {
     const readFile = async (path: string) => {
       expect(path.replace(/\\/g, '/')).toMatch(/\/.craft\/notes-migration-map\.json$/)
       return SAMPLE
     }
     const map = await loadNotesMigrationMap('/ws/root', readFile)
     expect(map.entries).toHaveLength(2)
-    const entry = await lookupMigratedSiyuanId('/ws/root', 'alpha', readFile)
-    expect(entry?.siyuanId).toBe('20240101120000-abcde')
+    const entry = await lookupImportedNote('/ws/root', 'alpha', readFile)
+    expect(entry?.destinationNoteId).toBe('imports/abcd/alpha')
   })
 
-  it('returns empty when read fails', async () => {
+  it('returns empty when reading fails', async () => {
     const map = await loadNotesMigrationMap('/ws', async () => {
       throw new Error('ENOENT')
     })
     expect(map.entries).toEqual([])
-    expect(await lookupMigratedSiyuanId(null, 'alpha')).toBeNull()
+    expect(await lookupImportedNote(null, 'alpha')).toBeNull()
   })
 })

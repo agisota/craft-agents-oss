@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { TOOLCHAIN_INSTALL_COMPLETE_MARKER } from './types';
 import type { ToolArtifact, ToolName, ToolchainPaths } from './types';
 import { runCommand, whichTool } from './exec';
 import { getNpmLock } from './npm-locks';
@@ -295,9 +296,16 @@ export async function npmInstallDeps(
     } catch {
       // toolchain node ещё не установлен
     }
-    npm ??= (await whichTool(isWindows ? 'npm.cmd' : 'npm')) ?? undefined;
+    // OpenClaw's supply-chain path is anchored to managed Node. It must never
+    // borrow a user/global npm when its dependency was not installed.
+    if (tool !== 'openclaw') {
+      npm ??= (await whichTool(isWindows ? 'npm.cmd' : 'npm')) ?? undefined;
+    }
   }
   if (!npm) {
+    if (tool === 'openclaw') {
+      throw new Error('managed toolchain Node/npm required for OpenClaw; PATH fallback is forbidden');
+    }
     throw new Error('npm not found: toolchain node required (omp dependsOn node), fallback PATH npm');
   }
   const env = {
@@ -410,17 +418,30 @@ export async function installTool(
   } else {
     await extractArtifact(artifactFile, artifact.archive, versionDir);
     await assertNoEscapes(versionDir);
-    // npm-пакеты: именованные лончеры bin/<name>[.cmd] по package.json bin…
-    const wrappers = await generateNpmWrappers(versionDir);
-    if (wrappers.length > 0) {
-      // …и npm-зависимости (pi-natives и др. — тарболл один неработоспособен).
-      await npmInstallDeps(paths, versionDir, tool, version);
-      // postinstall мог заменить js-цель bin нативным бинарём (opencode-ai):
-      // перегенерируем лончеры — вторая волна перепишет их прямым exec.
-      await generateNpmWrappers(versionDir);
+    // OpenClaw has no generic wrapper: only the managed Node launcher may run it.
+    const wrappers = tool === 'openclaw' ? [] : await generateNpmWrappers(versionDir);
+    if (wrappers.length > 0 || tool === 'openclaw') {
+      // npm-зависимости (pi-natives и др. — тарболл один неработоспособен).
+      try {
+        await npmInstallDeps(paths, versionDir, tool, version);
+      } catch (error) {
+        // A failed install must never leave an entrypoint the resolver could launch.
+        await fs.promises.rm(versionDir, { recursive: true, force: true });
+        throw error;
+      }
+      if (tool !== 'openclaw') {
+        // postinstall мог заменить js-цель bin нативным бинарём (opencode-ai):
+        // перегенерируем лончеры — вторая волна перепишет их прямым exec.
+        await generateNpmWrappers(versionDir);
+      }
     }
   }
   await chmodBins(versionDir, artifact.binPaths);
+  await fs.promises.writeFile(
+    path.join(versionDir, TOOLCHAIN_INSTALL_COMPLETE_MARKER),
+    `${tool}@${version}\n`,
+    { mode: 0o600 },
+  );
   await flipCurrent(toolRoot, version, versionDir);
   await cleanupOldVersions(toolRoot, version);
   // partial/исходник артефакта больше не нужен

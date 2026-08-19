@@ -17,11 +17,13 @@
  */
 import '../memory-test-setup' // must run before any module reading CRAFT_CONFIG_DIR
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { CredentialId } from '@craft-agent/shared/credentials'
+import { loadSourceConfig, saveSourceConfig, type FolderSourceConfig } from '@craft-agent/shared/sources'
+import { createWorkspaceAtPath, getDefaultWorkspacesDir, loadWorkspaceConfig, saveWorkspaceConfig } from '@craft-agent/shared/workspaces'
 import type { HandlerFn, RequestContext, RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../../handler-deps'
 import { KnowledgeConnectionsStore } from '../../../knowledge'
@@ -54,6 +56,17 @@ mock.module('@craft-agent/shared/config', () => ({
     mockWorkspaces.find((w) => w.id === nameOrId || w.name === nameOrId) ?? null,
   getWorkspaces: () => [...mockWorkspaces],
 }))
+
+function writeConfigDefaults(): void {
+  writeFileSync(join(process.env.CRAFT_CONFIG_DIR!, 'config-defaults.json'), JSON.stringify({
+    version: 'test',
+    workspaceDefaults: {
+      permissionMode: 'ask',
+      cyclablePermissionModes: ['safe', 'ask'],
+      localMcpServers: { enabled: true },
+    },
+  }), 'utf-8')
+}
 
 function createHarness() {
   const handlers = new Map<string, HandlerFn>()
@@ -89,6 +102,8 @@ function createHarness() {
 beforeEach(() => {
   rmSync(join(process.env.CRAFT_CONFIG_DIR!, 'knowledge'), { recursive: true, force: true })
   credentials.clear()
+  mockWorkspaces[0]!.name = 'ws-owner'
+  mockWorkspaces[1]!.name = 'ws-active'
   mockWorkspaces[0]!.rootPath = mkdtempSync(join(tmpdir(), 'sources-ws-owner-'))
   mockWorkspaces[1]!.rootPath = mkdtempSync(join(tmpdir(), 'sources-ws-active-'))
 })
@@ -133,5 +148,81 @@ describe('sources:saveCredentials — knowledge-connection fallback (P2-12)', ()
     await expect(
       invoke(RPC_CHANNELS.sources.SAVE_CREDENTIALS, 'ws-active', 'not-a-thing', 'tok'),
     ).rejects.toThrow('Source not found: not-a-thing')
+  })
+})
+
+describe('sources:get — local default source seeding', () => {
+  it('creates offline-safe defaults with a local Craft Markdown Notes source', async () => {
+    writeConfigDefaults()
+    const rootPath = mockWorkspaces[0]!.rootPath
+    const created = createWorkspaceAtPath(rootPath, 'Fresh workspace', undefined, {
+      id: 'ws-owner',
+      slug: 'fresh-workspace',
+    })
+
+    expect(created.defaults?.enabledSourceSlugs).toEqual(['notes'])
+    expect(loadSourceConfig(rootPath, 'exa')?.enabled).toBe(false)
+    expect(loadSourceConfig(rootPath, 'firecrawl')?.enabled).toBe(false)
+
+    const notesConfigPath = join(rootPath, 'sources', 'notes', 'config.json')
+    const before = readFileSync(notesConfigPath, 'utf-8')
+    mockWorkspaces[0]!.name = 'Fresh workspace by name'
+
+    const { invoke } = createHarness()
+    await invoke(RPC_CHANNELS.sources.GET, 'Fresh workspace by name')
+
+    const notes = loadSourceConfig(rootPath, 'notes')
+    expect(notes).toMatchObject({
+      slug: 'notes',
+      enabled: true,
+      provider: 'craft-notes',
+      type: 'local',
+      local: { format: 'craft-markdown' },
+      isAuthenticated: true,
+      connectionStatus: 'connected',
+    })
+    expect(notes?.local?.path).toBe(join(getDefaultWorkspacesDir(), 'ws-owner', 'notes'))
+    expect(existsSync(notes?.local?.path ?? '')).toBe(true)
+    expect(readFileSync(notesConfigPath, 'utf-8')).toBe(before)
+  })
+
+  it('preserves an existing disabled Notes source and empty source defaults', async () => {
+    writeConfigDefaults()
+    const rootPath = mockWorkspaces[0]!.rootPath
+    createWorkspaceAtPath(rootPath, 'Existing workspace', undefined, {
+      id: 'ws-owner',
+      slug: 'existing-workspace',
+    })
+
+    const workspaceConfig = loadWorkspaceConfig(rootPath)!
+    workspaceConfig.defaults = { ...workspaceConfig.defaults, enabledSourceSlugs: [] }
+    saveWorkspaceConfig(rootPath, workspaceConfig)
+
+    const disabledNotes: FolderSourceConfig = {
+      id: 'notes-vault',
+      name: 'Notes vault',
+      slug: 'notes',
+      enabled: false,
+      provider: 'craft-notes',
+      type: 'local',
+      local: { path: join(rootPath, 'chosen-notes'), format: 'obsidian' },
+      isAuthenticated: true,
+      connectionStatus: 'connected',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    saveSourceConfig(rootPath, disabledNotes)
+    const notesConfigPath = join(rootPath, 'sources', 'notes', 'config.json')
+    const before = readFileSync(notesConfigPath, 'utf-8')
+
+    const { invoke } = createHarness()
+    await invoke(RPC_CHANNELS.sources.GET, 'ws-owner')
+
+    expect(readFileSync(notesConfigPath, 'utf-8')).toBe(before)
+    expect(loadWorkspaceConfig(rootPath)?.defaults?.enabledSourceSlugs).toEqual([])
+    expect(loadSourceConfig(rootPath, 'notes')).toMatchObject({
+      enabled: false,
+      local: { format: 'obsidian' },
+    })
   })
 })

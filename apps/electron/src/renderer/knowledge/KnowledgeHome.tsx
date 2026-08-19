@@ -500,20 +500,28 @@ export function KnowledgeHome() {
       return
     }
     const api = window.electronAPI?.knowledge
-    if (!api?.migrateNotes || !api.listConnections) {
+    if (!api?.migrateNotes || !window.electronAPI?.openFolderDialog) {
       toast.error(t('knowledge.migrate.failed'))
       return
     }
+
+    let sourceRoot: string | null
+    try {
+      sourceRoot = await window.electronAPI.openFolderDialog()
+    } catch {
+      toast.error(t('knowledge.migrate.failed'))
+      return
+    }
+    if (!sourceRoot) return
+
     setMigrating(true)
     const progressToast = toast.loading(t('knowledge.migrate.progress'))
     try {
-      const connections = await api.listConnections()
-      const connectionId = connections[0]?.id
-      if (!connectionId) {
-        toast.error(t('knowledge.migrate.noConnection'), { id: progressToast })
-        return
-      }
-      const result = await api.migrateNotes({ workspaceId, connectionId })
+      const result = await api.migrateNotes({
+        workspaceId,
+        sourceRoot,
+        format: 'craft-markdown',
+      })
       const failedCount = result.failed?.length ?? 0
       if (failedCount > 0 && result.migrated === 0) {
         toast.error(t('knowledge.migrate.failed'), {
@@ -532,13 +540,7 @@ export function KnowledgeHome() {
               migrated: result.migrated,
               skipped: result.skipped,
             })
-      toast.success(message, {
-        id: progressToast,
-        action: {
-          label: t('knowledge.migrate.openKnowledge'),
-          onClick: () => navigate(routes.view.knowledge()),
-        },
-      })
+      toast.success(message, { id: progressToast })
     } catch (error) {
       toast.error(t('knowledge.migrate.failed'), {
         id: progressToast,
@@ -547,7 +549,7 @@ export function KnowledgeHome() {
     } finally {
       setMigrating(false)
     }
-  }, [migrating, workspaceId, t, navigate])
+  }, [migrating, workspaceId, t])
 
 
   const handleSetAttribute = useCallback(
@@ -795,7 +797,6 @@ export function KnowledgeHome() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground flex items-center justify-between gap-2">
-        <span>{t('knowledge.legacyNotes.banner', { defaultValue: 'Markdown notes vault is legacy — Knowledge (SiYuan) is primary.' })}</span>
         <div className="flex shrink-0 items-center gap-3">
           <button
             type="button"
@@ -808,9 +809,9 @@ export function KnowledgeHome() {
           <button
             type="button"
             className="underline underline-offset-2 hover:text-foreground"
-            onClick={() => navigate(routes.view.notesLegacy())}
+            onClick={() => navigate(routes.view.notes())}
           >
-            {t('knowledge.legacyNotes.open', { defaultValue: 'Open legacy notes' })}
+            {t('sidebar.notes')}
           </button>
         </div>
       </div>

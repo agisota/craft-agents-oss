@@ -1,28 +1,35 @@
 /**
- * Client-side reader for `{workspaceRoot}/.craft/notes-migration-map.json`.
+ * Client-side reader for the local Notes import map.
  *
- * Written by knowledge.migrateNotes (P4.4). Used by Notes Extract Tasks attach
- * chip and ChatPage note deep-links so migrated notes open/attach as SiYuan docs.
+ * The map records source-vault paths and their local Markdown Notes destinations.
+ * It intentionally does not route imported Notes through a remote provider.
  */
 
 export const NOTES_MIGRATION_MAP_RELATIVE = '.craft/notes-migration-map.json'
+export const NOTES_MIGRATION_MAP_VERSION = 2
 
 export interface NotesMigrationMapEntry {
+  sourceRoot: string
+  destinationRoot: string
   noteId: string
-  path: string
-  siyuanId: string
+  sourcePath: string
+  destinationNoteId: string
+  destinationPath: string
   title: string
-  migratedAt: number
+  state: 'pending' | 'completed'
+  importedAt?: number
 }
 
 export interface NotesMigrationMap {
   version: number
-  notebookId?: string
-  notebookName?: string
   entries: NotesMigrationMapEntry[]
 }
 
-/** Normalize note id / relative path keys for map lookup. */
+function emptyMap(): NotesMigrationMap {
+  return { version: NOTES_MIGRATION_MAP_VERSION, entries: [] }
+}
+
+/** Normalize a source or destination note key for map lookup. */
 export function normalizeNoteMapKey(value: string): string {
   let cleaned = value.replace(/\\/g, '/').trim().replace(/^\.\//, '')
   if (cleaned.toLowerCase().startsWith('notes/')) {
@@ -34,45 +41,56 @@ export function normalizeNoteMapKey(value: string): string {
   return cleaned.toLowerCase()
 }
 
+function isEntry(value: unknown): value is NotesMigrationMapEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<NotesMigrationMapEntry>
+  return typeof entry.sourceRoot === 'string'
+    && typeof entry.destinationRoot === 'string'
+    && typeof entry.noteId === 'string'
+    && typeof entry.sourcePath === 'string'
+    && typeof entry.destinationNoteId === 'string'
+    && typeof entry.destinationPath === 'string'
+    && typeof entry.title === 'string'
+    && (entry.state === 'pending' || entry.state === 'completed')
+    && (entry.importedAt === undefined || typeof entry.importedAt === 'number')
+}
+
 export function parseNotesMigrationMap(raw: string): NotesMigrationMap {
   try {
     const parsed = JSON.parse(raw) as Partial<NotesMigrationMap>
-    if (!parsed || typeof parsed !== 'object') {
-      return { version: 1, entries: [] }
+    if (!parsed || typeof parsed !== 'object' || parsed.version !== NOTES_MIGRATION_MAP_VERSION) {
+      return emptyMap()
     }
     const entries = Array.isArray(parsed.entries)
-      ? parsed.entries.filter(
-          (e): e is NotesMigrationMapEntry =>
-            !!e &&
-            typeof e.noteId === 'string' &&
-            typeof e.path === 'string' &&
-            typeof e.siyuanId === 'string' &&
-            typeof e.title === 'string' &&
-            typeof e.migratedAt === 'number',
-        )
+      ? parsed.entries.filter(isEntry)
       : []
-    return {
-      version: typeof parsed.version === 'number' ? parsed.version : 1,
-      notebookId: typeof parsed.notebookId === 'string' ? parsed.notebookId : undefined,
-      notebookName: typeof parsed.notebookName === 'string' ? parsed.notebookName : undefined,
-      entries,
-    }
+    return { version: NOTES_MIGRATION_MAP_VERSION, entries }
   } catch {
-    return { version: 1, entries: [] }
+    return emptyMap()
   }
 }
 
+/**
+ * Find a completed local import entry by source or destination key.
+ * Ambiguous source ids deliberately return null instead of navigating to the
+ * wrong local note.
+ */
 export function findMigrationEntry(
   map: NotesMigrationMap,
   noteIdOrPath: string,
 ): NotesMigrationMapEntry | null {
   const key = normalizeNoteMapKey(noteIdOrPath)
   if (!key) return null
-  for (const entry of map.entries) {
-    if (normalizeNoteMapKey(entry.noteId) === key) return entry
-    if (normalizeNoteMapKey(entry.path) === key) return entry
-  }
-  return null
+  const matches = map.entries.filter((entry) =>
+    entry.state === 'completed'
+    && (
+      normalizeNoteMapKey(entry.noteId) === key
+      || normalizeNoteMapKey(entry.sourcePath) === key
+      || normalizeNoteMapKey(entry.destinationNoteId) === key
+      || normalizeNoteMapKey(entry.destinationPath) === key
+    ),
+  )
+  return matches.length === 1 ? matches[0]! : null
 }
 
 export function notesMigrationMapAbsolutePath(workspaceRoot: string): string {
@@ -80,25 +98,20 @@ export function notesMigrationMapAbsolutePath(workspaceRoot: string): string {
   return `${root}/${NOTES_MIGRATION_MAP_RELATIVE}`
 }
 
-/**
- * Read the migration map from disk via electronAPI.readFile.
- * Missing/unreadable map → empty entries (not an error).
- */
+/** Missing or unreadable maps are treated as no local import mapping. */
 export async function loadNotesMigrationMap(
   workspaceRoot: string | null | undefined,
   readFile: (path: string) => Promise<string> = (path) => window.electronAPI.readFile(path),
 ): Promise<NotesMigrationMap> {
-  if (!workspaceRoot) return { version: 1, entries: [] }
-  const mapPath = notesMigrationMapAbsolutePath(workspaceRoot)
+  if (!workspaceRoot) return emptyMap()
   try {
-    const raw = await readFile(mapPath)
-    return parseNotesMigrationMap(raw)
+    return parseNotesMigrationMap(await readFile(notesMigrationMapAbsolutePath(workspaceRoot)))
   } catch {
-    return { version: 1, entries: [] }
+    return emptyMap()
   }
 }
 
-export async function lookupMigratedSiyuanId(
+export async function lookupImportedNote(
   workspaceRoot: string | null | undefined,
   noteIdOrPath: string,
   readFile?: (path: string) => Promise<string>,

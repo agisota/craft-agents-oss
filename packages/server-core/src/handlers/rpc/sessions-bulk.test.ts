@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'bun:test'
-import { RPC_CHANNELS, type Session } from '@craft-agent/shared/protocol'
+import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import type { BulkUpdateSessionsInput, BulkUpdateSessionsResult } from '@craft-agent/shared/protocol/dto'
 import type { HandlerDeps } from '../handler-deps'
 import { registerSessionsHandlers } from './sessions'
 import type { HandlerFn, RequestContext, RpcServer } from '../../transport'
 
 type PushedEvent = { channel: string; target: unknown; args: unknown[] }
+type BulkCall = {
+  workspaceId: string
+  input: Pick<BulkUpdateSessionsInput, 'ids' | 'patch'>
+}
 
-function createHarness(sessions: Session[]) {
-  const byId = new Map(sessions.map((session) => [session.id, session]))
+function createHarness(
+  outcome: BulkUpdateSessionsResult = { ok: ['a', 'b'], failed: [] },
+) {
   const handlers = new Map<string, HandlerFn>()
   const pushed: PushedEvent[] = []
-
+  const calls: BulkCall[] = []
   const server: RpcServer = {
     handle(channel, handler) {
       handlers.set(channel, handler)
@@ -27,15 +32,14 @@ function createHarness(sessions: Session[]) {
       return []
     },
   }
-
   const sessionManager = {
-    async getSession(id: string) {
-      return byId.get(id)
-    },
-    async setSessionLabels(id: string, labels: string[]) {
-      const session = byId.get(id)
-      if (!session) throw new Error('not_found')
-      session.labels = labels
+    async waitForInit() {},
+    async bulkUpdateSessions(
+      workspaceId: string,
+      input: Pick<BulkUpdateSessionsInput, 'ids' | 'patch'>,
+    ) {
+      calls.push({ workspaceId, input })
+      return outcome
     },
   }
 
@@ -48,41 +52,44 @@ function createHarness(sessions: Session[]) {
   )
 
   return {
-    byId,
+    calls,
     pushed,
-    async bulk(input: BulkUpdateSessionsInput): Promise<BulkUpdateSessionsResult> {
+    async bulk(
+      input: BulkUpdateSessionsInput,
+      contextWorkspaceId: string | null = 'workspace-1',
+    ): Promise<BulkUpdateSessionsResult> {
       const handler = handlers.get(RPC_CHANNELS.sessions.BULK_UPDATE)
       if (!handler) throw new Error('bulk handler was not registered')
-      return handler({} as RequestContext, input) as Promise<BulkUpdateSessionsResult>
+      const context = { workspaceId: contextWorkspaceId } as RequestContext
+      return handler(context, input) as Promise<BulkUpdateSessionsResult>
     },
   }
 }
 
-function session(id: string, labels: string[]): Session {
-  return {
-    id,
-    workspaceId: 'workspace-1',
-    isProcessing: false,
-    labels,
-  } as Session
-}
-
-describe('sessions:bulkUpdate label deltas', () => {
-  it('resolves add/remove deltas from every target and emits one coalesced event', async () => {
-    const harness = createHarness([
-      session('a', ['keep', 'remove']),
-      session('b', ['target-only']),
-    ])
-
-    const result = await harness.bulk({
+describe('sessions:bulkUpdate RPC', () => {
+  it('delegates once and emits one coalesced event for successful IDs only', async () => {
+    const harness = createHarness({
+      ok: ['a'],
+      failed: [{ id: 'b', error: 'busy' }],
+    })
+    const input: BulkUpdateSessionsInput = {
       workspaceId: 'workspace-1',
       ids: ['a', 'b'],
-      patch: { addLabels: ['added', 'keep'], removeLabels: ['remove'] },
-    })
+      patch: { addLabels: ['added'], priority: 'high' },
+    }
 
-    expect(result).toEqual({ ok: ['a', 'b'], failed: [] })
-    expect(harness.byId.get('a')?.labels).toEqual(['keep', 'added'])
-    expect(harness.byId.get('b')?.labels).toEqual(['target-only', 'added', 'keep'])
+    const result = await harness.bulk(input)
+
+    expect(result).toEqual({
+      ok: ['a'],
+      failed: [{ id: 'b', error: 'busy' }],
+    })
+    expect(harness.calls).toEqual([
+      {
+        workspaceId: 'workspace-1',
+        input: { ids: ['a', 'b'], patch: input.patch },
+      },
+    ])
     expect(harness.pushed).toEqual([
       {
         channel: RPC_CHANNELS.sessions.BULK_CHANGED,
@@ -90,17 +97,51 @@ describe('sessions:bulkUpdate label deltas', () => {
         args: [
           {
             workspaceId: 'workspace-1',
-            ids: ['a', 'b'],
-            patch: { addLabels: ['added', 'keep'], removeLabels: ['remove'] },
+            ids: ['a'],
+            patch: input.patch,
           },
         ],
       },
     ])
   })
 
-  it('rejects replacement plus delta before mutating any target', async () => {
-    const harness = createHarness([session('a', ['keep'])])
+  it('does not broadcast when no target succeeded', async () => {
+    const harness = createHarness({
+      ok: [],
+      failed: [{ id: 'a', error: 'busy' }],
+    })
 
+    await harness.bulk({
+      workspaceId: 'workspace-1',
+      ids: ['a'],
+      patch: { isArchived: true },
+    })
+
+    expect(harness.pushed).toEqual([])
+  })
+
+  it('requires a transport-bound workspace and rejects input mismatch', async () => {
+    const missingContext = createHarness()
+    await expect(
+      missingContext.bulk(
+        { workspaceId: 'workspace-1', ids: ['a'], patch: { isFlagged: true } },
+        null,
+      ),
+    ).rejects.toThrow('bulk_workspace_context_required')
+    expect(missingContext.calls).toEqual([])
+
+    const mismatch = createHarness()
+    await expect(
+      mismatch.bulk(
+        { workspaceId: 'workspace-2', ids: ['a'], patch: { isFlagged: true } },
+        'workspace-1',
+      ),
+    ).rejects.toThrow('bulk_workspace_mismatch')
+    expect(mismatch.calls).toEqual([])
+  })
+
+  it('validates conflicts and limits before manager mutation', async () => {
+    const harness = createHarness()
     await expect(
       harness.bulk({
         workspaceId: 'workspace-1',
@@ -108,8 +149,14 @@ describe('sessions:bulkUpdate label deltas', () => {
         patch: { labels: ['replace'], addLabels: ['added'] },
       }),
     ).rejects.toThrow('bulk_labels_conflict')
-
-    expect(harness.byId.get('a')?.labels).toEqual(['keep'])
+    await expect(
+      harness.bulk({
+        workspaceId: 'workspace-1',
+        ids: Array.from({ length: 201 }, (_value, index) => `s${index}`),
+        patch: { priority: 'low' },
+      }),
+    ).rejects.toThrow('bulk_limit')
+    expect(harness.calls).toEqual([])
     expect(harness.pushed).toEqual([])
   })
 })

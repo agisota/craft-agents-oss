@@ -1,194 +1,193 @@
-/**
- * P4.4 notes → SiYuan migration: map file write + createDocWithMd call counts.
- * Uses an in-memory NotesMigrationKernel (no network / no mock.module).
- */
+/** Focused local Craft Markdown Notes import contract tests. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join, relative, sep } from 'path'
 import {
-  buildCraftNotesDocPath,
-  DEFAULT_CRAFT_NOTES_NOTEBOOK_NAME,
-  migrateCraftNotesToSiyuan,
+  CRAFT_MARKDOWN_IMPORT_FORMAT,
+  importCraftMarkdownNotes,
+  importNotes,
+  NOTES_MIGRATION_MAP_VERSION,
   notesMigrationMapPath,
   readNotesMigrationMap,
-  rewriteWikilinks,
-  type NotesMigrationKernel,
+  writeNotesMigrationMap,
 } from '../notes-migration'
 
-function makeKernel(options?: {
-  notebooks?: Array<{ id: string; name: string; closed: boolean }>
-  existingIds?: Set<string>
-  failNotePaths?: Set<string>
-}): NotesMigrationKernel & {
-  createCalls: Array<{ notebook: string; path: string; markdown: string }>
-  created: Map<string, string>
-} {
-  const createCalls: Array<{ notebook: string; path: string; markdown: string }> = []
-  const created = new Map<string, string>()
-  let seq = 0
-  const existingIds = options?.existingIds ?? new Set<string>()
-  const failNotePaths = options?.failNotePaths ?? new Set<string>()
-  const notebooks = options?.notebooks ?? [
-    { id: 'nb-default', name: 'Main', closed: false },
-  ]
-
-  return {
-    createCalls,
-    created,
-    async listNotebooks() {
-      return notebooks
-    },
-    async createDocWithMd(input) {
-      createCalls.push(input)
-      if (failNotePaths.has(input.path)) {
-        throw new Error(`kernel refused ${input.path}`)
-      }
-      const id = `doc-${++seq}`
-      created.set(input.path, id)
-      existingIds.add(id)
-      return id
-    },
-    async checkBlockExist(id) {
-      return existingIds.has(id)
-    },
-  }
+function toSlashPath(path: string): string {
+  return path.split(sep).join('/')
 }
 
-async function writeNote(notesRoot: string, rel: string, body: string, title?: string) {
-  const abs = join(notesRoot, rel)
-  await mkdir(join(abs, '..'), { recursive: true })
-  const fm = title
-    ? `---\ntitle: ${JSON.stringify(title)}\n---\n\n${body}`
-    : body
-  await writeFile(abs, fm, 'utf-8')
+async function writeSourceFile(sourceRoot: string, relativePath: string, content: string | Buffer): Promise<void> {
+  const path = join(sourceRoot, relativePath)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, content)
 }
 
-describe('rewriteWikilinks', () => {
-  it('keeps alias, drops target path to leaf title', () => {
-    expect(rewriteWikilinks('see [[projects/alpha|Alpha]] and [[beta]]')).toBe(
-      'see Alpha and beta',
-    )
-    expect(rewriteWikilinks('[[folder/note#Heading]]')).toBe('note › Heading')
-  })
-})
-
-describe('buildCraftNotesDocPath', () => {
-  it('prefixes Craft Notes folder hierarchy', () => {
-    expect(buildCraftNotesDocPath('hello')).toBe('/Craft Notes/hello')
-    expect(buildCraftNotesDocPath('projects/foo/bar')).toBe('/Craft Notes/projects/foo/bar')
-  })
-})
-
-describe('migrateCraftNotesToSiyuan', () => {
+describe('local Craft Markdown Notes import', () => {
   let workspaceRoot: string
-  let notesRoot: string
+  let sourceRoot: string
+  let destinationRoot: string
 
   beforeEach(async () => {
-    workspaceRoot = await mkdtemp(join(tmpdir(), 'notes-mig-ws-'))
-    notesRoot = join(workspaceRoot, 'notes')
-    await mkdir(notesRoot, { recursive: true })
+    workspaceRoot = await mkdtemp(join(tmpdir(), 'notes-import-ws-'))
+    sourceRoot = join(workspaceRoot, 'selected-craft-vault')
+    destinationRoot = join(workspaceRoot, 'local-notes')
+    await Promise.all([
+      mkdir(sourceRoot, { recursive: true }),
+      mkdir(destinationRoot, { recursive: true }),
+    ])
   })
 
   afterEach(async () => {
     await rm(workspaceRoot, { recursive: true, force: true })
   })
 
-  it('creates a doc per unmapped note, writes map under .craft/, skips remapped', async () => {
-    await writeNote(notesRoot, 'alpha.md', 'Body [[linked]]', 'Alpha')
-    await writeNote(notesRoot, 'projects/beta.md', '# Beta\n\nMore text')
+  it('imports into local Notes while preserving frontmatter, internal links, assets, and the source vault', async () => {
+    const alpha = [
+      '---',
+      'title: "Alpha"',
+      'tags:',
+      '  - preserved',
+      'custom: keep-this-exactly',
+      '---',
+      '',
+      'See [[projects/beta|Beta]] and ![image](assets/picture.png).',
+      '',
+    ].join('\n')
+    const beta = '# Beta\n\nLinked content.\n'
+    await writeSourceFile(sourceRoot, 'alpha.md', alpha)
+    await writeSourceFile(sourceRoot, 'projects/beta.md', beta)
+    await writeSourceFile(sourceRoot, 'assets/picture.png', Buffer.from([0, 1, 2, 3]))
 
-    const kernel = makeKernel({
-      notebooks: [
-        { id: 'nb-craft', name: DEFAULT_CRAFT_NOTES_NOTEBOOK_NAME, closed: false },
-      ],
-    })
-
-    const first = await migrateCraftNotesToSiyuan({
+    const first = await importNotes({
       workspaceRoot,
-      notesRoot,
-      client: kernel,
+      sourceRoot,
+      destinationRoot,
+      format: CRAFT_MARKDOWN_IMPORT_FORMAT,
       now: () => 1_700_000_000_000,
     })
 
     expect(first.migrated).toBe(2)
     expect(first.skipped).toBe(0)
     expect(first.failed).toEqual([])
-    expect(first.notebookId).toBe('nb-craft')
-    expect(kernel.createCalls).toHaveLength(2)
-    expect(kernel.createCalls.map((c) => c.path).sort()).toEqual([
-      '/Craft Notes/alpha',
-      '/Craft Notes/projects/beta',
-    ])
-    // wikilink rewritten
-    const alphaCall = kernel.createCalls.find((c) => c.path.endsWith('/alpha'))!
-    expect(alphaCall.markdown).toContain('Body linked')
-    expect(alphaCall.markdown).not.toContain('[[')
+    expect(first.destinationRoot).toBe(await realpath(destinationRoot))
+    expect(first.mapPath).toBe(notesMigrationMapPath(await realpath(workspaceRoot)))
 
-    const mapPath = notesMigrationMapPath(workspaceRoot)
-    expect(first.mapPath).toBe(mapPath)
-    const raw = await readFile(mapPath, 'utf-8')
-    const map = JSON.parse(raw) as {
-      version: number
-      notebookId: string
-      notebookName: string
-      entries: Array<{ noteId: string; siyuanId: string }>
-    }
-    expect(map.version).toBe(1)
-    expect(map.notebookId).toBe('nb-craft')
-    expect(map.notebookName).toBe(DEFAULT_CRAFT_NOTES_NOTEBOOK_NAME)
-    expect(map.entries).toHaveLength(2)
-    expect(map.entries.map((e) => e.noteId).sort()).toEqual(['alpha', 'projects/beta'])
+    const map = await readNotesMigrationMap(workspaceRoot)
+    expect(map.version).toBe(NOTES_MIGRATION_MAP_VERSION)
+    const alphaEntry = map.entries.find((entry) => entry.sourcePath === 'alpha.md')!
+    const betaEntry = map.entries.find((entry) => entry.sourcePath === 'projects/beta.md')!
+    const assetEntry = map.assets.find((entry) => entry.sourcePath === 'assets/picture.png')!
+    expect(alphaEntry.state).toBe('completed')
+    expect(betaEntry.state).toBe('completed')
+    expect(assetEntry.state).toBe('completed')
 
-    // Second run: both still exist → skip, no extra createDocWithMd
-    const second = await migrateCraftNotesToSiyuan({
+    const importedAlpha = await readFile(join(destinationRoot, alphaEntry.destinationPath), 'utf-8')
+    expect(importedAlpha).toContain('---\ntitle: "Alpha"\ntags:\n  - preserved\ncustom: keep-this-exactly\n---')
+    expect(importedAlpha).toContain(`[[${betaEntry.destinationNoteId}|Beta]]`)
+    const relativeAssetPath = toSlashPath(relative(dirname(alphaEntry.destinationPath), assetEntry.destinationPath))
+    expect(importedAlpha).toContain(`![image](${relativeAssetPath})`)
+    expect(await readFile(join(destinationRoot, assetEntry.destinationPath))).toEqual(Buffer.from([0, 1, 2, 3]))
+    expect(await readFile(join(sourceRoot, 'alpha.md'), 'utf-8')).toBe(alpha)
+    expect(await readFile(join(sourceRoot, 'projects/beta.md'), 'utf-8')).toBe(beta)
+
+    const second = await importNotes({
       workspaceRoot,
-      notesRoot,
-      client: kernel,
+      sourceRoot,
+      destinationRoot,
+      format: CRAFT_MARKDOWN_IMPORT_FORMAT,
     })
     expect(second.migrated).toBe(0)
     expect(second.skipped).toBe(2)
-    expect(kernel.createCalls).toHaveLength(2)
+    expect(second.failed).toEqual([])
   })
 
-  it('falls back to first open notebook path prefix when Craft Notes notebook missing', async () => {
-    await writeNote(notesRoot, 'solo.md', 'hello')
-    const kernel = makeKernel({
-      notebooks: [{ id: 'nb-main', name: 'Inbox', closed: false }],
-    })
-    const result = await migrateCraftNotesToSiyuan({
+  it('resumes a pending checkpoint after an injected interruption without duplicate Notes', async () => {
+    await writeSourceFile(sourceRoot, 'alpha.md', '# Alpha\n')
+    await writeSourceFile(sourceRoot, 'beta.md', '# Beta\n')
+
+    await expect(importCraftMarkdownNotes({
       workspaceRoot,
-      notesRoot,
-      client: kernel,
-    })
-    expect(result.notebookId).toBe('nb-main')
-    expect(kernel.createCalls[0]!.notebook).toBe('nb-main')
-    expect(kernel.createCalls[0]!.path).toBe('/Craft Notes/solo')
+      sourceRoot,
+      destinationRoot,
+      onCheckpoint: ({ stage, sourcePath }) => {
+        if (stage === 'note-planned' && sourcePath === 'alpha.md') {
+          throw new Error('injected interruption')
+        }
+      },
+    })).rejects.toThrow('injected interruption')
+
+    const interruptedMap = await readNotesMigrationMap(workspaceRoot)
+    const alphaCheckpoint = interruptedMap.entries.find((entry) => entry.sourcePath === 'alpha.md')!
+    expect(alphaCheckpoint.state).toBe('pending')
+    expect(existsSync(join(destinationRoot, alphaCheckpoint.destinationPath))).toBe(false)
+
+    const resumed = await importCraftMarkdownNotes({ workspaceRoot, sourceRoot, destinationRoot })
+    expect(resumed.migrated).toBe(2)
+    expect(resumed.failed).toEqual([])
+
+    const finalMap = await readNotesMigrationMap(workspaceRoot)
+    const alphaEntry = finalMap.entries.find((entry) => entry.sourcePath === 'alpha.md')!
+    expect(alphaEntry.destinationPath).toBe(alphaCheckpoint.destinationPath)
+    expect((await readdir(join(destinationRoot, dirname(alphaEntry.destinationPath)))).filter((name) => name.toLowerCase().endsWith('.md'))).toHaveLength(2)
   })
 
-  it('soft-fails per note and continues', async () => {
-    await writeNote(notesRoot, 'ok.md', 'ok')
-    await writeNote(notesRoot, 'bad.md', 'bad')
-    const kernel = makeKernel({
-      failNotePaths: new Set(['/Craft Notes/bad']),
-    })
-    const result = await migrateCraftNotesToSiyuan({
-      workspaceRoot,
-      notesRoot,
-      client: kernel,
-    })
-    expect(result.migrated).toBe(1)
-    expect(result.failed).toHaveLength(1)
-    expect(result.failed[0]!.noteId).toBe('bad')
+  it('writes complete maps atomically and preserves a legacy map payload', async () => {
+    const legacyPath = notesMigrationMapPath(workspaceRoot)
+    await mkdir(dirname(legacyPath), { recursive: true })
+    await writeFile(legacyPath, JSON.stringify({
+      version: 1,
+      notebookId: 'legacy-notebook',
+      entries: [{
+        noteId: 'old',
+        path: '/Craft Notes/old',
+        siyuanId: 'legacy-doc',
+        title: 'Old',
+        migratedAt: 1,
+      }],
+    }))
+
     const map = await readNotesMigrationMap(workspaceRoot)
-    expect(map.entries.map((e) => e.noteId)).toEqual(['ok'])
+    expect(map.entries).toEqual([])
+    expect(map.legacySiyuan?.entries).toHaveLength(1)
+    await writeNotesMigrationMap(workspaceRoot, map)
+
+    const raw = await readFile(legacyPath, 'utf-8')
+    expect(JSON.parse(raw)).toMatchObject({
+      version: NOTES_MIGRATION_MAP_VERSION,
+      legacySiyuan: { notebookId: 'legacy-notebook' },
+    })
+    expect((await readdir(dirname(legacyPath))).some((name) => name.endsWith('.tmp'))).toBe(false)
   })
 
-  it('does not delete notes vault files', async () => {
-    await writeNote(notesRoot, 'keep.md', 'stay')
-    const kernel = makeKernel()
-    await migrateCraftNotesToSiyuan({ workspaceRoot, notesRoot, client: kernel })
-    const still = await readFile(join(notesRoot, 'keep.md'), 'utf-8')
-    expect(still).toContain('stay')
+  it('rejects unsafe symlink paths and unsupported formats before writing Notes', async () => {
+    const outsideRoot = join(workspaceRoot, 'outside')
+    await mkdir(outsideRoot, { recursive: true })
+    await writeSourceFile(outsideRoot, 'secret.md', '# Not importable\n')
+    await symlink(join(outsideRoot, 'secret.md'), join(sourceRoot, 'escape.md'))
+
+    await expect(importCraftMarkdownNotes({ workspaceRoot, sourceRoot, destinationRoot })).rejects.toThrow('Unsafe notes import path')
+    expect(await readdir(destinationRoot)).toEqual([])
+
+    await expect(importNotes({
+      workspaceRoot,
+      sourceRoot,
+      destinationRoot,
+      format: 'unsupported-format',
+    })).rejects.toThrow('Unsupported notes import format')
+  })
+
+  it('enforces the asset byte cap before creating an import map', async () => {
+    await writeSourceFile(sourceRoot, 'note.md', '# Note\n')
+    await writeSourceFile(sourceRoot, 'assets/too-large.bin', Buffer.from([1, 2]))
+
+    await expect(importCraftMarkdownNotes({
+      workspaceRoot,
+      sourceRoot,
+      destinationRoot,
+      limits: { maxAssetBytes: 1 },
+    })).rejects.toThrow('asset exceeds')
+    expect(existsSync(notesMigrationMapPath(workspaceRoot))).toBe(false)
   })
 })

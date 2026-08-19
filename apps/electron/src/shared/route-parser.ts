@@ -54,7 +54,7 @@ export interface ParsedRoute {
 // Compound Route Types (new format)
 // =============================================================================
 
-export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'notes' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory'
+export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'notes' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory' | 'connections'
   // Unified-shell surface navigators (W1 scaffolding; hosts land in W2/W5)
   | 'knowledge' | 'cloud-run' | 'extension' | 'diff'
 
@@ -91,7 +91,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory',
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'automations', 'projects', 'settings', 'browser', 'memory', 'connections',
   // Unified-shell surfaces (W1)
   'knowledge', 'cloud-run', 'extension', 'diff',
 ]
@@ -162,11 +162,9 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     }
     // Legacy subpages.
     // toolchain → runtime (PRD runtime-context-marketplace §5.1)
-    // marketplace → extensions (S-05 / W5 Extension Center)
     // preferences → context (P2.1 Context ↔ Preferences merge)
     const LEGACY_SETTINGS_REDIRECT: Record<string, SettingsSubpage> = {
       toolchain: 'runtime',
-      marketplace: 'extensions',
       preferences: 'context',
     }
     const redirected = LEGACY_SETTINGS_REDIRECT[subpage] ?? subpage
@@ -235,6 +233,10 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return { navigator: 'memory', details: null }
   }
 
+  if (first === 'connections') {
+    return { navigator: 'connections', details: null }
+  }
+
   // Browser navigator — embedded browser instance panel: browser/instance/{instanceId}
   if (first === 'browser') {
     if (segments[1] === 'instance' && segments[2]) {
@@ -261,8 +263,8 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return null
   }
 
-  // Notes navigator (notes-legacy is the P4 vault surface; same navigator/details)
-  if (first === 'notes' || first === 'notes-legacy') {
+  // Notes navigator.
+  if (first === 'notes') {
     if (segments.length === 1) {
       return { navigator: 'notes' as NavigatorType, details: null }
     }
@@ -487,6 +489,10 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     return 'memory'
   }
 
+  if (parsed.navigator === 'connections') {
+    return 'connections'
+  }
+
   if (parsed.navigator === 'browser') {
     if (!parsed.details) return 'browser'
     return `browser/instance/${parsed.details.id}`
@@ -647,6 +653,10 @@ function convertCompoundToViewRoute(compound: ParsedCompoundRoute): ParsedRoute 
     return { type: 'view', name: 'memory', params: {} }
   }
 
+  if (compound.navigator === 'connections') {
+    return { type: 'view', name: 'connections', params: {} }
+  }
+
   // Notes
   if (compound.navigator === 'notes') {
     if (!compound.details) {
@@ -801,6 +811,10 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
   // Memory
   if (compound.navigator === 'memory') {
     return { navigator: 'memory', details: null }
+  }
+
+  if (compound.navigator === 'connections') {
+    return { navigator: 'connections', details: null }
   }
 
   // Notes
@@ -962,6 +976,8 @@ function convertParsedRouteToNavigationState(parsed: ParsedRoute): NavigationSta
       return { navigator: 'skills', details: null }
     case 'memory':
       return { navigator: 'memory', details: null }
+    case 'connections':
+      return { navigator: 'connections', details: null }
     case 'skill-info':
       if (parsed.id) {
         return {
@@ -1142,6 +1158,13 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
   if (state.navigator === 'memory') {
     return {
       navigator: 'memory',
+      details: null,
+    }
+  }
+
+  if (state.navigator === 'connections') {
+    return {
+      navigator: 'connections',
       details: null,
     }
   }

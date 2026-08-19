@@ -38,6 +38,7 @@ import {
   isKnowledgeNavigation,
   isDiffNavigation,
   isExtensionNavigation,
+  isConnectionsNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
@@ -45,14 +46,15 @@ import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
 import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage, ExtensionSurfacePage } from '@/pages'
 import NotesPage from '@/pages/NotesPage'
+import ConnectionsPage from '@/pages/ConnectionsPage'
 import KnowledgeEntityPage from '@/pages/KnowledgeEntityPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import { AutomationInfoPage } from '../automations/AutomationInfoPage'
+import { AutomationGraphWorkspaceEditor } from '../automations/AutomationGraphWorkspaceEditor'
 import ProjectInfoPage from '@/pages/ProjectInfoPage'
 import { KanbanBoardContainer } from './kanban/KanbanBoardContainer'
 import { SessionTableHost } from './session-table/SessionTableHost'
-import { CollectionBulkBar } from './collection/CollectionBulkBar'
 import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
@@ -398,8 +400,17 @@ export function MainContentPanel({
     }
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p className="text-sm">{t("automations.noAutomationsConfigured")}</p>
+        <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+          <div className="shrink-0">
+            <h1 className="text-lg font-semibold">{t('entityView.graph')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('automations.emptyDescription')}
+            </p>
+          </div>
+          <AutomationGraphWorkspaceEditor
+            workspaceId={activeWorkspaceId}
+            className="min-h-0 flex-1"
+          />
         </div>
       </Panel>
     )
@@ -497,6 +508,14 @@ export function MainContentPanel({
     )
   }
 
+  if (isConnectionsNavigation(navState)) {
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <ConnectionsPage />
+      </Panel>
+    )
+  }
+
   // Notes navigator - self-contained notes workspace
   if (isNotesNavigation(navState)) {
     return wrapWithStoplight(
@@ -541,12 +560,6 @@ export function MainContentPanel({
             onArchive={handleBatchArchive}
             onClearSelection={clearMultiSelect}
           />
-          <CollectionBulkBar
-            workspaceId={activeWorkspaceId}
-            statuses={sessionStatuses}
-            projects={projects}
-            labels={labels}
-          />
         </Panel>
       )
     }
@@ -555,12 +568,6 @@ export function MainContentPanel({
       return wrapWithStoplight(
         <Panel variant="grow" className={className}>
           <ChatPage sessionId={navState.details.sessionId} />
-          <CollectionBulkBar
-            workspaceId={activeWorkspaceId}
-            statuses={sessionStatuses}
-            projects={projects}
-            labels={labels}
-          />
         </Panel>
       )
     }

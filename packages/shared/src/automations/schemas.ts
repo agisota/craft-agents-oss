@@ -5,9 +5,9 @@
  * Extracted from index.ts for better separation of concerns.
  */
 
-import { z } from 'zod';
+import { NEVER, z } from 'zod';
 import type { ValidationIssue } from '../config/validators.ts';
-import { APP_EVENTS, AGENT_EVENTS } from './types.ts';
+import { APP_EVENTS, AGENT_EVENTS, AUTOMATION_GRAPH_VERSION, type AutomationCondition, type AutomationEvent } from './types.ts';
 import { THINKING_LEVEL_IDS, normalizeThinkingLevel } from '../agent/thinking-levels.ts';
 
 // ============================================================================
@@ -187,7 +187,7 @@ export const StateConditionSchema = z.object({
   }
 });
 
-export const AutomationConditionSchema: z.ZodType = z.lazy(() =>
+export const AutomationConditionSchema: z.ZodType<AutomationCondition> = z.lazy(() =>
   z.discriminatedUnion('condition', [
     TimeConditionSchema,
     StateConditionSchema,
@@ -236,26 +236,118 @@ export const VALID_EVENTS: readonly string[] = [
   ...Object.keys(DEPRECATED_EVENT_ALIASES),
 ];
 
+const CANONICAL_AUTOMATION_EVENTS = new Set<string>([...APP_EVENTS, ...AGENT_EVENTS]);
+
+function isAutomationEvent(value: string): value is AutomationEvent {
+  return CANONICAL_AUTOMATION_EVENTS.has(value);
+}
+
+const AutomationGraphEventSchema = z.string().transform((event, context): AutomationEvent => {
+  const canonical = DEPRECATED_EVENT_ALIASES[event] ?? event;
+  if (isAutomationEvent(canonical)) return canonical;
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `Unknown automation event "${event}"`,
+  });
+  return NEVER;
+});
+
+// ============================================================================
+// Graph Authoring Projection Schemas
+// ============================================================================
+
+const AutomationGraphPositionSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+}).strict();
+
+const AutomationGraphNodeBaseSchema = z.object({
+  id: z.string().min(1).max(128),
+  label: z.string().max(512).optional(),
+  position: AutomationGraphPositionSchema,
+});
+
+const AutomationGraphMatcherDataSchema = AutomationMatcherSchema
+  .omit({ actions: true })
+  .strict();
+
+const AutomationGraphPromptDataSchema = PromptActionSchema
+  .omit({ type: true })
+  .strict();
+
+const AutomationGraphWebhookDataSchema = WebhookActionSchema
+  .omit({ type: true })
+  .strict();
+
+export const AutomationGraphNodeSchema = z.discriminatedUnion('kind', [
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('trigger'),
+    data: z.object({ event: AutomationGraphEventSchema }).strict(),
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('matcher'),
+    data: AutomationGraphMatcherDataSchema,
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('prompt'),
+    data: AutomationGraphPromptDataSchema,
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('webhook'),
+    data: AutomationGraphWebhookDataSchema,
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('annotation'),
+    data: z.object({ text: z.string().max(10_000).optional() }).strict(),
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('group'),
+    data: z.object({ memberIds: z.array(z.string().min(1).max(128)).optional() }).strict(),
+  }).strict(),
+  AutomationGraphNodeBaseSchema.extend({
+    kind: z.literal('decision'),
+    data: z.object({ expression: z.string().max(10_000).optional() }).strict(),
+  }).strict(),
+]);
+
+export const AutomationGraphEdgeSchema = z.object({
+  id: z.string().min(1).max(128),
+  source: z.string().min(1).max(128),
+  target: z.string().min(1).max(128),
+  kind: z.enum(['flow', 'metadata']),
+}).strict();
+
+export const AutomationGraphSchema = z.object({
+  version: z.literal(AUTOMATION_GRAPH_VERSION),
+  nodes: z.array(AutomationGraphNodeSchema).max(500),
+  edges: z.array(AutomationGraphEdgeSchema).max(2_000),
+}).strict();
+
+export const SaveAutomationGraphPayloadSchema = z.object({
+  workspaceId: z.string().min(1).max(512),
+  graph: AutomationGraphSchema,
+  baseRevision: z.string().min(1).max(128),
+}).strict();
+
 export const AutomationsConfigSchema = z.object({
   version: z.number().optional(),
+  craftSeedVersion: z.number().int().nonnegative().optional(),
   automations: z.record(z.string(), z.array(AutomationMatcherSchema)).optional(),
+  automationGraph: AutomationGraphSchema.optional(),
 }).transform((data) => {
   const automations = data.automations ?? {};
 
-  // Filter out invalid event names, rewrite deprecated aliases, and warn
-  const validAutomations: Record<string, z.infer<typeof AutomationMatcherSchema>[]> = {};
+  // Filter out invalid event names, rewrite deprecated aliases, and warn.
+  const validAutomations: Partial<Record<AutomationEvent, z.infer<typeof AutomationMatcherSchema>[]>> = {};
   const invalidEvents: string[] = [];
 
   for (const [event, matchers] of Object.entries(automations)) {
-    if (VALID_EVENTS.includes(event)) {
-      // Rewrite deprecated aliases to canonical names
-      const canonical = DEPRECATED_EVENT_ALIASES[event];
-      if (canonical) {
+    const canonical = DEPRECATED_EVENT_ALIASES[event] ?? event;
+    if (isAutomationEvent(canonical)) {
+      if (canonical !== event) {
         console.warn(`[automations] Deprecated event name "${event}" — use "${canonical}" instead`);
-        validAutomations[canonical] = [...(validAutomations[canonical] ?? []), ...matchers];
-      } else {
-        validAutomations[event] = [...(validAutomations[event] ?? []), ...matchers];
       }
+      validAutomations[canonical] = [...(validAutomations[canonical] ?? []), ...matchers];
     } else {
       invalidEvents.push(event);
     }
@@ -265,7 +357,12 @@ export const AutomationsConfigSchema = z.object({
     console.warn(`[automations] Unknown event types ignored: ${invalidEvents.join(', ')}`);
   }
 
-  return { version: data.version, automations: validAutomations };
+  return {
+    version: data.version,
+    craftSeedVersion: data.craftSeedVersion,
+    automations: validAutomations,
+    automationGraph: data.automationGraph,
+  };
 });
 
 // ============================================================================

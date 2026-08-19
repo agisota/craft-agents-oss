@@ -24,7 +24,6 @@ import { rendererPerf } from '@/lib/perf'
 import { isAbsolutePath } from '@/lib/drafts'
 import { navigate, routes } from '@/lib/navigate'
 import { coerceInputText } from '@/lib/input-text'
-import { lookupMigratedSiyuanId } from '@/lib/notes-migration-map'
 import { deriveSessionMessagesLoadState, formatSessionLoadFailure } from '@/lib/session-load'
 import { ensureSessionMessagesLoadedAtom, forceSessionMessagesReloadAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { kanbanEditorTargetAtom } from '@/atoms/kanban'
@@ -370,18 +369,10 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   }, [session])
 
   const resolveNoteNavigation = React.useCallback(
-    async (noteId: string) => {
-      const migrated = await lookupMigratedSiyuanId(
-        activeWorkspace?.rootPath,
-        noteId,
-      ).catch(() => null)
-      if (migrated?.siyuanId) {
-        navigate(routes.view.siyuan({ kind: 'document', id: migrated.siyuanId }))
-        return
-      }
-      navigate(routes.view.notesLegacy(noteId))
+    (noteId: string) => {
+      navigate(routes.view.notes(noteId))
     },
-    [activeWorkspace?.rootPath],
+    [],
   )
 
   const handleOpenFile = React.useCallback(

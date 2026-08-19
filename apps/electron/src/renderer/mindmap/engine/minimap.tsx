@@ -3,6 +3,7 @@
  */
 
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { MindMapLayout, MindMapNodeId } from '@craft-agent/core/mindmap'
 import {
@@ -48,6 +49,8 @@ export function MindMapMinimap({
   className,
   onNavigateTo,
 }: MindMapMinimapProps) {
+  const { t } = useTranslation()
+
   if (nodeCount < MIND_MAP_MINIMAP_THRESHOLD || bounds.width <= 0 || bounds.height <= 0) {
     return null
   }
@@ -89,6 +92,16 @@ export function MindMapMinimap({
     onNavigateTo({ x: wx, y: wy })
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<SVGSVGElement>) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    if (!onNavigateTo) return
+    e.preventDefault()
+    onNavigateTo({
+      x: bounds.minX + bounds.width / 2,
+      y: bounds.minY + bounds.height / 2,
+    })
+  }
+
   const chipW = Math.max(2, MIND_MAP_NODE_WIDTH * scale * 0.4)
   const chipH = Math.max(2, MIND_MAP_NODE_HEIGHT * scale * 0.45)
 
@@ -105,9 +118,11 @@ export function MindMapMinimap({
         viewBox={`0 0 ${MM_W} ${MM_H}`}
         className="block cursor-pointer"
         onClick={handleClick}
-        role="img"
-        aria-label="Mind map overview"
-      >
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={t('mindmap.overview')}
+>
         <rect width={MM_W} height={MM_H} className="fill-background/40" />
         {Object.entries(layout.positions).map(([id, pos]) => {
           if (!pos) return null

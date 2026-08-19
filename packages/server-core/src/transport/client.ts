@@ -19,6 +19,7 @@ import {
 } from '@craft-agent/shared/protocol'
 import type { RpcClient } from './types'
 import { serializeEnvelope, deserializeEnvelope } from './codec'
+import type { PeerTrustVerifier } from './peer-trust'
 
 // ---------------------------------------------------------------------------
 // Pending request state
@@ -84,6 +85,11 @@ export interface WsRpcClientOptions {
   workspaceId?: string
   /** Electron webContents.id, sent on handshake for local clients. */
   webContentsId?: number
+  /**
+   * Ephemeral proof issued by Electron main for the local embedded connection.
+   * It is never sent to a workspace/remote connection unless explicitly set.
+   */
+  localClientProof?: string
   /** Bearer token for remote auth. */
   token?: string
   /** Request timeout in ms. Default: 30_000 */
@@ -98,8 +104,8 @@ export interface WsRpcClientOptions {
   clientCapabilities?: string[]
   /** Runtime mode — local embedded or remote thin-client connection. */
   mode?: TransportMode
-  /** Accept self-signed TLS certificates for wss:// connections. Default: false. Only works in Node.js (main process). */
-  tlsRejectUnauthorized?: boolean
+  /** Verify the peer before any handshake envelope (including tokens) is sent. */
+  peerTrustVerifier?: PeerTrustVerifier
   /** Async hook to (re)resolve the live target before each connect — SSH-backed
    * clients re-establish the tunnel and dial a fresh port. Omit for plain ws. */
   resolveTarget?: () => Promise<{ url: string; token?: string }>
@@ -147,6 +153,7 @@ export class WsRpcClient implements RpcClient {
   private url: string
   private readonly workspaceId: string | undefined
   private readonly webContentsId: number | undefined
+  private readonly localClientProof: string | undefined
   private token: string | undefined
   private readonly resolveTarget?: () => Promise<{ url: string; token?: string }>
   private readonly clientCapabilities: string[]
@@ -155,12 +162,13 @@ export class WsRpcClient implements RpcClient {
   private readonly autoReconnect: boolean
   private readonly connectTimeout: number
   private readonly mode: TransportMode
-  private readonly tlsRejectUnauthorized: boolean
+  private readonly peerTrustVerifier?: PeerTrustVerifier
 
   constructor(url: string, opts?: WsRpcClientOptions) {
     this.url = url
     this.workspaceId = opts?.workspaceId
     this.webContentsId = opts?.webContentsId
+    this.localClientProof = opts?.localClientProof
     this.token = opts?.token
     this.clientCapabilities = opts?.clientCapabilities ?? []
     this.requestTimeout = opts?.requestTimeout ?? REQUEST_TIMEOUT_MS
@@ -168,7 +176,7 @@ export class WsRpcClient implements RpcClient {
     this.autoReconnect = opts?.autoReconnect ?? true
     this.connectTimeout = opts?.connectTimeout ?? 10_000
     this.mode = opts?.mode ?? this.inferMode(url)
-    this.tlsRejectUnauthorized = opts?.tlsRejectUnauthorized ?? true
+    this.peerTrustVerifier = opts?.peerTrustVerifier
     this.resolveTarget = opts?.resolveTarget
 
     this.connectionState = {
@@ -338,20 +346,6 @@ export class WsRpcClient implements RpcClient {
    * In the renderer (browser), falls back to the global WebSocket.
    */
   private createWebSocket(url: string): WebSocket {
-    const needsTlsOptions = url.startsWith('wss://') && !this.tlsRejectUnauthorized
-
-    if (needsTlsOptions && typeof process !== 'undefined' && process.versions?.node) {
-      // Node.js / Electron main process — use `ws` library for TLS options
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { WebSocket: WsWebSocket } = require('ws') as typeof import('ws')
-        return new WsWebSocket(url, { rejectUnauthorized: false }) as unknown as WebSocket
-      } catch {
-        // Fallback if ws not available
-        return new WebSocket(url)
-      }
-    }
-
     return new WebSocket(url)
   }
 
@@ -459,23 +453,7 @@ export class WsRpcClient implements RpcClient {
     this.ws = ws
 
     ws.onopen = () => {
-      if (this.ws !== ws) return // stale socket — ignore
-      const reconnectSnapshot = this.pendingReconnect
-      this.currentHandshakeWasReconnect = reconnectSnapshot !== null
-
-      // Send handshake (includes reconnection info if available)
-      const handshake: MessageEnvelope = {
-        id: crypto.randomUUID(),
-        type: 'handshake',
-        protocolVersion: PROTOCOL_VERSION,
-        workspaceId: this.workspaceId,
-        webContentsId: this.webContentsId,
-        token: this.token,
-        clientCapabilities: this.clientCapabilities.length > 0 ? this.clientCapabilities : undefined,
-        reconnectClientId: reconnectSnapshot?.clientId,
-        lastSeq: reconnectSnapshot?.lastSeq,
-      }
-      this.trySendEnvelope(ws, handshake)
+      void this.onSocketOpen(ws)
     }
 
     ws.onmessage = (event) => {
@@ -509,6 +487,50 @@ export class WsRpcClient implements RpcClient {
         })
       }
     }
+  }
+
+  private async onSocketOpen(ws: WebSocket): Promise<void> {
+    if (this.ws !== ws) return
+
+    try {
+      if (this.peerTrustVerifier) {
+        await this.peerTrustVerifier({ url: this.url, socket: ws })
+      }
+    } catch (err) {
+      if (this.ws !== ws) return
+      const code = (err as { code?: string }).code === 'TLS_TRUST_UNSUPPORTED'
+        ? 'TLS_TRUST_UNSUPPORTED'
+        : 'TLS_TRUST_REJECTED'
+      const message = err instanceof Error ? err.message : 'Peer TLS trust rejected'
+      const e = this.createConnectionError('auth', message, code)
+      this.connectError = e
+      this.setConnectionState({
+        status: 'failed',
+        lastError: this.toErrorState(e),
+        attempt: this.reconnectAttempt,
+      })
+      this.failReady(e)
+      try { ws.close() } catch { /* best effort */ }
+      return
+    }
+
+    if (this.ws !== ws) return
+    const reconnectSnapshot = this.pendingReconnect
+    this.currentHandshakeWasReconnect = reconnectSnapshot !== null
+
+    const handshake: MessageEnvelope = {
+      id: crypto.randomUUID(),
+      type: 'handshake',
+      protocolVersion: PROTOCOL_VERSION,
+      workspaceId: this.workspaceId,
+      webContentsId: this.webContentsId,
+      localClientProof: this.localClientProof,
+      clientCapabilities: this.clientCapabilities,
+      token: this.token,
+      reconnectClientId: reconnectSnapshot?.clientId,
+      lastSeq: reconnectSnapshot?.lastSeq,
+    }
+    this.trySendEnvelope(ws, handshake)
   }
 
   destroy(): void {

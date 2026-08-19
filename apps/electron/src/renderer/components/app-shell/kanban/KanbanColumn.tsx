@@ -97,6 +97,9 @@ interface KanbanColumnProps {
   /** Collapsed project group keys (`projectId` or `__none__`). */
   collapsedGroupKeys?: Set<string>
   onToggleProjectGroup?: (groupKey: string) => void
+  isTaskSelected?: (taskId: string) => boolean
+  multiSelectActive?: boolean
+  onSelectTask?: (taskId: string, shiftKey: boolean) => void
 }
 
 export function KanbanColumn({
@@ -129,6 +132,9 @@ export function KanbanColumn({
   priorityGroups,
   collapsedGroupKeys,
   onToggleProjectGroup,
+  isTaskSelected,
+  multiSelectActive,
+  onSelectTask,
 }: KanbanColumnProps) {
   const { t } = useTranslation()
   // Prefer explicit name override (persisted rename); else i18n labelKey; else id.
@@ -157,6 +163,9 @@ export function KanbanColumn({
     subtaskModelGroups,
     defaultSubtaskModel,
     columnAccent: color?.solid,
+    isTaskSelected,
+    multiSelectActive,
+    onSelectTask,
   }
 
   if (collapsed) {
@@ -284,6 +293,13 @@ export function KanbanColumn({
                 subtaskModelGroups={subtaskModelGroups}
                 defaultSubtaskModel={defaultSubtaskModel}
                 columnAccent={color?.solid}
+                selected={isTaskSelected?.(task.id)}
+                multiSelectActive={multiSelectActive}
+                onSelect={
+                  onSelectTask
+                    ? shiftKey => onSelectTask(task.id, shiftKey)
+                    : undefined
+                }
               />
             </DraggableTile>
           ))
@@ -310,6 +326,9 @@ type TileSharedProps = {
   subtaskModelGroups?: KanbanModelProviderGroup[]
   defaultSubtaskModel?: string
   columnAccent?: string
+  isTaskSelected?: (taskId: string) => boolean
+  multiSelectActive?: boolean
+  onSelectTask?: (taskId: string, shiftKey: boolean) => void
 }
 
 function ProjectGroupSection({
@@ -394,6 +413,13 @@ function ProjectGroupSection({
                 subtaskModelGroups={tileProps.subtaskModelGroups}
                 defaultSubtaskModel={tileProps.defaultSubtaskModel}
                 columnAccent={tileProps.columnAccent}
+                selected={tileProps.isTaskSelected?.(task.id)}
+                multiSelectActive={tileProps.multiSelectActive}
+                onSelect={
+                  tileProps.onSelectTask
+                    ? shiftKey => tileProps.onSelectTask?.(task.id, shiftKey)
+                    : undefined
+                }
               />
             </DraggableTile>
           ))}

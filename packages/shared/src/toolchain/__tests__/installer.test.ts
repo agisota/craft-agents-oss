@@ -92,7 +92,7 @@ describe('installer', () => {
     expect(fs.existsSync(path.join(paths.toolchainDir, 'jq', 'current', 'bin', 'jq'))).toBe(true);
   });
 
-  it('installTool (npm tarball): генерирует именованные лончеры из package.json bin', async () => {
+  it('installTool (npm tarball): removes a partial version when the pinned lock is missing', async () => {
     // нпм-пакет как у omp: package/package.json с bin { demo-cli: dist/cli.js }
     const pkgRoot = path.join(tmpDir, 'npm-fixture', 'package');
     fs.mkdirSync(path.join(pkgRoot, 'dist'), { recursive: true });
@@ -110,8 +110,8 @@ describe('installer', () => {
     const configDir = path.join(tmpDir, 'cfg-npm');
     const paths = toolchainPaths(configDir);
     const versionDir = path.join(paths.toolchainDir, 'omp', '1.0.0');
-    // fail-closed: без pinned package-lock (npm-locks.ts) установка npm-пакета
-    // ЗАПРЕЩЕНА — supply-chain защита. Лончеры генерируются до этого шага.
+    // fail-closed: без pinned package-lock установка запрещена и частично
+    // распакованная версия не должна оставлять лончер.
     await expect(
       installTool(paths, 'omp', '1.0.0', tarball, {
         url: 'file://fixture',
@@ -122,12 +122,8 @@ describe('installer', () => {
       }),
     ).rejects.toThrow('no pinned npm lock');
     const launcher = path.join(versionDir, 'bin', 'demo-cli');
-    expect(fs.existsSync(launcher)).toBe(true);
-    const content = fs.readFileSync(launcher, 'utf8');
-    expect(content).toContain('"$DIR/../package/dist/cli.js"');
-    expect(content).toContain('CRAFT_BUN_PATH');
-    if (!isWindows) assertExecBits(launcher);
-    expect(fs.existsSync(path.join(versionDir, 'bin', 'demo-cli.cmd'))).toBe(true);
+    expect(fs.existsSync(launcher)).toBe(false);
+    expect(fs.existsSync(versionDir)).toBe(false);
   });
 
   describe('npmInstallDeps lifecycle scripts', () => {
@@ -195,6 +191,45 @@ describe('installer', () => {
       ).rejects.toThrow('boom');
       expect(calls).toHaveLength(1);
       expect(calls[0]?.includes('--ignore-scripts')).toBe(true);
+    });
+
+    it('OpenClaw never retries with lifecycle scripts enabled', async () => {
+      const { paths, toolDir } = prepPkg('openclaw');
+      const calls: string[][] = [];
+      await expect(
+        npmInstallDeps(paths, toolDir, 'openclaw', '2026.7.1-2', {
+          npmBin: '/managed/node/npm',
+          getLock: () => '{ "lockfileVersion": 3 }',
+          runCmd: async (args) => {
+            calls.push(args);
+            throw new Error('scripts disabled install failed');
+          },
+        }),
+      ).rejects.toThrow('scripts disabled install failed');
+      expect(calls).toEqual([
+        [
+          '/managed/node/npm',
+          'ci',
+          '--omit=dev',
+          '--no-audit',
+          '--no-fund',
+          '--ignore-scripts',
+        ],
+      ]);
+    });
+
+    it('OpenClaw refuses a PATH npm when its managed Node is missing', async () => {
+      const { paths, toolDir } = prepPkg('openclaw-no-path');
+      const calls: string[][] = [];
+      await expect(
+        npmInstallDeps(paths, toolDir, 'openclaw', '2026.7.1-2', {
+          getLock: () => '{ "lockfileVersion": 3 }',
+          runCmd: async (args) => {
+            calls.push(args);
+          },
+        }),
+      ).rejects.toThrow('managed toolchain Node');
+      expect(calls).toEqual([]);
     });
   });
 });

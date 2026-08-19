@@ -22,8 +22,9 @@ export type MindMapNodeKind =
   | 'heading'
   | 'section'
   | 'backlink'
-  | 'block';
-
+  | 'block'
+  /** User-created node that exists only in a pinned map snapshot. */
+  | 'custom';
 export type MindMapEdgeKind = 'parent' | 'backlink' | 'ref';
 
 export type MindMapDerivation =

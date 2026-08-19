@@ -296,6 +296,17 @@ export const CHANNEL_MAP = {
   // 7 P3 write-back proposal channels (spec 05) plus 8 P4 publication channels
   // (spec 06), all REMOTE_ELIGIBLE except engineStatus (LOCAL_ONLY).
   // Dotted keys nest into api.knowledge.*, mirroring the browserPane surface.
+  'workgraph.listConnections': invoke(RPC_CHANNELS.workgraph.LIST_CONNECTIONS),
+  'workgraph.getConnection': invoke(RPC_CHANNELS.workgraph.GET_CONNECTION),
+  'workgraph.createConnection': invoke(RPC_CHANNELS.workgraph.CREATE_CONNECTION),
+  'workgraph.previewGithubEnv': invoke(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV),
+  'workgraph.importGithubEnv': invoke(RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV),
+  'workgraph.previewGitHelper': invoke(RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER),
+  'workgraph.importGitHelper': invoke(RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER),
+  'workgraph.revokeConnection': invoke(RPC_CHANNELS.workgraph.REVOKE_CONNECTION),
+  'workgraph.repairConnection': invoke(RPC_CHANNELS.workgraph.REPAIR_CONNECTION),
+  'workgraph.rotateConnection': invoke(RPC_CHANNELS.workgraph.ROTATE_CONNECTION),
+  'workgraph.testConnection': invoke(RPC_CHANNELS.workgraph.TEST_CONNECTION),
   'knowledge.listConnections': invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS),
   'knowledge.capabilities': invoke(RPC_CHANNELS.knowledge.CAPABILITIES),
   'knowledge.search': invoke(RPC_CHANNELS.knowledge.SEARCH),
@@ -337,6 +348,18 @@ export const CHANNEL_MAP = {
   'knowledge.metricsGet': invoke(RPC_CHANNELS.knowledge.METRICS_GET),
   'knowledge.detectEngine': invoke(RPC_CHANNELS.knowledge.DETECT_ENGINE),
   'knowledge.onChanged': listener(RPC_CHANNELS.knowledge.CHANGED),
+
+  // OpenClaw safe workspace data. Host-control direct IPC is intentionally
+  // absent so the same surface routes through local Electron and remote WebUI.
+  'openclawRuntime.getStatus': invoke(RPC_CHANNELS.openclawRuntime.GET_STATUS),
+  'openclawRuntime.install': invoke(RPC_CHANNELS.openclawRuntime.INSTALL),
+  'openclawRuntime.provision': invoke(RPC_CHANNELS.openclawRuntime.PROVISION),
+  'openclawRuntime.start': invoke(RPC_CHANNELS.openclawRuntime.START),
+  'openclawRuntime.stop': invoke(RPC_CHANNELS.openclawRuntime.STOP),
+  'securityAudit.run': invoke(RPC_CHANNELS.securityAudit.RUN),
+  'securityAudit.getLatest': invoke(RPC_CHANNELS.securityAudit.GET_LATEST),
+  'securityAudit.acceptRisk': invoke(RPC_CHANNELS.securityAudit.ACCEPT_RISK),
+  'securityAudit.revokeRiskAcceptance': invoke(RPC_CHANNELS.securityAudit.REVOKE_RISK_ACCEPTANCE),
 
   // SiYuan engine surfaces (P2 native knowledge mode). Embedded SiYuan desktop
   // panes keyed by durable document keys (`siyuan:{kind}:{id}`); the main-side
@@ -464,7 +487,6 @@ export const CHANNEL_MAP = {
   listOrganizationMembers: invoke(RPC_CHANNELS.orgs.LIST_MEMBERS),
   getOrgIdentity: invoke(RPC_CHANNELS.orgs.GET_IDENTITY),
   updateOrgIdentity: invoke(RPC_CHANNELS.orgs.UPDATE_IDENTITY),
-  setWorkspaceOrganization: invoke(RPC_CHANNELS.orgs.SET_WORKSPACE_ORG),
 
   // LLM connections change listener
   onLlmConnectionsChanged: listener(RPC_CHANNELS.llmConnections.CHANGED),
@@ -639,6 +661,8 @@ export const CHANNEL_MAP = {
 
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),
+  getAutomationGraph: invoke(RPC_CHANNELS.automations.GET_GRAPH),
+  saveAutomationGraph: invoke(RPC_CHANNELS.automations.SAVE_GRAPH),
   testAutomation: invoke(RPC_CHANNELS.automations.TEST),
   setAutomationEnabled: invoke(RPC_CHANNELS.automations.SET_ENABLED),
   duplicateAutomation: invoke(RPC_CHANNELS.automations.DUPLICATE),

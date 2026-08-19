@@ -1,0 +1,244 @@
+import { CredentialRefRegistry } from '@craft-agent/core/platform'
+import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
+import {
+  InProcessCredentialBroker,
+  LocalFileSecretProvider,
+  SecureStorageBackend,
+} from '@craft-agent/shared/credentials'
+import type { RpcServer } from '@craft-agent/server-core/transport'
+import {
+  commitGitHelperImport,
+  commitGithubEnvImport,
+  previewGitHelperImport,
+  previewGithubEnvImport,
+  repairConnectionAndRevalidate,
+  revokeConnectionAndRevalidate,
+  rotateConnectionAndRevalidate,
+  testGithubConnection,
+  type CreateConnectionInput,
+  type GithubFetch,
+  type WorkGraphKernel,
+} from '@craft-agent/server-core/workgraph'
+
+export const HANDLED_CHANNELS = [
+  RPC_CHANNELS.workgraph.GET_HEALTH,
+  RPC_CHANNELS.workgraph.GET_VERSION,
+  RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
+  RPC_CHANNELS.workgraph.GET_CONNECTION,
+  RPC_CHANNELS.workgraph.CREATE_CONNECTION,
+  RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
+  RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
+  RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
+  RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
+  RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+  RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+  RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+  RPC_CHANNELS.workgraph.TEST_CONNECTION,
+] as const
+
+export interface FabricImportHost {
+  readonly provider: LocalFileSecretProvider
+  readonly broker: InProcessCredentialBroker
+  readonly previewGithub: typeof previewGithubEnvImport
+  readonly commitGithub: typeof commitGithubEnvImport
+  readonly previewGitHelper: typeof previewGitHelperImport
+  readonly commitGitHelper: typeof commitGitHelperImport
+  readonly revoke: typeof revokeConnectionAndRevalidate
+  readonly repair: typeof repairConnectionAndRevalidate
+  readonly rotate: typeof rotateConnectionAndRevalidate
+  readonly testGithub: typeof testGithubConnection
+  readonly fetchImpl: GithubFetch
+}
+
+export type GithubEnvImportHost = FabricImportHost
+
+export function createGithubEnvImportHost(): FabricImportHost {
+  const registry = new CredentialRefRegistry()
+  const provider = new LocalFileSecretProvider(new SecureStorageBackend(), registry)
+  return {
+    provider,
+    broker: new InProcessCredentialBroker(provider, (id) => registry.get(id)),
+    previewGithub: previewGithubEnvImport,
+    commitGithub: commitGithubEnvImport,
+    previewGitHelper: previewGitHelperImport,
+    commitGitHelper: commitGitHelperImport,
+    revoke: revokeConnectionAndRevalidate,
+    repair: repairConnectionAndRevalidate,
+    rotate: rotateConnectionAndRevalidate,
+    testGithub: testGithubConnection,
+    fetchImpl: globalThis.fetch.bind(globalThis),
+  }
+}
+
+const CONNECTION_INPUT_KEYS = new Set([
+  'workspaceId',
+  'integrationId',
+  'credentialRefId',
+  'storageMode',
+  'scopes',
+])
+
+function assertConnectionMetadata(input: unknown): CreateConnectionInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Invalid connection metadata')
+  }
+  for (const key of Object.keys(input)) {
+    if (!CONNECTION_INPUT_KEYS.has(key)) {
+      throw new Error(`Invalid connection metadata field: ${key}`)
+    }
+  }
+  return input as CreateConnectionInput
+}
+
+function assertLocalPath(value: unknown): string {
+  if (typeof value !== 'string' || value.includes('\0')) throw new Error('Invalid path')
+  return value
+}
+
+type WorkGraphSurface = Pick<
+  WorkGraphKernel,
+  | 'getHealth'
+  | 'getVersion'
+  | 'listConnections'
+  | 'getConnection'
+  | 'createConnection'
+  | 'bindConsumer'
+  | 'appendConnectionAudit'
+  | 'affectedClosure'
+>
+
+/**
+ * WorkGraph is deliberately composed only by Electron main. The transport's
+ * localElectron access class additionally requires the renderer's trusted,
+ * main-issued window/workspace binding before these channels are advertised.
+ */
+export function registerWorkGraphHandlers(
+  server: RpcServer,
+  workGraph: WorkGraphSurface,
+  fabric?: FabricImportHost,
+): void {
+  server.handle(RPC_CHANNELS.workgraph.GET_HEALTH, () => workGraph.getHealth(), { access: 'localElectron' })
+  server.handle(RPC_CHANNELS.workgraph.GET_VERSION, () => workGraph.getVersion(), { access: 'localElectron' })
+  server.handle(
+    RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
+    (_ctx, workspaceId: string) => workGraph.listConnections(workspaceId),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.GET_CONNECTION,
+    (_ctx, input: { workspaceId: string; connectionId: string }) => (
+      workGraph.getConnection(input.workspaceId, input.connectionId)
+    ),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.CREATE_CONNECTION,
+    (_ctx, input: unknown) => workGraph.createConnection(assertConnectionMetadata(input)),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
+    async (_ctx, envPath: string) => {
+      if (!fabric) return []
+      return fabric.previewGithub({ envPath: assertLocalPath(envPath), provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
+    async (_ctx, input: { envPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('github_import_unavailable')
+      return fabric.commitGithub({
+        envPath: assertLocalPath(input?.envPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+        broker: fabric.broker,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
+    async (_ctx, configPath: string) => {
+      if (!fabric) return []
+      return fabric.previewGitHelper({ configPath: assertLocalPath(configPath), provider: fabric.provider })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
+    async (_ctx, input: { configPath: string; candidateId: string; workspaceId: string }) => {
+      if (!fabric) throw new Error('git_helper_import_unavailable')
+      return fabric.commitGitHelper({
+        configPath: assertLocalPath(input?.configPath),
+        candidateId: input.candidateId,
+        provider: fabric.provider,
+        kernel: workGraph,
+        workspaceId: input.workspaceId,
+        requestedBy: 'owner',
+        broker: fabric.broker,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('revoke_unavailable')
+      return fabric.revoke({
+        kernel: workGraph,
+        broker: fabric.broker,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        reason: 'owner-revoke',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('repair_unavailable')
+      return fabric.repair({
+        kernel: workGraph,
+        broker: fabric.broker,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('rotate_unavailable')
+      return fabric.rotate({
+        kernel: workGraph,
+        broker: fabric.broker,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        reason: 'owner-rotate',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.TEST_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('test_unavailable')
+      return fabric.testGithub({
+        kernel: workGraph,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        fetchImpl: fabric.fetchImpl,
+      })
+    },
+    { access: 'localElectron' },
+  )
+}
