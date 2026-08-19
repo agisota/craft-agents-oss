@@ -85,6 +85,18 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page.toLowerCase()).not.toContain('<iframe')
   })
 
+  it('loads metadata-only connection audit on the Audit tab', () => {
+    expect(page).toContain('listConnectionAudit')
+    expect(page).toContain("tab === 'audit'")
+    expect(page).toContain('payloadDigest')
+    expect(page).toContain('sanitizeConnectionAuditRows')
+  })
+
+  it('names Connection and CredentialRef on revoke confirm', () => {
+    expect(page).toContain('connections-confirm-target')
+    expect(page).toContain('row.credentialRefId')
+  })
+
   it('exposes masked docker, aws, keychain, adc, and ssh-agent imports', () => {
     expect(page).toContain('previewDockerHelper')
     expect(page).toContain('importDockerHelper')

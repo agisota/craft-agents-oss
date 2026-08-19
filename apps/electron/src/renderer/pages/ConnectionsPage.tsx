@@ -3,7 +3,12 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { selectedConnectionAtom } from '@/atoms/connections'
 import { useActiveWorkspace } from '@/context/AppShellContext'
-import { sanitizeConnectionRows, type ConnectionListRow } from './connections-list'
+import {
+  sanitizeConnectionAuditRows,
+  sanitizeConnectionRows,
+  type ConnectionAuditRow,
+  type ConnectionListRow,
+} from './connections-list'
 
 const TABS = ['services', 'credentials', 'imports', 'policies', 'audit'] as const
 const CONNECT_SOURCES = ['github-env', 'git-helper', 'docker', 'aws', 'keychain', 'adc', 'ssh-agent'] as const
@@ -31,6 +36,7 @@ export default function ConnectionsPage() {
   const [awsConfigPath, setAwsConfigPath] = useState('')
   const [adcPath, setAdcPath] = useState('')
   const [previews, setPreviews] = useState<PreviewRow[]>([])
+  const [auditRows, setAuditRows] = useState<ConnectionAuditRow[]>([])
 
   useEffect(() => {
     const workspaceId = workspace?.id
@@ -54,6 +60,27 @@ export default function ConnectionsPage() {
       setRotatingId(null)
     }
   }, [workspace?.id, setSelected])
+
+  useEffect(() => {
+    if (tab !== 'audit') return
+    const workspaceId = workspace?.id
+    const listConnectionAudit = window.electronAPI?.workgraph?.listConnectionAudit
+    if (!workspaceId || typeof listConnectionAudit !== 'function') {
+      setAuditRows([])
+      return
+    }
+    let stale = false
+    listConnectionAudit({ workspaceId })
+      .then((raw) => {
+        if (!stale) setAuditRows(sanitizeConnectionAuditRows(raw))
+      })
+      .catch(() => {
+        if (!stale) setAuditRows([])
+      })
+    return () => {
+      stale = true
+    }
+  }, [tab, workspace?.id])
 
   const refreshRows = async (workspaceId: string) => {
     const listConnections = window.electronAPI?.workgraph?.listConnections
@@ -102,13 +129,18 @@ export default function ConnectionsPage() {
 
   const renderRevokeControls = (row: ConnectionListRow) => (
     confirmingId === row.id ? (
-      <div className="flex gap-1">
+      <div className="flex flex-col items-end gap-1">
+        <div className="font-mono text-[11px]" data-testid="connections-confirm-target">
+          {row.id} {row.credentialRefId}
+        </div>
+        <div className="flex gap-1">
         <button type="button" className="rounded border px-2 py-1" onClick={() => confirmRevoke(row.id)}>
           {t('connections.revokeConfirm')}
         </button>
         <button type="button" className="rounded border px-2 py-1" onClick={() => setConfirmingId(null)}>
           {t('connections.revokeCancel')}
         </button>
+        </div>
       </div>
     ) : (
       <button type="button" className="rounded border px-2 py-1" onClick={() => setConfirmingId(row.id)}>
@@ -431,6 +463,17 @@ export default function ConnectionsPage() {
               <li key={row.id} className="rounded border px-3 py-2">
                 <div className="font-medium">{row.integrationId}</div>
                 <div className="font-mono text-xs">{row.scopes.join(', ') || '—'}</div>
+              </li>
+            ))}
+          </ul>
+        ) : tab === 'audit' && auditRows.length > 0 ? (
+          <ul className="space-y-2 text-sm text-foreground">
+            {auditRows.map((row) => (
+              <li key={`${row.connectionId}:${row.occurredAt}:${row.payloadDigest}`} className="rounded border px-3 py-2">
+                <div className="font-medium">{row.eventType}</div>
+                <div className="text-muted-foreground">{row.outcome}</div>
+                <div className="font-mono text-xs">{row.connectionId}</div>
+                <div className="font-mono text-xs">{row.payloadDigest}</div>
               </li>
             ))}
           </ul>

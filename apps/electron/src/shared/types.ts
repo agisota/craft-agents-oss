@@ -708,6 +708,17 @@ export interface ElectronAPI {
   // the WS-mode preload needs no per-domain wiring.
   workgraph: {
     listConnections(workspaceId: string): Promise<WorkGraphConnectionRecord[]>
+    listConnectionAudit(input: {
+      workspaceId: string
+      connectionId?: string
+    }): Promise<Array<{
+      connectionId: string
+      eventType: string
+      occurredAt: number
+      actorId: string | null
+      outcome: string
+      payloadDigest: string
+    }>>
     getConnection(args: { workspaceId: string; connectionId: string }): Promise<WorkGraphConnectionRecord | null>
     createConnection(input: {
       workspaceId: string

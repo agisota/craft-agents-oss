@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { sanitizeConnectionRows } from '../connections-list'
+import { sanitizeConnectionAuditRows, sanitizeConnectionRows } from '../connections-list'
 
 describe('CF-6.3 connection list sanitizer', () => {
   it('keeps metadata fields and rejects secret fields', () => {
@@ -29,5 +29,27 @@ describe('CF-6.3 connection list sanitizer', () => {
       storageMode: 'copy',
       value: 'super-secret',
     }])).toThrow(/value/)
+  })
+
+  it('keeps audit metadata and rejects secret fields', () => {
+    const rows = sanitizeConnectionAuditRows([{
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+    }])
+    expect(rows[0]?.eventType).toBe('connection-revoked')
+    expect(JSON.stringify(rows)).not.toContain('super-secret')
+    expect(() => sanitizeConnectionAuditRows([{
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+      token: 'super-secret',
+    }])).toThrow(/token/)
   })
 })

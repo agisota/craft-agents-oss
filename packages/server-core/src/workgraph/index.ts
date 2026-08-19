@@ -101,6 +101,15 @@ export interface ConnectionRecord {
   readonly updatedAt: number
 }
 
+export interface ConnectionAuditRecord {
+  readonly connectionId: string
+  readonly eventType: string
+  readonly occurredAt: number
+  readonly actorId: string | null
+  readonly outcome: string
+  readonly payloadDigest: string
+}
+
 interface ProvisioningRecord {
   readonly installationId: string
   readonly relativeDatabaseFilename: typeof DATABASE_FILENAME
@@ -576,6 +585,49 @@ export class WorkGraphKernel {
     return rows.map((row) => {
       if (typeof row.consumer_id !== 'string') throw new Error('Invalid WorkGraph row field: consumer_id')
       return row.consumer_id
+    })
+  }
+
+  async listConnectionAudit(
+    workspaceId: string,
+    connectionId?: string,
+  ): Promise<readonly ConnectionAuditRecord[]> {
+    const database = await this.requireDatabase()
+    assertOpaqueId(workspaceId, 'workspace ID')
+    if (connectionId) assertOpaqueId(connectionId, 'connection ID')
+    const sql = connectionId
+      ? `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
+         FROM workgraph_ledger
+         WHERE workspace_id = ? AND object_id = ?
+           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired')
+         ORDER BY sequence DESC LIMIT 100`
+      : `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
+         FROM workgraph_ledger
+         WHERE workspace_id = ?
+           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired')
+         ORDER BY sequence DESC LIMIT 100`
+    const rows = (
+      connectionId
+        ? await database.all(sql, workspaceId, connectionId)
+        : await database.all(sql, workspaceId)
+    ) as Array<Record<string, unknown>>
+    return rows.map((row) => {
+      if (typeof row.object_id !== 'string') throw new Error('Invalid WorkGraph row field: object_id')
+      if (typeof row.event_type !== 'string') throw new Error('Invalid WorkGraph row field: event_type')
+      if (typeof row.occurred_at !== 'number') throw new Error('Invalid WorkGraph row field: occurred_at')
+      if (row.actor_id != null && typeof row.actor_id !== 'string') {
+        throw new Error('Invalid WorkGraph row field: actor_id')
+      }
+      if (typeof row.outcome !== 'string') throw new Error('Invalid WorkGraph row field: outcome')
+      if (typeof row.payload_digest !== 'string') throw new Error('Invalid WorkGraph row field: payload_digest')
+      return {
+        connectionId: row.object_id,
+        eventType: row.event_type,
+        occurredAt: row.occurred_at,
+        actorId: row.actor_id ?? null,
+        outcome: row.outcome,
+        payloadDigest: row.payload_digest,
+      }
     })
   }
 

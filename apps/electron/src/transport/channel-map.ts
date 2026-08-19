@@ -297,6 +297,7 @@ export const CHANNEL_MAP = {
   // (spec 06), all REMOTE_ELIGIBLE except engineStatus (LOCAL_ONLY).
   // Dotted keys nest into api.knowledge.*, mirroring the browserPane surface.
   'workgraph.listConnections': invoke(RPC_CHANNELS.workgraph.LIST_CONNECTIONS),
+  'workgraph.listConnectionAudit': invoke(RPC_CHANNELS.workgraph.LIST_CONNECTION_AUDIT),
   'workgraph.getConnection': invoke(RPC_CHANNELS.workgraph.GET_CONNECTION),
   'workgraph.createConnection': invoke(RPC_CHANNELS.workgraph.CREATE_CONNECTION),
   'workgraph.previewGithubEnv': invoke(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV),

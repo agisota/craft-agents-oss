@@ -106,6 +106,7 @@ export const RPC_CHANNELS = {
     GET_HEALTH: 'workgraph:getHealth',
     GET_VERSION: 'workgraph:getVersion',
     LIST_CONNECTIONS: 'workgraph:listConnections',
+    LIST_CONNECTION_AUDIT: 'workgraph:listConnectionAudit',
     GET_CONNECTION: 'workgraph:getConnection',
     CREATE_CONNECTION: 'workgraph:createConnection',
     PREVIEW_GITHUB_ENV: 'workgraph:previewGithubEnv',

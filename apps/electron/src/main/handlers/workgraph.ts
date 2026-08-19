@@ -34,6 +34,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.GET_HEALTH,
   RPC_CHANNELS.workgraph.GET_VERSION,
   RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
+  RPC_CHANNELS.workgraph.LIST_CONNECTION_AUDIT,
   RPC_CHANNELS.workgraph.GET_CONNECTION,
   RPC_CHANNELS.workgraph.CREATE_CONNECTION,
   RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
@@ -120,6 +121,7 @@ type WorkGraphSurface = Pick<
   | 'getHealth'
   | 'getVersion'
   | 'listConnections'
+  | 'listConnectionAudit'
   | 'getConnection'
   | 'createConnection'
   | 'bindConsumer'
@@ -142,6 +144,13 @@ export function registerWorkGraphHandlers(
   server.handle(
     RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
     (_ctx, workspaceId: string) => workGraph.listConnections(workspaceId),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.LIST_CONNECTION_AUDIT,
+    (_ctx, input: { workspaceId: string; connectionId?: string }) => (
+      workGraph.listConnectionAudit(input.workspaceId, input.connectionId)
+    ),
     { access: 'localElectron' },
   )
   server.handle(

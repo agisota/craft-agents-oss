@@ -213,4 +213,33 @@ describe('CF-5 WorkGraph connections', () => {
     }
     expect(existsSync(join(root, 'workgraph', 'workgraph.db'))).toBe(true)
   })
+
+  nativeIt('lists metadata-only connection audit rows', async () => {
+    const kernel = createKernel(createRoot())
+    await kernel.getHealth()
+    const connection = await kernel.createConnection({
+      workspaceId: 'workspace_a',
+      integrationId: 'github',
+      credentialRefId: CRED_A,
+      storageMode: 'copy',
+    })
+    await kernel.appendConnectionAudit({
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+      credentialRefId: CRED_A,
+      consumer: 'agent-a',
+      action: 'github.request',
+      decision: 'allow',
+      versionFingerprint: 'abc',
+    })
+    const listed = await kernel.listConnectionAudit('workspace_a', connection.id)
+    expect(listed.length).toBe(1)
+    expect(listed[0]?.connectionId).toBe(connection.id)
+    expect(listed[0]?.eventType).toBe('connection-audit')
+    expect(listed[0]?.outcome).toBe('committed')
+    expect(listed[0]?.payloadDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(listed)).not.toContain('super-secret')
+    expect(listed[0]).not.toHaveProperty('value')
+    await kernel.close()
+  })
 })
