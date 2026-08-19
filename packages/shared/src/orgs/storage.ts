@@ -118,6 +118,62 @@ export function getLocalIdentity(): LocalUserIdentity {
   return ensureLocalUserIdentity()
 }
 
+/**
+ * Resolve a membership without granting authority to a missing organization.
+ * Callers that need to authorize a mutation should use one of the `require*`
+ * variants below rather than treating a locally supplied orgId as proof.
+ */
+export function getOrganizationMembership(orgId: string, userId: string): OrgMember | null {
+  const normalizedOrgId = typeof orgId === 'string' ? orgId.trim() : ''
+  const normalizedUserId = typeof userId === 'string' ? userId.trim() : ''
+  if (!normalizedOrgId || !normalizedUserId) return null
+
+  const store = loadOrgsStore()
+  if (!store.organizations.some((org) => org.id === normalizedOrgId)) return null
+  return store.members.find(
+    (member) => member.orgId === normalizedOrgId && member.userId === normalizedUserId,
+  ) ?? null
+}
+
+/**
+ * Server-side organization authority check for TeamSpace mutations.
+ * A client-controlled orgId is never sufficient: the current principal must
+ * be a durable member in the local server store.
+ */
+export function requireOrganizationMembership(orgId: string, userId: string): OrgMember {
+  const normalizedOrgId = typeof orgId === 'string' ? orgId.trim() : ''
+  if (!normalizedOrgId) throw new Error('orgId is required for a team workspace')
+
+  const store = loadOrgsStore()
+  if (!store.organizations.some((org) => org.id === normalizedOrgId)) {
+    throw new Error(`Organization not found: ${normalizedOrgId}`)
+  }
+
+  const normalizedUserId = typeof userId === 'string' ? userId.trim() : ''
+  const member = normalizedUserId
+    ? store.members.find(
+      (candidate) =>
+        candidate.orgId === normalizedOrgId && candidate.userId === normalizedUserId,
+    )
+    : undefined
+  if (!member) throw new Error('Not a member of this organization')
+  return member
+}
+
+/** Require membership for the authenticated local server identity. */
+export function requireCurrentLocalOrganizationMembership(orgId: string): OrgMember {
+  return requireOrganizationMembership(orgId, ensureLocalUserIdentity().userId)
+}
+
+/** Fail closed for listing/selection paths when the org store is unavailable. */
+export function isCurrentLocalOrganizationMember(orgId: string): boolean {
+  try {
+    return Boolean(requireCurrentLocalOrganizationMembership(orgId))
+  } catch {
+    return false
+  }
+}
+
 export function listOrganizations(): OrganizationWithMembers[] {
   const store = loadOrgsStore()
   return store.organizations.map((org) => ({

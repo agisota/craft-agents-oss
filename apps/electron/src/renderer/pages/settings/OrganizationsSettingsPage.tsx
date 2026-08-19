@@ -5,8 +5,7 @@
  * Local-first; invite redemption prefers CRAFT_SERVER_URL when present.
  */
 
-import * as React from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
@@ -20,6 +19,7 @@ import {
   SettingsCard,
   SettingsInput,
   SettingsRow,
+  SettingsSelect,
 } from '@/components/settings'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
@@ -28,15 +28,14 @@ import type {
   OrgMember,
   OrgRole,
 } from '@craft-agent/shared/orgs'
-import { useAppShellContext } from '@/context/AppShellContext'
-import { cn } from '@/lib/utils'
+import type { Workspace } from '../../../shared/types'
+import { getTeamSpacesForOrganization } from './organization-team-spaces'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
   slug: 'organizations',
 }
 
-type Identity = { userId: string; username?: string; email?: string; name?: string }
 
 function roleLabel(role: OrgRole, t: (k: string) => string): string {
   if (role === 'owner') return t('settings.orgs.roleOwner')
@@ -46,12 +45,10 @@ function roleLabel(role: OrgRole, t: (k: string) => string): string {
 
 export default function OrganizationsSettingsPage() {
   const { t } = useTranslation()
-  const appShell = useAppShellContext()
-  const activeWorkspaceId = appShell.activeWorkspaceId
 
   const [loading, setLoading] = useState(true)
   const [orgs, setOrgs] = useState<OrganizationWithMembers[]>([])
-  const [identity, setIdentity] = useState<Identity | null>(null)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
 
   const [newOrgName, setNewOrgName] = useState('')
@@ -69,29 +66,26 @@ export default function OrganizationsSettingsPage() {
   const [emailDraft, setEmailDraft] = useState('')
   const [savingIdentity, setSavingIdentity] = useState(false)
 
-  const [linking, setLinking] = useState(false)
-
   const refresh = useCallback(async () => {
-    if (!window.electronAPI?.listOrganizations) {
-      setLoading(false)
-      return
-    }
     setLoading(true)
     try {
-      const [list, id] = await Promise.all([
+      const [list, identity, availableWorkspaces] = await Promise.all([
         window.electronAPI.listOrganizations(),
         window.electronAPI.getOrgIdentity(),
+        window.electronAPI.getWorkspaces(),
       ])
       setOrgs(list)
-      setIdentity(id)
-      setUsernameDraft(id.username ?? '')
-      setEmailDraft(id.email ?? '')
-      setSelectedOrgId((prev) => {
-        if (prev && list.some((o) => o.id === prev)) return prev
+      setWorkspaces(availableWorkspaces)
+      setUsernameDraft(identity.username ?? '')
+      setEmailDraft(identity.email ?? '')
+      setSelectedOrgId((previous) => {
+        if (previous && list.some((organization) => organization.id === previous)) {
+          return previous
+        }
         return list[0]?.id ?? null
       })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       toast.error(t('settings.orgs.loadFailed'), { description: message })
     } finally {
       setLoading(false)
@@ -102,28 +96,35 @@ export default function OrganizationsSettingsPage() {
     void refresh()
   }, [refresh])
 
-  const selected = orgs.find((o) => o.id === selectedOrgId) ?? null
+  const selected = orgs.find((organization) => organization.id === selectedOrgId) ?? null
+  const teamSpaces = useMemo(
+    () => getTeamSpacesForOrganization(workspaces, selected?.id ?? null),
+    [selected?.id, workspaces],
+  )
 
   const handleCreate = useCallback(async () => {
     const name = newOrgName.trim()
     if (!name || creating) return
+
     setCreating(true)
     try {
-      const org = await window.electronAPI.createOrganization({ name })
+      const organization = await window.electronAPI.createOrganization({ name })
       setNewOrgName('')
-      setOrgs((prev) => [...prev, org])
-      setSelectedOrgId(org.id)
-      toast.success(t('settings.orgs.created', { name: org.name }))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      setOrgs((current) => [...current, organization])
+      setSelectedOrgId(organization.id)
+      setLastInviteToken(null)
+      toast.success(t('settings.orgs.created', { name: organization.name }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       toast.error(t('settings.orgs.createFailed'), { description: message })
     } finally {
       setCreating(false)
     }
-  }, [newOrgName, creating, t])
+  }, [creating, newOrgName, t])
 
   const handleInvite = useCallback(async () => {
     if (!selected || !inviteTarget.trim() || inviting) return
+
     setInviting(true)
     try {
       const invite = await window.electronAPI.inviteToOrganization({
@@ -134,40 +135,42 @@ export default function OrganizationsSettingsPage() {
       setInviteTarget('')
       setLastInviteToken(invite.token)
       const { token: _token, ...publicInvite } = invite
-      setOrgs((prev) =>
-        prev.map((o) =>
-          o.id === selected.id
+      setOrgs((current) =>
+        current.map((organization) =>
+          organization.id === selected.id
             ? {
-                ...o,
+                ...organization,
                 pendingInvites: [
-                  ...o.pendingInvites.filter((i) => i.id !== invite.id),
+                  ...organization.pendingInvites.filter((candidate) => candidate.id !== invite.id),
                   publicInvite,
                 ],
               }
-            : o,
+            : organization,
         ),
       )
       toast.success(t('settings.orgs.inviteSent', { target: invite.emailOrUsername }))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       toast.error(t('settings.orgs.inviteFailed'), { description: message })
     } finally {
       setInviting(false)
     }
-  }, [selected, inviteTarget, inviteRole, inviting, t])
+  }, [inviting, inviteRole, inviteTarget, selected, t])
 
   const handleAccept = useCallback(async () => {
     const token = acceptToken.trim()
     if (!token || accepting) return
+
     setAccepting(true)
     try {
       const result = await window.electronAPI.acceptOrganizationInvite({ token })
       setAcceptToken('')
       await refresh()
       setSelectedOrgId(result.org.id)
+      setLastInviteToken(null)
       toast.success(t('settings.orgs.inviteAccepted', { name: result.org.name }))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       toast.error(t('settings.orgs.acceptFailed'), { description: message })
     } finally {
       setAccepting(false)
@@ -176,36 +179,21 @@ export default function OrganizationsSettingsPage() {
 
   const handleSaveIdentity = useCallback(async () => {
     if (savingIdentity) return
+
     setSavingIdentity(true)
     try {
-      const next = await window.electronAPI.updateOrgIdentity({
+      await window.electronAPI.updateOrgIdentity({
         username: usernameDraft.trim() || undefined,
         email: emailDraft.trim() || undefined,
       })
-      setIdentity(next)
       toast.success(t('settings.orgs.identitySaved'))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       toast.error(t('settings.orgs.identitySaveFailed'), { description: message })
     } finally {
       setSavingIdentity(false)
     }
-  }, [usernameDraft, emailDraft, savingIdentity, t])
-
-  const handleLinkWorkspace = useCallback(async () => {
-    if (!activeWorkspaceId || !selected || linking) return
-    setLinking(true)
-    try {
-      await window.electronAPI.setWorkspaceOrganization(activeWorkspaceId, selected.id)
-      toast.success(t('settings.orgs.workspaceLinked', { name: selected.name }))
-      await appShell.onRefreshWorkspaces?.()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast.error(t('settings.orgs.workspaceLinkFailed'), { description: message })
-    } finally {
-      setLinking(false)
-    }
-  }, [activeWorkspaceId, selected, linking, t, appShell])
+  }, [emailDraft, savingIdentity, t, usernameDraft])
 
   if (loading) {
     return (
@@ -216,208 +204,185 @@ export default function OrganizationsSettingsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         title={t('settings.orgs.title')}
         actions={<HeaderMenu route={routes.view.settings('organizations')} />}
       />
-      <ScrollArea className="flex-1">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 py-6">
-          <SettingsSection
-            title={t('settings.orgs.identity')}
-            description={t('settings.orgs.identityDesc')}
-          >
-            <SettingsCard>
-              <div className="space-y-3 p-3">
-                <div className="text-xs text-muted-foreground">
-                  {t('settings.orgs.userId')}:{' '}
-                  <span className="font-mono text-foreground/80">{identity?.userId ?? '—'}</span>
-                </div>
-                <SettingsInput
-                  label={t('settings.orgs.username')}
-                  value={usernameDraft}
-                  onChange={setUsernameDraft}
-                  placeholder={t('settings.orgs.usernamePlaceholder')}
-                  inCard
-                />
-                <SettingsInput
-                  label={t('settings.orgs.email')}
-                  value={emailDraft}
-                  onChange={setEmailDraft}
-                  type="email"
-                  placeholder={t('settings.orgs.emailPlaceholder')}
-                  inCard
-                />
-                <div className="flex justify-end">
-                  <Button size="sm" onClick={() => void handleSaveIdentity()} disabled={savingIdentity}>
-                    {savingIdentity ? t('common.saving') : t('common.save')}
-                  </Button>
-                </div>
-              </div>
-            </SettingsCard>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t('settings.orgs.create')}
-            description={t('settings.orgs.createDesc')}
-          >
-            <SettingsCard>
-              <div className="flex items-end gap-2 p-3">
-                <div className="flex-1">
-                  <SettingsInput
-                    label={t('settings.orgs.orgName')}
-                    value={newOrgName}
-                    onChange={setNewOrgName}
-                    placeholder={t('settings.orgs.orgNamePlaceholder')}
-                    inCard
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void handleCreate()
-                    }}
-                  />
-                </div>
-                <Button size="sm" onClick={() => void handleCreate()} disabled={!newOrgName.trim() || creating}>
-                  {creating ? t('common.creating') : t('common.create')}
-                </Button>
-              </div>
-            </SettingsCard>
-          </SettingsSection>
-
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-7 px-4 py-5 sm:px-6">
           <SettingsSection
             title={t('settings.orgs.yourOrgs')}
             description={t('settings.orgs.yourOrgsDesc')}
           >
             <SettingsCard>
               {orgs.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">{t('settings.orgs.empty')}</div>
+                <div className="px-4 py-3 text-sm text-muted-foreground">
+                  {t('settings.orgs.empty')}
+                </div>
               ) : (
                 <div className="divide-y divide-border/40">
-                  {orgs.map((org) => (
+                  {orgs.map((organization) => (
                     <button
-                      key={org.id}
+                      key={organization.id}
                       type="button"
-                      onClick={() => setSelectedOrgId(org.id)}
-                      className={cn(
-                        'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors',
-                        selectedOrgId === org.id ? 'bg-foreground/5' : 'hover:bg-foreground/3',
-                      )}
+                      onClick={() => {
+                        setSelectedOrgId(organization.id)
+                        setLastInviteToken(null)
+                      }}
+                      aria-pressed={selectedOrgId === organization.id}
+                      className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors ${
+                        selectedOrgId === organization.id
+                          ? 'bg-foreground/5'
+                          : 'hover:bg-foreground/3'
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{org.name}</div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {org.slug} · {t('settings.orgs.memberCount', { count: org.members.length })}
-                        </div>
-                      </div>
-                      {selectedOrgId === org.id && (
-                        <span className="text-[11px] text-muted-foreground">{t('common.selected')}</span>
-                      )}
+                      <span className="min-w-0 truncate font-medium">{organization.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {t('settings.orgs.memberCount', {
+                          count: organization.members.length,
+                        })}
+                      </span>
                     </button>
                   ))}
                 </div>
               )}
+              <div className="border-t border-border/40 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <SettingsInput
+                    label={t('settings.orgs.orgName')}
+                    value={newOrgName}
+                    onChange={setNewOrgName}
+                    placeholder={t('settings.orgs.orgNamePlaceholder')}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void handleCreate()
+                    }}
+                    className="min-w-0 flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => void handleCreate()}
+                    disabled={!newOrgName.trim() || creating}
+                    className="shrink-0"
+                  >
+                    {creating ? t('common.creating') : t('settings.orgs.create')}
+                  </Button>
+                </div>
+              </div>
             </SettingsCard>
           </SettingsSection>
 
           {selected && (
-            <>
-              <SettingsSection
-                title={t('settings.orgs.members')}
-                description={t('settings.orgs.membersDesc', { name: selected.name })}
-              >
-                <SettingsCard>
-                  <div className="divide-y divide-border/40">
-                    {selected.members.map((m: OrgMember) => (
-                      <SettingsRow
-                        key={`${m.orgId}:${m.userId}`}
-                        label={m.displayLabel || m.userId}
-                        description={m.userId}
-                        action={
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                            {roleLabel(m.role, t)}
-                          </span>
-                        }
-                      />
-                    ))}
-                    {selected.pendingInvites.map((inv: OrgInvitePublic) => (
-                      <SettingsRow
-                        key={inv.id}
-                        label={inv.emailOrUsername}
-                        description={t('settings.orgs.pendingInvite')}
-                        action={
-                          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                            {roleLabel(inv.role, t)} · {t('settings.orgs.pending')}
-                          </span>
-                        }
-                      />
-                    ))}
+            <SettingsSection
+              title={selected.name}
+              description={t('settings.orgs.selectedOrgDesc', { name: selected.name })}
+            >
+              <div className="space-y-5">
+                <section className="space-y-3">
+                  <div className="space-y-0.5 px-1">
+                    <h4 className="text-sm font-medium">{t('settings.orgs.teamSpaces')}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.orgs.teamSpacesDesc', { name: selected.name })}
+                    </p>
                   </div>
-                </SettingsCard>
-              </SettingsSection>
+                  <SettingsCard>
+                    {teamSpaces.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-muted-foreground">
+                        {t('settings.orgs.teamSpacesEmpty')}
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border/40">
+                        {teamSpaces.map((workspace) => (
+                          <SettingsRow key={workspace.id} label={workspace.name} />
+                        ))}
+                      </div>
+                    )}
+                  </SettingsCard>
+                </section>
 
-              <SettingsSection
-                title={t('settings.orgs.invite')}
-                description={t('settings.orgs.inviteDesc')}
-              >
-                <SettingsCard>
-                  <div className="space-y-3 p-3">
-                    <SettingsInput
-                      label={t('settings.orgs.inviteTarget')}
-                      value={inviteTarget}
-                      onChange={setInviteTarget}
-                      placeholder={t('settings.orgs.inviteTargetPlaceholder')}
-                      inCard
-                    />
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-muted-foreground">{t('settings.orgs.role')}</label>
-                      <select
+                <section className="space-y-3">
+                  <div className="space-y-0.5 px-1">
+                    <h4 className="text-sm font-medium">{t('settings.orgs.members')}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.orgs.membersDesc', { name: selected.name })}
+                    </p>
+                  </div>
+                  <SettingsCard>
+                    <div className="divide-y divide-border/40">
+                      {selected.members.map((member: OrgMember) => (
+                        <SettingsRow
+                          key={`${member.orgId}:${member.userId}`}
+                          label={member.displayLabel || t('settings.orgs.memberUnknown')}
+                          action={
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {roleLabel(member.role, t)}
+                            </span>
+                          }
+                        />
+                      ))}
+                      {selected.pendingInvites.map((invite: OrgInvitePublic) => (
+                        <SettingsRow
+                          key={invite.id}
+                          label={invite.emailOrUsername}
+                          description={t('settings.orgs.pendingInvite')}
+                          action={
+                            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                              {roleLabel(invite.role, t)} · {t('settings.orgs.pending')}
+                            </span>
+                          }
+                        />
+                      ))}
+                    </div>
+                  </SettingsCard>
+                </section>
+
+                <section className="space-y-3">
+                  <div className="space-y-0.5 px-1">
+                    <h4 className="text-sm font-medium">{t('settings.orgs.invite')}</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t('settings.orgs.inviteDesc')}
+                    </p>
+                  </div>
+                  <SettingsCard>
+                    <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end">
+                      <SettingsInput
+                        label={t('settings.orgs.inviteTarget')}
+                        value={inviteTarget}
+                        onChange={setInviteTarget}
+                        placeholder={t('settings.orgs.inviteTargetPlaceholder')}
+                      />
+                      <SettingsSelect
+                        label={t('settings.orgs.role')}
                         value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value as 'admin' | 'member')}
-                        className="h-8 rounded-md border border-border/60 bg-background px-2 text-sm"
-                      >
-                        <option value="member">{t('settings.orgs.roleMember')}</option>
-                        <option value="admin">{t('settings.orgs.roleAdmin')}</option>
-                      </select>
-                      <div className="flex-1" />
+                        onValueChange={(value) =>
+                          setInviteRole(value === 'admin' ? 'admin' : 'member')
+                        }
+                        options={[
+                          { value: 'member', label: t('settings.orgs.roleMember') },
+                          { value: 'admin', label: t('settings.orgs.roleAdmin') },
+                        ]}
+                      />
                       <Button
                         size="sm"
                         onClick={() => void handleInvite()}
                         disabled={!inviteTarget.trim() || inviting}
+                        className="shrink-0"
                       >
                         {inviting ? t('common.sending') : t('settings.orgs.sendInvite')}
                       </Button>
                     </div>
                     {lastInviteToken && (
-                      <p className="break-all text-[11px] text-muted-foreground">
-                        {t('settings.orgs.lastToken')}:{' '}
-                        <code className="font-mono">{lastInviteToken}</code>
-                      </p>
+                      <div className="border-t border-border/40 px-4 py-3">
+                        <p className="break-all text-[11px] text-muted-foreground">
+                          {t('settings.orgs.lastToken')}:{' '}
+                          <code className="font-mono">{lastInviteToken}</code>
+                        </p>
+                      </div>
                     )}
-                  </div>
-                </SettingsCard>
-              </SettingsSection>
-
-              {activeWorkspaceId && (
-                <SettingsSection
-                  title={t('settings.orgs.linkWorkspace')}
-                  description={t('settings.orgs.linkWorkspaceDesc')}
-                >
-                  <SettingsCard>
-                    <div className="flex items-center justify-between gap-3 p-3">
-                      <p className="text-sm text-muted-foreground">
-                        {t('settings.orgs.linkWorkspaceHint', { name: selected.name })}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => void handleLinkWorkspace()}
-                        disabled={linking}
-                      >
-                        {linking ? t('common.saving') : t('settings.orgs.linkWorkspaceAction')}
-                      </Button>
-                    </div>
                   </SettingsCard>
-                </SettingsSection>
-              )}
-            </>
+                </section>
+              </div>
+            </SettingsSection>
           )}
 
           <SettingsSection
@@ -425,19 +390,50 @@ export default function OrganizationsSettingsPage() {
             description={t('settings.orgs.acceptDesc')}
           >
             <SettingsCard>
-              <div className="flex items-end gap-2 p-3">
-                <div className="flex-1">
-                  <SettingsInput
-                    label={t('settings.orgs.inviteToken')}
-                    value={acceptToken}
-                    onChange={setAcceptToken}
-                    placeholder={t('settings.orgs.inviteTokenPlaceholder')}
-                    inCard
-                  />
-                </div>
-                <Button size="sm" onClick={() => void handleAccept()} disabled={!acceptToken.trim() || accepting}>
+              <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-end">
+                <SettingsInput
+                  label={t('settings.orgs.inviteToken')}
+                  value={acceptToken}
+                  onChange={setAcceptToken}
+                  placeholder={t('settings.orgs.inviteTokenPlaceholder')}
+                  className="min-w-0 flex-1"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void handleAccept()}
+                  disabled={!acceptToken.trim() || accepting}
+                  className="shrink-0"
+                >
                   {accepting ? t('common.loading') : t('settings.orgs.acceptAction')}
                 </Button>
+              </div>
+            </SettingsCard>
+          </SettingsSection>
+
+          <SettingsSection
+            title={t('settings.orgs.identity')}
+            description={t('settings.orgs.identityDesc')}
+          >
+            <SettingsCard>
+              <div className="space-y-3 p-3">
+                <SettingsInput
+                  label={t('settings.orgs.username')}
+                  value={usernameDraft}
+                  onChange={setUsernameDraft}
+                  placeholder={t('settings.orgs.usernamePlaceholder')}
+                />
+                <SettingsInput
+                  label={t('settings.orgs.email')}
+                  value={emailDraft}
+                  onChange={setEmailDraft}
+                  type="email"
+                  placeholder={t('settings.orgs.emailPlaceholder')}
+                />
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={() => void handleSaveIdentity()} disabled={savingIdentity}>
+                    {savingIdentity ? t('common.saving') : t('common.save')}
+                  </Button>
+                </div>
               </div>
             </SettingsCard>
           </SettingsSection>
