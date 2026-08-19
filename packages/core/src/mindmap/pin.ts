@@ -1,4 +1,18 @@
 import type { MindMapEntityRef, MindMapGraph, MindMapLayout, PinnedMap } from './types.ts';
+import { cloneMindMapGraph } from './graph.ts';
+
+function cloneMindMapLayout(layout: MindMapLayout): MindMapLayout {
+  const positions: MindMapLayout['positions'] = {};
+  for (const [id, position] of Object.entries(layout.positions)) {
+    if (position) positions[id] = { ...position };
+  }
+  return {
+    ...layout,
+    positions,
+    collapsed: [...layout.collapsed],
+    ...(layout.viewport ? { viewport: { ...layout.viewport } } : {}),
+  };
+}
 
 /** Sanitize a path segment: keep alnum, dash, underscore, dot; collapse rest to `_`. */
 export function sanitizePinFilenamePart(raw: string): string {
@@ -89,11 +103,13 @@ export function createPinnedMap(
   /** Hash of the live source projection this pin tracks (defaults to graph.contentHash). */
   sourceContentHash?: string,
 ): PinnedMap {
+  const pinnedGraph = cloneMindMapGraph(graph);
+  pinnedGraph.derivation = 'pinned';
   return {
     id: `pin_${entityPinKey(graph.entity)}_${now}`,
-    entity: graph.entity,
-    graph: { ...graph, derivation: 'pinned' },
-    layout,
+    entity: pinnedGraph.entity,
+    graph: pinnedGraph,
+    layout: cloneMindMapLayout(layout),
     sourceContentHash: sourceContentHash ?? graph.contentHash,
     createdAt: now,
     updatedAt: now,

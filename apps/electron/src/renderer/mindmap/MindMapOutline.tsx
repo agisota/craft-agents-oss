@@ -3,6 +3,7 @@
  */
 
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MindMapGraph, MindMapNodeId } from '@craft-agent/core/mindmap'
@@ -22,10 +23,10 @@ export function MindMapOutline({
   onNavigate,
   className,
 }: MindMapOutlineProps) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = React.useState<Record<string, true>>({})
 
-  const toggle = (id: MindMapNodeId, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const toggle = (id: MindMapNodeId) => {
     setCollapsed((prev) => {
       const next = { ...prev }
       if (next[id]) delete next[id]
@@ -43,41 +44,47 @@ export function MindMapOutline({
 
     return (
       <div key={id} className="min-w-0">
-        <button
-          type="button"
-          onClick={() => {
-            onSelect?.(id)
-            if (node.source) onNavigate?.(node.source)
-          }}
-          className={cn(
-            'w-full flex items-center gap-1 rounded-[8px] px-2 py-1 text-left text-sm transition-colors',
-            selected
-              ? 'bg-foreground/10 text-foreground'
-              : 'text-foreground/90 hover:bg-foreground/5',
-          )}
+        <div
+          className="flex items-center gap-1"
           style={{ paddingLeft: 8 + depth * 14 }}
         >
           {hasChildren ? (
-            <span
-              role="button"
-              tabIndex={-1}
-              onClick={(e) => toggle(id, e)}
-              className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground"
+            <button
+              type="button"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              title={t(isCollapsed ? 'mindmap.expandNode' : 'mindmap.collapseNode')}
+              aria-label={t(isCollapsed ? 'mindmap.expandNode' : 'mindmap.collapseNode')}
+              aria-expanded={!isCollapsed}
+              onClick={() => toggle(id)}
             >
               {isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
               )}
-            </span>
+            </button>
           ) : (
             <span className="w-5 shrink-0" />
           )}
-          <span className="truncate">{node.label}</span>
-          <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-            {node.kind}
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              onSelect?.(id)
+              if (node.source) onNavigate?.(node.source)
+            }}
+            className={cn(
+              'min-w-0 flex-1 flex items-center gap-1 rounded-[8px] px-1 py-1 text-left text-sm transition-colors',
+              selected
+                ? 'bg-foreground/10 text-foreground'
+                : 'text-foreground/90 hover:bg-foreground/5',
+            )}
+          >
+            <span className="truncate">{node.label}</span>
+            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+              {node.kind}
+            </span>
+          </button>
+        </div>
         {hasChildren && !isCollapsed
           ? node.children.map((childId) => renderNode(childId, depth + 1))
           : null}
