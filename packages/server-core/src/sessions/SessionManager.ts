@@ -93,6 +93,16 @@ import { restoreFiles } from '@craft-agent/shared/utils/bundle-files'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient, McpClientPool, McpPoolServer } from '@craft-agent/shared/mcp'
 import { type Session, type SessionEvent, type FileAttachment, type SendMessageOptions, type UnreadSummary, type RemoteSessionTransferPayload, type ImportRemoteSessionTransferResult, RPC_CHANNELS, generateMessageId } from '@craft-agent/shared/protocol'
+import type {
+  BulkUpdateSessionsInput,
+  BulkUpdateSessionsPatch,
+  BulkUpdateSessionsResult,
+} from '@craft-agent/shared/protocol'
+import {
+  assertValidBulkUpdateInput,
+  assertValidBulkUpdatePatch,
+} from './bulk-labels'
+import { resolveBulkLabels } from '@craft-agent/shared/sessions/collection'
 import { messageToStored, storedToMessage, type Message, type StoredAttachment, type ToolDisplayMeta, type TokenUsage, type SessionMemoryMode } from '@craft-agent/core/types'
 import { formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrlAsync, getEmojiIcon, resetSummarizationClient, resolveToolIcon, readFileAttachment, selectSpreadMessages, normalizePath } from '@craft-agent/shared/utils'
 import { loadAllSkills, loadSkillBySlug, invalidateSkillsCache, type LoadedSkill } from '@craft-agent/shared/skills'
@@ -885,6 +895,17 @@ interface RunningBackgroundTask {
   agentsCompleted?: number
 }
 
+type CollectionMutableField =
+  | 'isArchived'
+  | 'archivedAt'
+  | 'isFlagged'
+  | 'sessionStatus'
+  | 'priority'
+  | 'dueDate'
+  | 'projectId'
+  | 'labels'
+  | 'kanbanColumn'
+
 interface ManagedSession {
   id: string
   workspace: Workspace
@@ -998,6 +1019,8 @@ interface ManagedSession {
   // Guard: suppress external metadata revert after programmatic writes (setSessionStatus/setSessionLabels).
   // fs.watch fires during atomic write (unlink+rename) and can read stale data, reverting in-memory state.
   _metadataWriteGuardUntil?: number
+  /** Runtime-only per-field versions prevent stale failed writes from rolling back newer mutations. */
+  _collectionFieldVersions?: Partial<Record<CollectionMutableField, number>>
   // Whether an async operation is ongoing (sharing, updating share, revoking, title regeneration)
   // Used for shimmer effect on session title
   isAsyncOperationOngoing?: boolean
@@ -1608,6 +1631,7 @@ export class SessionManager implements ISessionManager {
     const oldLabels = JSON.stringify(managed.labels ?? [])
     const newLabels = JSON.stringify(header.labels ?? [])
     if (oldLabels !== newLabels) {
+      this.markCollectionFieldMutations(managed, ['labels'])
       managed.labels = header.labels
       this.sendEvent({ type: 'labels_changed', sessionId, labels: header.labels ?? [] }, managed.workspace.id)
       changed = true
@@ -1615,6 +1639,7 @@ export class SessionManager implements ISessionManager {
 
     // Flagged
     if ((managed.isFlagged ?? false) !== (header.isFlagged ?? false)) {
+      this.markCollectionFieldMutations(managed, ['isFlagged'])
       managed.isFlagged = header.isFlagged ?? false
       this.sendEvent(
         { type: header.isFlagged ? 'session_flagged' : 'session_unflagged', sessionId },
@@ -1625,6 +1650,7 @@ export class SessionManager implements ISessionManager {
 
     // Session status
     if (managed.sessionStatus !== header.sessionStatus) {
+      this.markCollectionFieldMutations(managed, ['sessionStatus'])
       managed.sessionStatus = header.sessionStatus
       this.sendEvent({ type: 'session_status_changed', sessionId, sessionStatus: header.sessionStatus ?? '' }, managed.workspace.id)
       changed = true
@@ -1639,12 +1665,14 @@ export class SessionManager implements ISessionManager {
 
     // Project binding (no dedicated event today — handled via metaChanged broadcast)
     if (managed.projectId !== header.projectId) {
+      this.markCollectionFieldMutations(managed, ['projectId'])
       managed.projectId = header.projectId
       changed = true
     }
 
     // Kanban column (mutable via drag; reconcile external/multi-window changes)
     if (managed.kanbanColumn !== header.kanbanColumn) {
+      this.markCollectionFieldMutations(managed, ['kanbanColumn'])
       managed.kanbanColumn = header.kanbanColumn
       changed = true
     }
@@ -1655,10 +1683,12 @@ export class SessionManager implements ISessionManager {
       changed = true
     }
     if (managed.priority !== header.priority) {
+      this.markCollectionFieldMutations(managed, ['priority'])
       managed.priority = header.priority
       changed = true
     }
     if ((managed.dueDate ?? null) !== (header.dueDate ?? null)) {
+      this.markCollectionFieldMutations(managed, ['dueDate'])
       managed.dueDate = header.dueDate ?? undefined
       changed = true
     }
@@ -2470,6 +2500,21 @@ export class SessionManager implements ISessionManager {
   // atomic write completes. See onSessionMetadataChange.
   private setMetadataWriteGuard(managed: ManagedSession): void {
     managed._metadataWriteGuardUntil = Date.now() + METADATA_WRITE_GUARD_MS
+  }
+
+  /**
+   * Advance runtime versions for collection fields before mutating them.
+   * Failed async writes use these versions to avoid reverting later changes.
+   */
+  private markCollectionFieldMutations(
+    managed: ManagedSession,
+    fields: readonly CollectionMutableField[],
+  ): void {
+    const versions = managed._collectionFieldVersions ?? {}
+    for (const field of fields) {
+      versions[field] = (versions[field] ?? 0) + 1
+    }
+    managed._collectionFieldVersions = versions
   }
 
   /**
@@ -5245,6 +5290,7 @@ export class SessionManager implements ISessionManager {
   async flagSession(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['isFlagged'])
       managed.isFlagged = true
       // Persist in-memory state directly to avoid race with pending queue writes
       this.persistSession(managed)
@@ -5262,6 +5308,7 @@ export class SessionManager implements ISessionManager {
   async unflagSession(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['isFlagged'])
       managed.isFlagged = false
       // Persist in-memory state directly to avoid race with pending queue writes
       this.persistSession(managed)
@@ -5282,6 +5329,7 @@ export class SessionManager implements ISessionManager {
       sessionLog.warn(`archiveSession: unknown session ${sessionId} — no-op`)
     }
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['isArchived', 'archivedAt'])
       managed.isArchived = true
       managed.archivedAt = Date.now()
       // Persist in-memory state directly to avoid race with pending queue writes
@@ -5299,6 +5347,7 @@ export class SessionManager implements ISessionManager {
       sessionLog.warn(`unarchiveSession: unknown session ${sessionId} — no-op`)
     }
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['isArchived', 'archivedAt'])
       managed.isArchived = false
       managed.archivedAt = undefined
       // Persist in-memory state directly to avoid race with pending queue writes
@@ -5313,6 +5362,7 @@ export class SessionManager implements ISessionManager {
   async setSessionStatus(sessionId: string, sessionStatus: SessionStatus): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['sessionStatus'])
       managed.sessionStatus = sessionStatus
       this.setMetadataWriteGuard(managed)
       // Persist in-memory state directly to avoid race with pending queue writes
@@ -6637,6 +6687,7 @@ export class SessionManager implements ISessionManager {
           .filter(entry => !existingLabels.includes(entry))
 
         if (newEntries.length > 0) {
+          this.markCollectionFieldMutations(managed, ['labels'])
           managed.labels = [...existingLabels, ...newEntries]
           this.persistSession(managed)
           this.sendEvent({
@@ -7993,6 +8044,7 @@ export class SessionManager implements ISessionManager {
   async setSessionLabels(sessionId: string, labels: string[]): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['labels'])
       managed.labels = labels
       this.setMetadataWriteGuard(managed)
 
@@ -8010,6 +8062,186 @@ export class SessionManager implements ISessionManager {
       const watcher = this.configWatchers.get(managed.workspace.rootPath)
       watcher?.notifyFileChange(`sessions/${sessionId}/session.jsonl`)
     }
+  }
+
+  /**
+   * Apply one collection patch to caller-authorized sessions. Target
+   * resolution is an all-or-none preflight; persistence remains per-target so
+   * processing/archive and disk failures can be reported independently.
+   */
+  async bulkUpdateSessions(
+    workspaceId: string,
+    input: Pick<BulkUpdateSessionsInput, 'ids' | 'patch'>,
+  ): Promise<BulkUpdateSessionsResult> {
+    const { ids, patch } = input
+    assertValidBulkUpdateInput({ workspaceId, ids, patch })
+    assertValidBulkUpdatePatch(patch)
+    if (ids.length === 0) return { ok: [], failed: [] }
+
+    const resolved: ManagedSession[] = []
+    const preflightErrorById = new Map<string, string>()
+    for (const sessionId of ids) {
+      const managed = this.sessions.get(sessionId)
+      if (!managed) {
+        preflightErrorById.set(sessionId, 'not_found')
+      } else if (managed.workspace.id !== workspaceId) {
+        preflightErrorById.set(sessionId, 'foreign')
+      } else {
+        resolved.push(managed)
+      }
+    }
+    if (preflightErrorById.size > 0) {
+      return {
+        ok: [],
+        failed: ids.map(id => ({
+          id,
+          error: preflightErrorById.get(id) ?? 'preflight_aborted',
+        })),
+      }
+    }
+
+    const ok: string[] = []
+    const failed: BulkUpdateSessionsResult['failed'] = []
+    let unreadSummaryChanged = false
+
+    for (const managed of resolved) {
+      if (patch.isArchived === true && managed.isProcessing) {
+        failed.push({ id: managed.id, error: 'busy' })
+        continue
+      }
+
+      const affectedFields: CollectionMutableField[] = []
+      const before: Partial<Pick<ManagedSession, CollectionMutableField>> = {}
+      const optimistic: Partial<Pick<ManagedSession, CollectionMutableField>> = {}
+      const headerPatch: Partial<SessionHeader> = {}
+
+      if (patch.isArchived !== undefined) {
+        const archivedAt = patch.isArchived ? Date.now() : undefined
+        affectedFields.push('isArchived', 'archivedAt')
+        before.isArchived = managed.isArchived
+        before.archivedAt = managed.archivedAt
+        optimistic.isArchived = patch.isArchived
+        optimistic.archivedAt = archivedAt
+        headerPatch.isArchived = patch.isArchived
+        headerPatch.archivedAt = archivedAt
+      }
+      if (patch.isFlagged !== undefined) {
+        affectedFields.push('isFlagged')
+        before.isFlagged = managed.isFlagged
+        optimistic.isFlagged = patch.isFlagged
+        headerPatch.isFlagged = patch.isFlagged
+      }
+      if (patch.sessionStatus !== undefined) {
+        affectedFields.push('sessionStatus')
+        before.sessionStatus = managed.sessionStatus
+        optimistic.sessionStatus = patch.sessionStatus
+        headerPatch.sessionStatus = patch.sessionStatus
+      }
+      if (patch.priority !== undefined) {
+        affectedFields.push('priority')
+        before.priority = managed.priority
+        optimistic.priority = patch.priority
+        headerPatch.priority = patch.priority
+      }
+      if (patch.dueDate !== undefined) {
+        const dueDate = patch.dueDate ?? undefined
+        affectedFields.push('dueDate')
+        before.dueDate = managed.dueDate
+        optimistic.dueDate = dueDate
+        headerPatch.dueDate = dueDate
+      }
+      if (patch.projectId !== undefined) {
+        const projectId = patch.projectId ?? undefined
+        affectedFields.push('projectId')
+        before.projectId = managed.projectId
+        optimistic.projectId = projectId
+        headerPatch.projectId = projectId
+      }
+
+      const nextLabels = resolveBulkLabels(managed.labels, patch)
+      if (nextLabels !== undefined) {
+        affectedFields.push('labels')
+        before.labels = managed.labels
+        optimistic.labels = nextLabels
+        headerPatch.labels = nextLabels
+      }
+      if (patch.kanbanColumn !== undefined) {
+        const kanbanColumn = patch.kanbanColumn ?? undefined
+        affectedFields.push('kanbanColumn')
+        before.kanbanColumn = managed.kanbanColumn
+        optimistic.kanbanColumn = kanbanColumn
+        headerPatch.kanbanColumn = kanbanColumn
+      }
+
+      this.markCollectionFieldMutations(managed, affectedFields)
+      const operationVersions: Partial<Record<CollectionMutableField, number>> = {}
+      for (const field of affectedFields) {
+        operationVersions[field] = managed._collectionFieldVersions?.[field]
+      }
+      Object.assign(managed, optimistic)
+      this.setMetadataWriteGuard(managed)
+
+      try {
+        await sessionPersistenceQueue.updateSessionHeader(
+          managed.id,
+          managed.workspace.rootPath,
+          headerPatch,
+        )
+        ok.push(managed.id)
+        unreadSummaryChanged ||= (
+          patch.isArchived !== undefined
+          && before.isArchived !== optimistic.isArchived
+        )
+        this.configWatchers
+          .get(managed.workspace.rootPath)
+          ?.notifyFileChange(`sessions/${managed.id}/session.jsonl`)
+      } catch (error) {
+        // Restore only fields still owned by this failed operation. Per-field
+        // versions distinguish later same-value writes from this projection.
+        for (const field of affectedFields) {
+          if (managed._collectionFieldVersions?.[field] !== operationVersions[field]) continue
+          if (managed[field] !== optimistic[field]) continue
+          switch (field) {
+            case 'isArchived':
+              managed.isArchived = before.isArchived
+              break
+            case 'archivedAt':
+              managed.archivedAt = before.archivedAt
+              break
+            case 'isFlagged':
+              managed.isFlagged = before.isFlagged ?? false
+              break
+            case 'sessionStatus':
+              managed.sessionStatus = before.sessionStatus
+              break
+            case 'priority':
+              managed.priority = before.priority
+              break
+            case 'dueDate':
+              managed.dueDate = before.dueDate
+              break
+            case 'projectId':
+              managed.projectId = before.projectId
+              break
+            case 'labels':
+              managed.labels = before.labels
+              break
+            case 'kanbanColumn':
+              managed.kanbanColumn = before.kanbanColumn
+              break
+          }
+        }
+        failed.push({
+          id: managed.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    if (unreadSummaryChanged) {
+      this.emitUnreadSummaryChanged()
+    }
+    return { ok, failed }
   }
 
   /**
@@ -8067,6 +8299,7 @@ export class SessionManager implements ISessionManager {
   async setSessionProjectId(sessionId: string, projectId: string | null): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['projectId'])
       managed.projectId = projectId ?? undefined
       this.setMetadataWriteGuard(managed)
 
@@ -8090,6 +8323,7 @@ export class SessionManager implements ISessionManager {
   async setKanbanColumn(sessionId: string, column: string | null): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['kanbanColumn'])
       managed.kanbanColumn = column ?? undefined
       this.setMetadataWriteGuard(managed)
 
@@ -8109,6 +8343,7 @@ export class SessionManager implements ISessionManager {
   async setPriority(sessionId: string, priority: SessionPriority): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['priority'])
       managed.priority = priority
       this.setMetadataWriteGuard(managed)
 
@@ -8127,6 +8362,7 @@ export class SessionManager implements ISessionManager {
   async setDueDate(sessionId: string, dueDate: number | null): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      this.markCollectionFieldMutations(managed, ['dueDate'])
       managed.dueDate = dueDate ?? undefined
       this.setMetadataWriteGuard(managed)
 
@@ -8280,6 +8516,9 @@ export class SessionManager implements ISessionManager {
     // the connection_changed event below keeps the renderer in sync.
     managed.taskSlug = taskSlug
     managed.taskDraft = false
+    if (reconcile?.projectId !== undefined) {
+      this.markCollectionFieldMutations(managed, ['projectId'])
+    }
     if (reconcile?.projectId !== undefined) managed.projectId = reconcile.projectId
     if (connectionChanged) managed.llmConnection = reconcile!.llmConnection
     const renamed = Boolean(reconcile?.name && reconcile.name !== managed.name)
@@ -8367,6 +8606,9 @@ export class SessionManager implements ISessionManager {
     // the connection_changed event below keeps the renderer in sync.
     managed.taskSlug = taskSlug
     managed.taskDraft = false
+    if (reconcile?.projectId !== undefined) {
+      this.markCollectionFieldMutations(managed, ['projectId'])
+    }
     if (reconcile?.projectId !== undefined) managed.projectId = reconcile.projectId
     if (connectionChanged) managed.llmConnection = reconcile!.llmConnection
     const renamed = Boolean(reconcile?.name && reconcile.name !== managed.name)

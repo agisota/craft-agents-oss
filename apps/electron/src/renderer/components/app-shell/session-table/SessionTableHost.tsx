@@ -706,6 +706,7 @@ export function SessionTableHost() {
 
       <CollectionBulkBar
         workspaceId={activeWorkspaceId}
+        visibleSessionIds={visibleIds}
         statuses={sessionStatuses as unknown as SessionStatus[]}
         projects={projectOptions}
         labels={labelOptions}
