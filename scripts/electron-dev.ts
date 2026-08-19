@@ -317,7 +317,14 @@ function getElectronEnv(): Record<string, string> {
 //   TLA-free ESM, so the runtime `require('@anthropic-ai/claude-agent-sdk')`
 //   resolves correctly. Mirror of the same flag in `scripts/electron-build-main.ts`
 //   and `apps/electron/package.json` build:main.
-const MAIN_BUNDLE_EXTERNALS = ["electron", "@anthropic-ai/claude-agent-sdk"];
+const MAIN_BUNDLE_EXTERNALS = [
+  "electron",
+  "@anthropic-ai/claude-agent-sdk",
+  "onnxruntime-node",
+  "@xenova/transformers",
+  "sharp",
+  "bun:*",
+];
 
 // Run a one-shot esbuild using the JavaScript API
 async function runEsbuild(
