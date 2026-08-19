@@ -3,9 +3,35 @@ import {
   resolveSlugForMethod,
   apiSetupMethodToConnectionSetup,
   BASE_SLUG_FOR_METHOD,
+  shouldApplyOnboardingLaunchGate,
 } from '../useOnboarding'
 import type { ApiSetupMethod } from '@/components/onboarding'
 
+
+// ============================================================
+// Startup launch policy
+// ============================================================
+
+describe('shouldApplyOnboardingLaunchGate', () => {
+  it('keeps fresh incomplete setup non-blocking', () => {
+    expect(shouldApplyOnboardingLaunchGate('startup', {
+      shouldShowOnboardingOnLaunch: false,
+    })).toBe(false)
+  })
+
+  it('requires both an explicit startup caller and a server launch gate', () => {
+    expect(shouldApplyOnboardingLaunchGate('explicit', {
+      shouldShowOnboardingOnLaunch: true,
+    })).toBe(false)
+    expect(shouldApplyOnboardingLaunchGate('startup', {
+      shouldShowOnboardingOnLaunch: true,
+    })).toBe(true)
+  })
+
+  it('treats older setup payloads without the new flag as non-blocking', () => {
+    expect(shouldApplyOnboardingLaunchGate('startup', {})).toBe(false)
+  })
+})
 // ============================================================
 // resolveSlugForMethod
 // ============================================================
