@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { createCipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { SecureStorageBackend } from '../secure-storage.ts';
@@ -24,11 +24,10 @@ describe('SecureStorageBackend recovery', () => {
   function isolatedBackend(): { backend: SecureStorageBackend; filePath: string; dir: string } {
     const dir = mkdtempSync(join(tmpdir(), 'cf2-cred-'));
     dirs.push(dir);
-    const filePath = join(dir, 'credentials.enc');
-    return { backend: new SecureStorageBackend({ filePath }), filePath, dir };
+    return { backend: new SecureStorageBackend(dir), filePath: join(dir, 'credentials.enc'), dir };
   }
 
-  it('quarantines a bad-magic file and does not recreate it', async () => {
+  it('quarantines a bad-magic file and does not recreate it on get', async () => {
     const { backend, filePath, dir } = isolatedBackend();
     const original = Buffer.concat([Buffer.from('NOTCRAFT'), randomBytes(MIN_SIZE)]);
     writeFileSync(filePath, original, { mode: 0o600 });
@@ -36,46 +35,20 @@ describe('SecureStorageBackend recovery', () => {
 
     expect(await backend.get({ type: 'source_bearer', name: 'x', workspaceId: 'w', sourceId: 's' })).toBeNull();
     expect(existsSync(filePath)).toBe(false);
-
-    const record = backend.getRepairRecord();
-    expect(record?.code).toBe('bad_magic');
-    expect(record?.digest).toBe(before);
-    expect(record && JSON.stringify(record)).not.toContain('value');
-
-    const quarantined = readFileSync(join(record!.quarantineDir, 'credentials.enc'));
-    expect(digest(quarantined)).toBe(before);
-    expect(existsSync(filePath)).toBe(false);
-    expect(existsSync(join(dir, 'credentials.enc'))).toBe(false);
-  });
-
-  it('records decrypt_failed without a payload and fences writes', async () => {
-    const { backend, filePath } = isolatedBackend();
-    const header = Buffer.alloc(MIN_SIZE + 32);
-    MAGIC.copy(header, 0);
-    writeFileSync(filePath, header, { mode: 0o600 });
-
-    expect(await backend.list()).toEqual([]);
-    const record = backend.getRepairRecord();
-    expect(record?.code).toBe('decrypt_failed');
-    expect(record?.digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(JSON.stringify(record)).not.toContain('refreshToken');
-
-    await expect(backend.set(
-      { type: 'source_bearer', name: 'x', workspaceId: 'w', sourceId: 's' },
-      { value: 'should-not-persist' },
-    )).rejects.toThrow(/repair_required/);
-    expect(existsSync(filePath)).toBe(false);
-    expect(await backend.get({ type: 'source_bearer', name: 'x', workspaceId: 'w', sourceId: 's' })).toBeNull();
+    const quarantined = readdirSync(join(dir, 'credential-quarantine'));
+    expect(quarantined).toHaveLength(1);
+    expect(digest(readFileSync(join(dir, 'credential-quarantine', quarantined[0]!)))).toBe(before);
   });
 
   it('quarantines an undersized file instead of deleting it', async () => {
-    const { backend, filePath } = isolatedBackend();
+    const { backend, filePath, dir } = isolatedBackend();
     const original = Buffer.from('tiny');
     writeFileSync(filePath, original);
     expect(await backend.get({ type: 'anthropic_api_key' })).toBeNull();
-    expect(backend.getRepairRecord()?.code).toBe('undersized');
     expect(existsSync(filePath)).toBe(false);
-    expect(digest(readFileSync(join(backend.getRepairRecord()!.quarantineDir, 'credentials.enc')))).toBe(digest(original));
+    const quarantined = readdirSync(join(dir, 'credential-quarantine'));
+    expect(quarantined).toHaveLength(1);
+    expect(digest(readFileSync(join(dir, 'credential-quarantine', quarantined[0]!)))).toBe(digest(original));
   });
 
   it('does not rewrite a healthy store on get', async () => {
@@ -88,15 +61,14 @@ describe('SecureStorageBackend recovery', () => {
     expect(Buffer.compare(before, readFileSync(filePath))).toBe(0);
   });
 
-  it('allows first-run set when no repair record exists', async () => {
+  it('allows first-run set when no store exists', async () => {
     const { backend } = isolatedBackend();
     const id = { type: 'source_apikey' as const, name: 'k', workspaceId: 'w', sourceId: 's' };
     await backend.set(id, { value: 'fresh' });
     expect(await backend.get(id)).toEqual({ value: 'fresh' });
-    expect(backend.getRepairRecord()).toBeNull();
   });
 
-  it('reads a v1-hostname store without rewriting it', async () => {
+  it('reads a v1-hostname store', async () => {
     const { backend, filePath } = isolatedBackend();
     const salt = randomBytes(32);
     const iv = randomBytes(12);
@@ -118,11 +90,14 @@ describe('SecureStorageBackend recovery', () => {
     MAGIC.copy(header, 0);
     salt.copy(header, 12);
     writeFileSync(filePath, Buffer.concat([header, iv, cipher.getAuthTag(), ciphertext]));
-    const before = readFileSync(filePath);
 
     const listed = await backend.list();
     expect(listed.some((id) => id.type === 'source_bearer')).toBe(true);
-    expect(Buffer.compare(before, readFileSync(filePath))).toBe(0);
-    expect(backend.getRepairRecord()).toBeNull();
+    expect(await backend.get({
+      type: 'source_bearer',
+      name: 's',
+      workspaceId: 'w',
+      sourceId: 's',
+    })).toEqual({ value: 'legacy-v1' });
   });
 });

@@ -5,7 +5,11 @@
  * for cross-platform compatibility without OS keychain prompts.
  */
 
-import type { CredentialBackend } from './backends/types.ts';
+import {
+  isCredentialMigrationBackend,
+  type CredentialBackend,
+  type CredentialMigrationBackend,
+} from './backends/types.ts';
 import type { CredentialId, CredentialType, StoredCredential, CredentialHealthStatus, CredentialHealthIssue } from './types.ts';
 import type { LlmAuthType, LlmProviderType } from '../config/llm-connections.ts';
 import { SecureStorageBackend } from './backends/secure-storage.ts';
@@ -122,6 +126,19 @@ export class CredentialManager {
   /** Get the name of the active write backend */
   getActiveBackendName(): string | null {
     return this.writeBackend?.name || null;
+  }
+
+  async getMigrationBackend(): Promise<CredentialMigrationBackend> {
+    await this.ensureInitialized();
+    if (
+      !this.writeBackend ||
+      this.backends.length !== 1 ||
+      this.backends[0] !== this.writeBackend ||
+      !isCredentialMigrationBackend(this.writeBackend)
+    ) {
+      throw new Error('Controlled credential migration is unavailable');
+    }
+    return this.writeBackend;
   }
 
   /**
@@ -818,7 +835,7 @@ export class CredentialManager {
 
 }
 
-function kindFromCredentialType(type: CredentialType): CredentialKind {
+export function credentialKindForType(type: CredentialType): CredentialKind {
   switch (type) {
     case 'claude_oauth':
     case 'llm_oauth':
@@ -874,7 +891,7 @@ function classifyStoredCredential(type: CredentialType, raw: unknown): Credentia
     }
     if (looksLikeSerializedObject(serialized)) return null;
   }
-  const wrapped = decodeCredentialEnvelopeOrLegacy(raw, kindFromCredentialType(type));
+  const wrapped = decodeCredentialEnvelopeOrLegacy(raw, credentialKindForType(type));
   if (!wrapped) return null;
   return {
     credential: wrapped.payload,
