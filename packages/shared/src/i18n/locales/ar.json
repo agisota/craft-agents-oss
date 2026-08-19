@@ -534,6 +534,7 @@
   "common.validating": "جارٍ التحقق...",
   "common.viewFullscreen": "عرض بملء الشاشة",
   "common.yesterday": "أمس",
+  "connections.connect": "اتصال",
   "connections.empty": "لا توجد اتصالات بعد",
   "connections.import.commit": "استيراد",
   "connections.import.discover": "اكتشاف رموز GitHub",

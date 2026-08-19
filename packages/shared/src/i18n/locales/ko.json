@@ -534,6 +534,7 @@
   "common.validating": "검증 중...",
   "common.viewFullscreen": "전체 화면으로 보기",
   "common.yesterday": "어제",
+  "connections.connect": "연결",
   "connections.empty": "아직 연결이 없습니다",
   "connections.import.commit": "가져오기",
   "connections.import.discover": "GitHub 토큰 찾기",

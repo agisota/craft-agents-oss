@@ -75,6 +75,16 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain('repairConnection')
     expect(page).toContain('connections.repair')
   })
+
+  it('exposes a native Connect control that lists import sources', () => {
+    expect(page).toContain('connections.connect')
+    expect(page).toContain('CONNECT_SOURCES')
+    expect(page).toContain("'keychain'")
+    expect(page).toContain("'adc'")
+    expect(page).toContain("'ssh-agent'")
+    expect(page.toLowerCase()).not.toContain('<iframe')
+  })
 })
+
 
 

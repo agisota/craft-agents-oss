@@ -534,6 +534,7 @@
   "common.validating": "検証中...",
   "common.viewFullscreen": "全画面表示",
   "common.yesterday": "昨日",
+  "connections.connect": "接続",
   "connections.empty": "接続はまだありません",
   "connections.import.commit": "インポート",
   "connections.import.discover": "GitHub トークンを検出",

@@ -39,6 +39,10 @@
 - [x] CF-9.3 git-helper import + list revoke on ConnectionsPage
 - [x] CF-6.5 test/repair/rotate (leases killed, provider copy kept, injected GitHub test)
 - [x] CF-9.4 AwsSharedProfileImporter (injected credential_process)
+- [x] CF-9.5 KeychainImporter (injected list/get)
+- [x] CF-9.6 GoogleAdcImporter (injected ADC JSON)
+- [x] CF-9.7 SshAgentImporter (injected identities)
+- [x] CF-6.6 native Connect control + source list
 
 ## Never
 - [x] Did not restore or keep planning to restore `approvals.mode=off`

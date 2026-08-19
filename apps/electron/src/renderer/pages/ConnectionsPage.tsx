@@ -6,6 +6,7 @@ import { useActiveWorkspace } from '@/context/AppShellContext'
 import { sanitizeConnectionRows, type ConnectionListRow } from './connections-list'
 
 const TABS = ['services', 'credentials', 'imports', 'policies', 'audit'] as const
+const CONNECT_SOURCES = ['github-env', 'git-helper', 'docker', 'aws', 'keychain', 'adc', 'ssh-agent'] as const
 type ConnectionsTab = (typeof TABS)[number]
 type PreviewRow = {
   candidateId: string
@@ -149,10 +150,22 @@ export default function ConnectionsPage() {
             {t(`connections.tab.${id}`)}
           </button>
         ))}
+        <button
+          type="button"
+          className="ml-auto rounded border px-3 py-1 text-sm text-foreground"
+          onClick={() => setTab('imports')}
+        >
+          {t('connections.connect')}
+        </button>
       </div>
       <div className="flex flex-1 min-h-0 flex-col p-6 text-muted-foreground">
         {tab === 'imports' ? (
           <div className="space-y-3 text-sm text-foreground">
+            <ul className="flex flex-wrap gap-2 text-xs">
+              {CONNECT_SOURCES.map((source) => (
+                <li key={source} className="rounded border px-2 py-1">{source}</li>
+              ))}
+            </ul>
             <label className="block">
               <span className="text-muted-foreground">{t('connections.import.envPath')}</span>
               <input

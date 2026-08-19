@@ -534,6 +534,7 @@
   "common.validating": "Проверка...",
   "common.viewFullscreen": "На весь экран",
   "common.yesterday": "Вчера",
+  "connections.connect": "Подключить",
   "connections.empty": "Подключений пока нет",
   "connections.import.commit": "Импортировать",
   "connections.import.discover": "Найти токены GitHub",

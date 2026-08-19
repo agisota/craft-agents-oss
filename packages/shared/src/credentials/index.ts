@@ -77,6 +77,21 @@ export type {
   DockerCredentialHelperSecret,
 } from './fabric/docker-helper-importer.ts';
 export { AwsSharedProfileImporter } from './fabric/aws-profile-importer.ts';
+export { KeychainImporter } from './fabric/keychain-importer.ts';
+export type {
+  KeychainGet,
+  KeychainImporterOptions,
+  KeychainItem,
+  KeychainList,
+} from './fabric/keychain-importer.ts';
+export { GoogleAdcImporter } from './fabric/adc-importer.ts';
+export type { GoogleAdcImporterOptions } from './fabric/adc-importer.ts';
+export { SshAgentImporter } from './fabric/ssh-agent-importer.ts';
+export type {
+  SshAgentIdentity,
+  SshAgentImporterOptions,
+  SshAgentList,
+} from './fabric/ssh-agent-importer.ts';
 export type {
   AwsCredentialProcessRun,
   AwsCredentialProcessQuery,

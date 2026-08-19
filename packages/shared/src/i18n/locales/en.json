@@ -534,6 +534,7 @@
   "common.validating": "Validating...",
   "common.viewFullscreen": "View Fullscreen",
   "common.yesterday": "Yesterday",
+  "connections.connect": "Connect",
   "connections.empty": "No connections yet",
   "connections.import.commit": "Import",
   "connections.import.discover": "Discover GitHub tokens",
