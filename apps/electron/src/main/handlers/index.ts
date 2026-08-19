@@ -11,7 +11,7 @@ import { registerSettingsGuiHandlers } from './settings'
 import { registerSiyuanHandlers } from './siyuan'
 import { registerExtensionHostHandlers } from './extension-host'
 import { registerExtensionSurfaceHandlers } from './extension-surface'
-import { registerWorkGraphHandlers } from './workgraph'
+import { createGithubEnvImportHost, registerWorkGraphHandlers } from './workgraph'
 import type { WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 
 export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): void {
@@ -36,5 +36,5 @@ export function registerAllRpcHandlers(
   // channels and the app fails to boot.
   registerCoreRpcHandlers(server, deps, serverCtx, { browserPane: false })
   registerGuiRpcHandlers(server, deps)
-  if (workGraph) registerWorkGraphHandlers(server, workGraph)
+  if (workGraph) registerWorkGraphHandlers(server, workGraph, createGithubEnvImportHost())
 }

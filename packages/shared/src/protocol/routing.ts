@@ -30,6 +30,8 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
   RPC_CHANNELS.workgraph.GET_CONNECTION,
   RPC_CHANNELS.workgraph.CREATE_CONNECTION,
+  RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
+  RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
 
   // window — Electron window management
   RPC_CHANNELS.window.GET_WORKSPACE,

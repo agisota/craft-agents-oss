@@ -26,6 +26,10 @@
 - [x] CF-6.2 ConnectionsPage on the connections navigator
 - [x] CF-6.3 live metadata list via workgraph.listConnections
 - [x] CF-7.1 GitHub vertical (injected fetch, no live network)
+- [x] CF-7.2 GitHub env preview/import on Connections Imports tab
+- [x] CF-4 trusted-http-header apply/redact
+- [x] CF-8.1 InfisicalSecretProvider (injected HTTP, fail-closed)
+- [x] CF-9.1 GitCredentialHelperImporter (injected config, no secret in discover)
 - [x] CF-5 WorkGraph connections + v1→v2 upgrade
 - [x] CF-5.2 revokeConnectionAndRevalidate
 

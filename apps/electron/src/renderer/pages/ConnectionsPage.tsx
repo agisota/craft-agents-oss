@@ -11,6 +11,8 @@ export default function ConnectionsPage() {
   const workspace = useActiveWorkspace()
   const [tab, setTab] = useState<ConnectionsTab>('services')
   const [rows, setRows] = useState<ConnectionListRow[] | null>(null)
+  const [envPath, setEnvPath] = useState('')
+  const [previews, setPreviews] = useState<Array<{ candidateId: string; label: string; maskedSummary: string }>>([])
 
   useEffect(() => {
     const workspaceId = workspace?.id
@@ -51,7 +53,60 @@ export default function ConnectionsPage() {
         ))}
       </div>
       <div className="flex flex-1 min-h-0 flex-col p-6 text-muted-foreground">
-        {tab === 'services' && services.length > 0 ? (
+        {tab === 'imports' ? (
+          <div className="space-y-3 text-sm text-foreground">
+            <label className="block">
+              <span className="text-muted-foreground">{t('connections.import.envPath')}</span>
+              <input
+                className="mt-1 w-full rounded border bg-transparent px-2 py-1 font-mono text-xs"
+                value={envPath}
+                onChange={(event) => setEnvPath(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewGithubEnv = window.electronAPI?.workgraph?.previewGithubEnv
+                if (typeof previewGithubEnv !== 'function' || !envPath) {
+                  setPreviews([])
+                  return
+                }
+                const next = await previewGithubEnv(envPath)
+                setPreviews(next)
+              }}
+            >
+              {t('connections.import.discover')}
+            </button>
+            <ul className="space-y-2">
+              {previews.map((row) => (
+                <li key={row.candidateId} className="flex items-center justify-between rounded border px-3 py-2">
+                  <div>
+                    <div className="font-medium">{row.label}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.maskedSummary}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-1"
+                    onClick={async () => {
+                      const workspaceId = workspace?.id
+                      const importGithubEnv = window.electronAPI?.workgraph?.importGithubEnv
+                      if (!workspaceId || typeof importGithubEnv !== 'function') return
+                      await importGithubEnv({ envPath, candidateId: row.candidateId, workspaceId })
+                      const listConnections = window.electronAPI?.workgraph?.listConnections
+                      if (typeof listConnections === 'function') {
+                        setRows(sanitizeConnectionRows(await listConnections(workspaceId)))
+                      }
+                    }}
+                  >
+                    {t('connections.import.commit')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : tab === 'services' && services.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">
             {services.map((row) => (
               <li key={row.id} className="rounded border px-3 py-2">

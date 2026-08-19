@@ -299,6 +299,8 @@ export const CHANNEL_MAP = {
   'workgraph.listConnections': invoke(RPC_CHANNELS.workgraph.LIST_CONNECTIONS),
   'workgraph.getConnection': invoke(RPC_CHANNELS.workgraph.GET_CONNECTION),
   'workgraph.createConnection': invoke(RPC_CHANNELS.workgraph.CREATE_CONNECTION),
+  'workgraph.previewGithubEnv': invoke(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV),
+  'workgraph.importGithubEnv': invoke(RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV),
   'knowledge.listConnections': invoke(RPC_CHANNELS.knowledge.LIST_CONNECTIONS),
   'knowledge.capabilities': invoke(RPC_CHANNELS.knowledge.CAPABILITIES),
   'knowledge.search': invoke(RPC_CHANNELS.knowledge.SEARCH),

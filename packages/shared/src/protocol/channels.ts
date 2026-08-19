@@ -108,6 +108,8 @@ export const RPC_CHANNELS = {
     LIST_CONNECTIONS: 'workgraph:listConnections',
     GET_CONNECTION: 'workgraph:getConnection',
     CREATE_CONNECTION: 'workgraph:createConnection',
+    PREVIEW_GITHUB_ENV: 'workgraph:previewGithubEnv',
+    IMPORT_GITHUB_ENV: 'workgraph:importGithubEnv',
   },
   window: {
     GET_WORKSPACE: 'window:getWorkspace',

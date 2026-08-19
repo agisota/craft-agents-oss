@@ -716,6 +716,12 @@ export interface ElectronAPI {
       storageMode: WorkGraphConnectionRecord['storageMode']
       scopes?: readonly string[]
     }): Promise<WorkGraphConnectionRecord>
+    previewGithubEnv(envPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importGithubEnv(input: {
+      envPath: string
+      candidateId: string
+      workspaceId: string
+    }): Promise<WorkGraphConnectionRecord>
   }
 
   knowledge: {
