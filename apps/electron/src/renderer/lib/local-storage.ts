@@ -74,8 +74,9 @@ export const KEYS = {
   // Stores the full URL search string so switching back restores panels/focus/sidebar
   workspaceUrl: 'workspace-url',
 
-  // Unified shell (W1)
-  featureUnifiedShell: 'feature-unified-shell', // Wave flag: unified shell chrome enabled
+  // Workbench rollout (PR-2)
+  workbenchEnabled: 'workbench-enabled', // Explicit user preference
+  workbenchLegacyEnabled: 'feature-unified-shell', // Bounded compatibility read only
   surfaceLayout: 'surface-layout', // Surface layout transport (URL search string; derived via platform/layout-snapshot.ts), workspace-scoped
   activityRailCollapsed: 'activity-rail-collapsed',
   inspectorVisible: 'inspector-visible',
