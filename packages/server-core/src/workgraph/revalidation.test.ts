@@ -13,8 +13,10 @@ import { InProcessCredentialBroker } from '@craft-agent/shared/credentials'
 
 import { createWorkGraphKernel } from './index'
 import {
+  convertCopyToReferenceAndRevalidate,
   repairConnectionAndRevalidate,
   revokeConnectionAndRevalidate,
+  revokeConnectionBindingAndRevalidate,
   rotateConnectionAndRevalidate,
 } from './revalidation.ts'
 
@@ -250,5 +252,66 @@ describe('CF-6.5 rotate and repair', () => {
     } finally {
       await db.close()
     }
+  })
+
+  nativeIt('converts copy to reference, drops the local copy, and unbinds a consumer', async () => {
+    const root = createRoot()
+    const registry = new CredentialRefRegistry()
+    const provider = new LocalFileSecretProvider(new MemoryBackend(), registry)
+    const written = await provider.write({
+      kind: 'bearer_token',
+      locator: { type: 'local', key: 'github/default' },
+      payload: { value: 'super-secret' },
+    })
+    const broker = new InProcessCredentialBroker(provider, (id) => registry.get(id))
+    const kernel = createWorkGraphKernel({
+      configDir: root,
+      platform: { platform: 'darwin', arch: 'arm64' },
+    })
+    await kernel.getHealth()
+    const connection = await kernel.createConnection({
+      workspaceId: 'workspace_a',
+      integrationId: 'github',
+      credentialRefId: written.ref.id,
+      storageMode: 'copy',
+    })
+    await kernel.bindConsumer({
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+      consumerId: 'agent-a',
+      purpose: 'github.user',
+      allowedActions: ['github.api'],
+      resources: ['github:user'],
+    })
+    broker.grant({
+      workspaceId: 'workspace_a',
+      consumerId: 'agent-a',
+      credentialRefId: written.ref.id,
+      actions: ['github.api'],
+      resources: ['github:user'],
+    })
+    const converted = await convertCopyToReferenceAndRevalidate({
+      kernel,
+      broker,
+      provider,
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+      reason: 'owner-convert',
+    })
+    expect(converted.storageMode).toBe('reference')
+    expect(JSON.stringify(converted)).not.toContain('super-secret')
+    const inspected = await provider.inspect(written.ref)
+    expect(inspected.status).toBe('missing')
+    const [binding] = await kernel.listConnectionBindings('workspace_a', connection.id)
+    expect(binding?.consumerId).toBe('agent-a')
+    const unbound = await revokeConnectionBindingAndRevalidate({
+      kernel,
+      broker,
+      workspaceId: 'workspace_a',
+      bindingId: binding!.id,
+    })
+    expect(unbound.consumers[0]?.consumerId).toBe('agent-a')
+    expect(await kernel.listConnectionBindings('workspace_a', connection.id)).toEqual([])
+    await kernel.close()
   })
 })

@@ -81,6 +81,13 @@ export class LocalFileSecretProvider implements SecretProvider {
     return createProviderMaterialization(input.credentialRef.id, copy.kind, copy.payload);
   }
 
+  async dropCopy(ref: CredentialRef): Promise<void> {
+    const copy = this.copies.get(ref.id);
+    if (!copy) return;
+    await this.backend.delete(copy.id);
+    this.copies.delete(ref.id);
+  }
+
   async revoke(input: { credentialRef: CredentialRef }): Promise<void> {
     const copy = this.copies.get(input.credentialRef.id);
     if (!copy) return;
