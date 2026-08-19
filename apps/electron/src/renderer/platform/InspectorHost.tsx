@@ -12,9 +12,8 @@
  * W1 scope: the `info` section is live (focused-surface properties derived
  * from panel-stack + NavigationContext); `agent`/`outline`/`backlinks` render
  * i18n empty states — their content lands with the Knowledge workspace (W2).
- *
- * Mounted by `UnifiedShellLayout` (platform/index.tsx) — rendered only when
- * `featureUnifiedShellAtom` is ON.
+ * Mounted by `WorkspaceSurfaceHost` (platform/index.tsx) — rendered only when
+ * the two-key Workbench rollout is enabled.
  */
 import { useAtom, useAtomValue } from 'jotai'
 import { Bot, Info, Link2, ListTree, X, type LucideIcon } from 'lucide-react'

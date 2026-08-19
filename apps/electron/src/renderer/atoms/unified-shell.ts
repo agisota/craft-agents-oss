@@ -1,23 +1,18 @@
 /**
- * Unified Shell (W1) — feature flag + chrome state atoms.
+ * Workbench chrome state atoms (PR-2).
  *
- * Single gate: `featureUnifiedShellAtom` (localStorage `craft-feature-unified-shell`,
- * default OFF). When OFF, AppShell renders zero unified-shell chrome — use this
- * atom as the runtime switch: writing it from any component/devtools flips the
- * chrome live (`atomWithStorage` persists + re-renders subscribers).
- *
- * Chrome state mirrors the sidebarVisible pattern (`AppShell.tsx`): rail collapse,
- * inspector visibility and the active inspector section persist to localStorage
- * and restore across restarts. All keys are contract fields in
- * `lib/local-storage.ts` (KEYS.*, W1 block).
+ * The explicit user preference is separate from the operator capability. The
+ * preference migrates the prior unified-shell key once, while the operator
+ * capability is injected at the composition boundary and defaults closed.
  */
 import { atomWithStorage } from 'jotai/utils'
 import { KEYS, getKeyString } from '@/lib/local-storage'
+import { readWorkbenchPreference } from '@/platform/workbench-rollout'
 
-/** Wave flag: unified shell chrome (ActivityRail + SurfaceTabs + InspectorHost). */
-export const featureUnifiedShellAtom = atomWithStorage<boolean>(
-  getKeyString(KEYS.featureUnifiedShell),
-  false,
+/** Explicit Workbench user preference; operator policy is evaluated elsewhere. */
+export const featureWorkbenchAtom = atomWithStorage<boolean>(
+  getKeyString(KEYS.workbenchEnabled),
+  readWorkbenchPreference(),
   undefined,
   { getOnInit: true },
 )

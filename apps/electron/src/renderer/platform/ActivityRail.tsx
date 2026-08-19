@@ -10,9 +10,8 @@
  *
  * Collapse state persists via `activityRailCollapsedAtom` (KEYS.activityRailCollapsed).
  * Collapsed = destinations hidden, only the expand chevron stays (atom contract).
- *
- * Mounted by `UnifiedShellLayout` (platform/index.tsx) — rendered only when
- * `featureUnifiedShellAtom` is ON, so there is no flag check in here.
+ * Mounted by `WorkspaceSurfaceHost` (platform/index.tsx) — rendered only when
+ * the two-key Workbench rollout is enabled, so there is no flag check here.
  */
 import { useAtom } from 'jotai'
 import { ChevronsLeft, ChevronsRight } from 'lucide-react'
