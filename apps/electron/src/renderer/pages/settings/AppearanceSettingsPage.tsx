@@ -318,7 +318,7 @@ export default function AppearanceSettingsPage() {
   }, [])
 
   // Default zoom level (persisted in config.json and applied to every app window)
-  const [defaultZoomLevel, setDefaultZoomLevel] = useState(100)
+  const [defaultZoomLevel, setDefaultZoomLevel] = useState(90)
   useEffect(() => {
     window.electronAPI?.getDefaultZoomLevel?.().then(setDefaultZoomLevel)
   }, [])
