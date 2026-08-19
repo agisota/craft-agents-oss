@@ -31,6 +31,7 @@ export {
   SOURCE_CREDENTIAL_TYPES,
 } from './types.ts';
 export type { CredentialBackend } from './backends/types.ts';
+export { SecureStorageBackend } from './backends/secure-storage.ts';
 export {
   CREDENTIAL_ENVELOPE_CODEC,
   CREDENTIAL_ENVELOPE_FORMAT,
@@ -51,7 +52,24 @@ export type {
   SecretProvider,
 } from './fabric/types.ts';
 export { LocalFileSecretProvider } from './fabric/local-file-provider.ts';
+export { InfisicalProviderError, InfisicalSecretProvider } from './fabric/infisical-provider.ts';
+export type {
+  InfisicalHttpClient,
+  InfisicalHttpRequest,
+  InfisicalHttpResponse,
+  InfisicalProviderErrorCode,
+  InfisicalSecretProviderOptions,
+} from './fabric/infisical-provider.ts';
 export { CredentialsEncImporter, EnvFileImporter } from './fabric/importers.ts';
+export { GitCredentialHelperImporter } from './fabric/git-helper-importer.ts';
+export type {
+  GitCredentialHelperFill,
+  GitCredentialHelperImporterOptions,
+  GitCredentialHelperQuery,
+  GitCredentialHelperRunner,
+  GitCredentialHelperSecret,
+} from './fabric/git-helper-importer.ts';
+
 export { createProviderMaterialization, maskSecret } from './fabric/materialization.ts';
 export { BrokerDenial, InProcessCredentialBroker } from './fabric/broker.ts';
 export type {
@@ -64,5 +82,5 @@ export type {
 } from './fabric/broker.ts';
 export { JsonAccessGrantStore, MemoryAccessGrantStore } from './fabric/grant-store.ts';
 export type { AccessGrantStore } from './fabric/grant-store.ts';
-export { DELIVERY_MECHANISM_RANK, selectDeliveryMechanism } from './fabric/delivery.ts';
+export { DELIVERY_MECHANISM_RANK, selectDeliveryMechanism, applyTrustedHttpHeader, redactHeaders } from './fabric/delivery.ts';
 export type { DeliveryMechanism } from './fabric/delivery.ts';
