@@ -161,6 +161,9 @@ export const routes = {
     /** Memory view (memory navigator — self-learning panel) */
     memory: () => 'memory' as const,
 
+    /** Connections view (native Workbench Connections surface) */
+    connections: () => 'connections' as const,
+
     /**
      * P4.2: Notes IA aliases to Knowledge home.
      * Legacy vault remains at `notesLegacy` until migration (P4.4).

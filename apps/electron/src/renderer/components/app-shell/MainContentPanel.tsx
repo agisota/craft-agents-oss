@@ -38,6 +38,7 @@ import {
   isKnowledgeNavigation,
   isDiffNavigation,
   isExtensionNavigation,
+  isConnectionsNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
@@ -45,6 +46,7 @@ import { extractLabelId } from '@craft-agent/shared/labels'
 import type { SessionStatusId } from '@/config/session-status-config'
 import { SourceInfoPage, ChatPage, BrowserPanelPage, KnowledgeSurfacePage, ExtensionSurfacePage } from '@/pages'
 import NotesPage from '@/pages/NotesPage'
+import ConnectionsPage from '@/pages/ConnectionsPage'
 import KnowledgeEntityPage from '@/pages/KnowledgeEntityPage'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
@@ -498,6 +500,14 @@ export function MainContentPanel({
   }
 
   // Notes navigator - self-contained notes workspace
+  if (isConnectionsNavigation(navState)) {
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <ConnectionsPage />
+      </Panel>
+    )
+  }
+
   if (isNotesNavigation(navState)) {
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>

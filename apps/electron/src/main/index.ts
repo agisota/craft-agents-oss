@@ -87,6 +87,7 @@ import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@craft-agent/server-core/sessions'
 import { registerAllRpcHandlers } from './handlers/index'
 import { registerCoreRpcHandlers, cleanupCoreClientResources } from '@craft-agent/server-core/handlers/rpc'
+import { createWorkGraphKernel, type WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 import type { PlatformServices } from '../runtime/platform'
 import { createElectronPlatform } from './platform'
 import type { HandlerDeps } from './handlers/handler-deps'
@@ -217,6 +218,7 @@ let browserPaneManager: BrowserPaneManager | null = null
 let oauthFlowStore: OAuthFlowStore | null = null
 let moduleSink: EventSink | null = null
 let moduleClientResolver: ((webContentsId: number) => string | undefined) | null = null
+let workGraphKernel: WorkGraphKernel | null = null
 
 // Messaging gateway: the bootstrap handle is created once sessionManager is
 // available (inside createHandlerDeps) and populated with the WS publisher
@@ -656,6 +658,10 @@ app.whenReady().then(async () => {
       const clientMap = new Map<number, string>()
       const resolveClientId = (wcId: number) => clientMap.get(wcId)
 
+      // WorkGraph is an Electron-main capability. Constructor work is inert;
+      // native database provisioning remains lazy behind its local-only RPCs.
+      workGraphKernel = isHeadless ? null : createWorkGraphKernel({ configDir: CONFIG_DIR })
+
       // Read embedded server config (Server settings page)
       const { getServerConfig } = await import('@craft-agent/shared/config')
       const embeddedServerConfig = getServerConfig()
@@ -770,10 +776,15 @@ app.whenReady().then(async () => {
           }
         },
         // Headless: register only core handlers (no GUI handlers for browser, settings, etc.)
-        // GUI: register all handlers (core + GUI)
+        // GUI: register all handlers plus the main-process-owned WorkGraph profile.
         registerAllRpcHandlers: isHeadless
           ? (server, deps, serverCtx) => registerCoreRpcHandlers(server, deps, serverCtx)
-          : registerAllRpcHandlers,
+          : (server, deps, serverCtx) => registerAllRpcHandlers(
+              server,
+              deps,
+              serverCtx,
+              workGraphKernel ?? undefined,
+            ),
         setSessionEventSink: (sm, sink) => sm.setEventSink(sink),
         initializeSessionManager: (sm) => sm.initialize(),
         initModelRefreshService: () => initModelRefreshService(async (slug: string) => {
@@ -1345,6 +1356,16 @@ async function performQuitCleanup(): Promise<void> {
       await messagingHandle.dispose()
     } catch (err) {
       mainLog.error('[messaging] dispose failed:', err)
+    }
+  }
+
+  if (workGraphKernel) {
+    try {
+      await workGraphKernel.close()
+    } catch {
+      mainLog.warn('[workgraph] local database close failed')
+    } finally {
+      workGraphKernel = null
     }
   }
 

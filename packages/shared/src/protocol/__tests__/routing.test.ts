@@ -191,3 +191,12 @@ describe('knowledge channel routing (P1+P3+P4+P5)', () => {
     expect(Object.keys(RPC_CHANNELS.knowledge).some((k) => /engineStop/i.test(k))).toBe(false)
   })
 })
+
+describe('WorkGraph routing', () => {
+  test('keeps every WorkGraph channel local-only', () => {
+    for (const channel of Object.values(RPC_CHANNELS.workgraph)) {
+      expect(LOCAL_ONLY_CHANNELS.has(channel)).toBe(true)
+      expect(REMOTE_ELIGIBLE_CHANNELS.has(channel)).toBe(false)
+    }
+  })
+})

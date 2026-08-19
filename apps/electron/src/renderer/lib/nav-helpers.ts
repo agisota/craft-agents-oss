@@ -35,6 +35,7 @@ export function isDetailNavState(navState: NavigationState | null): boolean {
     case 'notes':
       return navState.details !== null
     case 'memory':
+    case 'connections':
       return false
     case 'knowledge':
     case 'cloud-run':

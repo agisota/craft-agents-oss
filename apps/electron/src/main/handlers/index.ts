@@ -11,6 +11,8 @@ import { registerSettingsGuiHandlers } from './settings'
 import { registerSiyuanHandlers } from './siyuan'
 import { registerExtensionHostHandlers } from './extension-host'
 import { registerExtensionSurfaceHandlers } from './extension-surface'
+import { registerWorkGraphHandlers } from './workgraph'
+import type { WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 
 export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): void {
   registerSystemGuiHandlers(server, deps)
@@ -22,11 +24,17 @@ export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): vo
   registerExtensionSurfaceHandlers(server, deps)
 }
 
-export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps, serverCtx?: ServerHandlerContext): void {
+export function registerAllRpcHandlers(
+  server: RpcServer,
+  deps: HandlerDeps,
+  serverCtx?: ServerHandlerContext,
+  workGraph?: WorkGraphKernel,
+): void {
   // GUI registers its own browser-pane handlers (see ./browser) — they are a
   // superset of the core ones plus window-stamping and the empty-state LAUNCH
   // channel. Registering both copies makes the RpcServer throw on duplicate
   // channels and the app fails to boot.
   registerCoreRpcHandlers(server, deps, serverCtx, { browserPane: false })
   registerGuiRpcHandlers(server, deps)
+  if (workGraph) registerWorkGraphHandlers(server, workGraph)
 }

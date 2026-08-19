@@ -1765,6 +1765,12 @@ export interface MemoryNavigationState {
   rightSidebar?: RightSidebarPanel
 }
 
+export interface ConnectionsNavigationState {
+  navigator: 'connections'
+  details: null
+  rightSidebar?: RightSidebarPanel
+}
+
 /**
  * Knowledge ref kinds, mirrored from the Knowledge Provider contract
  * (spec K-03 §3.1: `KnowledgeRef { scheme:'siyuan'; kind; id }`). Declared
@@ -1827,6 +1833,7 @@ export type NavigationState =
   | ProjectsNavigationState
   | BrowserNavigationState
   | MemoryNavigationState
+  | ConnectionsNavigationState
   | KnowledgeNavigationState
   | CloudRunNavigationState
   | ExtensionNavigationState
@@ -1866,6 +1873,10 @@ export const isBrowserNavigation = (
 export const isMemoryNavigation = (
   state: NavigationState
 ): state is MemoryNavigationState => state.navigator === 'memory'
+
+export const isConnectionsNavigation = (
+  state: NavigationState
+): state is ConnectionsNavigationState => state.navigator === 'connections'
 
 export const isKnowledgeNavigation = (
   state: NavigationState
@@ -1933,6 +1944,9 @@ export const getNavigationStateKey = (state: NavigationState): string => {
   }
   if (state.navigator === 'memory') {
     return 'memory'
+  }
+  if (state.navigator === 'connections') {
+    return 'connections'
   }
   // Unified-shell surfaces (W1) — key format mirrors the route format
   if (state.navigator === 'knowledge') {

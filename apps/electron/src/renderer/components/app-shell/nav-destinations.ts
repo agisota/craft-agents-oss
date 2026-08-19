@@ -22,6 +22,7 @@ import {
   ListTodo,
   NotebookPen,
   Settings,
+  Unplug,
   Zap,
   type LucideIcon,
 } from 'lucide-react'
@@ -35,6 +36,7 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isSourcesNavigation,
+  isConnectionsNavigation,
   type NavigationState,
 } from '../../../shared/types'
 
@@ -46,6 +48,7 @@ export type AppNavDestinationId =
   | 'memory'
   | 'projects'
   | 'automations'
+  | 'connections'
   | 'settings'
 
 export interface AppNavDestination {
@@ -127,6 +130,14 @@ export const APP_NAV_DESTINATIONS: readonly AppNavDestination[] = [
     labelKey: 'sidebar.automations',
     route: () => routes.view.automations(),
     isActive: isAutomationsNavigation,
+  },
+  {
+    id: 'connections',
+    linkId: 'nav:connections',
+    icon: Unplug,
+    labelKey: 'sidebar.connections',
+    route: () => routes.view.connections(),
+    isActive: isConnectionsNavigation,
   },
   {
     id: 'settings',

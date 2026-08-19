@@ -19,7 +19,8 @@
     "./handlers/rpc/*": "./src/handlers/rpc/*.ts",
     "./sessions": "./src/sessions/index.ts",
     "./tasks": "./src/tasks/index.ts",
-    "./knowledge": "./src/knowledge/index.ts"
+    "./knowledge": "./src/knowledge/index.ts",
+    "./workgraph": "./src/workgraph/index.ts"
   },
   "scripts": {},
   "dependencies": {
@@ -32,7 +33,8 @@
     "jose": "^6.0.0",
     "js-yaml": "^4.1.1",
     "sharp": "0.34.5",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "@tursodatabase/database": "0.7.2"
   },
   "devDependencies": {
     "typescript": "^5.8.2"

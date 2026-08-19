@@ -54,7 +54,7 @@ export interface ParsedRoute {
 // Compound Route Types (new format)
 // =============================================================================
 
-export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'notes' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory'
+export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'notes' | 'automations' | 'projects' | 'settings' | 'browser' | 'memory' | 'connections'
   // Unified-shell surface navigators (W1 scaffolding; hosts land in W2/W5)
   | 'knowledge' | 'cloud-run' | 'extension' | 'diff'
 
@@ -91,7 +91,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory',
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'board', 'table', 'sources', 'skills', 'notes', 'notes-legacy', 'automations', 'projects', 'settings', 'browser', 'memory', 'connections',
   // Unified-shell surfaces (W1)
   'knowledge', 'cloud-run', 'extension', 'diff',
 ]
@@ -233,6 +233,10 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
   // Memory navigator (self-learning lessons / context / history)
   if (first === 'memory') {
     return { navigator: 'memory', details: null }
+  }
+
+  if (first === 'connections') {
+    return { navigator: 'connections', details: null }
   }
 
   // Browser navigator — embedded browser instance panel: browser/instance/{instanceId}
@@ -487,6 +491,10 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     return 'memory'
   }
 
+  if (parsed.navigator === 'connections') {
+    return 'connections'
+  }
+
   if (parsed.navigator === 'browser') {
     if (!parsed.details) return 'browser'
     return `browser/instance/${parsed.details.id}`
@@ -647,6 +655,10 @@ function convertCompoundToViewRoute(compound: ParsedCompoundRoute): ParsedRoute 
     return { type: 'view', name: 'memory', params: {} }
   }
 
+  if (compound.navigator === 'connections') {
+    return { type: 'view', name: 'connections', params: {} }
+  }
+
   // Notes
   if (compound.navigator === 'notes') {
     if (!compound.details) {
@@ -801,6 +813,10 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
   // Memory
   if (compound.navigator === 'memory') {
     return { navigator: 'memory', details: null }
+  }
+
+  if (compound.navigator === 'connections') {
+    return { navigator: 'connections', details: null }
   }
 
   // Notes
@@ -962,6 +978,8 @@ function convertParsedRouteToNavigationState(parsed: ParsedRoute): NavigationSta
       return { navigator: 'skills', details: null }
     case 'memory':
       return { navigator: 'memory', details: null }
+    case 'connections':
+      return { navigator: 'connections', details: null }
     case 'skill-info':
       if (parsed.id) {
         return {
@@ -1142,6 +1160,13 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
   if (state.navigator === 'memory') {
     return {
       navigator: 'memory',
+      details: null,
+    }
+  }
+
+  if (state.navigator === 'connections') {
+    return {
+      navigator: 'connections',
       details: null,
     }
   }

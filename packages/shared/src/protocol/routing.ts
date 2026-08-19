@@ -24,6 +24,13 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.workspaces.CHECK_SLUG,
   RPC_CHANNELS.workspaces.UPDATE_REMOTE,
 
+  // workgraph — app-owned local database, never remote/headless.
+  RPC_CHANNELS.workgraph.GET_HEALTH,
+  RPC_CHANNELS.workgraph.GET_VERSION,
+  RPC_CHANNELS.workgraph.LIST_CONNECTIONS,
+  RPC_CHANNELS.workgraph.GET_CONNECTION,
+  RPC_CHANNELS.workgraph.CREATE_CONNECTION,
+
   // window — Electron window management
   RPC_CHANNELS.window.GET_WORKSPACE,
   RPC_CHANNELS.window.GET_MODE,

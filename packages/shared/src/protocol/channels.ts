@@ -102,6 +102,13 @@ export const RPC_CHANNELS = {
     CHECK_SLUG: 'workspaces:checkSlug',
     UPDATE_REMOTE: 'workspaces:updateRemote',
   },
+  workgraph: {
+    GET_HEALTH: 'workgraph:getHealth',
+    GET_VERSION: 'workgraph:getVersion',
+    LIST_CONNECTIONS: 'workgraph:listConnections',
+    GET_CONNECTION: 'workgraph:getConnection',
+    CREATE_CONNECTION: 'workgraph:createConnection',
+  },
   window: {
     GET_WORKSPACE: 'window:getWorkspace',
     GET_MODE: 'window:getMode',
