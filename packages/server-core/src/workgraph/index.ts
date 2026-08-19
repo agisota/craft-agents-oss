@@ -531,7 +531,7 @@ export class WorkGraphKernel {
     action: string
     decision: 'allow' | 'deny'
     versionFingerprint?: string
-    eventType?: 'connection-audit' | 'connection-revoked'
+    eventType?: 'connection-audit' | 'connection-revoked' | 'connection-rotated' | 'connection-repaired'
   }): Promise<void> {
     const database = await this.requireDatabase()
     assertOpaqueId(input.workspaceId, 'workspace ID')
@@ -939,8 +939,20 @@ function digest(value: unknown): string {
 class WorkGraphSchemaMismatchError extends Error {}
 class WorkGraphIntegrityError extends Error {}
 
-export { revokeConnectionAndRevalidate } from './revalidation.ts'
-export type { RevokeConnectionInput, RevalidatedConsumer, WorkGraphRevokeSurface } from './revalidation.ts'
+export {
+  repairConnectionAndRevalidate,
+  revokeConnectionAndRevalidate,
+  rotateConnectionAndRevalidate,
+} from './revalidation.ts'
+export type {
+  RepairConnectionInput,
+  RevokeConnectionInput,
+  RevalidatedConsumer,
+  RotateConnectionInput,
+  WorkGraphRevokeSurface,
+} from './revalidation.ts'
+export { testGithubConnection } from './connection-test.ts'
+export type { TestGithubConnectionInput } from './connection-test.ts'
 export { isGithubEnvCandidate, performGithubUser, runGithubVertical } from './github-vertical.ts'
 export type { GithubFetch, GithubVerticalInput, GithubVerticalResult } from './github-vertical.ts'
 export { previewGithubEnvImport, commitGithubEnvImport } from './github-import.ts'

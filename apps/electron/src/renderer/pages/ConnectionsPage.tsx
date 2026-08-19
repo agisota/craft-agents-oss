@@ -21,6 +21,7 @@ export default function ConnectionsPage() {
   const [selected, setSelected] = useAtom(selectedConnectionAtom)
   const [rows, setRows] = useState<ConnectionListRow[] | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [envPath, setEnvPath] = useState('')
   const [gitConfigPath, setGitConfigPath] = useState('')
   const [previews, setPreviews] = useState<PreviewRow[]>([])
@@ -44,6 +45,7 @@ export default function ConnectionsPage() {
       stale = true
       setSelected(null)
       setConfirmingId(null)
+      setRotatingId(null)
     }
   }, [workspace?.id, setSelected])
 
@@ -68,6 +70,30 @@ export default function ConnectionsPage() {
     await refreshRows(workspaceId)
   }
 
+  const confirmRotate = async (connectionId: string) => {
+    const workspaceId = workspace?.id
+    const rotateConnection = window.electronAPI?.workgraph?.rotateConnection
+    if (!workspaceId || typeof rotateConnection !== 'function') return
+    await rotateConnection({ workspaceId, connectionId })
+    setRotatingId(null)
+    await refreshRows(workspaceId)
+  }
+
+  const runTest = async (connectionId: string) => {
+    const workspaceId = workspace?.id
+    const testConnection = window.electronAPI?.workgraph?.testConnection
+    if (!workspaceId || typeof testConnection !== 'function') return
+    await testConnection({ workspaceId, connectionId })
+  }
+
+  const runRepair = async (connectionId: string) => {
+    const workspaceId = workspace?.id
+    const repairConnection = window.electronAPI?.workgraph?.repairConnection
+    if (!workspaceId || typeof repairConnection !== 'function') return
+    await repairConnection({ workspaceId, connectionId })
+    await refreshRows(workspaceId)
+  }
+
   const renderRevokeControls = (row: ConnectionListRow) => (
     confirmingId === row.id ? (
       <div className="flex gap-1">
@@ -81,6 +107,23 @@ export default function ConnectionsPage() {
     ) : (
       <button type="button" className="rounded border px-2 py-1" onClick={() => setConfirmingId(row.id)}>
         {t('connections.revoke')}
+      </button>
+    )
+  )
+
+  const renderRotateControls = (row: ConnectionListRow) => (
+    rotatingId === row.id ? (
+      <div className="flex gap-1">
+        <button type="button" className="rounded border px-2 py-1" onClick={() => confirmRotate(row.id)}>
+          {t('connections.rotateConfirm')}
+        </button>
+        <button type="button" className="rounded border px-2 py-1" onClick={() => setRotatingId(null)}>
+          {t('connections.rotateCancel')}
+        </button>
+      </div>
+    ) : (
+      <button type="button" className="rounded border px-2 py-1" onClick={() => setRotatingId(row.id)}>
+        {t('connections.rotate')}
       </button>
     )
   )
@@ -210,7 +253,14 @@ export default function ConnectionsPage() {
                   <div className="text-muted-foreground">{row.storageMode}</div>
                   <div className="font-mono text-xs">{row.credentialRefId}</div>
                 </button>
+                <button type="button" className="rounded border px-2 py-1" onClick={() => runTest(row.id)}>
+                  {t('connections.test')}
+                </button>
+                <button type="button" className="rounded border px-2 py-1" onClick={() => runRepair(row.id)}>
+                  {t('connections.repair')}
+                </button>
                 {renderRevokeControls(row)}
+                {renderRotateControls(row)}
               </li>
             ))}
           </ul>

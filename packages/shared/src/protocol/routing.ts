@@ -35,6 +35,9 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
   RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
   RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+  RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+  RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+  RPC_CHANNELS.workgraph.TEST_CONNECTION,
 
   // window — Electron window management
   RPC_CHANNELS.window.GET_WORKSPACE,

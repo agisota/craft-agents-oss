@@ -732,6 +732,18 @@ export interface ElectronAPI {
       workspaceId: string
       connectionId: string
     }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    repairConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    rotateConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ consumers: Array<{ consumerId: string; status: string }> }>
+    testConnection(input: {
+      workspaceId: string
+      connectionId: string
+    }): Promise<{ login: string }>
   }
 
   knowledge: {

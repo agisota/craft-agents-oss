@@ -37,6 +37,7 @@
 - [x] CF-6.4 InspectorHost connection metadata
 - [x] CF-9.2 DockerCredentialHelperImporter (injected helper)
 - [x] CF-9.3 git-helper import + list revoke on ConnectionsPage
+- [x] CF-6.5 test/repair/rotate (leases killed, provider copy kept, injected GitHub test)
 - [x] CF-9.4 AwsSharedProfileImporter (injected credential_process)
 
 ## Never

@@ -59,6 +59,22 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain('aria-selected')
     expect(page).toContain('data-testid="connections-row"')
   })
+
+  it('tests a listed GitHub connection without exposing secret fields', () => {
+    expect(page).toContain('testConnection')
+    expect(page).toContain('connections.test')
+    expect(page.toLowerCase()).not.toContain('infisical')
+  })
+
+  it('rotates a listed connection with confirm', () => {
+    expect(page).toContain('rotateConnection')
+    expect(page).toContain('connections.rotateConfirm')
+  })
+
+  it('repairs a listed connection', () => {
+    expect(page).toContain('repairConnection')
+    expect(page).toContain('connections.repair')
+  })
 })
 
 

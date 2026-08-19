@@ -2,7 +2,7 @@
 
 **Author:** Craft Agents session (ROX Connection Fabric)
 **Date:** 2026-08-13
-**Status:** Partial — CF-6.4 inspector host projects selected connection metadata; create/repair actions stay out
+**Status:** Partial — CF-6.5 inspector/page test, repair, and confirmed rotate landed; create wizard stays out
 **Reviewers:** Product owner — continue after CF-5
 **Related specs:** `07-native-ui-ux.md`, `10-pr-dag-and-acceptance.md` (CF-6 row)
 

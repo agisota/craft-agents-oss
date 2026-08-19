@@ -2,6 +2,7 @@ const FORBIDDEN = new Set(['value', 'payload', 'secret', 'token', 'refreshToken'
 
 export interface ConnectionListRow {
   readonly id: string
+  readonly workspaceId: string
   readonly integrationId: string
   readonly credentialRefId: string
   readonly storageMode: string
@@ -21,9 +22,13 @@ export function sanitizeConnectionRows(rows: readonly unknown[]): ConnectionList
     if (typeof rec.credentialRefId !== 'string' || typeof rec.storageMode !== 'string') {
       throw new Error('Invalid connection metadata')
     }
+    if (typeof rec.workspaceId !== 'string') {
+      throw new Error('Invalid connection metadata')
+    }
     const scopes = Array.isArray(rec.scopes) ? rec.scopes.filter((scope) => typeof scope === 'string') : []
     return {
       id: rec.id,
+      workspaceId: rec.workspaceId,
       integrationId: rec.integrationId,
       credentialRefId: rec.credentialRefId,
       storageMode: rec.storageMode,

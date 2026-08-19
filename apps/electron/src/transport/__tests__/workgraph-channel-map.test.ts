@@ -36,5 +36,17 @@ describe('CF-6.3 workgraph channel map', () => {
       type: 'invoke',
       channel: RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
     })
+    expect(CHANNEL_MAP['workgraph.repairConnection']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+    })
+    expect(CHANNEL_MAP['workgraph.rotateConnection']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+    })
+    expect(CHANNEL_MAP['workgraph.testConnection']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.TEST_CONNECTION,
+    })
   })
 })

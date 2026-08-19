@@ -24,4 +24,18 @@ describe('CF-6.4 InspectorHost connections', () => {
     expect(page).toContain('aria-selected')
     expect(page).toContain('data-testid="connections-row"')
   })
+
+  it('exposes test, repair, and confirmed rotate without secret fields', () => {
+    expect(host).toContain('testConnection')
+    expect(host).toContain('repairConnection')
+    expect(host).toContain('rotateConnection')
+    expect(host).toContain('connections.test')
+    expect(host).toContain('connections.repair')
+    expect(host).toContain('connections.rotate')
+    expect(host).toContain('connections.rotateConfirm')
+    expect(host).toContain('workspaceId')
+    expect(host.toLowerCase()).not.toContain('<iframe')
+    expect(host.toLowerCase()).not.toContain('infisical')
+    expect(host).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
+  })
 })

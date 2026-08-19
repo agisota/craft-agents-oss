@@ -113,6 +113,9 @@ export const RPC_CHANNELS = {
     PREVIEW_GIT_HELPER: 'workgraph:previewGitHelper',
     IMPORT_GIT_HELPER: 'workgraph:importGitHelper',
     REVOKE_CONNECTION: 'workgraph:revokeConnection',
+    REPAIR_CONNECTION: 'workgraph:repairConnection',
+    ROTATE_CONNECTION: 'workgraph:rotateConnection',
+    TEST_CONNECTION: 'workgraph:testConnection',
   },
   window: {
     GET_WORKSPACE: 'window:getWorkspace',

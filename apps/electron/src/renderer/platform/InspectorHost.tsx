@@ -15,6 +15,7 @@
  * Mounted by `WorkspaceSurfaceHost` (platform/index.tsx) — rendered only when
  * the two-key Workbench rollout is enabled.
  */
+import { useState } from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { Bot, Info, Link2, ListTree, X, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -75,6 +76,9 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
 function ConnectionInfoSection() {
   const { t } = useTranslation()
   const selected = useAtomValue(selectedConnectionAtom)
+  const [confirmRotate, setConfirmRotate] = useState(false)
+  const [consumers, setConsumers] = useState<Array<{ consumerId: string; status: string }>>([])
+  const [testLogin, setTestLogin] = useState('')
   if (!selected) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -89,12 +93,78 @@ function ConnectionInfoSection() {
     )
   }
   const fields = projectConnectionInspector(selected)
+  const workspaceId = selected.workspaceId
   return (
     <div className="flex min-h-0 flex-1 flex-col divide-y divide-foreground/5 overflow-y-auto">
       <InfoRow label={t('inspector.field.provider')} value={fields.provider} />
       <InfoRow label={t('inspector.field.storageMode')} value={fields.storageMode} mono />
       <InfoRow label={t('inspector.field.credentialRef')} value={fields.credentialRef} mono />
       <InfoRow label={t('inspector.field.scopes')} value={fields.scopes} mono />
+      {testLogin ? <InfoRow label={t('inspector.field.testLogin')} value={testLogin} mono /> : null}
+      {consumers.length > 0 ? (
+        <InfoRow
+          label={t('inspector.field.consumers')}
+          value={consumers.map((row) => `${row.consumerId}: ${row.status}`).join(', ')}
+        />
+      ) : null}
+      <div className="flex flex-wrap gap-1 px-3 py-2">
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[12px]"
+          onClick={async () => {
+            const testConnection = window.electronAPI?.workgraph?.testConnection
+            if (!workspaceId || typeof testConnection !== 'function') return
+            const result = await testConnection({ workspaceId, connectionId: selected.id })
+            setTestLogin(result.login)
+          }}
+        >
+          {t('connections.test')}
+        </button>
+        <button
+          type="button"
+          className="rounded border px-2 py-1 text-[12px]"
+          onClick={async () => {
+            const repairConnection = window.electronAPI?.workgraph?.repairConnection
+            if (!workspaceId || typeof repairConnection !== 'function') return
+            const result = await repairConnection({ workspaceId, connectionId: selected.id })
+            setConsumers(result.consumers)
+          }}
+        >
+          {t('connections.repair')}
+        </button>
+        {confirmRotate ? (
+          <>
+            <button
+              type="button"
+              className="rounded border px-2 py-1 text-[12px]"
+              onClick={async () => {
+                const rotateConnection = window.electronAPI?.workgraph?.rotateConnection
+                if (!workspaceId || typeof rotateConnection !== 'function') return
+                const result = await rotateConnection({ workspaceId, connectionId: selected.id })
+                setConsumers(result.consumers)
+                setConfirmRotate(false)
+              }}
+            >
+              {t('connections.rotateConfirm')}
+            </button>
+            <button
+              type="button"
+              className="rounded border px-2 py-1 text-[12px]"
+              onClick={() => setConfirmRotate(false)}
+            >
+              {t('connections.rotateCancel')}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-[12px]"
+            onClick={() => setConfirmRotate(true)}
+          >
+            {t('connections.rotate')}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

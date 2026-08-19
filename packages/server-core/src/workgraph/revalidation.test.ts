@@ -12,7 +12,11 @@ import { LocalFileSecretProvider } from '@craft-agent/shared/credentials'
 import { InProcessCredentialBroker } from '@craft-agent/shared/credentials'
 
 import { createWorkGraphKernel } from './index'
-import { revokeConnectionAndRevalidate } from './revalidation.ts'
+import {
+  repairConnectionAndRevalidate,
+  revokeConnectionAndRevalidate,
+  rotateConnectionAndRevalidate,
+} from './revalidation.ts'
 
 const roots: string[] = []
 const nativeIt = process.platform === 'darwin' && process.arch === 'arm64' ? it : it.skip
@@ -158,5 +162,93 @@ describe('CF-5.2 revoke, closure, revalidate', () => {
       reason: 'operator',
     })).rejects.toThrow(/not found/i)
     await kernel.close()
+  })
+})
+
+describe('CF-6.5 rotate and repair', () => {
+  nativeIt('rotate invalidates leases but keeps the provider copy', async () => {
+    const root = createRoot()
+    const registry = new CredentialRefRegistry()
+    const provider = new LocalFileSecretProvider(new MemoryBackend(), registry)
+    const written = await provider.write({
+      kind: 'bearer_token',
+      locator: { type: 'local', key: 'github/default' },
+      payload: { value: 'super-secret' },
+    })
+    const broker = new InProcessCredentialBroker(provider, (id) => registry.get(id))
+    const kernel = createWorkGraphKernel({
+      configDir: root,
+      platform: { platform: 'darwin', arch: 'arm64' },
+    })
+    await kernel.getHealth()
+
+    const connection = await kernel.createConnection({
+      workspaceId: 'workspace_a',
+      integrationId: 'github',
+      credentialRefId: written.ref.id,
+      storageMode: 'copy',
+    })
+    await kernel.bindConsumer({
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+      consumerId: 'agent-a',
+      purpose: 'list issues',
+      allowedActions: ['github.request'],
+      resources: ['repo:demo'],
+    })
+    const consumer = { kind: 'agent' as const, id: 'agent-a', workspaceId: 'workspace_a' }
+    broker.grant({
+      workspaceId: 'workspace_a',
+      consumerId: 'agent-a',
+      credentialRefId: written.ref.id,
+      actions: ['github.request'],
+      resources: ['repo:demo'],
+    })
+    const lease = await broker.acquireLease({
+      credentialRef: written.ref.id,
+      consumer,
+      purpose: 'list issues',
+      action: 'github.request',
+      resources: ['repo:demo'],
+      audience: 'local-broker',
+      ttl: 5000,
+    })
+
+    const result = await rotateConnectionAndRevalidate({
+      kernel,
+      broker,
+      provider,
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+      reason: 'operator-rotate',
+    })
+
+    expect(result.consumers).toEqual([{ consumerId: 'agent-a', status: 'denied' }])
+    expect(JSON.stringify(result)).not.toContain('super-secret')
+    await expect(broker.perform(lease.id, () => 'x')).rejects.toMatchObject({ code: 'lease_revoked' })
+    expect((await provider.inspect(written.ref)).status).toBe('active')
+    const repaired = await repairConnectionAndRevalidate({
+      kernel,
+      broker,
+      workspaceId: 'workspace_a',
+      connectionId: connection.id,
+    })
+    expect(repaired.consumers).toEqual([{ consumerId: 'agent-a', status: 'denied' }])
+    expect(JSON.stringify(repaired)).not.toContain('super-secret')
+
+    await kernel.close()
+    const db = await connect(join(root, 'workgraph', 'workgraph.db'), { fileMustExist: true })
+    try {
+      const rotated = await db.get(
+        "SELECT event_type, outcome FROM workgraph_ledger WHERE event_type = 'connection-rotated'",
+      ) as { event_type: string; outcome: string }
+      expect(rotated.outcome).toBe('committed')
+      const repairedRow = await db.get(
+        "SELECT event_type, outcome FROM workgraph_ledger WHERE event_type = 'connection-repaired'",
+      ) as { event_type: string; outcome: string }
+      expect(repairedRow.outcome).toBe('committed')
+    } finally {
+      await db.close()
+    }
   })
 })

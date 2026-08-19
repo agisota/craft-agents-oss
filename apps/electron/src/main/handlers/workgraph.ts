@@ -11,8 +11,12 @@ import {
   commitGithubEnvImport,
   previewGitHelperImport,
   previewGithubEnvImport,
+  repairConnectionAndRevalidate,
   revokeConnectionAndRevalidate,
+  rotateConnectionAndRevalidate,
+  testGithubConnection,
   type CreateConnectionInput,
+  type GithubFetch,
   type WorkGraphKernel,
 } from '@craft-agent/server-core/workgraph'
 
@@ -27,6 +31,9 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
   RPC_CHANNELS.workgraph.IMPORT_GIT_HELPER,
   RPC_CHANNELS.workgraph.REVOKE_CONNECTION,
+  RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+  RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+  RPC_CHANNELS.workgraph.TEST_CONNECTION,
 ] as const
 
 export interface FabricImportHost {
@@ -37,6 +44,10 @@ export interface FabricImportHost {
   readonly previewGitHelper: typeof previewGitHelperImport
   readonly commitGitHelper: typeof commitGitHelperImport
   readonly revoke: typeof revokeConnectionAndRevalidate
+  readonly repair: typeof repairConnectionAndRevalidate
+  readonly rotate: typeof rotateConnectionAndRevalidate
+  readonly testGithub: typeof testGithubConnection
+  readonly fetchImpl: GithubFetch
 }
 
 export type GithubEnvImportHost = FabricImportHost
@@ -52,6 +63,10 @@ export function createGithubEnvImportHost(): FabricImportHost {
     previewGitHelper: previewGitHelperImport,
     commitGitHelper: commitGitHelperImport,
     revoke: revokeConnectionAndRevalidate,
+    repair: repairConnectionAndRevalidate,
+    rotate: rotateConnectionAndRevalidate,
+    testGithub: testGithubConnection,
+    fetchImpl: globalThis.fetch.bind(globalThis),
   }
 }
 
@@ -180,6 +195,48 @@ export function registerWorkGraphHandlers(
         workspaceId: input.workspaceId,
         connectionId: input.connectionId,
         reason: 'owner-revoke',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.REPAIR_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('repair_unavailable')
+      return fabric.repair({
+        kernel: workGraph,
+        broker: fabric.broker,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.ROTATE_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('rotate_unavailable')
+      return fabric.rotate({
+        kernel: workGraph,
+        broker: fabric.broker,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        reason: 'owner-rotate',
+      })
+    },
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.TEST_CONNECTION,
+    async (_ctx, input: { workspaceId: string; connectionId: string }) => {
+      if (!fabric) throw new Error('test_unavailable')
+      return fabric.testGithub({
+        kernel: workGraph,
+        provider: fabric.provider,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        fetchImpl: fabric.fetchImpl,
       })
     },
     { access: 'localElectron' },
