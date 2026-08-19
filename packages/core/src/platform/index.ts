@@ -30,3 +30,22 @@ export type {
   ConnectServiceInput,
   DisconnectServiceInput,
 } from './identity/types.ts';
+export type {
+  CredentialKind,
+  CredentialRef,
+  CredentialRefId,
+  CredentialRefIdFactory,
+  CredentialVersion,
+  CredentialVersionStatus,
+  ProviderLocator,
+  RegisterCredentialRefInput,
+  RegisterCredentialVersionInput,
+  StorageMode,
+} from './identity/credential-types.ts';
+export {
+  CredentialRefRegistry,
+  createCredentialRefId,
+  isCredentialKind,
+  isCredentialRefId,
+  isStorageMode,
+} from './identity/credential-types.ts';
