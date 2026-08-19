@@ -8,11 +8,12 @@ import { sanitizeConnectionRows, type ConnectionListRow } from './connections-li
 const TABS = ['services', 'credentials', 'imports', 'policies', 'audit'] as const
 const CONNECT_SOURCES = ['github-env', 'git-helper', 'docker', 'aws', 'keychain', 'adc', 'ssh-agent'] as const
 type ConnectionsTab = (typeof TABS)[number]
+type PreviewSource = 'env' | 'git-helper' | 'docker' | 'aws' | 'keychain' | 'adc' | 'ssh-agent'
 type PreviewRow = {
   candidateId: string
   label: string
   maskedSummary: string
-  source: 'env' | 'git-helper'
+  source: PreviewSource
 }
 
 export default function ConnectionsPage() {
@@ -25,6 +26,10 @@ export default function ConnectionsPage() {
   const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [envPath, setEnvPath] = useState('')
   const [gitConfigPath, setGitConfigPath] = useState('')
+  const [dockerConfigPath, setDockerConfigPath] = useState('')
+  const [awsCredentialsPath, setAwsCredentialsPath] = useState('')
+  const [awsConfigPath, setAwsConfigPath] = useState('')
+  const [adcPath, setAdcPath] = useState('')
   const [previews, setPreviews] = useState<PreviewRow[]>([])
 
   useEffect(() => {
@@ -220,6 +225,132 @@ export default function ConnectionsPage() {
             >
               {t('connections.import.discoverGitHelper')}
             </button>
+            <label className="block">
+              <span className="text-muted-foreground">{t('connections.import.dockerConfigPath')}</span>
+              <input
+                className="mt-1 w-full rounded border bg-transparent px-2 py-1 font-mono text-xs"
+                value={dockerConfigPath}
+                onChange={(event) => setDockerConfigPath(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewDockerHelper = window.electronAPI?.workgraph?.previewDockerHelper
+                if (typeof previewDockerHelper !== 'function' || !dockerConfigPath) {
+                  setPreviews((current) => current.filter((row) => row.source !== 'docker'))
+                  return
+                }
+                const next = await previewDockerHelper(dockerConfigPath)
+                setPreviews((current) => [
+                  ...current.filter((row) => row.source !== 'docker'),
+                  ...next.map((row) => ({ ...row, source: 'docker' as const })),
+                ])
+              }}
+            >
+              {t('connections.import.discoverDocker')}
+            </button>
+            <label className="block">
+              <span className="text-muted-foreground">{t('connections.import.awsCredentialsPath')}</span>
+              <input
+                className="mt-1 w-full rounded border bg-transparent px-2 py-1 font-mono text-xs"
+                value={awsCredentialsPath}
+                onChange={(event) => setAwsCredentialsPath(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <label className="block">
+              <span className="text-muted-foreground">{t('connections.import.awsConfigPath')}</span>
+              <input
+                className="mt-1 w-full rounded border bg-transparent px-2 py-1 font-mono text-xs"
+                value={awsConfigPath}
+                onChange={(event) => setAwsConfigPath(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewAwsProfiles = window.electronAPI?.workgraph?.previewAwsProfiles
+                if (typeof previewAwsProfiles !== 'function') {
+                  setPreviews((current) => current.filter((row) => row.source !== 'aws'))
+                  return
+                }
+                const next = await previewAwsProfiles({ credentialsPath: awsCredentialsPath, configPath: awsConfigPath })
+                setPreviews((current) => [
+                  ...current.filter((row) => row.source !== 'aws'),
+                  ...next.map((row) => ({ ...row, source: 'aws' as const })),
+                ])
+              }}
+            >
+              {t('connections.import.discoverAws')}
+            </button>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewKeychain = window.electronAPI?.workgraph?.previewKeychain
+                if (typeof previewKeychain !== 'function') {
+                  setPreviews((current) => current.filter((row) => row.source !== 'keychain'))
+                  return
+                }
+                const next = await previewKeychain()
+                setPreviews((current) => [
+                  ...current.filter((row) => row.source !== 'keychain'),
+                  ...next.map((row) => ({ ...row, source: 'keychain' as const })),
+                ])
+              }}
+            >
+              {t('connections.import.discoverKeychain')}
+            </button>
+            <label className="block">
+              <span className="text-muted-foreground">{t('connections.import.adcPath')}</span>
+              <input
+                className="mt-1 w-full rounded border bg-transparent px-2 py-1 font-mono text-xs"
+                value={adcPath}
+                onChange={(event) => setAdcPath(event.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewAdc = window.electronAPI?.workgraph?.previewAdc
+                if (typeof previewAdc !== 'function' || !adcPath) {
+                  setPreviews((current) => current.filter((row) => row.source !== 'adc'))
+                  return
+                }
+                const next = await previewAdc(adcPath)
+                setPreviews((current) => [
+                  ...current.filter((row) => row.source !== 'adc'),
+                  ...next.map((row) => ({ ...row, source: 'adc' as const })),
+                ])
+              }}
+            >
+              {t('connections.import.discoverAdc')}
+            </button>
+            <button
+              type="button"
+              className="rounded border px-3 py-1"
+              onClick={async () => {
+                const previewSshAgent = window.electronAPI?.workgraph?.previewSshAgent
+                if (typeof previewSshAgent !== 'function') {
+                  setPreviews((current) => current.filter((row) => row.source !== 'ssh-agent'))
+                  return
+                }
+                const next = await previewSshAgent()
+                setPreviews((current) => [
+                  ...current.filter((row) => row.source !== 'ssh-agent'),
+                  ...next.map((row) => ({ ...row, source: 'ssh-agent' as const })),
+                ])
+              }}
+            >
+              {t('connections.import.discoverSshAgent')}
+            </button>
             <ul className="space-y-2">
               {previews.map((row) => (
                 <li key={`${row.source}:${row.candidateId}`} className="flex items-center justify-between rounded border px-3 py-2">
@@ -232,15 +363,22 @@ export default function ConnectionsPage() {
                     className="rounded border px-2 py-1"
                     onClick={async () => {
                       const workspaceId = workspace?.id
-                      if (!workspaceId) return
-                      if (row.source === 'env') {
-                        const importGithubEnv = window.electronAPI?.workgraph?.importGithubEnv
-                        if (typeof importGithubEnv !== 'function') return
-                        await importGithubEnv({ envPath, candidateId: row.candidateId, workspaceId })
-                      } else {
-                        const importGitHelper = window.electronAPI?.workgraph?.importGitHelper
-                        if (typeof importGitHelper !== 'function') return
-                        await importGitHelper({ configPath: gitConfigPath, candidateId: row.candidateId, workspaceId })
+                      const api = window.electronAPI?.workgraph
+                      if (!workspaceId || !api) return
+                      if (row.source === 'env' && api.importGithubEnv) {
+                        await api.importGithubEnv({ envPath, candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'git-helper' && api.importGitHelper) {
+                        await api.importGitHelper({ configPath: gitConfigPath, candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'docker' && api.importDockerHelper) {
+                        await api.importDockerHelper({ configPath: dockerConfigPath, candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'aws' && api.importAwsProfile) {
+                        await api.importAwsProfile({ credentialsPath: awsCredentialsPath, configPath: awsConfigPath, candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'keychain' && api.importKeychain) {
+                        await api.importKeychain({ candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'adc' && api.importAdc) {
+                        await api.importAdc({ credentialsPath: adcPath, candidateId: row.candidateId, workspaceId })
+                      } else if (row.source === 'ssh-agent' && api.importSshAgent) {
+                        await api.importSshAgent({ candidateId: row.candidateId, workspaceId })
                       }
                       await refreshRows(workspaceId)
                     }}

@@ -84,6 +84,21 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain("'ssh-agent'")
     expect(page.toLowerCase()).not.toContain('<iframe')
   })
+
+  it('exposes masked docker, aws, keychain, adc, and ssh-agent imports', () => {
+    expect(page).toContain('previewDockerHelper')
+    expect(page).toContain('importDockerHelper')
+    expect(page).toContain('dockerConfigPath')
+    expect(page).toContain('previewAwsProfiles')
+    expect(page).toContain('importAwsProfile')
+    expect(page).toContain('previewKeychain')
+    expect(page).toContain('importKeychain')
+    expect(page).toContain('previewAdc')
+    expect(page).toContain('importAdc')
+    expect(page).toContain('previewSshAgent')
+    expect(page).toContain('importSshAgent')
+    expect(page.toLowerCase()).not.toContain('infisical')
+  })
 })
 
 

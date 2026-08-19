@@ -744,6 +744,16 @@ export interface ElectronAPI {
       workspaceId: string
       connectionId: string
     }): Promise<{ login: string }>
+    previewDockerHelper(configPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importDockerHelper(input: { configPath: string; candidateId: string; workspaceId: string }): Promise<WorkGraphConnectionRecord>
+    previewAwsProfiles(input: { credentialsPath: string; configPath: string }): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importAwsProfile(input: { credentialsPath: string; configPath: string; candidateId: string; workspaceId: string }): Promise<WorkGraphConnectionRecord>
+    previewKeychain(): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importKeychain(input: { candidateId: string; workspaceId: string }): Promise<WorkGraphConnectionRecord>
+    previewAdc(credentialsPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importAdc(input: { credentialsPath: string; candidateId: string; workspaceId: string }): Promise<WorkGraphConnectionRecord>
+    previewSshAgent(): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
+    importSshAgent(input: { candidateId: string; workspaceId: string }): Promise<WorkGraphConnectionRecord>
   }
 
   knowledge: {
