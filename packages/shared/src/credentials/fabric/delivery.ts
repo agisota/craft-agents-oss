@@ -48,3 +48,5 @@ export function selectDeliveryMechanism(
   }
   return { ok: true, mechanism: selected };
 }
+
+export { applyTrustedHttpHeader, redactHeaders } from './http-header-delivery.ts';
