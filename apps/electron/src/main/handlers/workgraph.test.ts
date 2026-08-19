@@ -1,19 +1,27 @@
 import { describe, expect, it } from 'bun:test'
 
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import type { RpcHandlerOptions, RpcServer } from '@craft-agent/server-core/transport'
-import type { WorkGraphHealth, WorkGraphKernel } from '@craft-agent/server-core/workgraph'
+import type { HandlerFn, RequestContext, RpcHandlerOptions, RpcServer } from '@craft-agent/server-core/transport'
+import type { ConnectionRecord, WorkGraphHealth, WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 
 import { HANDLED_CHANNELS, registerWorkGraphHandlers } from './workgraph'
+
+function emptyCtx(): RequestContext {
+  return {
+    clientId: 'test-client',
+    workspaceId: null,
+    webContentsId: null,
+  }
+}
 
 describe('WorkGraph handler profile', () => {
   it('registers health and connection channels with the trusted local-Electron fence', async () => {
     const registrations = new Map<string, RpcHandlerOptions | undefined>()
-    const handlers = new Map<string, (...args: never[]) => unknown>()
+    const handlers = new Map<string, HandlerFn>()
     const server: RpcServer = {
       handle(channel, handler, options) {
         registrations.set(channel, options)
-        handlers.set(channel, handler as (...args: never[]) => unknown)
+        handlers.set(channel, handler)
       },
       push() {},
       async invokeClient() { return undefined },
@@ -25,12 +33,13 @@ describe('WorkGraph handler profile', () => {
       platform: 'darwin/arm64',
       reason: 'unsupported-platform',
     }
-    const created = {
+    const credentialRefId = 'cred_123e4567-e89b-12d3-a456-426614174000' satisfies `cred_${string}`
+    const created: ConnectionRecord = {
       id: 'conn-1',
       workspaceId: 'workspace_a',
       integrationId: 'github',
-      credentialRefId: 'cred_123e4567-e89b-12d3-a456-426614174000',
-      storageMode: 'copy' as const,
+      credentialRefId,
+      storageMode: 'copy',
       scopes: [],
       createdAt: 1,
       updatedAt: 1,
@@ -42,7 +51,7 @@ describe('WorkGraph handler profile', () => {
       async getConnection() { return created },
       async createConnection() { return created },
       async bindConsumer() { return { id: 'bind-1' } },
-      async appendConnectionAudit() { return { id: 'audit-1' } as never },
+      async appendConnectionAudit() {},
       async affectedClosure() { return [] },
     }
 
@@ -57,15 +66,15 @@ describe('WorkGraph handler profile', () => {
     expect(registrations.has(RPC_CHANNELS.workgraph.CREATE_CONNECTION)).toBe(true)
 
     const preview = handlers.get(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV)
-    await expect(preview?.({} as never, '/tmp/.env')).resolves.toEqual([])
+    await expect(preview?.(emptyCtx(), '/tmp/.env')).resolves.toEqual([])
     const previewGit = handlers.get(RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER)
-    await expect(previewGit?.({} as never, '/tmp/.gitconfig')).resolves.toEqual([])
+    await expect(previewGit?.(emptyCtx(), '/tmp/.gitconfig')).resolves.toEqual([])
 
     const create = handlers.get(RPC_CHANNELS.workgraph.CREATE_CONNECTION)
-    expect(() => create?.({} as never, {
+    expect(() => create?.(emptyCtx(), {
       workspaceId: 'workspace_a',
       integrationId: 'github',
-      credentialRefId: created.credentialRefId,
+      credentialRefId,
       storageMode: 'copy',
       value: 'super-secret',
     })).toThrow(/value|payload|secret|field/i)

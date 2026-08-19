@@ -1783,7 +1783,7 @@ export class MessagingGatewayRegistry implements IMessagingGatewayRegistry {
     const store = state.gateway.getBindingStore()
     for (const b of store.getAll()) {
       if (b.platform !== 'telegram') continue
-      if (b.config.accessMode !== 'public-inbox' && b.config.accessMode !== 'open') continue
+      if (b.config.accessMode !== 'public-inbox') continue
       store.updateBindingConfig(b.id, { accessMode: 'owner-control', allowedSenderIds: [] })
     }
   }

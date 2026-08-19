@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, it } from 'bun:test'
-import { CredentialRefRegistry } from '@craft-agent/core/platform'
+import { CredentialRefRegistry, isCredentialRefId } from '@craft-agent/core/platform'
 import type { CredentialBackend } from '@craft-agent/shared/credentials'
 import type { CredentialId, StoredCredential } from '@craft-agent/shared/credentials'
 import {
@@ -99,6 +99,9 @@ describe('CF-7.2 GitHub env import', () => {
       workspaceId: 'workspace_a',
       requestedBy: 'owner',
     })
+    if (!isCredentialRefId(connection.credentialRefId)) {
+      throw new Error('expected a credential reference identifier')
+    }
     const lease = await broker.acquireLease({
       credentialRef: connection.credentialRefId,
       consumer: { kind: 'human', id: 'owner', workspaceId: 'workspace_a' },

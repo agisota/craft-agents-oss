@@ -70,7 +70,7 @@ function parseIni(text: string): Map<string, Record<string, string>> {
     if (header) {
       const inner = (header[1] ?? '').trim();
       const profile = inner.match(/^profile\s+(.+)$/i);
-      current = profile ? profile[1].trim() : inner;
+      current = profile?.[1]?.trim() || inner;
       if (!sections.has(current)) sections.set(current, {});
       continue;
     }

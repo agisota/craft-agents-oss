@@ -110,14 +110,15 @@ describe('inspectRemoteTlsPeer', () => {
     ], { stdio: 'pipe' })
     const key = readFileSync(join(dir, 'key.pem'))
     const cert = readFileSync(join(dir, 'cert.pem'))
+    const spkiDer = new X509Certificate(cert).publicKey.export({ type: 'spki', format: 'der' })
     const expected = createHash('sha256')
-      .update(new X509Certificate(cert).publicKey.export({ type: 'spki', format: 'der' }) as Buffer)
+      .update(Uint8Array.from(spkiDer))
       .digest('base64')
 
     let appData = Buffer.alloc(0)
     const server = tls.createServer({ key, cert }, (socket) => {
       socket.on('data', (chunk) => {
-        appData = Buffer.concat([appData, chunk])
+        if (typeof chunk !== 'string') appData = Buffer.concat([appData, chunk])
       })
     })
     servers.push(server)

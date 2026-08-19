@@ -4,8 +4,9 @@
  *
  * Scans TypeScript/TSX source for literal translation keys in `t(...)`,
  * `i18n.t(...)`, and Trans `i18nKey` callsites, then verifies those keys
- * resolve against the English locale. Dynamic keys are intentionally
- * skipped because they cannot be proven statically.
+ * resolve against the English locale. Unit-test files and directories are
+ * skipped so fixture strings are not treated as production keys. Dynamic
+ * keys are intentionally skipped because they cannot be proven statically.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -21,14 +22,18 @@ const IGNORED_DIRS = new Set([
   '.git',
   '.turbo',
   '.vite',
+  '__test__',
+  '__tests__',
   'build',
   'coverage',
   'dist',
   'node_modules',
   'out',
   'release',
+  'tests',
 ])
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
+const TEST_FILE = /\.(?:test|spec)\.[cm]?tsx?$/
 const PLURAL_SUFFIXES = ['zero', 'one', 'two', 'few', 'many', 'other']
 
 type Locale = Record<string, string>
@@ -83,6 +88,7 @@ function collectSourceFiles(dir: string): string[] {
 
     if (!entry.isFile()) continue
     if (basename(entry.name).endsWith('.d.ts')) continue
+    if (TEST_FILE.test(entry.name)) continue
     if (!SOURCE_EXTENSIONS.has(extname(entry.name))) continue
     files.push(path)
   }
