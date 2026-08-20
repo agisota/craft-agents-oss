@@ -22,9 +22,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   'WebSearch': 'Searching Web',
   'TodoWrite': 'Updating Tasks',
   'NotebookEdit': 'Editing Notebook',
-
-  // Documentation tools
-  'SearchCraftAgents': 'Search Documentation',
 };
 
 /**

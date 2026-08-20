@@ -696,7 +696,7 @@ async function resolveToolDisplayMeta(
       const serverSlug = parts[1]
       const toolSlug = parts.slice(2).join('__')
 
-      // Internal MCP server tools (session, docs)
+      // Internal MCP server tools (session)
       const internalMcpServers: Record<string, Record<string, string>> = {
         'session': {
           'SubmitPlan': 'Submit Plan',
@@ -715,9 +715,6 @@ async function resolveToolDisplayMeta(
           'update_user_preferences': 'Update Preferences',
           'send_developer_feedback': 'Send Feedback',
           'browser_tool': 'Browser',
-        },
-        'craft-agents-docs': {
-          'SearchCraftAgents': 'Search Docs',
         },
       }
 
@@ -2294,7 +2291,7 @@ export class SessionManager implements ISessionManager {
     const workspaceRootPath = managed.workspace.rootPath
     sessionLog.info(`Reloading sources for session ${managed.id}`)
 
-    // Reload all sources from disk (craft-agents-docs is always available as MCP server)
+    // Reload all sources from disk
     const allSources = loadAllSources(workspaceRootPath)
     managed.agent.setAllSources(allSources)
 

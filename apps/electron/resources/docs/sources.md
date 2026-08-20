@@ -10,13 +10,9 @@ This guide explains how to configure sources (MCP servers, APIs, local filesyste
 
 When a user wants to add a new source, follow this conversational setup process to create a tailored, well-documented integration.
 
-### 0. Search for Specialized Source Guide (REQUIRED FIRST STEP)
+### 0. Check for a Specialized Source Guide (REQUIRED FIRST STEP)
 
-**Before doing anything else**, search for a specialized guide using the craft-agents-docs MCP:
-
-```
-mcp__craft-agents-docs__SearchCraftAgents({ query: "{service} source setup" })
-```
+**Before doing anything else**, check the product documentation at https://thecraftagents.com/docs for a service-specific setup guide (fetch pages with your web tools, e.g. search for "{service} source setup").
 
 **Available guides:** GitHub, Linear, Slack, Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Outlook, Microsoft Calendar, Teams, SharePoint, Craft, Filesystem, Brave Search, Memory
 
@@ -208,8 +204,7 @@ Concrete examples tailored to the user's workflow:
 ```
 User: I want to add Linear
 
-Agent: [FIRST: Searches for Linear guide]
-       mcp__craft-agents-docs__SearchCraftAgents({ query: "linear source setup" })
+Agent: [FIRST: Fetches the Linear setup guide from https://thecraftagents.com/docs]
 
 Agent: I found the Linear setup guide! A few questions:
 1. What will you primarily use Linear for? (issue tracking, sprint planning, reporting?)

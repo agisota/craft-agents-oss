@@ -564,12 +564,6 @@ export interface LoadedSource {
   workspaceId: string;
 
   /**
-   * Whether this is a built-in source (e.g., craft-agents-docs).
-   * Built-in sources are always available and not shown in the sources UI.
-   */
-  isBuiltin?: boolean;
-
-  /**
    * Pre-computed path to local icon file (icon.svg, icon.png, etc.) if it exists.
    * Computed during source loading so renderer doesn't need filesystem access.
    */

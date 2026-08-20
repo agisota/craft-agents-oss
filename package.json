@@ -1,6 +1,6 @@
 {
   "name": "craft-agent",
-  "version": "0.11.5",
+  "version": "0.12.0",
   "license": "Apache-2.0",
   "description": "Claude Code-like agent for Craft documents",
   "type": "module",
@@ -99,7 +99,9 @@
     "marketing:dev": "vite dev --config apps/marketing/vite.config.ts",
     "marketing:build": "vite build --config apps/marketing/vite.config.ts",
     "marketing:preview": "vite preview --config apps/marketing/vite.config.ts",
-    "docs:dev": "cd apps/online-docs && npm install && npx mintlify dev",
+    "docs:dev": "cd apps/docs-site && bun run dev",
+    "docs:build": "cd apps/docs-site && bun run build",
+    "docs:preview": "cd apps/docs-site && bun run preview",
     "build": "bun run scripts/build.ts",
     "release": "bun run scripts/release.ts",
     "check-version": "bun run scripts/check-version.ts",

@@ -25,7 +25,6 @@ import {
 } from '../utils/bundle-files.ts'
 import { getWorkspaceSourcesPath, getWorkspaceSkillsPath } from '../workspaces/storage.ts'
 import { loadSourceConfig, getSourcePath } from '../sources/storage.ts'
-import { isBuiltinSource } from '../sources/builtin-sources.ts'
 import { validateSourceConfig } from '../config/validators.ts'
 import { AUTOMATIONS_CONFIG_FILE, AUTOMATIONS_HISTORY_FILE, AUTOMATIONS_RETRY_QUEUE_FILE } from '../automations/constants.ts'
 import { validateAutomationsConfig } from '../automations/validation.ts'
@@ -462,11 +461,6 @@ export function validateResourceBundle(bundle: unknown): { valid: boolean; error
         }
         slugs.add(e.slug as string)
 
-        // Check for builtin/reserved slugs
-        if (isBuiltinSource(e.slug as string)) {
-          errors.push(`${prefix}: '${e.slug}' is a reserved builtin source slug`)
-        }
-
         if (!e.config || typeof e.config !== 'object') {
           errors.push(`${prefix}: missing or invalid config`)
         } else {
@@ -688,12 +682,6 @@ async function importSources(
 
   for (const entry of entries) {
     try {
-      // Check for reserved slugs
-      if (isBuiltinSource(entry.slug)) {
-        result.failed.push({ id: entry.slug, error: 'Cannot import builtin source slug' })
-        continue
-      }
-
       const targetDir = getSourcePath(workspaceRootPath, entry.slug)
       const exists = existsSync(targetDir)
 

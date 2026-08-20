@@ -2,7 +2,7 @@
 
 set -e
 
-VERSIONS_URL="https://agents.craft.do/electron"
+VERSIONS_URL="https://thecraftagents.com/electron"
 DOWNLOAD_DIR="$HOME/.craft-agent/downloads"
 
 # Colors for output
@@ -351,7 +351,7 @@ ELECTRON_CACHE_ALT="$HOME/.cache/@craft-agent"
 # Verify AppImage exists
 if [ ! -f "$APPIMAGE_PATH" ]; then
     echo "Error: Craft Agent not found at $APPIMAGE_PATH"
-    echo "Reinstall: curl -fsSL https://agents.craft.do/install-app.sh | bash"
+    echo "Reinstall: curl -fsSL https://thecraftagents.com/install-app.sh | bash"
     exit 1
 fi
 

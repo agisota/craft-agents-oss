@@ -37,7 +37,7 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to production R2 during local dev
       '/s/api': {
-        target: 'https://agents.rox.one',
+        target: 'https://thecraftagents.com',
         changeOrigin: true,
         secure: true,
       },

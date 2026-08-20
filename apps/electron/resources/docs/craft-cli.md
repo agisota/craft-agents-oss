@@ -69,7 +69,7 @@ craft-agent label auto-rule-validate linear-issue
 Manage workspace sources stored under `sources/{slug}/`.
 
 ### Commands
-- `craft-agent source list [--include-builtins true|false]`
+- `craft-agent source list`
 - `craft-agent source get <slug>`
 - `craft-agent source create` (see flags below)
 - `craft-agent source update <slug> --json '{...}'`

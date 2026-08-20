@@ -1,6 +1,6 @@
 {
   "name": "@craft-agent/electron",
-  "version": "0.11.5",
+  "version": "0.12.0",
   "description": "Electron desktop app for Craft Agents",
   "main": "dist/main.cjs",
   "private": true,
@@ -8,7 +8,7 @@
     "name": "Craft Docs Ltd.",
     "email": "support@craft.do"
   },
-  "homepage": "https://agents.craft.do",
+  "homepage": "https://thecraftagents.com",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {

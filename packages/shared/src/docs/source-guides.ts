@@ -2,9 +2,9 @@
  * Source Guides System
  *
  * Provides parsing utilities for source guides.
- * Guides are now served exclusively via the craft-agents-docs MCP server.
+ * Setup guidance lives in the product docs at https://thecraftagents.com/docs.
  *
- * The agent should search the MCP docs for setup guidance when creating sources.
+ * The agent should consult the product docs for setup guidance when creating sources.
  */
 
 // ============================================================
@@ -184,23 +184,21 @@ export function extractDomainFromSource(source: {
 }
 
 // ============================================================
-// Guide Lookup (Deprecated - Use MCP docs instead)
+// Guide Lookup (Deprecated - see product docs instead)
 // ============================================================
 
 /**
  * @deprecated Bundled guides have been removed.
- * Use the craft-agents-docs MCP server to search for setup guides.
- *
- * Example: mcp__craft-agents-docs__SearchCraftAgents({ query: "github source setup guide" })
+ * Setup guides live in the product docs at https://thecraftagents.com/docs.
  */
 export function getSourceGuideForDomain(_domain: string): ParsedSourceGuide | null {
-  // Bundled guides removed - guides now come from MCP docs server
+  // Bundled guides removed - guides now live in the product docs
   return null;
 }
 
 /**
  * @deprecated Bundled guides have been removed.
- * Use the craft-agents-docs MCP server to search for setup guides.
+ * Setup guides live in the product docs at https://thecraftagents.com/docs.
  */
 export function getSourceGuide(_source: {
   type?: string;
@@ -208,13 +206,13 @@ export function getSourceGuide(_source: {
   mcp?: { url?: string };
   api?: { baseUrl?: string };
 }): ParsedSourceGuide | null {
-  // Bundled guides removed - guides now come from MCP docs server
+  // Bundled guides removed - guides now live in the product docs
   return null;
 }
 
 /**
  * @deprecated Bundled guides have been removed.
- * Use the craft-agents-docs MCP server to search for setup guides.
+ * Setup guides live in the product docs at https://thecraftagents.com/docs.
  */
 export function getSourceKnowledge(_source: {
   type?: string;
@@ -222,6 +220,6 @@ export function getSourceKnowledge(_source: {
   mcp?: { url?: string };
   api?: { baseUrl?: string };
 }): string | null {
-  // Bundled guides removed - guides now come from MCP docs server
+  // Bundled guides removed - guides now live in the product docs
   return null;
 }

@@ -83,12 +83,6 @@ describe('PrerequisiteManager', () => {
       expect(result.allowed).toBe(true);
     });
 
-    it('exempts craft-agents-docs MCP tools', () => {
-      mockExistsPaths.add(guidePath('craft-agents-docs'));
-      const result = manager.checkPrerequisites('mcp__craft-agents-docs__search');
-      expect(result.allowed).toBe(true);
-    });
-
     it('handles malformed MCP tool names (fewer than 3 parts)', () => {
       const result = manager.checkPrerequisites('mcp__linear');
       expect(result.allowed).toBe(true);

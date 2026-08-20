@@ -15,4 +15,4 @@ export const CRAFT_LOGO = [
 export const CRAFT_LOGO_HTML = CRAFT_LOGO.map((line) => line.trimEnd()).join('\n');
 
 /** Session viewer base URL */
-export const VIEWER_URL = 'https://agents.rox.one';
+export const VIEWER_URL = 'https://thecraftagents.com';
