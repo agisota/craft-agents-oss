@@ -38,4 +38,18 @@ describe('CloudRunsSettingsPage compact layout and recovery', () => {
     expect(source).toContain("t('automations.statusActive')")
     expect(source).toContain("t('automations.statusDisabled')")
   })
+
+  it('rebinds gateway, webhook, limits, and cheap-model fields after a successful load', () => {
+    expect(source).toContain('setDraft(draftFromConfig(next))')
+    expect(source).toContain('value={draft.gatewayUrl}')
+    expect(source).toContain('value={draft.notifyWebhookUrl}')
+    expect(source).toContain('value={draft.maxWallClockSec}')
+    expect(source).toContain('value={draft.maxLlmTokens}')
+    expect(source).toContain('value={draft.maxArtifactsBytes}')
+    expect(source).toContain('value={draft.cheapModelId}')
+    expect(source).not.toContain('defaultValue=')
+    expect(source).toContain('config.tokenConfigured')
+    expect(source).not.toMatch(/type=["']password["']/)
+    expect(source).not.toMatch(/BYOK|jwt|JWT|secret editor/i)
+  })
 })
