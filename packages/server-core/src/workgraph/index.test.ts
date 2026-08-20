@@ -90,7 +90,7 @@ describe('WorkGraph kernel', () => {
     expect(health).toMatchObject({
       state: 'available',
       installationId: initial.installationId,
-      schemaVersion: 2,
+      schemaVersion: 3,
     })
     await expect(reopened.getWorkItem('workspace_a', workItem.id)).resolves.toMatchObject({
       id: workItem.id,

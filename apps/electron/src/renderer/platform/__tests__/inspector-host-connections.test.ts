@@ -38,4 +38,13 @@ describe('CF-6.4 InspectorHost connections', () => {
     expect(host.toLowerCase()).not.toContain('infisical')
     expect(host).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
   })
+
+  it('surfaces inspector action errors and lists consumers before mutate', () => {
+    expect(host).toContain('errorMessage')
+    expect(host).toContain('connections-inspector-error')
+    expect(host).toContain('listConnectionBindings')
+    expect(host).toContain('sanitizeConnectionBindingRows')
+    expect(host.toLowerCase()).not.toContain('infisical')
+    expect(host).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
+  })
 })

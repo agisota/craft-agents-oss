@@ -16,6 +16,7 @@ export interface ConnectionAuditRow {
   readonly actorId: string | null
   readonly outcome: string
   readonly payloadDigest: string
+  readonly action?: string
 }
 
 export function sanitizeConnectionAuditRows(rows: readonly unknown[]): ConnectionAuditRow[] {
@@ -34,6 +35,9 @@ export function sanitizeConnectionAuditRows(rows: readonly unknown[]): Connectio
     if (rec.actorId != null && typeof rec.actorId !== 'string') {
       throw new Error('Invalid connection audit metadata')
     }
+    if (rec.action != null && typeof rec.action !== 'string') {
+      throw new Error('Invalid connection audit metadata')
+    }
     return {
       connectionId: rec.connectionId,
       eventType: rec.eventType,
@@ -41,6 +45,7 @@ export function sanitizeConnectionAuditRows(rows: readonly unknown[]): Connectio
       actorId: rec.actorId ?? null,
       outcome: rec.outcome,
       payloadDigest: rec.payloadDigest,
+      ...(typeof rec.action === 'string' ? { action: rec.action } : {}),
     }
   })
 }

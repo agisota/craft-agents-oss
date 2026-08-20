@@ -90,6 +90,9 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain("tab === 'audit'")
     expect(page).toContain('payloadDigest')
     expect(page).toContain('sanitizeConnectionAuditRows')
+    expect(page).toContain('occurredAt')
+    expect(page).toContain('actorId')
+    expect(page).toContain('row.action')
   })
 
   it('names Connection and CredentialRef on revoke confirm', () => {
@@ -122,6 +125,113 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain('previewSshAgent')
     expect(page).toContain('importSshAgent')
     expect(page.toLowerCase()).not.toContain('infisical')
+  })
+
+  it('keeps the five tab ids unchanged', () => {
+    expect(page).toContain("const TABS = ['services', 'credentials', 'imports', 'policies', 'audit']")
+  })
+
+  it('surfaces import and list errors without secret fields', () => {
+    expect(page).toContain('importError')
+    expect(page).toContain('listError')
+    expect(page).toContain('connections-import-error')
+    expect(page).toContain('connections-list-error')
+    expect(page).toContain('errorMessage')
+    expect(page.toLowerCase()).not.toContain('infisical')
+    expect(page).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
+  })
+
+  it('shows test outcome on the services list', () => {
+    expect(page).toContain('testStatusFromResult')
+    expect(page).toContain('testStatusFromError')
+    expect(page).toContain('connections-test-status')
+  })
+
+  it('filters import previews from Connect source chips', () => {
+    expect(page).toContain('activeSource')
+    expect(page).toContain('matchesConnectSource')
+    expect(page).toContain('connections-source-chip')
+    expect(page).toContain('aria-pressed')
+  })
+
+  it('names affected consumers on revoke confirm', () => {
+    expect(page).toContain('consumersForConnection')
+    expect(page).toContain('formatConfirmTargets')
+  })
+
+  it('fills import path placeholders', () => {
+    expect(page).toContain('IMPORT_PLACEHOLDERS')
+    expect(page).toContain('placeholder={placeholder}')
+    expect(page).toContain('IMPORT_PLACEHOLDERS.env')
+    expect(page).toContain('IMPORT_PLACEHOLDERS.gitConfig')
+    expect(page).toContain('IMPORT_PLACEHOLDERS.dockerConfig')
+    expect(page).toContain('IMPORT_PLACEHOLDERS.adc')
+  })
+
+  it('names affected consumers on rotate confirm', () => {
+    expect(page).toContain('connections-rotate-confirm-target')
+    expect(page).toContain('formatConfirmTargets')
+  })
+
+  it('scopes import forms to the active Connect chip', () => {
+    expect(page).toContain('isImportPanelVisible')
+    expect(page).toContain('connections-import-panel')
+    expect(page).toContain('data-source')
+  })
+
+  it('picks an import path through the existing file dialog', () => {
+    expect(page).toContain('openFileDialog')
+    expect(page).toContain('firstPickedPath')
+    expect(page).toContain('connections-pick-path')
+    expect(page.toLowerCase()).not.toContain('infisical')
+  })
+
+  it('drops a committed import candidate from the preview list', () => {
+    expect(page).toContain('removeCommittedPreview')
+  })
+
+  it('keeps audit load errors off the services empty state', () => {
+    expect(page).toContain('auditError')
+    expect(page).toContain('connections-audit-error')
+    expect(page).toContain('setAuditError')
+  })
+
+  it('marks tab panels and cycles tabs with arrows', () => {
+    expect(page).toContain('role="tabpanel"')
+    expect(page).toContain('aria-controls')
+    expect(page).toContain('cycleTab')
+    expect(page).toContain('ArrowRight')
+    expect(page).toContain('ArrowLeft')
+    expect(page).toContain("const TABS = ['services', 'credentials', 'imports', 'policies', 'audit']")
+  })
+
+  it('does not treat a pending list load as the empty state', () => {
+    expect(page).toContain('connections-loading')
+    expect(page).toContain('aria-busy')
+  })
+
+  it('renders audit time, actor, and action metadata', () => {
+    expect(page).toContain('occurredAt')
+    expect(page).toContain('actorId')
+    expect(page).toContain('row.action')
+  })
+
+  it('creates a metadata-only connection from the Services tab', () => {
+    expect(page).toContain('createConnection')
+    expect(page).toContain('connections.create')
+    expect(page).toContain('connections-create-form')
+    expect(page).toContain('createCredentialRef')
+    expect(page.toLowerCase()).not.toContain('infisical')
+    expect(page).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
+  })
+
+  it('grants a named consumer on the Policies tab', () => {
+    expect(page).toContain('grantConnection')
+    expect(page).toContain('connections.grant')
+    expect(page).toContain('connections-grant-form')
+    expect(page).toContain('grantConsumer')
+    expect(page.toLowerCase()).not.toContain('infisical')
+    expect(page).not.toMatch(/\bpayload\b|\bsecret\b|\brefreshToken\b/)
   })
 })
 

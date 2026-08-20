@@ -718,6 +718,7 @@ export interface ElectronAPI {
       actorId: string | null
       outcome: string
       payloadDigest: string
+      action?: string
     }>>
     listConnectionBindings(input: {
       workspaceId: string
@@ -746,6 +747,14 @@ export interface ElectronAPI {
       storageMode: WorkGraphConnectionRecord['storageMode']
       scopes?: readonly string[]
     }): Promise<WorkGraphConnectionRecord>
+    grantConnection(input: {
+      workspaceId: string
+      connectionId: string
+      consumerId: string
+      purpose: string
+      actions: readonly string[]
+      resources: readonly string[]
+    }): Promise<{ bindingId: string; grantId: string }>
     previewGithubEnv(envPath: string): Promise<Array<{ candidateId: string; label: string; maskedSummary: string }>>
     importGithubEnv(input: {
       envPath: string

@@ -112,6 +112,7 @@ export const RPC_CHANNELS = {
     REVOKE_CONNECTION_BINDING: 'workgraph:revokeConnectionBinding',
     GET_CONNECTION: 'workgraph:getConnection',
     CREATE_CONNECTION: 'workgraph:createConnection',
+    GRANT_CONNECTION: 'workgraph:grantConnection',
     PREVIEW_GITHUB_ENV: 'workgraph:previewGithubEnv',
     IMPORT_GITHUB_ENV: 'workgraph:importGithubEnv',
     PREVIEW_GIT_HELPER: 'workgraph:previewGitHelper',

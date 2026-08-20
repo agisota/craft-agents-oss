@@ -27,6 +27,7 @@ import {
   commitKeychainImport,
   previewSshAgentImport,
   commitSshAgentImport,
+  createConnectionGrant,
   type CreateConnectionInput,
   type GithubFetch,
   type WorkGraphKernel,
@@ -42,6 +43,7 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.workgraph.REVOKE_CONNECTION_BINDING,
   RPC_CHANNELS.workgraph.GET_CONNECTION,
   RPC_CHANNELS.workgraph.CREATE_CONNECTION,
+  RPC_CHANNELS.workgraph.GRANT_CONNECTION,
   RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,
   RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV,
   RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER,
@@ -118,6 +120,26 @@ function assertConnectionMetadata(input: unknown): CreateConnectionInput {
     }
   }
   return input as CreateConnectionInput
+}
+
+const GRANT_INPUT_KEYS = new Set([
+  'workspaceId',
+  'connectionId',
+  'consumerId',
+  'purpose',
+  'actions',
+  'resources',
+])
+
+function assertGrantMetadata(input: unknown): void {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Invalid grant metadata')
+  }
+  for (const key of Object.keys(input)) {
+    if (!GRANT_INPUT_KEYS.has(key)) {
+      throw new Error(`Invalid grant metadata field: ${key}`)
+    }
+  }
 }
 
 function assertLocalPath(value: unknown): string {
@@ -210,6 +232,31 @@ export function registerWorkGraphHandlers(
   server.handle(
     RPC_CHANNELS.workgraph.CREATE_CONNECTION,
     (_ctx, input: unknown) => workGraph.createConnection(assertConnectionMetadata(input)),
+    { access: 'localElectron' },
+  )
+  server.handle(
+    RPC_CHANNELS.workgraph.GRANT_CONNECTION,
+    async (_ctx, input: {
+      workspaceId: string
+      connectionId: string
+      consumerId: string
+      purpose: string
+      actions: readonly string[]
+      resources: readonly string[]
+    }) => {
+      assertGrantMetadata(input)
+      if (!fabric) throw new Error('grant_unavailable')
+      return createConnectionGrant({
+        kernel: workGraph,
+        broker: fabric.broker,
+        workspaceId: input.workspaceId,
+        connectionId: input.connectionId,
+        consumerId: input.consumerId,
+        purpose: input.purpose,
+        actions: input.actions,
+        resources: input.resources,
+      })
+    },
     { access: 'localElectron' },
   )
   server.handle(

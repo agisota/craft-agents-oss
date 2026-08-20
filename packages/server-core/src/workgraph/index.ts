@@ -9,7 +9,7 @@ import { atomicWriteFileSync } from '@craft-agent/shared/utils'
 const WORKGRAPH_DIRECTORY = 'workgraph'
 const DATABASE_FILENAME = 'workgraph.db'
 const PROVISIONING_FILENAME = 'workgraph-provisioning.json'
-const WORKGRAPH_SCHEMA_VERSION = 2
+const WORKGRAPH_SCHEMA_VERSION = 3
 const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
 type WorkGraphDatabase = Pick<Database, 'all' | 'close' | 'exec' | 'get' | 'run' | 'transactionAsync'>
@@ -108,6 +108,7 @@ export interface ConnectionAuditRecord {
   readonly actorId: string | null
   readonly outcome: string
   readonly payloadDigest: string
+  readonly action: string
 }
 
 export interface ConnectionBindingRecord {
@@ -285,6 +286,9 @@ const MIGRATIONS: readonly Migration[] = [
     CREATE INDEX IF NOT EXISTS workgraph_connection_bindings_workspace_idx
       ON workgraph_connection_bindings (workspace_id, connection_id);
   `),
+  migration(3, `
+    ALTER TABLE workgraph_ledger ADD COLUMN action TEXT;
+  `),
 ]
 
 export function isWorkGraphPlatformSupported(platform: WorkGraphPlatform = process): boolean {
@@ -458,8 +462,8 @@ export class WorkGraphKernel {
       await transaction.run(
         `INSERT INTO workgraph_ledger (
           event_id, workspace_id, object_id, relation_id, event_type, occurred_at, actor_kind, actor_id,
-          source_kind, correlation_id, causation_id, schema_version, outcome, payload_digest
-        ) VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?)`,
+          source_kind, correlation_id, causation_id, schema_version, outcome, payload_digest, action
+        ) VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, ?)`,
         eventId,
         input.workspaceId,
         id,
@@ -470,6 +474,7 @@ export class WorkGraphKernel {
         WORKGRAPH_SCHEMA_VERSION,
         'committed',
         payloadDigest,
+        'connection.create',
       )
     })
     await mutation.immediate()
@@ -566,8 +571,8 @@ export class WorkGraphKernel {
     await database.run(
       `INSERT INTO workgraph_ledger (
         event_id, workspace_id, object_id, relation_id, event_type, occurred_at, actor_kind, actor_id,
-        source_kind, correlation_id, causation_id, schema_version, outcome, payload_digest
-      ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+        source_kind, correlation_id, causation_id, schema_version, outcome, payload_digest, action
+      ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
       randomUUID(),
       input.workspaceId,
       input.connectionId,
@@ -579,6 +584,7 @@ export class WorkGraphKernel {
       WORKGRAPH_SCHEMA_VERSION,
       input.decision === 'allow' ? 'committed' : 'denied',
       payloadDigest,
+      input.action,
     )
   }
 
@@ -604,16 +610,17 @@ export class WorkGraphKernel {
     const database = await this.requireDatabase()
     assertOpaqueId(workspaceId, 'workspace ID')
     if (connectionId) assertOpaqueId(connectionId, 'connection ID')
+    const eventTypes = `'connection-created', 'connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired', 'connection-converted', 'connection-binding-revoked'`
     const sql = connectionId
-      ? `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
+      ? `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest, action
          FROM workgraph_ledger
          WHERE workspace_id = ? AND object_id = ?
-           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired', 'connection-converted', 'connection-binding-revoked')
+           AND event_type IN (${eventTypes})
          ORDER BY sequence DESC LIMIT 100`
-      : `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest
+      : `SELECT object_id, event_type, occurred_at, actor_id, outcome, payload_digest, action
          FROM workgraph_ledger
          WHERE workspace_id = ?
-           AND event_type IN ('connection-audit', 'connection-revoked', 'connection-rotated', 'connection-repaired', 'connection-converted', 'connection-binding-revoked')
+           AND event_type IN (${eventTypes})
          ORDER BY sequence DESC LIMIT 100`
     const rows = (
       connectionId
@@ -636,6 +643,7 @@ export class WorkGraphKernel {
         actorId: row.actor_id ?? null,
         outcome: row.outcome,
         payloadDigest: row.payload_digest,
+        action: typeof row.action === 'string' ? row.action : row.event_type,
       }
     })
   }
@@ -1134,3 +1142,4 @@ export {
   commitSshAgentImport,
 } from './local-imports.ts'
 export type { LocalImportPreview } from './local-imports.ts'
+export { createConnectionGrant } from './create-grant.ts'

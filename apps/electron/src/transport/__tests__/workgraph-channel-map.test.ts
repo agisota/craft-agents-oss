@@ -28,6 +28,10 @@ describe('CF-6.3 workgraph channel map', () => {
       type: 'invoke',
       channel: RPC_CHANNELS.workgraph.CREATE_CONNECTION,
     })
+    expect(CHANNEL_MAP['workgraph.grantConnection']).toEqual({
+      type: 'invoke',
+      channel: RPC_CHANNELS.workgraph.GRANT_CONNECTION,
+    })
     expect(CHANNEL_MAP['workgraph.previewGithubEnv']).toEqual({
       type: 'invoke',
       channel: RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV,

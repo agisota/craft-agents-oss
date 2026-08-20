@@ -39,8 +39,17 @@ describe('CF-6.3 connection list sanitizer', () => {
       actorId: 'owner',
       outcome: 'committed',
       payloadDigest: 'abc',
+      action: 'connection.revoke',
     }])
-    expect(rows[0]?.eventType).toBe('connection-revoked')
+    expect(rows[0]).toEqual({
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+      action: 'connection.revoke',
+    })
     expect(JSON.stringify(rows)).not.toContain('super-secret')
     expect(() => sanitizeConnectionAuditRows([{
       connectionId: 'c1',
@@ -51,5 +60,32 @@ describe('CF-6.3 connection list sanitizer', () => {
       payloadDigest: 'abc',
       token: 'super-secret',
     }])).toThrow(/token/)
+    expect(() => sanitizeConnectionAuditRows([{
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+      secret: 'super-secret',
+    }])).toThrow(/secret/)
+    expect(() => sanitizeConnectionAuditRows([{
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+      value: 'super-secret',
+    }])).toThrow(/value/)
+    expect(() => sanitizeConnectionAuditRows([{
+      connectionId: 'c1',
+      eventType: 'connection-revoked',
+      occurredAt: 1,
+      actorId: 'owner',
+      outcome: 'committed',
+      payloadDigest: 'abc',
+      payload: 'super-secret',
+    }])).toThrow(/payload/)
   })
 })

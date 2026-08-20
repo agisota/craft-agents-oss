@@ -33,12 +33,12 @@ afterEach(() => {
 })
 
 describe('CF-5 WorkGraph connections', () => {
-  nativeIt('provisions schema version 2', async () => {
+  nativeIt('provisions schema version 3', async () => {
     const kernel = createKernel(createRoot())
     const health = await kernel.getHealth()
     expect(health.state).toBe('available')
     if (health.state !== 'available') throw new Error('unavailable')
-    expect(health.schemaVersion).toBe(2)
+    expect(health.schemaVersion).toBe(3)
     await kernel.close()
   })
 
@@ -134,7 +134,7 @@ describe('CF-5 WorkGraph connections', () => {
     await kernel.close()
   })
 
-  nativeIt('upgrades a v1 database to schema 2 without payload columns', async () => {
+  nativeIt('upgrades a v1 database to schema 3 without payload columns', async () => {
     const root = createRoot()
     const first = createKernel(root)
     await first.getHealth()
@@ -144,6 +144,7 @@ describe('CF-5 WorkGraph connections', () => {
     try {
       await db.exec('DROP TABLE IF EXISTS workgraph_connection_bindings')
       await db.exec('DROP TABLE IF EXISTS workgraph_connections')
+      // Re-apply migration 2 only; leave migration 3 so ADD COLUMN action is not repeated.
       await db.run('DELETE FROM workgraph_schema_migrations WHERE version = 2')
     } finally {
       await db.close()
@@ -153,7 +154,7 @@ describe('CF-5 WorkGraph connections', () => {
     const health = await upgraded.getHealth()
     expect(health.state).toBe('available')
     if (health.state !== 'available') throw new Error('unavailable')
-    expect(health.schemaVersion).toBe(2)
+    expect(health.schemaVersion).toBe(3)
     const connection = await upgraded.createConnection({
       workspaceId: 'workspace_a',
       integrationId: 'github',
@@ -214,7 +215,7 @@ describe('CF-5 WorkGraph connections', () => {
     expect(existsSync(join(root, 'workgraph', 'workgraph.db'))).toBe(true)
   })
 
-  nativeIt('lists metadata-only connection audit rows', async () => {
+  nativeIt('lists metadata-only connection audit rows including created', async () => {
     const kernel = createKernel(createRoot())
     await kernel.getHealth()
     const connection = await kernel.createConnection({
@@ -233,11 +234,26 @@ describe('CF-5 WorkGraph connections', () => {
       versionFingerprint: 'abc',
     })
     const listed = await kernel.listConnectionAudit('workspace_a', connection.id)
-    expect(listed.length).toBe(1)
-    expect(listed[0]?.connectionId).toBe(connection.id)
-    expect(listed[0]?.eventType).toBe('connection-audit')
-    expect(listed[0]?.outcome).toBe('committed')
-    expect(listed[0]?.payloadDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(listed.length).toBe(2)
+    const created = listed.find((row) => row.eventType === 'connection-created')
+    const audit = listed.find((row) => row.eventType === 'connection-audit')
+    expect(created).toMatchObject({
+      connectionId: connection.id,
+      eventType: 'connection-created',
+      outcome: 'committed',
+      action: 'connection.create',
+    })
+    expect(typeof created?.occurredAt).toBe('number')
+    expect(created?.payloadDigest).toMatch(/^[0-9a-f]{64}$/)
+    expect(audit).toMatchObject({
+      connectionId: connection.id,
+      eventType: 'connection-audit',
+      outcome: 'committed',
+      action: 'github.request',
+      actorId: 'agent-a',
+    })
+    expect(typeof audit?.occurredAt).toBe('number')
+    expect(audit?.payloadDigest).toMatch(/^[0-9a-f]{64}$/)
     expect(JSON.stringify(listed)).not.toContain('super-secret')
     expect(listed[0]).not.toHaveProperty('value')
     await kernel.close()

@@ -572,6 +572,7 @@ const EXPECTED_CHANNELS: string[] = [
   'workgraph:getConnection',
   'workgraph:getHealth',
   'workgraph:getVersion',
+  'workgraph:grantConnection',
   'workgraph:importAdc',
   'workgraph:importAwsProfile',
   'workgraph:importDockerHelper',

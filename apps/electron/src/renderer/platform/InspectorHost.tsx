@@ -15,7 +15,7 @@
  * Mounted by `WorkspaceSurfaceHost` (platform/index.tsx) — rendered only when
  * the two-key Workbench rollout is enabled.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { Bot, Info, Link2, ListTree, X, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -33,6 +33,8 @@ import {
   type InspectorSectionId,
 } from '@/atoms/unified-shell'
 import { selectedConnectionAtom } from '@/atoms/connections'
+import { sanitizeConnectionBindingRows } from '@/pages/connections-list'
+import { errorMessage } from '@/pages/connections-ui'
 import { isConnectionsNavigation, useNavigationState } from '@/contexts/NavigationContext'
 import { cn } from '@/lib/utils'
 import { getSessionTitle } from '@/utils/session'
@@ -79,6 +81,35 @@ function ConnectionInfoSection() {
   const [confirmRotate, setConfirmRotate] = useState(false)
   const [consumers, setConsumers] = useState<Array<{ consumerId: string; status: string }>>([])
   const [testLogin, setTestLogin] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!selected) {
+      setConsumers([])
+      setTestLogin('')
+      setActionError(null)
+      return
+    }
+    const listConnectionBindings = window.electronAPI?.workgraph?.listConnectionBindings
+    if (typeof listConnectionBindings !== 'function') {
+      setConsumers([])
+      return
+    }
+    let stale = false
+    listConnectionBindings({ workspaceId: selected.workspaceId, connectionId: selected.id })
+      .then((raw) => {
+        if (stale) return
+        setConsumers(sanitizeConnectionBindingRows(raw).map((row) => ({
+          consumerId: row.consumerId,
+          status: row.purpose,
+        })))
+      })
+      .catch((err) => {
+        if (!stale) setActionError(errorMessage(err))
+      })
+    return () => {
+      stale = true
+    }
+  }, [selected])
   if (!selected) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -107,6 +138,9 @@ function ConnectionInfoSection() {
           value={consumers.map((row) => `${row.consumerId}: ${row.status}`).join(', ')}
         />
       ) : null}
+      {actionError ? (
+        <p className="px-3 py-2 text-[12px]" data-testid="connections-inspector-error">{actionError}</p>
+      ) : null}
       <div className="flex flex-wrap gap-1 px-3 py-2">
         <button
           type="button"
@@ -114,8 +148,13 @@ function ConnectionInfoSection() {
           onClick={async () => {
             const testConnection = window.electronAPI?.workgraph?.testConnection
             if (!workspaceId || typeof testConnection !== 'function') return
-            const result = await testConnection({ workspaceId, connectionId: selected.id })
-            setTestLogin(result.login)
+            try {
+              setActionError(null)
+              const result = await testConnection({ workspaceId, connectionId: selected.id })
+              setTestLogin(result.login)
+            } catch (err) {
+              setActionError(errorMessage(err))
+            }
           }}
         >
           {t('connections.test')}
@@ -126,8 +165,13 @@ function ConnectionInfoSection() {
           onClick={async () => {
             const repairConnection = window.electronAPI?.workgraph?.repairConnection
             if (!workspaceId || typeof repairConnection !== 'function') return
-            const result = await repairConnection({ workspaceId, connectionId: selected.id })
-            setConsumers(result.consumers)
+            try {
+              setActionError(null)
+              const result = await repairConnection({ workspaceId, connectionId: selected.id })
+              setConsumers(result.consumers)
+            } catch (err) {
+              setActionError(errorMessage(err))
+            }
           }}
         >
           {t('connections.repair')}
@@ -140,9 +184,14 @@ function ConnectionInfoSection() {
               onClick={async () => {
                 const rotateConnection = window.electronAPI?.workgraph?.rotateConnection
                 if (!workspaceId || typeof rotateConnection !== 'function') return
-                const result = await rotateConnection({ workspaceId, connectionId: selected.id })
-                setConsumers(result.consumers)
-                setConfirmRotate(false)
+                try {
+                  setActionError(null)
+                  const result = await rotateConnection({ workspaceId, connectionId: selected.id })
+                  setConsumers(result.consumers)
+                  setConfirmRotate(false)
+                } catch (err) {
+                  setActionError(errorMessage(err))
+                }
               }}
             >
               {t('connections.rotateConfirm')}

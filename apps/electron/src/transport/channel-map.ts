@@ -303,6 +303,7 @@ export const CHANNEL_MAP = {
   'workgraph.revokeConnectionBinding': invoke(RPC_CHANNELS.workgraph.REVOKE_CONNECTION_BINDING),
   'workgraph.getConnection': invoke(RPC_CHANNELS.workgraph.GET_CONNECTION),
   'workgraph.createConnection': invoke(RPC_CHANNELS.workgraph.CREATE_CONNECTION),
+  'workgraph.grantConnection': invoke(RPC_CHANNELS.workgraph.GRANT_CONNECTION),
   'workgraph.previewGithubEnv': invoke(RPC_CHANNELS.workgraph.PREVIEW_GITHUB_ENV),
   'workgraph.importGithubEnv': invoke(RPC_CHANNELS.workgraph.IMPORT_GITHUB_ENV),
   'workgraph.previewGitHelper': invoke(RPC_CHANNELS.workgraph.PREVIEW_GIT_HELPER),
