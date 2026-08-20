@@ -8,12 +8,12 @@ import type {
   CatalogCategory,
   CatalogEntry,
   ExtensionInstallTarget,
-  ExtensionPermission,
   ExtensionRecord,
   ExtensionRuntime,
   ExtensionStatus,
 } from '../types.ts'
 import { parseExtensionManifest } from '../manifest.ts'
+import { MARKETPLACE_KIND_PERMISSIONS } from '../marketplace-kind.ts'
 
 const KIND_RUNTIME: Record<MarketplaceEntryKind, ExtensionRuntime> = {
   skillpack: 'skill-pack',
@@ -27,11 +27,7 @@ const KIND_CATEGORY: Record<MarketplaceEntryKind, CatalogCategory> = {
   'context-doc': 'knowledge',
 }
 
-const KIND_PERMISSIONS: Record<MarketplaceEntryKind, ExtensionPermission[]> = {
-  skillpack: ['ui.command'],
-  tool: ['shell.execute', 'network.request'],
-  'context-doc': ['filesystem.read', 'ui.command'],
-}
+const KIND_PERMISSIONS = MARKETPLACE_KIND_PERMISSIONS
 
 const KIND_WORKS_IN: Record<MarketplaceEntryKind, string[]> = {
   skillpack: ['Agent sessions', 'Command palette', 'Skills panel'],
