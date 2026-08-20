@@ -7,11 +7,10 @@ const profileStripPath = join(__dirname, '../ProfileStrip.tsx')
 describe('ProfileStrip presentation', () => {
   const src = readFileSync(profileStripPath, 'utf8')
 
-  it('renders a compact identity menu instead of persistent gamification content', () => {
-    expect(src).toContain('<DropdownMenu open={open} onOpenChange={setOpen}>')
+  it('renders a compact identity trigger instead of persistent gamification content', () => {
     expect(src).toContain('defaultAvatarFallback?: React.ReactNode')
     expect(src).toContain('default-avatar.svg')
-    expect(src).toContain('<ChevronDown')
+    expect(src).toContain('data-tutorial="profile-strip"')
     expect(src).not.toContain('initialsFromName')
     expect(src).not.toContain('role="progressbar"')
     expect(src).not.toContain("t('profile.level'")
@@ -19,12 +18,17 @@ describe('ProfileStrip presentation', () => {
     expect(src).not.toContain("t('profile.balance")
   })
 
-  it('offers settings, updates, and a confirmed destructive sign-out only', () => {
-    expect(src).toContain("t('menu.settings')")
-    expect(src).toContain("t('menu.checkForUpdates')")
-    expect(src).toContain("t('settings.accounts.signOut')")
-    expect(src).toContain('showLogoutConfirmation()')
-    expect(src).toContain('window.electronAPI.logout()')
+  it('does not present a competing account switcher or secret-bearing actions', () => {
+    expect(src).not.toContain('<DropdownMenu')
+    expect(src).not.toContain('<ChevronDown')
+    expect(src).not.toContain("t('menu.settings')")
+    expect(src).not.toContain("t('menu.checkForUpdates')")
+    expect(src).not.toContain("t('settings.accounts.signOut')")
+    expect(src).not.toContain('showLogoutConfirmation()')
+    expect(src).not.toContain('window.electronAPI.logout()')
+    expect(src).not.toContain('identityGetState')
+    expect(src).not.toContain('credentialValue')
     expect(src).not.toContain('menu.keyboardShortcuts')
+    expect(src).toContain('onClick={onClick}')
   })
 })
