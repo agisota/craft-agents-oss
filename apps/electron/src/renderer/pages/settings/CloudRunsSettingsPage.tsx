@@ -45,6 +45,26 @@ type ConfigPatch = Partial<Config> & {
   defaultMaxArtifactsBytes?: number
 }
 
+type FieldDraft = {
+  gatewayUrl: string
+  notifyWebhookUrl: string
+  maxWallClockSec: string
+  maxLlmTokens: string
+  maxArtifactsBytes: string
+  cheapModelId: string
+}
+
+function draftFromConfig(config: Config): FieldDraft {
+  return {
+    gatewayUrl: config.gatewayUrl ?? '',
+    notifyWebhookUrl: config.notifyWebhookUrl ?? '',
+    maxWallClockSec: String(config.defaults.maxWallClockSec),
+    maxLlmTokens: String(config.defaults.maxLlmTokens),
+    maxArtifactsBytes: String(config.defaults.maxArtifactsBytes),
+    cheapModelId: config.cheapModelId ?? '',
+  }
+}
+
 function SettingText({ label, description }: { label: string; description: string }) {
   return (
     <div className="min-w-0 whitespace-normal break-words">
@@ -57,6 +77,7 @@ function SettingText({ label, description }: { label: string; description: strin
 export default function CloudRunsSettingsPage() {
   const { t } = useTranslation()
   const [config, setConfig] = React.useState<Config | null>(null)
+  const [draft, setDraft] = React.useState<FieldDraft | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saveError, setSaveError] = React.useState<string | null>(null)
@@ -68,7 +89,9 @@ export default function CloudRunsSettingsPage() {
     try {
       const getConfig = window.electronAPI?.getCloudRunsConfig
       if (typeof getConfig !== 'function') throw new Error(t('common.unavailable'))
-      setConfig(await getConfig())
+      const next = await getConfig()
+      setConfig(next)
+      setDraft(draftFromConfig(next))
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -148,7 +171,7 @@ export default function CloudRunsSettingsPage() {
             </div>
           )}
 
-          {config && (
+          {config && draft && (
             <>
               <SettingsSection title={t('settings.cloudRuns.sectionConnection')}>
                 <SettingsCard className="gap-1">
@@ -174,8 +197,9 @@ export default function CloudRunsSettingsPage() {
                       <SettingsRow label={<SettingText label={t('settings.cloudRuns.gatewayUrl')} description={t('settings.cloudRuns.gatewayUrlHint')} />}>
                         <Input
                           className={fieldClass}
-                          defaultValue={config.gatewayUrl ?? ''}
+                          value={draft.gatewayUrl}
                           placeholder="https://craft-cloud-gateway.<sub>.workers.dev"
+                          onChange={(e) => setDraft((current) => current && { ...current, gatewayUrl: e.target.value })}
                           onBlur={(e) => patch({ gatewayUrl: e.target.value.trim() || undefined })}
                         />
                       </SettingsRow>
@@ -202,8 +226,9 @@ export default function CloudRunsSettingsPage() {
                   <SettingsRow label={<SettingText label={t('settings.cloudRuns.webhook')} description={t('settings.cloudRuns.webhookHint')} />}>
                     <Input
                       className={fieldClass}
-                      defaultValue={config.notifyWebhookUrl ?? ''}
+                      value={draft.notifyWebhookUrl}
                       placeholder="https://example.com/cloud-runs-hook"
+                      onChange={(e) => setDraft((current) => current && { ...current, notifyWebhookUrl: e.target.value })}
                       onBlur={(e) => patch({ notifyWebhookUrl: e.target.value.trim() || undefined })}
                     />
                   </SettingsRow>
@@ -217,7 +242,8 @@ export default function CloudRunsSettingsPage() {
                       className={fieldClass + ' w-32'}
                       type="number"
                       min={60}
-                      defaultValue={config.defaults.maxWallClockSec}
+                      value={draft.maxWallClockSec}
+                      onChange={(e) => setDraft((current) => current && { ...current, maxWallClockSec: e.target.value })}
                       onBlur={(e) => {
                         const value = Number(e.target.value)
                         if (Number.isInteger(value) && value >= 60) patch({ defaultMaxWallClockSec: value })
@@ -229,7 +255,8 @@ export default function CloudRunsSettingsPage() {
                       className={fieldClass + ' w-40'}
                       type="number"
                       min={10_000}
-                      defaultValue={config.defaults.maxLlmTokens}
+                      value={draft.maxLlmTokens}
+                      onChange={(e) => setDraft((current) => current && { ...current, maxLlmTokens: e.target.value })}
                       onBlur={(e) => {
                         const value = Number(e.target.value)
                         if (Number.isInteger(value) && value >= 10_000) patch({ defaultMaxLlmTokens: value })
@@ -241,7 +268,8 @@ export default function CloudRunsSettingsPage() {
                       className={fieldClass + ' w-40'}
                       type="number"
                       min={1_000_000}
-                      defaultValue={config.defaults.maxArtifactsBytes}
+                      value={draft.maxArtifactsBytes}
+                      onChange={(e) => setDraft((current) => current && { ...current, maxArtifactsBytes: e.target.value })}
                       onBlur={(e) => {
                         const value = Number(e.target.value)
                         if (Number.isInteger(value) && value >= 1_000_000) patch({ defaultMaxArtifactsBytes: value })
@@ -251,8 +279,9 @@ export default function CloudRunsSettingsPage() {
                   <SettingsRow label={<SettingText label={t('settings.cloudRuns.cheapModel')} description={t('settings.cloudRuns.cheapModelHint')} />}>
                     <Input
                       className={fieldClass + ' w-64'}
-                      defaultValue={config.cheapModelId ?? ''}
+                      value={draft.cheapModelId}
                       placeholder="kimi-lite / gpt-4o-mini"
+                      onChange={(e) => setDraft((current) => current && { ...current, cheapModelId: e.target.value })}
                       onBlur={(e) => patch({ cheapModelId: e.target.value.trim() || undefined })}
                     />
                   </SettingsRow>
