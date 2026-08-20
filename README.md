@@ -102,6 +102,10 @@ bun run electron:start
 - **File Attachments**: Drag-drop images, PDFs, Office documents with auto-conversion
 - **Automations**: Event-driven automation — create agent sessions on label changes, schedules, tool use, and more
 
+### Architecture
+
+Live top-level rails (`APP_NAV_DESTINATIONS` in `apps/electron/src/renderer/components/app-shell/nav-destinations.ts`): `sessions`, `projects`, `memory`, `sources`, `skills`, `notes`, `automations`, `connections`, `settings`.
+
 ## Quick Start
 
 1. **Launch the app** after installation

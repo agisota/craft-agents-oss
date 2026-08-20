@@ -10,7 +10,7 @@
 
 Перевести навигационные панели и боковые рейки Craft с хардкода в `AppShell.tsx` на декларативный реестр: любая панель (core, расширение, SiYuan-плагин) объявляется через `PanelContribution`, размещается в одном из шести `PanelSlot` и попадает в Activity Rail / Inspector Rail без правок мега-компонента оболочки. Документ фиксирует:
 
-- состав Activity Rail (7 пунктов, включая поддерево Agent Studio) и Inspector Rail (6 инспекторов);
+- **живой** состав верхнего рейла (SSOT: 9 пунктов `APP_NAV_DESTINATIONS`) vs **целевой** состав PanelRegistry (рейлы этим документом не добавлять) и Inspector Rail (6 инспекторов — целевая модель);
 - типы `PanelSlot` / `PanelContribution` как единый контракт (verbatim из исходного документа);
 - правило «запрет хардкода» и целевое размещение реестра;
 - сопоставление dock-панелей SiYuan-плагинов на слоты Craft;
@@ -21,11 +21,14 @@
 
 ### 2.1. Как устроено сегодня (факты по коду)
 
-Оболочка рендерера — мега-компонент `apps/electron/src/renderer/components/app-shell/AppShell.tsx` (~4000 строк). Пункты навигации в нём захардкожены в нескольких местах, которые обязаны меняться согласованно:
+Оболочка рендерера — мега-компонент `apps/electron/src/renderer/components/app-shell/AppShell.tsx` (~4000 строк). **Единственный актуальный список верхнеуровневых рейлов** — `APP_NAV_DESTINATIONS` в `apps/electron/src/renderer/components/app-shell/nav-destinations.ts` (**9 живых id**, порядок = порядок в массиве): `sessions`, `projects`, `memory`, `sources`, `skills`, `notes`, `automations`, `connections`, `settings`. Inline-массив `links[]` в `AppShell.tsx` — **STALE**, не SSOT (комментарии в `nav-destinations.ts` ещё ссылаются на него как на порядок рейла; не расширять и не считать каноном).
+
+Прочие места, которые обязаны меняться согласованно при добавлении навигатора:
 
 | Место | Что содержит | Путь |
 |---|---|---|
-| Inline-модель пунктов | массив `links[]` с `nav:sources/skills/memory/projects/notes/automations` (~строки 2530–2730) | `apps/electron/src/renderer/components/app-shell/AppShell.tsx` |
+| SSOT рейлов | `APP_NAV_DESTINATIONS` / `AppNavDestinationId` (9 id) | `apps/electron/src/renderer/components/app-shell/nav-destinations.ts` |
+| Inline-модель пунктов (**STALE**) | массив `links[]` в `AppShell.tsx` — не источник истины | `apps/electron/src/renderer/components/app-shell/AppShell.tsx` |
 | Рендер сайдбара | `LeftSidebar.tsx` (~595 строк) получает `links` пропом: дерево с раскрытием, сортируемые статусные группы, контекстные меню | `apps/electron/src/renderer/components/app-shell/LeftSidebar.tsx` |
 | «Перечисление страниц» | union `NavigationState` из ~10 навигаторов (sessions+board, sources, settings, skills, notes, …) + type-guards | `apps/electron/src/shared/types.ts:1079-1223` |
 | Маршруты | typed route builders и двунаправленный парсер route↔NavigationState (~1000 строк); новый навигатор = правка обеих сторон | `apps/electron/src/shared/routes.ts`, `apps/electron/src/shared/route-parser.ts` |
@@ -39,14 +42,14 @@
 
 ### 2.2. Почему это не масштабируется
 
-1. **Цена добавления пункта.** Новый навигатор сегодня требует правок минимум в шести местах (`AppShell.tsx` links[], `types.ts` union, `routes.ts`, `route-parser.ts`, `SidebarMenu.tsx`, `MainContentPanel.tsx`) — при этом интеграция SiYuan добавляет Knowledge, Runs, Extensions, Agent Studio и панели расширений.
+1. **Цена добавления пункта.** Новый навигатор сегодня требует правок минимум в `nav-destinations.ts` (SSOT рейла), `types.ts` union, `routes.ts`, `route-parser.ts`, `SidebarMenu.tsx`, `MainContentPanel.tsx`. Inline `links[]` в `AppShell.tsx` не расширять. Целевые пункты волны (Knowledge, Runs, Extensions, Agent Studio) **не добавляются этим документом** — они остаются целевой моделью §3.2, не живым рейлом.
 2. **Невозможность плагинных панелей.** SiYuan Plugin API оперирует dock-панелями (LeftTop/LeftBottom/RightTop/RightBottom/BottomLeft/BottomRight) и custom tabs; `ExtensionManifest.contributes.panels` из [S-05](./05-extension-center.md) ожидает точку расширения «панели». Хардкод-модель принципиально не принимает внешние contribution.
 3. **Нет пользовательской компоновки.** Сейчас сохраняются только видимость/ширина колонок (`sidebarVisible`, `sidebarWidth`, `panel-layout:${key}`); пользователь не может скрыть пункт, переставить его или сохранить набор «профиль».
 4. **Отрицательный прецедент.** `apps/electron/src/renderer/lib/navigation-registry.ts` — устаревший реестр (3 навигатора, `PlaceholderComponents`). Он документирован как STALE; повторно использовать его запрещено: авторитетный источник — union в `shared/types.ts`. Урок: реестр должен быть *единственной* моделью, а не вторым способом рядом с хардкодом.
 
 ### 2.3. Существующие прецеденты реестров
 
-- `apps/electron/src/shared/settings-registry.ts` — **образец для подражания**: единый `SETTINGS_PAGES` (15 подстраниц) порождает тип `SettingsSubpage`, валидацию и задокументированный 4-шаговый рецепт добавления; полнота рендера гарантируется типом `Record<SettingsSubpage, ComponentType>` в `pages/settings/settings-pages.ts`. PanelRegistry повторяет эту схему: single source → производные типы → TS-контроль полноты.
+- `apps/electron/src/shared/settings-registry.ts` — **образец для подражания**: единый `SETTINGS_PAGES` (**19 id**: `runtime`, `context`, `marketplace`, `knowledge`, `extensions`, `app`, `ai`, `appearance`, `input`, `workspace`, `accounts`, `permissions`, `security`, `labels`, `organizations`, `messaging`, `server`, `cloudRuns`, `shortcuts`) порождает тип `SettingsSubpage`, валидацию и задокументированный 4-шаговый рецепт добавления; полнота рендера гарантируется типом `Record<SettingsSubpage, ComponentType>` в `pages/settings/settings-pages.ts`. Устаревшие упоминания «15 подстраниц» в этом сьюте — **STALE**. PanelRegistry повторяет эту схему: single source → производные типы → TS-контроль полноты.
 - `apps/electron/src/renderer/actions/registry.tsx` + `actions/keybinding-context.ts` — готовый when-движок: контекстные ключи (`inputFocus`, `hasSelection`, `chatFocus`, `navigatorFocus`, `sidebarFocus`, `menuOpen`) и `evaluateWhen`. PanelRegistry использует тот же синтаксис выражений.
 
 ## 3. Решение
@@ -70,7 +73,24 @@
 
 ### 3.2. Activity Rail
 
-Состав рейла (порядок = `defaultOrder`, шаг 10 — для вставок расширений):
+**Живой SSOT (код сейчас).** Не проектировать рейл по inline `links[]`. Канон — `APP_NAV_DESTINATIONS` (9 пунктов; `linkId` — id пункта сайдбара):
+
+| порядок в массиве | destination id | linkId | Навигатор |
+|---|---|---|---|
+| 1 | `sessions` | `nav:allSessions` | Sessions |
+| 2 | `projects` | `nav:projects` | Projects |
+| 3 | `memory` | `nav:memory` | Memory |
+| 4 | `sources` | `nav:sources` | Sources |
+| 5 | `skills` | `nav:skills` | Skills |
+| 6 | `notes` | `nav:notes` | Notes |
+| 7 | `automations` | `nav:automations` | Automations |
+| 8 | `connections` | `nav:connections` | Connections |
+| 9 | `settings` | `nav:settings` | Settings (`SETTINGS_PAGES`, **19** подстраниц) |
+
+`lib/navigation-registry.ts` по-прежнему STALE и **не** трогается этим документом.
+
+**Целевая модель PanelRegistry (не реализовывать / не добавлять рейлы здесь).** Состав ниже — план волны реестра (`defaultOrder`, шаг 10). Он **не** описывает текущий продукт: пункты `rail.knowledge` / `rail.browser` / `rail.runs` / `rail.agent-studio` / `rail.extensions` в коде отсутствуют и **не добавляются** этой правкой.
+
 
 | order | id | Пункт | Навигатор (slot `navigator-primary`) | Источник | Статус в коде |
 |---|---|---|---|---|---|
@@ -80,7 +100,7 @@
 | 40 | `rail.runs` | Runs | список облачных запусков (queued/running/done) | `core` | backend-контур `cloudRuns.*` в `packages/server-core` существует; отдельный навигатор — **новый компонент** (сейчас UI — чип в composer) |
 | 50 | `rail.agent-studio` | Agent Studio | флаяут-поддерево, см. ниже | `core` | узлы существуют как разнесённые навигаторы/страницы |
 | 60 | `rail.extensions` | Extensions | Extension Center (Installed / Marketplace) | `core` | **новый компонент** (волна W5, [S-05](./05-extension-center.md)) |
-| 70 | `rail.settings` | Settings | навигатор настроек (15 подстраниц) | `core` | существует (`shared/settings-registry.ts`) |
+| 70 | `rail.settings` | Settings | навигатор настроек (**19** подстраниц `SETTINGS_PAGES`; не «15») | `core` | существует (`shared/settings-registry.ts`) |
 
 **Раскрытие второго уровня.** Первый клик по пункту открывает слот `navigator-primary` с его навигатором. У пунктов с `children` клик (или hover с задержкой) открывает флаяут-список рядом с рейлом; выбор узла подсвечивает родителя и грузит навигатор узла. Состояние раскрытия не липкое: смена пункта сворачивает флаяут (аналог существующего `collapsedSidebarItems` хранит только пользовательские свёртки внутри навигатора).
 
@@ -88,7 +108,7 @@
 
 | Узел | Что открывает | Сегодня в коде |
 |---|---|---|
-| `studio.skills` | навигатор Skills | навигатор `skills` (`nav:skills` в links[], `MainContentPanel.tsx`) |
+| `studio.skills` | навигатор Skills | навигатор `skills` (`APP_NAV_DESTINATIONS` id `skills` / `nav:skills`; не inline `links[]`) |
 | `studio.sources` | навигатор Sources | навигатор `sources` |
 | `studio.memory` | навигатор Memory | навигатор `memory` |
 | `studio.automations` | навигатор Automations | навигатор `automations` |
@@ -155,7 +175,7 @@ interface PanelRegistry {
 }
 ```
 
-**Правило для ревью (проверяется grep'ом):** после миграции W1 в `AppShell.tsx`/`LeftSidebar.tsx`/`MainContentPanel.tsx`/`shared/types.ts`/`route-parser.ts` **не добавляются** новые rail-пункты и навигаторы; новый пункт = `registry.register(...)`. Существующие массив `links[]` и ветки `MainContentPanel` конвертируются в core-contributions (таблица §3.2 — seed-список), затем inline-модель удаляется. Полнота рендера контролируется как в `settings-registry.ts`: `Record<PanelSlot, HostComponent>` + список обязательных core-ids, покрытый тестом реестра.
+**Правило для ревью (проверяется grep'ом):** после миграции W1 в `AppShell.tsx`/`LeftSidebar.tsx`/`MainContentPanel.tsx`/`shared/types.ts`/`route-parser.ts` **не добавляются** новые rail-пункты и навигаторы; новый пункт = `registry.register(...)`. Seed живого рейла — **9** id из `APP_NAV_DESTINATIONS`, не целевая таблица knowledge/browser/runs/studio/extensions и не **STALE** `links[]`. Ветки `MainContentPanel` конвертируются в core-contributions, затем inline-модель удаляется. Полнота рендера контролируется как в `settings-registry.ts` (**19** `SETTINGS_PAGES`): `Record<PanelSlot, HostComponent>` + список обязательных core-ids, покрытый тестом реестра. `navigation-registry.ts` не менять.
 
 Миграция происходит по одному навигатору за раз; пока навигатор не конвертирован, он живёт по-старому (реестр не обязан поглощать всё за один шаг) — но ветка «старый путь» инкапсулирована одним legacy-адаптером contribution, а не размазана по shell.
 
@@ -314,7 +334,7 @@ Review layout:
 - [ ] Типы `PanelSlot` / `PanelContribution` присутствуют в `packages/core/src/platform/panels/types.ts` **verbatim** (см. §3.4); сборка renderer-а падает при неполном `Record<PanelSlot, HostComponent>`.
 - [ ] Grep по `AppShell.tsx`, `LeftSidebar.tsx`, `shared/types.ts`, `route-parser.ts` не находит новых rail/item-хардкодов после W1; все пункты §3.2 приходят из `PanelRegistry`.
 - [ ] Добавление новой панели (тестовая core-contribution) выполняется одной регистрацией без правок шести файлов из §2.2; пункт появляется в рейле, проходит ordering и `when`-фильтрацию.
-- [ ] Activity Rail содержит 7 пунктов §3.2; Agent Studio раскрывается поддеревом из 5 узлов; старые deep links (`sources`, `skills`, `settings/toolchain`) продолжают открываться.
+- [ ] Живой Activity Rail совпадает с 9 id `APP_NAV_DESTINATIONS` (§3.2 SSOT). Целевые 7 пунктов PanelRegistry (включая Agent Studio из 5 узлов) — приёмка волны реестра, **не** текущий продукт и **не** повод добавлять рейлы. Deep links (`sources`, `skills`, `settings/toolchain`) продолжают открываться.
 - [ ] Inspector Rail содержит 6 иконок §3.3; одновременно открыт не более одного инспектора; `when`-фильтрация по `activeSurface` работает.
 - [ ] Таблица сопоставления §3.6 покрывает все 6 dock-позиций SiYuan и custom tab; L2+ dock-панель плагина появляется в назначенном слоте, L0/L1 не регистрирует панель.
 - [ ] Операции pin/hide/move/resize/save/restore сохраняются в `panel-registry-state:${workspaceId}` и переживают перезапуск renderer; parse-broken JSON отдаёт defaults без падения.
