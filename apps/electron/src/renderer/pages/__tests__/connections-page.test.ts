@@ -76,6 +76,17 @@ describe('CF-6.2 ConnectionsPage', () => {
     expect(page).toContain('connections.repair')
   })
 
+  it('fails closed on the services tab when fabric or IPC is absent', () => {
+    expect(page).toContain("setSurface('unavailable')")
+    expect(page).toContain('unsupported_test')
+    expect(page).toContain('_unavailable')
+    expect(page).toContain('not found')
+    expect(page).toContain('connections-services-unavailable')
+    expect(page).toContain('sidebar.connectionsUnavailable')
+    expect(page).toContain('chat.connectionUnavailable')
+    expect(page).toContain('classifyFailClosed')
+  })
+
   it('exposes a native Connect control that lists import sources', () => {
     expect(page).toContain('connections.connect')
     expect(page).toContain('CONNECT_SOURCES')
