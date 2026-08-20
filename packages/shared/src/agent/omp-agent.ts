@@ -91,6 +91,7 @@ import {
   getSessionScopedToolCallbacks,
 } from './session-scoped-tools.ts';
 import { executeBrowserToolCommand } from './browser-tool-runtime.ts';
+import { executeGithubUserTool } from '../connections/github-user-tool.ts';
 import { saveBinaryResponse } from '../utils/binary-detection.ts';
 
 // ============================================================
@@ -1236,6 +1237,21 @@ export class OmpAgent extends BaseAgent {
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           return { content: `spawn_session failed: ${msg}`, isError: true };
+        }
+      }
+
+      // github_user — brokered GitHub /user (token stays inside broker.perform)
+      if (strippedName === 'github_user') {
+        try {
+          const result = await executeGithubUserTool({
+            workspaceId: String(args.workspaceId ?? ''),
+            connectionId: String(args.connectionId ?? ''),
+            consumerId: typeof args.consumerId === 'string' ? args.consumerId : undefined,
+          });
+          return { content: JSON.stringify(result), isError: false };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return { content: `github_user failed: ${msg}`, isError: true };
         }
       }
 

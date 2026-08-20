@@ -27,6 +27,8 @@
     "./config/types": "./src/config/types.ts",
     "./context-docs": "./src/context-docs/index.ts",
     "./credentials": "./src/credentials/index.ts",
+    "./connections": "./src/connections/index.ts",
+    "./connections/github-user-tool": "./src/connections/github-user-tool.ts",
     "./mcp": "./src/mcp/index.ts",
     "./prompts": "./src/prompts/index.ts",
     "./sessions": "./src/sessions/index.ts",

@@ -11,6 +11,7 @@ import { registerSettingsGuiHandlers } from './settings'
 import { registerSiyuanHandlers } from './siyuan'
 import { registerExtensionHostHandlers } from './extension-host'
 import { registerExtensionSurfaceHandlers } from './extension-surface'
+import { setGithubUserToolHost } from '@craft-agent/shared/connections'
 import { createGithubEnvImportHost, registerWorkGraphHandlers } from './workgraph'
 import type { WorkGraphKernel } from '@craft-agent/server-core/workgraph'
 
@@ -36,5 +37,14 @@ export function registerAllRpcHandlers(
   // channels and the app fails to boot.
   registerCoreRpcHandlers(server, deps, serverCtx, { browserPane: false })
   registerGuiRpcHandlers(server, deps)
-  if (workGraph) registerWorkGraphHandlers(server, workGraph, createGithubEnvImportHost())
+  if (workGraph) {
+    const fabric = createGithubEnvImportHost()
+    registerWorkGraphHandlers(server, workGraph, fabric)
+    setGithubUserToolHost({
+      getKernel: () => workGraph,
+      getBroker: () => fabric.broker,
+      getProvider: () => fabric.provider,
+      fetchImpl: fabric.fetchImpl,
+    })
+  }
 }

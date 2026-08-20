@@ -181,6 +181,12 @@ export const SpawnSessionSchema = z.object({
   })).optional().describe('Files to include with the prompt'),
 });
 
+export const GithubUserSchema = z.object({
+  workspaceId: z.string().describe('Workspace that owns the GitHub connection'),
+  connectionId: z.string().describe('WorkGraph connection id for the GitHub credential'),
+  consumerId: z.string().optional().describe('Lease consumer id (defaults to "agent")'),
+});
+
 // Session self-management tools
 export const SetSessionLabelsSchema = z.object({
   sessionId: z.string().optional().describe('Session ID to update. Omit to update the current session.'),
@@ -470,6 +476,12 @@ Optional overrides: \`model\`, \`llmConnection\`, \`permissionMode\`, \`thinking
 The spawned session appears in the session list and runs fire-and-forget.
 Only use 'attachments' for existing file paths on disk — the tool reads them automatically.`,
 
+  github_user: `Fetch the authenticated GitHub login for a WorkGraph GitHub connection.
+
+Uses the Connection Fabric broker: the agent receives only { login }. The raw token never enters tool results or agent context.
+
+Requires workspaceId + connectionId. Optional consumerId selects the granted lease consumer (default "agent").`,
+
   send_developer_feedback: `Send freeform feedback to the Craft Agent development team.
 
 Use this to share anything that would help improve the product — issues you hit, ideas for better tools, suggestions for improved workflows, or patterns you notice. Write in markdown with as much detail as possible. This is your direct line to the developers.`,
@@ -594,6 +606,7 @@ export const SESSION_TOOL_DEFS: SessionToolDef[] = [
   { name: 'send_developer_feedback', description: TOOL_DESCRIPTIONS.send_developer_feedback, inputSchema: SendDeveloperFeedbackSchema, executionMode: 'registry', safeMode: 'allow', handler: handleSendDeveloperFeedback },
   { name: 'call_llm', description: TOOL_DESCRIPTIONS.call_llm, inputSchema: CallLlmSchema, executionMode: 'backend', safeMode: 'allow', readOnly: true, handler: null },
   { name: 'spawn_session', description: TOOL_DESCRIPTIONS.spawn_session, inputSchema: SpawnSessionSchema, executionMode: 'backend', safeMode: 'block', handler: null },
+  { name: 'github_user', description: TOOL_DESCRIPTIONS.github_user, inputSchema: GithubUserSchema, executionMode: 'backend', safeMode: 'allow', readOnly: true, handler: null },
   // Browser tool (backend-specific — requires BrowserPaneManager in Electron)
   // Single CLI-like tool that handles all browser actions via command string.
   { name: 'browser_tool', description: TOOL_DESCRIPTIONS.browser_tool, inputSchema: BrowserToolSchema, executionMode: 'backend', safeMode: 'allow', handler: null },
