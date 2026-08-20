@@ -28,6 +28,10 @@ import type {
   MarketplaceEntryStats,
   MarketplaceLockRecord,
 } from '@craft-agent/shared/marketplace'
+import {
+  isHighRiskMarketplacePermission,
+  permissionsForMarketplaceKind,
+} from '@craft-agent/shared/extensions/browser'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -565,6 +569,19 @@ export default function MarketplaceSettingsPage() {
                               ) : null}
                             </span>
                           </span>
+                          {permissionsForMarketplaceKind(e.kind).map((permission) => (
+                            <span
+                              key={permission}
+                              data-marketplace-permission={permission}
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-mono border ${
+                                isHighRiskMarketplacePermission(permission)
+                                  ? 'border-amber-500/60 text-amber-700 dark:text-amber-300 bg-amber-500/10'
+                                  : 'bg-muted text-muted-foreground'
+                              }`}
+                            >
+                              {permission}
+                            </span>
+                          ))}
                           {e.tags?.slice(0, 3).map((tag) => (
                             <span key={tag} className="text-[10px] opacity-60">
                               #{tag}

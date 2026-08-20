@@ -12,3 +12,8 @@ export {
   permissionsFromAlwaysAllow,
   type ExtensionPermissionRisk,
 } from './permissions.ts'
+export {
+  MARKETPLACE_KIND_PERMISSIONS,
+  isHighRiskMarketplacePermission,
+  permissionsForMarketplaceKind,
+} from './marketplace-kind.ts'

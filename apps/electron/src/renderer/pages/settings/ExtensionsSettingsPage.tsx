@@ -19,6 +19,7 @@ import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
   CatalogCategory,
   ExtensionPermission,
+  ExtensionProviderId,
   ExtensionRecord,
   ExtensionRuntime,
   ExtensionsListInstalledResult,
@@ -46,6 +47,7 @@ function ExtensionCard({
   version,
   description,
   runtime,
+  origin,
   category,
   permissions,
   worksIn,
@@ -59,6 +61,7 @@ function ExtensionCard({
   version: string
   description?: string
   runtime: ExtensionRuntime
+  origin: ExtensionProviderId
   category: string
   permissions: ExtensionPermission[]
   worksIn: string[]
@@ -116,6 +119,12 @@ function ExtensionCard({
       <div className="grid gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <RuntimeBadge runtime={runtime} />
+          <span
+            data-extension-origin={origin}
+            className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90"
+          >
+            {t(`extensions.origin.${origin}`, { defaultValue: origin })}
+          </span>
           {installTarget ? (
             <span className="opacity-70">
               {t('extensions.card.installTarget', { defaultValue: 'Install to' })}:{' '}
@@ -305,6 +314,7 @@ export default function ExtensionsSettingsPage() {
       version={record.manifest.version}
       description={record.description}
       runtime={record.manifest.runtime}
+      origin={record.providerId}
       category={record.category}
       permissions={record.manifest.permissions}
       worksIn={record.worksIn}
