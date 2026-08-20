@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 import {
+  createGitCredentialFill,
   GitCredentialHelperImporter,
   type GitCredentialHelperFill,
   type InProcessCredentialBroker,
@@ -30,7 +31,7 @@ function createImporter(input: {
   return new GitCredentialHelperImporter({
     configText: readConfigText(input.configPath),
     provider: input.provider,
-    fill: input.fill,
+    fill: input.fill ?? createGitCredentialFill(),
   })
 }
 

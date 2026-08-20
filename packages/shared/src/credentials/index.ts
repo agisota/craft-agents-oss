@@ -117,6 +117,24 @@ export type {
   AwsCredentialProcessSecret,
   AwsSharedProfileImporterOptions,
 } from './fabric/aws-profile-importer.ts';
+export {
+  createAwsCredentialProcessRun,
+  createDockerCredentialGet,
+  createGitCredentialFill,
+  createKeychainGet,
+  createKeychainList,
+  createSshAgentList,
+  defaultPaths,
+} from './fabric/host-runners.ts';
+export type {
+  AwsProcessRun,
+  DockerRun,
+  GitRun,
+  HostPaths,
+  KeychainGetRun,
+  KeychainListRun,
+  SshListRun,
+} from './fabric/host-runners.ts';
 
 export { createProviderMaterialization, maskSecret } from './fabric/materialization.ts';
 export { BrokerDenial, InProcessCredentialBroker } from './fabric/broker.ts';

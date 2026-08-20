@@ -2,10 +2,17 @@ import { readFileSync } from 'node:fs'
 
 import {
   AwsSharedProfileImporter,
+  createAwsCredentialProcessRun,
+  createDockerCredentialGet,
+  createKeychainGet,
+  createKeychainList,
+  createSshAgentList,
   DockerCredentialHelperImporter,
   GoogleAdcImporter,
   KeychainImporter,
   SshAgentImporter,
+  type AwsCredentialProcessRun,
+  type DockerCredentialHelperGet,
   type KeychainGet,
   type KeychainList,
   type LocalFileSecretProvider,
@@ -56,10 +63,12 @@ async function commitConnection(input: {
 export async function previewDockerHelperImport(input: {
   readonly configPath: string
   readonly provider: LocalFileSecretProvider
+  readonly get?: DockerCredentialHelperGet
 }): Promise<readonly LocalImportPreview[]> {
   const importer = new DockerCredentialHelperImporter({
     configText: readText(input.configPath),
     provider: input.provider,
+    get: input.get ?? createDockerCredentialGet(),
   })
   return previewsFrom(() => importer.discover(), (id) => importer.preview({ candidateId: id }))
 }
@@ -71,11 +80,12 @@ export async function commitDockerHelperImport(input: {
   readonly kernel: Pick<WorkGraphKernel, 'createConnection'>
   readonly workspaceId: string
   readonly requestedBy: string
-  readonly broker?: InProcessCredentialBroker
+  readonly get?: DockerCredentialHelperGet
 }): Promise<ConnectionRecord> {
   const importer = new DockerCredentialHelperImporter({
     configText: readText(input.configPath),
     provider: input.provider,
+    get: input.get ?? createDockerCredentialGet(),
   })
   await importer.discover()
   const committed = await importer.commit({
@@ -99,11 +109,13 @@ export async function previewAwsProfileImport(input: {
   readonly credentialsPath: string
   readonly configPath: string
   readonly provider: LocalFileSecretProvider
+  readonly run?: AwsCredentialProcessRun
 }): Promise<readonly LocalImportPreview[]> {
   const importer = new AwsSharedProfileImporter({
     credentialsText: input.credentialsPath ? readText(input.credentialsPath) : '',
     configText: input.configPath ? readText(input.configPath) : '',
     provider: input.provider,
+    run: input.run ?? createAwsCredentialProcessRun(),
   })
   return previewsFrom(() => importer.discover(), (id) => importer.preview({ candidateId: id }))
 }
@@ -116,11 +128,13 @@ export async function commitAwsProfileImport(input: {
   readonly kernel: Pick<WorkGraphKernel, 'createConnection'>
   readonly workspaceId: string
   readonly requestedBy: string
+  readonly run?: AwsCredentialProcessRun
 }): Promise<ConnectionRecord> {
   const importer = new AwsSharedProfileImporter({
     credentialsText: input.credentialsPath ? readText(input.credentialsPath) : '',
     configText: input.configPath ? readText(input.configPath) : '',
     provider: input.provider,
+    run: input.run ?? createAwsCredentialProcessRun(),
   })
   await importer.discover()
   const committed = await importer.commit({
@@ -188,8 +202,8 @@ export async function previewKeychainImport(input: {
 }): Promise<readonly LocalImportPreview[]> {
   const importer = new KeychainImporter({
     provider: input.provider,
-    list: input.list ?? (() => []),
-    get: input.get ?? (() => ({})),
+    list: input.list ?? createKeychainList(),
+    get: input.get ?? createKeychainGet(),
   })
   return previewsFrom(() => importer.discover(), (id) => importer.preview({ candidateId: id }))
 }
@@ -205,8 +219,8 @@ export async function commitKeychainImport(input: {
 }): Promise<ConnectionRecord> {
   const importer = new KeychainImporter({
     provider: input.provider,
-    list: input.list ?? (() => []),
-    get: input.get ?? (() => ({})),
+    list: input.list ?? createKeychainList(),
+    get: input.get ?? createKeychainGet(),
   })
   await importer.discover()
   const committed = await importer.commit({
@@ -232,7 +246,7 @@ export async function previewSshAgentImport(input: {
 }): Promise<readonly LocalImportPreview[]> {
   const importer = new SshAgentImporter({
     provider: input.provider,
-    list: input.list ?? (() => []),
+    list: input.list ?? createSshAgentList(),
   })
   return previewsFrom(() => importer.discover(), (id) => importer.preview({ candidateId: id }))
 }
@@ -247,7 +261,7 @@ export async function commitSshAgentImport(input: {
 }): Promise<ConnectionRecord> {
   const importer = new SshAgentImporter({
     provider: input.provider,
-    list: input.list ?? (() => []),
+    list: input.list ?? createSshAgentList(),
   })
   await importer.discover()
   const committed = await importer.commit({
