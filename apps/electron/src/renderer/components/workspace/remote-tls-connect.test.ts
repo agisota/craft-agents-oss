@@ -25,3 +25,12 @@ describe('tlsTrustFromDecision', () => {
     expect(tlsTrustFromDecision(null)).toBeUndefined()
   })
 })
+
+describe('ConnectRemote token test uses enrolled pin', () => {
+  it('passes persist into testRemoteConnection after accept', () => {
+    const src = require('node:fs').readFileSync(require('node:path').join(import.meta.dir, 'AddWorkspaceStep_ConnectRemote.tsx'), 'utf8')
+    expect(src).toContain('testRemoteConnection(serverUrl, token, trust)')
+    expect(src).toContain('await runTokenBearingTest(persist)')
+    expect(src).not.toContain('JSON.stringify(result')
+  })
+})

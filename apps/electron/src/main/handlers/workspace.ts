@@ -68,8 +68,8 @@ export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDep
   // Test connection to a remote Craft Agent Server.
   // Pure discovery — returns list of existing workspaces or needsWorkspace flag.
   // Workspace creation is handled separately via invokeOnServer → server:createWorkspace.
-  server.handle(RPC_CHANNELS.remote.TEST_CONNECTION, async (_ctx, url: string, token: string) => {
-    const { client, error } = await connectToRemote(url, token)
+  server.handle(RPC_CHANNELS.remote.TEST_CONNECTION, async (_ctx, url: string, token: string, tlsTrust?: RemoteTlsTrust) => {
+    const { client, error } = await connectToRemote(url, token, undefined, { tlsTrust })
     if (!client) return { ok: false, error }
 
     // Read server version from handshake_ack (null for old servers)

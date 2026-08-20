@@ -104,18 +104,18 @@ export function AddWorkspaceStep_ConnectRemote({
     }
   }
 
-  const runTokenBearingTest = useCallback(async () => {
+  const runTokenBearingTest = useCallback(async (trust = tlsTrust) => {
     if (!serverUrl || !token) return
     setTestState('testing')
     setTestError(null)
     try {
-      const result = await window.electronAPI.testRemoteConnection(serverUrl, token)
+      const result = await window.electronAPI.testRemoteConnection(serverUrl, token, trust)
       applyTestResult(result)
     } catch (err) {
       setTestState('error')
       setTestError(err instanceof Error ? err.message : 'Connection failed')
     }
-  }, [serverUrl, token])
+  }, [serverUrl, token, tlsTrust])
 
   const handleTestConnection = useCallback(async () => {
     if (!serverUrl || !token) return
@@ -165,7 +165,7 @@ export function AddWorkspaceStep_ConnectRemote({
       setTlsTrust(persist)
       setTlsGate('none')
       setPendingInspect(null)
-      await runTokenBearingTest()
+      await runTokenBearingTest(persist)
     } catch (err) {
       setTlsGate('none')
       setTestState('error')

@@ -11,6 +11,7 @@ export { normalizeRemoteTlsTrust } from './remote-tls-trust.ts';
 export {
   assertNotesImportPaths,
   getConfigDir,
+  isImportProvenancedRelativePath,
   setOwnedRootAdapter,
   type OwnedRootAdapter,
 } from './owned-root-policy.ts';

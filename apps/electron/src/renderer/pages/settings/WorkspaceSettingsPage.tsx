@@ -54,6 +54,8 @@ export default function WorkspaceSettingsPage() {
   // Get active workspace from context
   const appShellContext = useAppShellContext()
   const activeWorkspaceId = appShellContext.activeWorkspaceId
+  const activeWorkspace = appShellContext.workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+  const tlsTrust = activeWorkspace?.remoteServer?.tlsTrust
   const onRefreshWorkspaces = appShellContext.onRefreshWorkspaces
 
   // Workspace settings state
@@ -452,6 +454,32 @@ export default function WorkspaceSettingsPage() {
                 placeholder={t("settings.workspace.enterWorkspaceName")}
               />
             </SettingsSection>
+            {tlsTrust ? (
+              <SettingsSection title={t('workspace.tlsSection')}>
+                <SettingsCard>
+                  <SettingsRow label={t('workspace.tlsMode')}>
+                    <span className="text-sm">
+                      {t(`workspace.tlsMode.${tlsTrust.mode}`)}
+                    </span>
+                  </SettingsRow>
+                  {tlsTrust.mode === 'spki-pin' ? (
+                    <>
+                      <SettingsRow label={t('workspace.tlsOrigin')}>
+                        <span className="text-sm font-mono break-all">{tlsTrust.origin}</span>
+                      </SettingsRow>
+                      <SettingsRow label={t('workspace.tlsFingerprint')}>
+                        <span className="text-sm font-mono break-all">{tlsTrust.spkiSha256}</span>
+                      </SettingsRow>
+                      <SettingsRow label={t('workspace.tlsEnrolledAt')}>
+                        <span className="text-sm tabular-nums">
+                          {new Date(tlsTrust.enrolledAt).toISOString()}
+                        </span>
+                      </SettingsRow>
+                    </>
+                  ) : null}
+                </SettingsCard>
+              </SettingsSection>
+            ) : null}
 
             {/* Permissions */}
             <SettingsSection title={t("settings.workspace.permissionsSection")}>

@@ -656,7 +656,7 @@ export interface ElectronAPI {
     authority?: WorkspaceCreationAuthority,
   ): Promise<WorkspaceInfo & { activation: WorkspaceActivation }>
 
-  testRemoteConnection(url: string, token: string): Promise<{
+  testRemoteConnection(url: string, token: string, tlsTrust?: RemoteTlsTrust): Promise<{
     ok: boolean
     error?: string
     needsWorkspace?: boolean
