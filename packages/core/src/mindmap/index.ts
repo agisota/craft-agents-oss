@@ -101,10 +101,16 @@ export {
   type SessionSceneGraph,
   type SceneEdge,
   type SceneToolPacket,
+  type SceneMessage,
+  type SceneToolStatus,
 } from './session-scene-graph.ts';
 
 export {
   buildDigestItems,
+  digestPinStorageKey,
+  parsePinnedSceneIds,
+  serializePinnedSceneIds,
+  DIGEST_PIN_STORAGE_KEY,
   type DigestItem,
   type DigestShelf,
 } from './session-digest.ts';

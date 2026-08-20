@@ -43,6 +43,7 @@ import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
 import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 import { MindMapHost } from '@/mindmap/MindMapHost'
 import { SessionWorkbench } from '@/components/session-workbench/SessionWorkbench'
+import type { FanOutChildJob } from '@/components/session-workbench/fan-out-jobs'
 import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindmap'
 import { useSiyuanConnected } from '@/hooks/useSiyuanConnected'
 
@@ -120,6 +121,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     chatDisplayRef,
     onChatMatchInfoChange,
     isFocusedPanel,
+    onCreateSession,
   } = useAppShellContext()
 
   // Use the unified session options hook for clean access
@@ -571,6 +573,78 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     [chatDisplayRef, setSessionView],
   )
 
+
+  const handleWorkbenchFork = React.useCallback(
+    async (messageId: string) => {
+      if (!session) return
+      try {
+        const child = await onCreateSession(session.workspaceId, {
+          branchFromMessageId: messageId,
+          branchFromSessionId: session.id,
+          name: `Branch of ${session.name || 'Untitled'}`,
+          llmConnection: session.llmConnection,
+          model: session.model,
+          permissionMode: session.permissionMode,
+          workingDirectory: session.workingDirectory,
+          enabledSourceSlugs: session.enabledSourceSlugs,
+        })
+        navigate(routes.view.allSessions(child.id))
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : 'Failed to create branch'
+        toast.error(t('toast.couldNotCreateBranch'), { description: rawMessage })
+      }
+    },
+    [session, onCreateSession, t],
+  )
+
+  const handleWorkbenchRewrite = React.useCallback(
+    async (messageId: string, prompt: string) => {
+      if (!session) return
+      try {
+        const child = await onCreateSession(session.workspaceId, {
+          branchFromMessageId: messageId,
+          branchFromSessionId: session.id,
+          name: `Branch of ${session.name || 'Untitled'}`,
+          llmConnection: session.llmConnection,
+          model: session.model,
+          permissionMode: session.permissionMode,
+          workingDirectory: session.workingDirectory,
+          enabledSourceSlugs: session.enabledSourceSlugs,
+        })
+        onInputChange(child.id, prompt)
+        navigate(routes.view.allSessions(child.id))
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : 'Failed to create branch'
+        toast.error(t('toast.couldNotCreateBranch'), { description: rawMessage })
+      }
+    },
+    [session, onCreateSession, onInputChange, t],
+  )
+
+  const handleCreateChildSessions = React.useCallback(
+    async (jobs: FanOutChildJob[]) => {
+      if (!session) return
+      try {
+        for (const job of jobs) {
+          await onCreateSession(session.workspaceId, {
+            branchFromMessageId: job.branchFromMessageId,
+            branchFromSessionId: session.id,
+            name: job.title.slice(0, 80),
+            llmConnection: session.llmConnection,
+            model: session.model,
+            permissionMode: session.permissionMode,
+            workingDirectory: session.workingDirectory,
+            enabledSourceSlugs: session.enabledSourceSlugs,
+          })
+        }
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : 'Failed to create branch'
+        toast.error(t('toast.couldNotCreateBranch'), { description: rawMessage })
+      }
+    },
+    [session, onCreateSession, t],
+  )
+
   const renderSessionViewBody = React.useCallback(
     (chatDisplay: React.ReactNode) => {
       if (sessionView === 'graph') {
@@ -626,7 +700,11 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             stage={sessionView === 'standard' ? 'chat' : 'graph'}
             graphStage={graphHost}
             chatStage={chatDisplay}
+            model={effectiveModel || undefined}
             onSelectMessage={(id) => handleMindMapNavigate({ kind: 'message', id })}
+            onFork={handleWorkbenchFork}
+            onRewrite={handleWorkbenchRewrite}
+            onCreateChildSessions={handleCreateChildSessions}
           />
         )
       }
@@ -639,8 +717,12 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       sessionMindMapLoading,
       messageLoadState.error,
       handleMindMapNavigate,
+      handleWorkbenchFork,
+      handleWorkbenchRewrite,
+      handleCreateChildSessions,
       activeWorkspaceId,
       session?.messages,
+      effectiveModel,
     ],
   )
 
