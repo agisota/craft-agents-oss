@@ -15,6 +15,14 @@ type PreviewRow = {
   maskedSummary: string
   source: PreviewSource
 }
+type SurfaceState = 'ready' | 'unavailable' | 'error'
+
+function classifyFailClosed(error: unknown): SurfaceState {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/unsupported_test|_unavailable|unavailable/i.test(message)) return 'unavailable'
+  if (/not found/i.test(message)) return 'error'
+  return 'error'
+}
 
 export default function ConnectionsPage() {
   const { t } = useTranslation()
@@ -22,6 +30,7 @@ export default function ConnectionsPage() {
   const [tab, setTab] = useState<ConnectionsTab>('services')
   const [selected, setSelected] = useAtom(selectedConnectionAtom)
   const [rows, setRows] = useState<ConnectionListRow[] | null>(null)
+  const [surface, setSurface] = useState<SurfaceState>('ready')
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [envPath, setEnvPath] = useState('')
@@ -37,15 +46,20 @@ export default function ConnectionsPage() {
     const listConnections = window.electronAPI?.workgraph?.listConnections
     if (!workspaceId || typeof listConnections !== 'function') {
       setRows([])
+      setSurface('unavailable')
       return
     }
     let stale = false
     listConnections(workspaceId)
       .then((raw) => {
-        if (!stale) setRows(sanitizeConnectionRows(raw))
+        if (stale) return
+        setRows(sanitizeConnectionRows(raw))
+        setSurface('ready')
       })
-      .catch(() => {
-        if (!stale) setRows([])
+      .catch((error) => {
+        if (stale) return
+        setRows([])
+        setSurface(classifyFailClosed(error))
       })
     return () => {
       stale = true
@@ -57,47 +71,85 @@ export default function ConnectionsPage() {
 
   const refreshRows = async (workspaceId: string) => {
     const listConnections = window.electronAPI?.workgraph?.listConnections
-    if (typeof listConnections !== 'function') return
-    setRows(sanitizeConnectionRows(await listConnections(workspaceId)))
+    if (typeof listConnections !== 'function') {
+      setSurface('unavailable')
+      return
+    }
+    try {
+      setRows(sanitizeConnectionRows(await listConnections(workspaceId)))
+      setSurface('ready')
+    } catch (error) {
+      setRows([])
+      setSurface(classifyFailClosed(error))
+    }
   }
 
   const listed = rows ?? []
   const services = tab === 'services' ? listed : []
   const credentialRows = tab === 'credentials' ? listed : []
   const policyRows = tab === 'policies' ? listed : []
+  const failClosed = tab === 'services' && surface !== 'ready'
 
   const confirmRevoke = async (connectionId: string) => {
     const workspaceId = workspace?.id
     const revokeConnection = window.electronAPI?.workgraph?.revokeConnection
-    if (!workspaceId || typeof revokeConnection !== 'function') return
-    await revokeConnection({ workspaceId, connectionId })
-    if (selected?.id === connectionId) setSelected(null)
-    setConfirmingId(null)
-    await refreshRows(workspaceId)
+    if (!workspaceId || typeof revokeConnection !== 'function') {
+      setSurface('unavailable')
+      return
+    }
+    try {
+      await revokeConnection({ workspaceId, connectionId })
+      if (selected?.id === connectionId) setSelected(null)
+      setConfirmingId(null)
+      await refreshRows(workspaceId)
+    } catch (error) {
+      setSurface(classifyFailClosed(error))
+    }
   }
 
   const confirmRotate = async (connectionId: string) => {
     const workspaceId = workspace?.id
     const rotateConnection = window.electronAPI?.workgraph?.rotateConnection
-    if (!workspaceId || typeof rotateConnection !== 'function') return
-    await rotateConnection({ workspaceId, connectionId })
-    setRotatingId(null)
-    await refreshRows(workspaceId)
+    if (!workspaceId || typeof rotateConnection !== 'function') {
+      setSurface('unavailable')
+      return
+    }
+    try {
+      await rotateConnection({ workspaceId, connectionId })
+      setRotatingId(null)
+      await refreshRows(workspaceId)
+    } catch (error) {
+      setSurface(classifyFailClosed(error))
+    }
   }
 
   const runTest = async (connectionId: string) => {
     const workspaceId = workspace?.id
     const testConnection = window.electronAPI?.workgraph?.testConnection
-    if (!workspaceId || typeof testConnection !== 'function') return
-    await testConnection({ workspaceId, connectionId })
+    if (!workspaceId || typeof testConnection !== 'function') {
+      setSurface('unavailable')
+      return
+    }
+    try {
+      await testConnection({ workspaceId, connectionId })
+    } catch (error) {
+      setSurface(classifyFailClosed(error))
+    }
   }
 
   const runRepair = async (connectionId: string) => {
     const workspaceId = workspace?.id
     const repairConnection = window.electronAPI?.workgraph?.repairConnection
-    if (!workspaceId || typeof repairConnection !== 'function') return
-    await repairConnection({ workspaceId, connectionId })
-    await refreshRows(workspaceId)
+    if (!workspaceId || typeof repairConnection !== 'function') {
+      setSurface('unavailable')
+      return
+    }
+    try {
+      await repairConnection({ workspaceId, connectionId })
+      await refreshRows(workspaceId)
+    } catch (error) {
+      setSurface(classifyFailClosed(error))
+    }
   }
 
   const renderRevokeControls = (row: ConnectionListRow) => (
@@ -388,6 +440,16 @@ export default function ConnectionsPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        ) : failClosed ? (
+          <div
+            className="flex flex-1 items-center justify-center"
+            data-testid="connections-services-unavailable"
+            role="alert"
+          >
+            <p className="text-sm">
+              {t(surface === 'unavailable' ? 'sidebar.connectionsUnavailable' : 'chat.connectionUnavailable')}
+            </p>
           </div>
         ) : tab === 'services' && services.length > 0 ? (
           <ul className="space-y-2 text-sm text-foreground">

@@ -78,5 +78,15 @@ describe('WorkGraph handler profile', () => {
       storageMode: 'copy',
       value: 'super-secret',
     })).toThrow(/value|payload|secret|field/i)
+
+    const mutation = { workspaceId: 'workspace_a', connectionId: 'conn-1' }
+    await expect(handlers.get(RPC_CHANNELS.workgraph.TEST_CONNECTION)?.(emptyCtx(), mutation))
+      .rejects.toThrow('test_unavailable')
+    await expect(handlers.get(RPC_CHANNELS.workgraph.REVOKE_CONNECTION)?.(emptyCtx(), mutation))
+      .rejects.toThrow('revoke_unavailable')
+    await expect(handlers.get(RPC_CHANNELS.workgraph.ROTATE_CONNECTION)?.(emptyCtx(), mutation))
+      .rejects.toThrow('rotate_unavailable')
+    await expect(handlers.get(RPC_CHANNELS.workgraph.REPAIR_CONNECTION)?.(emptyCtx(), mutation))
+      .rejects.toThrow('repair_unavailable')
   })
 })
