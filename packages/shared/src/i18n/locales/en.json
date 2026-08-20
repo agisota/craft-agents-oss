@@ -691,6 +691,8 @@
   "entityView.standard": "Standard",
   "entityView.tabsLabel": "Views",
   "entityView.teamChat": "Team chat",
+  "entityView.workbenchInspector": "Inspector",
+  "entityView.workbenchMemo": "Memo",
   "errors.chatGptOAuthNotAvailable": "ChatGPT OAuth is not available in the web UI. Use the desktop app or set up an API key instead.",
   "errors.failedToLoadSession": "Failed to load session",
   "errors.failedToLoadSessions": "Failed to load sessions",

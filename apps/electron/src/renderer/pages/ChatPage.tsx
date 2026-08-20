@@ -24,6 +24,7 @@ import { rendererPerf } from '@/lib/perf'
 import { isAbsolutePath } from '@/lib/drafts'
 import { navigate, routes } from '@/lib/navigate'
 import { coerceInputText } from '@/lib/input-text'
+import { lookupMigratedSiyuanId } from '@/lib/notes-migration-map'
 import { deriveSessionMessagesLoadState, formatSessionLoadFailure } from '@/lib/session-load'
 import { ensureSessionMessagesLoadedAtom, forceSessionMessagesReloadAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
 import { kanbanEditorTargetAtom } from '@/atoms/kanban'
@@ -41,6 +42,7 @@ import {
 import KnowledgeSurfacePage from '@/pages/KnowledgeSurfacePage'
 import { SIYUAN_FULL_SURFACE_ID } from '@/knowledge/siyuan-url'
 import { MindMapHost } from '@/mindmap/MindMapHost'
+import { SessionWorkbench } from '@/components/session-workbench/SessionWorkbench'
 import { deriveSessionMindMap, type MindMapGraph } from '@craft-agent/core/mindmap'
 import { useSiyuanConnected } from '@/hooks/useSiyuanConnected'
 
@@ -369,10 +371,18 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   }, [session])
 
   const resolveNoteNavigation = React.useCallback(
-    (noteId: string) => {
-      navigate(routes.view.notes(noteId))
+    async (noteId: string) => {
+      const migrated = await lookupMigratedSiyuanId(
+        activeWorkspace?.rootPath,
+        noteId,
+      ).catch(() => null)
+      if (migrated?.siyuanId) {
+        navigate(routes.view.siyuan({ kind: 'document', id: migrated.siyuanId }))
+        return
+      }
+      navigate(routes.view.notesLegacy(noteId))
     },
-    [],
+    [activeWorkspace?.rootPath],
   )
 
   const handleOpenFile = React.useCallback(
@@ -582,14 +592,22 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           />
         )
       }
-      if (sessionView === 'map' || sessionView === 'outline') {
-        return (
+      const workbenchMessages = (session?.messages ?? []).map((m) => ({
+        id: m.id,
+        type: m.role,
+        content: m.content ?? '',
+        toolName: m.toolName,
+        toolUseId: m.toolUseId,
+        parentToolUseId: m.parentToolUseId,
+        turnId: m.turnId,
+      }))
+      const graphHost = (
           <MindMapHost
             entity={{ type: 'session', sessionId }}
             graph={sessionMindMapGraph}
             loading={sessionMindMapLoading}
             error={messageLoadState.error}
-            mode={sessionView}
+            mode={sessionView === 'outline' ? 'outline' : 'map'}
             workspaceId={activeWorkspaceId || undefined}
             sourceExcerpt={
               session?.messages
@@ -599,12 +617,20 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
             }
             onNavigate={handleMindMapNavigate}
           />
+      )
+      if (sessionView === 'map' || sessionView === 'outline' || sessionView === 'standard') {
+        return (
+          <SessionWorkbench
+            sessionId={sessionId}
+            messages={workbenchMessages}
+            stage={sessionView === 'map' ? 'graph' : 'chat'}
+            graphStage={graphHost}
+            chatStage={chatDisplay}
+            onSelectMessage={(id) => handleMindMapNavigate({ kind: 'message', id })}
+          />
         )
       }
-      if (sessionView !== 'standard') {
-        return <EntityViewPlaceholder view={sessionView as EntityViewId} />
-      }
-      return chatDisplay
+      return <EntityViewPlaceholder view={sessionView as EntityViewId} />
     },
     [
       sessionView,
@@ -614,6 +640,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       messageLoadState.error,
       handleMindMapNavigate,
       activeWorkspaceId,
+      session?.messages,
     ],
   )
 

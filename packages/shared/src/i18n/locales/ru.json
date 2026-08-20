@@ -691,6 +691,8 @@
   "entityView.standard": "Стандарт",
   "entityView.tabsLabel": "Виды",
   "entityView.teamChat": "Командный чат",
+  "entityView.workbenchInspector": "Инспектор",
+  "entityView.workbenchMemo": "Памятка",
   "errors.chatGptOAuthNotAvailable": "ChatGPT OAuth недоступен в веб-интерфейсе. Используйте настольное приложение или настройте ключ API.",
   "errors.failedToLoadSession": "Не удалось загрузить сессию",
   "errors.failedToLoadSessions": "Не удалось загрузить сессии",

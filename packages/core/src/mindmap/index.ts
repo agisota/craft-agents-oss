@@ -18,14 +18,11 @@ export { hashMindMapSource, normalizeMindMapPart } from './hash.ts';
 export {
   addChild,
   addEdge,
-  cloneMindMapGraph,
   createEmptyGraph,
-  createMindMapStarterGraph,
   entityKey,
   finalizeGraph,
   truncateLabel,
   type MindMapChildInput,
-  type MindMapStarterLabels,
 } from './graph.ts';
 
 export {
@@ -77,16 +74,6 @@ export {
 } from './pin.ts';
 
 export {
-  addPinnedCustomNode,
-  deletePinnedCustomNode,
-  MAX_CUSTOM_MIND_MAP_LABEL_LENGTH,
-  PinnedMindMapEditError,
-  reparentPinnedCustomNode,
-  renamePinnedCustomNode,
-  type PinnedMindMapEditErrorCode,
-} from './pinned-edit.ts';
-
-export {
   applyEnrichedOutline,
   buildEnrichPrompt,
   heuristicEnrichOutline,
@@ -103,3 +90,21 @@ export {
   MINDMAP_NOTES_FOLDER,
   type MaterializeMarkdownOptions,
 } from './materialize.ts';
+
+export {
+  projectSessionScenes,
+  planFanOutJobs,
+  initialFanOutStatuses,
+  FANOUT_MAX,
+  FANOUT_PARALLEL,
+  type SessionScene,
+  type SessionSceneGraph,
+  type SceneEdge,
+  type SceneToolPacket,
+} from './session-scene-graph.ts';
+
+export {
+  buildDigestItems,
+  type DigestItem,
+  type DigestShelf,
+} from './session-digest.ts';
