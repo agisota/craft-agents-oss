@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   assertNotesImportPaths,
   getConfigDir,
+  isImportProvenancedRelativePath,
   setOwnedRootAdapter,
 } from '../owned-root-policy.ts'
 
@@ -72,5 +73,27 @@ describe('assertNotesImportPaths', () => {
     expect(() =>
       assertNotesImportPaths({ sourceRoot: '/abs/vault', destinationRoot: '/abs/notes' }),
     ).not.toThrow()
+  })
+
+  it('rejects equal or nested source and destination', () => {
+    expect(() =>
+      assertNotesImportPaths({ sourceRoot: '/abs/vault', destinationRoot: '/abs/vault' }),
+    ).toThrow(/must not equal/)
+    expect(() =>
+      assertNotesImportPaths({ sourceRoot: '/abs/vault', destinationRoot: '/abs/vault/notes' }),
+    ).toThrow(/inside the source/)
+    expect(() =>
+      assertNotesImportPaths({ sourceRoot: '/abs/notes/vault', destinationRoot: '/abs/notes' }),
+    ).toThrow(/inside the destination/)
+  })
+})
+
+describe('isImportProvenancedRelativePath', () => {
+  it('matches notes/imports and assets/imports prefixes', () => {
+    expect(isImportProvenancedRelativePath('imports/alpha.md')).toBe(true)
+    expect(isImportProvenancedRelativePath('imports')).toBe(true)
+    expect(isImportProvenancedRelativePath('assets/imports/picture.png')).toBe(true)
+    expect(isImportProvenancedRelativePath('daily/today.md')).toBe(false)
+    expect(isImportProvenancedRelativePath('imported.md')).toBe(false)
   })
 })

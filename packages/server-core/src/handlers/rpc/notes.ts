@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
-import { getWorkspaceByNameOrId } from '@craft-agent/shared/config'
+import { getWorkspaceByNameOrId, isImportProvenancedRelativePath } from '@craft-agent/shared/config'
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
 import matter from 'gray-matter'
@@ -107,7 +107,11 @@ function assertSafeNoteId(noteId: string): string {
   if (!noteId || noteId.startsWith('/') || noteId.includes('\\') || noteId.split('/').some(part => part === '..' || part === '')) {
     throw new Error('Invalid note id')
   }
-  return stripMdExtension(noteId).replace(/^\/+/, '')
+  const safe = stripMdExtension(noteId).replace(/^\/+/, '')
+  if (isImportProvenancedRelativePath(safe)) {
+    throw new Error('LOCAL_ONLY')
+  }
+  return safe
 }
 
 function notePathFromId(notesRoot: string, noteId: string): string {
@@ -150,6 +154,7 @@ async function listMarkdownFiles(dir: string, root = dir): Promise<string[]> {
     if (entry.name.startsWith('.')) continue
     const abs = join(dir, entry.name)
     const rel = toSlashPath(relative(root, abs))
+    if (isImportProvenancedRelativePath(rel)) continue
     if (entry.isDirectory()) {
       if (rel === ASSETS_DIR || rel.startsWith(`${ASSETS_DIR}/`)) continue
       if (rel === TEMPLATES_DIR || rel.startsWith(`${TEMPLATES_DIR}/`)) continue
@@ -587,6 +592,8 @@ async function listAssetFiles(dir: string, root = dir): Promise<string[]> {
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue
     const abs = join(dir, entry.name)
+    const rel = toSlashPath(relative(root, abs))
+    if (isImportProvenancedRelativePath(rel)) continue
     if (entry.isDirectory()) {
       files.push(...await listAssetFiles(abs, root))
     } else if (entry.isFile()) {
