@@ -1,6 +1,10 @@
 # ROX Notes: canonical root, consented Imports, and engine boundary — Implementation Plan
 
-> **Status:** Planning complete. **Do not implement yet.** The product owner approved the design for planning only on 2026-08-10. Code changes remain blocked until the security reviewer accepts the local-only consent/identity/indexing boundary and the legal/release owner separately resolves G1/G2 and the managed-engine release authorization prerequisites.
+> **Status:** Planning complete. **Do not implement yet.** (Reaffirmed 2026-08-20.) The product owner approved the design for planning only on 2026-08-10. Code changes remain blocked until the security reviewer accepts the local-only consent/identity/indexing boundary and the legal/release owner separately resolves G1/G2 and the managed-engine release authorization prerequisites.
+>
+> **Task 11 preview is not an independent first task.** Do not implement `OPEN_MATERIALIZED_PREVIEW` or a dedicated import renderer ahead of Tasks 1–10 and the §0.1 gates. Do not extend `KnowledgeSettingsPage` `migrateNotes` as a preview fallback.
+>
+> **Unsatisfied §0.1 gates:** (1) product-owner approval of this plan and the §0.2 root-policy decisions; (2) security-reviewer acceptance of the local-only/trusted-shell/opaque-token/no-follow/private-ledger/import-exposure/agent-egress/tool-fence design; (3) legal/release-owner engine decision. `g1-metrics.md` thresholds remain TBD and `g2-decision-record.md` remains OPEN.
 >
 > **Source design:** [`docs/specs/2026-08-10-rox-notes-root-imports-design.md`](../../specs/2026-08-10-rox-notes-root-imports-design.md)
 >
