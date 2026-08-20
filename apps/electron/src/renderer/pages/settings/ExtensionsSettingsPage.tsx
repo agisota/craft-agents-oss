@@ -14,6 +14,8 @@ import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { Spinner } from '@craft-agent/ui'
+import { SettingsCard, SettingsCardContent } from '@/components/settings'
+import { Button } from '@/components/ui/button'
 import { navigate, routes } from '@/lib/navigate'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import type {
@@ -76,92 +78,95 @@ function ExtensionCard({
     status === 'enabled' || status === 'installed' || status === 'update-available'
 
   return (
-    <div className="border rounded-lg p-4 space-y-3 bg-background/40">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold truncate">{name}</h3>
-            <span className="text-xs opacity-60">v{version}</span>
-            <span className="text-[10px] uppercase tracking-wide opacity-70 border rounded px-1.5 py-0.5">
-              {t(`extensions.status.${status}`, { defaultValue: status })}
-            </span>
+    <SettingsCard divided={false}>
+      <SettingsCardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-medium text-sm truncate">{name}</h3>
+              <span className="text-xs opacity-60">v{version}</span>
+              <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90">
+                {t(`extensions.status.${status}`, { defaultValue: status })}
+              </span>
+            </div>
+            <div className="mt-1 text-xs opacity-70 flex flex-wrap gap-2">
+              <span>{t(`extensions.category.${category}`, { defaultValue: category })}</span>
+              {readOnly ? (
+                <span className="inline-flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  {t('extensions.card.readOnly', { defaultValue: 'projection' })}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div className="mt-1 text-xs opacity-70 flex flex-wrap gap-2">
-            <span>{t(`extensions.category.${category}`, { defaultValue: category })}</span>
-            {readOnly ? (
-              <span className="inline-flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                {t('extensions.card.readOnly', { defaultValue: 'projection' })}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => onToggle(!enabled)}
+            title={
+              enabled
+                ? t('extensions.action.disable', { defaultValue: 'Disable' })
+                : t('extensions.action.enable', { defaultValue: 'Enable' })
+            }
+          >
+            {enabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+            {enabled
+              ? t('extensions.action.disable', { defaultValue: 'Disable' })
+              : t('extensions.action.enable', { defaultValue: 'Enable' })}
+          </Button>
+        </div>
+
+        {description ? <p className="text-sm opacity-80 line-clamp-3">{description}</p> : null}
+
+        <div className="grid gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <RuntimeBadge runtime={runtime} />
+            <span
+              data-extension-origin={origin}
+              className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90"
+            >
+              {t(`extensions.origin.${origin}`, { defaultValue: origin })}
+            </span>
+            {installTarget ? (
+              <span className="opacity-70">
+                {t('extensions.card.installTarget', { defaultValue: 'Install to' })}:{' '}
+                <span className="font-medium">
+                  {t(`extensions.installTarget.${installTarget}`, { defaultValue: installTarget })}
+                </span>
               </span>
             ) : null}
           </div>
-        </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onToggle(!enabled)}
-          className="inline-flex items-center gap-1 text-xs border rounded-md px-2 py-1 hover:bg-muted disabled:opacity-50 shrink-0"
-          title={
-            enabled
-              ? t('extensions.action.disable', { defaultValue: 'Disable' })
-              : t('extensions.action.enable', { defaultValue: 'Enable' })
-          }
-        >
-          {enabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-          {enabled
-            ? t('extensions.action.disable', { defaultValue: 'Disable' })
-            : t('extensions.action.enable', { defaultValue: 'Enable' })}
-        </button>
-      </div>
-
-      {description ? <p className="text-sm opacity-80 line-clamp-3">{description}</p> : null}
-
-      <div className="grid gap-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <RuntimeBadge runtime={runtime} />
-          <span
-            data-extension-origin={origin}
-            className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium opacity-90"
-          >
-            {t(`extensions.origin.${origin}`, { defaultValue: origin })}
-          </span>
-          {installTarget ? (
-            <span className="opacity-70">
-              {t('extensions.card.installTarget', { defaultValue: 'Install to' })}:{' '}
-              <span className="font-medium">
-                {t(`extensions.installTarget.${installTarget}`, { defaultValue: installTarget })}
-              </span>
-            </span>
-          ) : null}
-        </div>
-        <div>
-          <div className="opacity-70 mb-1">
-            {t('extensions.card.worksIn', { defaultValue: 'Works in' })}
+          <div>
+            <div className="opacity-70 mb-1">
+              {t('extensions.card.worksIn', { defaultValue: 'Works in' })}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {worksIn.length ? (
+                worksIn.map((w) => (
+                  <span key={w} className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]">
+                    {w}
+                  </span>
+                ))
+              ) : (
+                <span className="opacity-50">—</span>
+              )}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1">
-            {worksIn.length ? (
-              worksIn.map((w) => (
-                <span key={w} className="rounded bg-muted px-1.5 py-0.5">
-                  {w}
-                </span>
-              ))
-            ) : (
-              <span className="opacity-50">—</span>
-            )}
+          <div>
+            <div className="opacity-70 mb-1">
+              {t('extensions.card.permissions', {
+                defaultValue: 'Permissions',
+                count: permissions.length,
+              })}{' '}
+              ({permissions.length})
+            </div>
+            <PermissionsList permissions={permissions} />
           </div>
         </div>
-        <div>
-          <div className="opacity-70 mb-1">
-            {t('extensions.card.permissions', {
-              defaultValue: 'Permissions',
-              count: permissions.length,
-            })}{' '}
-            ({permissions.length})
-          </div>
-          <PermissionsList permissions={permissions} />
-        </div>
-      </div>
-    </div>
+      </SettingsCardContent>
+    </SettingsCard>
   )
 }
 
@@ -194,7 +199,7 @@ function PermissionsList({ permissions }: { permissions: ExtensionPermission[] }
       {permissions.map((permission) => (
         <span
           key={permission}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-mono border ${
+          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-mono ${
             permission.startsWith('secrets.use:') ||
               (HIGH_RISK_PERMISSIONS as readonly string[]).includes(permission)
               ? 'border-amber-500/60 text-amber-700 dark:text-amber-300 bg-amber-500/10'
@@ -339,19 +344,26 @@ export default function ExtensionsSettingsPage() {
 
       <ScrollArea className="flex-1">
         <div className="px-5 pt-6 pb-10 max-w-3xl mx-auto w-full space-y-5">
-          <div className="flex flex-wrap gap-1.5">
-            {SECTIONS.map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSection(id)}
-                className={`text-xs rounded-md border px-2.5 py-1 ${
-                  section === id ? 'bg-muted font-medium' : 'opacity-70 hover:opacity-100'
-                }`}
-              >
-                {t(`extensions.section.${id}`, { defaultValue: id })}
-              </button>
-            ))}
+          <div role="tablist" className="flex flex-wrap gap-1 border-b border-border/50 pb-2">
+            {SECTIONS.map((id) => {
+              const active = section === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setSection(id)}
+                  className={
+                    active
+                      ? 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-primary/10 text-primary font-medium'
+                      : 'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md text-muted-foreground hover:bg-muted/60'
+                  }
+                >
+                  {t(`extensions.section.${id}`, { defaultValue: id })}
+                </button>
+              )
+            })}
           </div>
 
           {section === 'installed' ? (
@@ -475,15 +487,17 @@ export default function ExtensionsSettingsPage() {
                 </p>
               ) : (
                 permissionRows.map((row) => (
-                  <div key={row.id} className="border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm">{row.name}</span>
-                      <span className="text-[10px] uppercase opacity-60">
-                        {t(`extensions.status.${row.status}`, { defaultValue: row.status })}
-                      </span>
-                    </div>
-                    <PermissionsList permissions={row.permissions} />
-                  </div>
+                  <SettingsCard key={row.id} divided={false}>
+                    <SettingsCardContent className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-sm">{row.name}</span>
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] uppercase opacity-60">
+                          {t(`extensions.status.${row.status}`, { defaultValue: row.status })}
+                        </span>
+                      </div>
+                      <PermissionsList permissions={row.permissions} />
+                    </SettingsCardContent>
+                  </SettingsCard>
                 ))
               )}
             </div>

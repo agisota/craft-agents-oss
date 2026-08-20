@@ -21,6 +21,7 @@ import type {
   ToolDisplayMeta,
   AnnotationV1,
   RemoteServerConfig,
+  RemoteTlsTrust,
   SessionMemoryMode,
 } from '@craft-agent/core/types';
 
@@ -31,6 +32,7 @@ export { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/modes';
 
 // Thinking level types
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels';
+import type { XpEventType } from '@craft-agent/shared/gamification';
 import type { ContextDocContent, ContextDocInfo } from '@craft-agent/shared/context-docs';
 import type {
   AutomationGraphProjection,
@@ -147,15 +149,17 @@ export type {
   CredentialMigrationRollbackDto,
   CredentialMigrationStatusDto,
 };
-
-// Identity Center (S-07)
 import type {
   IdentityState,
   UpdateProfileInput,
   ServiceProvider,
   ServiceConnection,
+  Profile,
+  ProfilePlan,
 } from '@craft-agent/core/platform/identity/types';
-export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection };
+export type { IdentityState, UpdateProfileInput, ServiceProvider, ServiceConnection, Profile, ProfilePlan };
+export { PROFILE_PLANS } from '@craft-agent/core/platform/identity/types';
+export type { RemoteTlsTrust, RemoteServerConfig };
 
 // Extension Center (S-05) + SiYuan plugin bridge / Extension Host (W6)
 import type {
@@ -637,7 +641,13 @@ export interface ElectronAPI {
     authority?: WorkspaceCreationAuthority,
   ): Promise<WorkspaceCreationResult>
   checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
-  updateWorkspaceRemoteServer(workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }): Promise<{ success: boolean }>
+  updateWorkspaceRemoteServer(workspaceId: string, remoteServer: {
+    url: string
+    token: string
+    remoteWorkspaceId: string
+    sshHostId?: string
+    tlsTrust?: RemoteTlsTrust
+  }): Promise<{ success: boolean }>
 
   // Server-level workspace operations (for thin client / remote workspace discovery)
   getServerWorkspaces(): Promise<WorkspaceInfo[]>
@@ -655,6 +665,17 @@ export interface ElectronAPI {
     remoteWorkspaceName?: string // auto-set when exactly one workspace
     serverVersion?: string       // server app version from handshake
   }>
+
+  /** Inspect a wss/https peer certificate without sending the auth token. */
+  remoteTlsInspect(url: string): Promise<{
+    nonce: string
+    result: { origin: string; spkiSha256: string; expiresAt: number }
+  }>
+  remoteTlsDecide(payload: {
+    nonce: string
+    action: 'accept' | 'reject' | 'confirm-rollover'
+    workspaceId?: string
+  }): Promise<{ persist: RemoteTlsTrust | null; requireSecondDecision?: boolean }>
 
   // Window management
   getWindowWorkspace(): Promise<string | null>
@@ -1211,6 +1232,7 @@ export interface ElectronAPI {
     xpForNext: number
     nextThreshold: number | null
     currentThreshold: number
+    recentEvents?: Array<{ type: XpEventType; xp: number; at: number }>
   }>
   awardGamificationXp(event: 'session_completed' | 'automation_ran' | 'cloud_run_imported' | 'note_linked'): Promise<{
     xp: number
@@ -1221,6 +1243,7 @@ export interface ElectronAPI {
     xpForNext: number
     nextThreshold: number | null
     currentThreshold: number
+    recentEvents?: Array<{ type: XpEventType; xp: number; at: number }>
     awarded: number
     event: string
     leveledUp: boolean
@@ -1235,6 +1258,7 @@ export interface ElectronAPI {
     xpForNext: number
     nextThreshold: number | null
     currentThreshold?: number
+    recentEvents?: Array<{ type: XpEventType; xp: number; at: number }>
   }) => void): () => void
 
   // Session Drafts (persisted composer state — text + attachment refs)

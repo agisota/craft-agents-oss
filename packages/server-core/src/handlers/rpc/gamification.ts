@@ -36,6 +36,7 @@ export type GamificationProfileDto = {
   nextThreshold: number | null
   currentThreshold: number
   displayNameHint?: string
+  recentEvents?: Array<{ type: XpEventType; xp: number; at: number }>
 }
 
 function toDto(state: GamificationState): GamificationProfileDto {
@@ -49,6 +50,7 @@ function toDto(state: GamificationState): GamificationProfileDto {
     xpForNext: progress.xpForNext,
     nextThreshold: progress.nextThreshold,
     currentThreshold: progress.currentThreshold,
+    recentEvents: state.recentEvents,
   }
 }
 

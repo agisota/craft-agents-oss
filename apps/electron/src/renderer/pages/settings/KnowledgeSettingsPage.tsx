@@ -20,7 +20,11 @@ import { SettingsCard, SettingsRow, SettingsSection } from '@/components/setting
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useActiveWorkspace } from '@/context/AppShellContext'
-import type { KnowledgeConnection, KnowledgeEngineStatus } from '../../../shared/types'
+import type {
+  KnowledgeConnection,
+  KnowledgeDetectEngineResult,
+  KnowledgeEngineStatus,
+} from '../../../shared/types'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -60,6 +64,7 @@ export default function KnowledgeSettingsPage() {
 
   const [connections, setConnections] = React.useState<KnowledgeConnection[] | null>(null)
   const [engineStatus, setEngineStatus] = React.useState<KnowledgeEngineStatus | null>(null)
+  const [detectResult, setDetectResult] = React.useState<KnowledgeDetectEngineResult | null>(null)
   const [token, setToken] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [testing, setTesting] = React.useState(false)
@@ -70,9 +75,17 @@ export default function KnowledgeSettingsPage() {
   const connection = connections?.[0] ?? null
 
   React.useEffect(() => {
-    if (!workspaceId) return
     let cancelled = false
     const load = async () => {
+      try {
+        const detected = await window.electronAPI.knowledge.detectEngine()
+        if (!cancelled) setDetectResult(detected)
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(t('settings.knowledge.detectFailed', { message: errorMessage(error) }))
+        }
+      }
+      if (!workspaceId) return
       try {
         const list = await window.electronAPI.knowledge.listConnections()
         if (cancelled) return
@@ -162,8 +175,20 @@ export default function KnowledgeSettingsPage() {
   }
 
   const openInstallPage = () => {
-    const url = engineStatus?.installUrl ?? 'https://b3log.org/siyuan/'
+    const url =
+      detectResult?.installDocsUrl ?? engineStatus?.installUrl ?? 'https://b3log.org/siyuan/'
     void window.electronAPI?.openUrl?.(url)
+  }
+
+  const openDetectDocs = () => {
+    const url = detectResult?.installDocsUrl
+    if (!url) return
+    void window.electronAPI?.openUrl?.(url)
+  }
+
+  const yesNoUnknown = (value: boolean | undefined) => {
+    if (detectResult == null || value === undefined) return t('settings.knowledge.status.unknown')
+    return value ? t('settings.knowledge.detectResult.yes') : t('settings.knowledge.detectResult.no')
   }
 
   const handleMigrateNotes = async () => {
@@ -233,6 +258,41 @@ export default function KnowledgeSettingsPage() {
         <h2 className="text-lg font-semibold">{t('settings.knowledge.title')}</h2>
         <p className="text-sm text-muted-foreground">{t('settings.knowledge.description')}</p>
       </div>
+
+      <SettingsSection title={t('settings.knowledge.detect')}>
+        <SettingsCard>
+          <SettingsRow
+            label={t('settings.knowledge.detectResult.installed')}
+            description={t('settings.knowledge.detectNeverDownload')}
+          >
+            <span className="text-sm text-muted-foreground">{yesNoUnknown(detectResult?.installed)}</span>
+          </SettingsRow>
+          <SettingsRow label={t('settings.knowledge.detectResult.running')}>
+            <span className="text-sm text-muted-foreground">
+              {yesNoUnknown(detectResult?.runningOnDefaultPort)}
+            </span>
+          </SettingsRow>
+          <SettingsRow label={t('settings.knowledge.detectResult.paths')}>
+            <span className="text-sm text-muted-foreground whitespace-pre-line">
+              {detectResult == null
+                ? t('settings.knowledge.status.unknown')
+                : detectResult.installPathsFound.length > 0
+                  ? detectResult.installPathsFound.join('\n')
+                  : t('settings.knowledge.detectNone')}
+            </span>
+          </SettingsRow>
+          <SettingsRow label="">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={openDetectDocs}
+              disabled={!detectResult?.installDocsUrl}
+            >
+              {t('settings.knowledge.installDocs')}
+            </Button>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
 
       <SettingsSection title={t('settings.knowledge.sectionConnection')}>
         <SettingsCard>

@@ -312,6 +312,7 @@ export const mockElectronAPI = {
     xpForNext: 100,
     nextThreshold: 100,
     currentThreshold: 0,
+    recentEvents: [],
   }),
   awardGamificationXp: async (event: string) => {
     console.log('[Playground] awardGamificationXp', event)
@@ -324,6 +325,7 @@ export const mockElectronAPI = {
       xpForNext: 75,
       nextThreshold: 100,
       currentThreshold: 0,
+      recentEvents: [],
       awarded: 25,
       event,
       leveledUp: false,

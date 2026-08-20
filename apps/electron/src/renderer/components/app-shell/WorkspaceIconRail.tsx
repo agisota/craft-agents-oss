@@ -201,7 +201,7 @@ export function WorkspaceIconRail({
 	const handleReconnectWorkspace = React.useCallback(
 		async (
 			workspaceId: string,
-			remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+			remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string; tlsTrust?: import('../../../shared/types').RemoteTlsTrust },
 		) => {
 			await window.electronAPI.updateWorkspaceRemoteServer(
 				workspaceId,

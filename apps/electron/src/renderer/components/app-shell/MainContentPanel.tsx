@@ -276,7 +276,7 @@ export function MainContentPanel({
   // PanelStackContainer hides the content panel entirely. On desktop the panel still
   // mounts, so fall back to the App page so it isn't empty.
   if (isSettingsNavigation(navState)) {
-    const subpage = navState.subpage ?? 'app'
+    const subpage = navState.subpage ?? 'account'
     const SettingsPageComponent = getSettingsPageComponent(subpage)
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>

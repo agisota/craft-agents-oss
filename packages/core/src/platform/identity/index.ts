@@ -1,6 +1,7 @@
 export type {
   Profile,
   ProfileMode,
+  ProfilePlan,
   WorkspaceMembership,
   WorkspaceRole,
   ServiceConnection,
@@ -13,6 +14,12 @@ export type {
   UpdateProfileInput,
   ConnectServiceInput,
   DisconnectServiceInput,
+} from './types.ts';
+export {
+  PROFILE_PLANS,
+  isProfilePlan,
+  normalizeProfileEmail,
+  normalizeProfileAvatar,
 } from './types.ts';
 export type {
   CredentialKind,

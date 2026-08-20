@@ -525,6 +525,11 @@ client.onConnectionStateChanged((state) => {
 // i18n: sync language changes to main process (for native menus/dialogs)
 ;(api as ElectronAPI).changeLanguage = (lang: string) => ipcRenderer.invoke('i18n:changeLanguage', lang)
 
+;(api as ElectronAPI).remoteTlsInspect = (url: string) =>
+  ipcRenderer.invoke('remoteTls:inspect', url)
+;(api as ElectronAPI).remoteTlsDecide = (payload) =>
+  ipcRenderer.invoke('remoteTls:decide', payload)
+
 // Notes PDF export — direct ipcMain.handle (needs BrowserWindow.printToPDF, not WS RPC)
 ;(api as ElectronAPI).exportNotePdf = (opts: { html: string; defaultPath: string }) =>
   ipcRenderer.invoke('notes:exportPdf', opts)

@@ -39,7 +39,13 @@ describe('IdentityStore', () => {
       id: 'local',
       displayName: profile.displayName,
       mode: 'local',
+      plan: 'standard',
     });
+  });
+
+  it('defaults plan to standard', () => {
+    const store = new IdentityStore({ configDir: dir });
+    expect(store.getProfile().plan).toBe('standard');
   });
 
   it('persists profile updates across reload', () => {
@@ -50,8 +56,52 @@ describe('IdentityStore', () => {
       id: 'local',
       displayName: 'AGI',
       mode: 'local',
+      plan: 'standard',
       avatar: 'data:image/png;base64,xx',
     });
+  });
+
+  it('persists email, plan, and valid avatar', () => {
+    const store = new IdentityStore({ configDir: dir });
+    store.updateProfile({
+      email: 'user@example.com',
+      plan: 'pro',
+      avatar: 'data:image/webp;base64,abc123+/==',
+    });
+    const reloaded = new IdentityStore({ configDir: dir });
+    expect(reloaded.getProfile().email).toBe('user@example.com');
+    expect(reloaded.getProfile().plan).toBe('pro');
+    expect(reloaded.getProfile().avatar).toBe('data:image/webp;base64,abc123+/==');
+  });
+
+  it('rejects svg avatars', () => {
+    const store = new IdentityStore({ configDir: dir });
+    expect(() =>
+      store.updateProfile({ avatar: 'data:image/svg+xml;base64,PHN2Zz4=' }),
+    ).toThrow();
+  });
+
+  it('rejects oversized avatars', () => {
+    const store = new IdentityStore({ configDir: dir });
+    const oversized = `data:image/png;base64,${'A'.repeat(400_001)}`;
+    expect(() => store.updateProfile({ avatar: oversized })).toThrow();
+  });
+
+  it('rejects bad email', () => {
+    const store = new IdentityStore({ configDir: dir });
+    expect(() => store.updateProfile({ email: 'not-an-email' })).toThrow();
+  });
+
+  it('rejects unknown plan', () => {
+    const store = new IdentityStore({ configDir: dir });
+    expect(() => store.updateProfile({ plan: 'enterprise' as 'pro' })).toThrow();
+  });
+
+  it('empty email clears stored email', () => {
+    const store = new IdentityStore({ configDir: dir });
+    store.updateProfile({ email: 'keep@example.com' });
+    store.updateProfile({ email: '' });
+    expect(store.getProfile().email).toBeUndefined();
   });
 
   it('connect upserts a connection without writing secrets', () => {

@@ -216,6 +216,11 @@ export function AccountMenu({
 
   const closeMenu = React.useCallback(() => setOpen(false), [])
 
+  const openAccountPage = React.useCallback(() => {
+    closeMenu()
+    navigate(routes.view.settings('account'))
+  }, [closeMenu])
+
   const openAccountsSettings = React.useCallback(() => {
     closeMenu()
     navigate(routes.view.settings('accounts'))
@@ -298,7 +303,7 @@ export function AccountMenu({
   const handleReconnectWorkspace = React.useCallback(
     async (
       workspaceId: string,
-      remoteServer: { url: string; token: string; remoteWorkspaceId: string },
+      remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string; tlsTrust?: import('../../../shared/types').RemoteTlsTrust },
     ) => {
       await window.electronAPI.updateWorkspaceRemoteServer(workspaceId, remoteServer)
       if (workspaceId === activeWorkspaceId) {
@@ -406,7 +411,7 @@ export function AccountMenu({
                 </div>
               </div>
               <DrawerClose asChild>
-                <button type="button" className={drawerRowClass} onClick={openAccountsSettings}>
+                <button type="button" className={drawerRowClass} onClick={openAccountPage}>
                   <span className="font-medium">{t('accountMenu.editProfile')}</span>
                 </button>
               </DrawerClose>
@@ -571,7 +576,7 @@ export function AccountMenu({
             </div>
             <div className="text-[11px] text-muted-foreground">{profileModeLabel}</div>
           </div>
-          <StyledDropdownMenuItem onClick={openAccountsSettings} className="font-sans">
+          <StyledDropdownMenuItem onClick={openAccountPage} className="font-sans">
             {t('accountMenu.editProfile')}
           </StyledDropdownMenuItem>
           <StyledDropdownMenuSeparator />
