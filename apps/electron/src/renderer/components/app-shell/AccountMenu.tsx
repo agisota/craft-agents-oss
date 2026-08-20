@@ -239,6 +239,15 @@ export function AccountMenu({
     (connection) => connection.status === 'connected' || connection.status === 'syncing',
   ).length
   const expiredCount = connections.filter((connection) => connection.status === 'expired').length
+  const errorCount = connections.filter((connection) => connection.status === 'error').length
+  const profileModeLabel = t('accountMenu.profileMode', {
+    mode: profile?.mode ?? 'local',
+  })
+  const connectionsSummary = t('accountMenu.connectionsSummary', {
+    connected: connectedCount,
+    expired: expiredCount,
+    errors: errorCount,
+  })
   const siyuanCloud = connections.find((connection) => connection.provider === 'siyuan-cloud')
   const license = identity?.entitlements.find(
     (item) => item.provider === 'siyuan-cloud' && item.product === 'cloud-sync',
@@ -392,7 +401,7 @@ export function AccountMenu({
                     {profile?.displayName || t('profile.defaultName')}
                   </div>
                   <div className="text-xs text-foreground/50">
-                    {t('accountMenu.localProfile')}
+                    {profileModeLabel}
                   </div>
                 </div>
               </div>
@@ -494,10 +503,7 @@ export function AccountMenu({
 
               {drawerSectionLabel(t('accountMenu.section.connections'))}
               <div className="px-3 py-2 text-sm text-foreground/70">
-                {t('accountMenu.connectionsSummary', {
-                  connected: connectedCount,
-                  expired: expiredCount,
-                })}
+                {connectionsSummary}
               </div>
               {siyuanCloud && (
                 <div className="px-3 py-2 text-sm text-foreground/70">
@@ -563,7 +569,7 @@ export function AccountMenu({
             <div className="truncate text-sm font-medium">
               {profile?.displayName || t('profile.defaultName')}
             </div>
-            <div className="text-[11px] text-muted-foreground">{t('accountMenu.localProfile')}</div>
+            <div className="text-[11px] text-muted-foreground">{profileModeLabel}</div>
           </div>
           <StyledDropdownMenuItem onClick={openAccountsSettings} className="font-sans">
             {t('accountMenu.editProfile')}
@@ -652,10 +658,7 @@ export function AccountMenu({
           <StyledDropdownMenuSeparator />
           {sectionLabel(t('accountMenu.section.connections'))}
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {t('accountMenu.connectionsSummary', {
-              connected: connectedCount,
-              expired: expiredCount,
-            })}
+            {connectionsSummary}
           </div>
           {siyuanCloud && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">

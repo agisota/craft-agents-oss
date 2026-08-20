@@ -5,16 +5,26 @@ import { join } from 'node:path'
 const source = readFileSync(join(import.meta.dir, '..', 'CredentialMigrationCard.tsx'), 'utf8')
 
 describe('CredentialMigrationCard source contracts', () => {
-  it('idles on Check and does not auto-run preview or status on mount', () => {
+  it('loads status on mount without auto-preview or auto-apply', () => {
     expect(source).toContain("t('settings.accounts.migration.check')")
     expect(source).toContain('onClick={() => void handleCheck()}')
     expect(source).toContain("const [pending, setPending] = React.useState<PendingOp>(null)")
     expect(source).toContain("const [preview, setPreview] = React.useState<CredentialMigrationCountsDto | null>(null)")
     expect(source).toContain("const [status, setStatus] = React.useState<CredentialMigrationStatusDto | null>(null)")
-    expect(source).not.toMatch(/React\.useEffect\s*\(/)
-    expect(source).not.toMatch(/useEffect\s*\(/)
+    expect(source).toMatch(/React\.useEffect\s*\(/)
+    expect(source).toContain('window.electronAPI.getCredentialMigrationStatus()')
+    expect(source).toContain('if (!cancelled) setStatus(nextStatus)')
+    expect(source).toContain('Stay idle; opening Settings must not preview or toast.')
+
+    const mountEffect = source.slice(
+      source.indexOf('React.useEffect'),
+      source.indexOf('const handleCheck'),
+    )
+    expect(mountEffect).toContain('getCredentialMigrationStatus')
+    expect(mountEffect).not.toContain('previewCredentialMigration')
+    expect(mountEffect).not.toContain('applyCredentialMigration')
+
     expect(source).toContain('previewCredentialMigration')
-    expect(source).toContain('getCredentialMigrationStatus')
     expect(source.indexOf('handleCheck')).toBeLessThan(source.indexOf('previewCredentialMigration'))
   })
 
