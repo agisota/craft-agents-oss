@@ -194,9 +194,28 @@ Enable console logging by checking the terminal where you ran `electron:start`. 
 
 DevTools opens automatically (configured in `index.ts`). Remove `mainWindow.webContents.openDevTools()` for production.
 
+## Distribution (electron-builder)
+
+Packaging is configured in `apps/electron/electron-builder.yml` (`appId: com.lukilabs.craft-agent`, output `apps/electron/release/`). Root scripts:
+
+| Script | What it does |
+|--------|----------------|
+| `bun run electron:dist:dev:mac` | Local macOS package with `CSC_IDENTITY_AUTO_DISCOVERY=false` (unsigned). Also sets `CRAFT_DEV_RUNTIME=1` for the preceding `electron:build`. |
+| `bun run electron:dist:mac` / `:win` / `:linux` | `electron:build` then `electron-builder --config electron-builder.yml` for that platform. Does not force-disable identity auto-discovery. |
+| `bun run dist:mac` (in `apps/electron`) | `scripts/build-dmg.sh` (default arm64): stages SDK/ripgrep/servers, runs `electron:build`, then `npx electron-builder --mac --${ARCH}`. |
+
+**Signing / notarize:** `electron-builder.yml` has `mac.notarize` commented out. `build-dmg.sh` enables discovery when `APPLE_SIGNING_IDENTITY` / `CSC_NAME` / `CSC_LINK` (or the Apple notarize env trio) is set; otherwise it sets `CSC_IDENTITY_AUTO_DISCOVERY=false`. Notarize is env-gated: if `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` are all set, the script exports them and `NOTARIZE=true`. This README does not name a signing owner.
+
+**Upload:** `build-dmg.sh --upload` calls `bun run scripts/upload.ts`. That file is **not** in the tree, so `--upload` fails until the script exists.
+
+**Auto-update:** `electron-updater` is a dependency. The main process imports `autoUpdater` from `electron-updater` in `src/main/auto-update.ts` (wired from `src/main/index.ts` and the application menu). Feed config in yml is the generic provider `https://agents.craft.do/electron/latest`.
+
+See `docs/product/2026-08-20-desktop-release-path.md`.
+
 ## Current Limitations
 
-1. **In development only** - No electron-builder config for distribution
+1. **Unsigned local mac dist** — `electron:dist:dev:mac` is unsigned by design. Notarize is commented in yml and only env-gated in `build-dmg.sh`.
+2. **`--upload` is incomplete** — `scripts/upload.ts` is missing.
 
 ## Implemented Features
 
