@@ -1,8 +1,11 @@
 /**
  * CredentialMigrationCard — explicit, reversible credential storage migration.
  *
- * Idle until the user selects Check. Apply and rollback require confirmation
- * dialogs. Renderer state is aggregate counts and stable error codes only.
+ * On mount, load getCredentialMigrationStatus only so a rollback-eligible
+ * applied migration remains available after restart. Never auto-preview or
+ * auto-apply. Check is required before Apply. Apply and rollback require
+ * confirmation dialogs. Renderer state is aggregate counts and stable error
+ * codes only.
  */
 
 import * as React from 'react'
@@ -110,6 +113,21 @@ export function CredentialMigrationCard() {
     [t],
   )
 
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const nextStatus = unwrapMigration(await window.electronAPI.getCredentialMigrationStatus())
+        if (!cancelled) setStatus(nextStatus)
+      } catch {
+        // Stay idle; opening Settings must not preview or toast.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const handleCheck = async () => {
     if (busy) return
     setPending('preview')
@@ -118,12 +136,8 @@ export function CredentialMigrationCard() {
       const next = unwrapMigration(await window.electronAPI.previewCredentialMigration())
       setPreview(pickCounts(next))
       setAppliedCounts(null)
-      try {
-        const nextStatus = unwrapMigration(await window.electronAPI.getCredentialMigrationStatus())
-        setStatus(nextStatus)
-      } catch {
-        // Preview succeeded; rollback eligibility can stay unknown until Apply.
-      }
+      const nextStatus = unwrapMigration(await window.electronAPI.getCredentialMigrationStatus())
+      setStatus(nextStatus)
     } catch (error) {
       showError(error)
     } finally {

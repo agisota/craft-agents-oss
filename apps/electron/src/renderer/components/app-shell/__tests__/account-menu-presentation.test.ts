@@ -56,6 +56,9 @@ describe('AccountMenu presentation mode', () => {
       expect(branch).toContain("t('accountMenu.openAccountsSettings')")
       expect(branch).toContain("t('accountMenu.credentialHealth'")
       expect(branch).toContain("t('workspace.addWorkspace')")
+      expect(branch).toContain('profileModeLabel')
+      expect(branch).toContain('connectionsSummary')
+      expect(branch).not.toContain("t('accountMenu.localProfile')")
     }
 
     expect(src).toContain("navigate(routes.view.settings('accounts'))")
@@ -68,7 +71,9 @@ describe('AccountMenu presentation mode', () => {
     expect(src).not.toContain('type="password"')
     expect(src).not.toContain('import { ProfileStrip')
     expect(src).not.toContain('<ProfileStrip')
-    expect(src).not.toContain('profileMode')
+    expect(src).toContain("t('accountMenu.profileMode'")
+    expect(src).toContain('errors: errorCount')
+    expect(src).not.toContain("t('accountMenu.localProfile')")
     expect(src).not.toContain('initialsFromName')
     expect((src.match(/<DropdownMenu /g) ?? []).length).toBe(1)
     expect((src.match(/<Drawer nested/g) ?? []).length).toBe(1)

@@ -358,10 +358,15 @@ export class WsRpcClient implements RpcClient {
         // Node `ws` applies tlsSocketOptions during the TLS handshake so a
         // mismatched SPKI pin fails closed before onopen / RPC handshake.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const loaded = require('ws') as { WebSocket?: new (url: string, opts?: unknown) => WebSocket } & (new (url: string, opts?: unknown) => WebSocket)
-        const NodeWebSocket = typeof loaded === 'function' ? loaded : loaded.WebSocket
-        if (NodeWebSocket) {
-          return new NodeWebSocket(url, this.tlsSocketOptions)
+        const loaded: unknown = require('ws')
+        const NodeWebSocket =
+          typeof loaded === 'function'
+            ? loaded
+            : loaded && typeof loaded === 'object' && 'WebSocket' in loaded
+              ? (loaded as { WebSocket?: unknown }).WebSocket
+              : undefined
+        if (typeof NodeWebSocket === 'function') {
+          return new (NodeWebSocket as new (url: string, opts?: unknown) => WebSocket)(url, this.tlsSocketOptions)
         }
       } catch {
         // Fall back to the global WebSocket (renderer / missing `ws`).
