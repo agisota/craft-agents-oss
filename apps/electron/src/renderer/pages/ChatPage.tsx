@@ -623,7 +623,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           <SessionWorkbench
             sessionId={sessionId}
             messages={workbenchMessages}
-            stage={sessionView === 'map' ? 'graph' : 'chat'}
+            stage={sessionView === 'standard' ? 'chat' : 'graph'}
             graphStage={graphHost}
             chatStage={chatDisplay}
             onSelectMessage={(id) => handleMindMapNavigate({ kind: 'message', id })}
