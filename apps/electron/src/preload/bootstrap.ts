@@ -99,10 +99,12 @@ if (isClientOnly) {
     autoReconnect: true,
     mode: 'remote',
     clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
+    // Thin-client CRAFT_SERVER_URL is public-CA only (no enrolled SPKI pin).
     ...peerTrustOptionsForRemote({
       url: wsUrl,
       token: wsToken,
       remoteWorkspaceId: workspaceId ?? '',
+      tlsTrust: { mode: 'public-ca' },
     }),
   })
   wsClient.connect()

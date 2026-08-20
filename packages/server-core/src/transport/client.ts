@@ -19,7 +19,7 @@ import {
 } from '@craft-agent/shared/protocol'
 import type { RpcClient } from './types'
 import { serializeEnvelope, deserializeEnvelope } from './codec'
-import type { PeerTrustVerifier } from './peer-trust'
+import type { PeerTrustVerifier, RemoteTlsSocketOptions } from './peer-trust'
 
 // ---------------------------------------------------------------------------
 // Pending request state
@@ -106,6 +106,11 @@ export interface WsRpcClientOptions {
   mode?: TransportMode
   /** Verify the peer before any handshake envelope (including tokens) is sent. */
   peerTrustVerifier?: PeerTrustVerifier
+  /**
+   * Node TLS options applied at socket construction (pin-before-handshake).
+   * Browser WebSocket ignores this; public-CA CRAFT_SERVER_URL stays CA-only.
+   */
+  tlsSocketOptions?: RemoteTlsSocketOptions
   /** Async hook to (re)resolve the live target before each connect — SSH-backed
    * clients re-establish the tunnel and dial a fresh port. Omit for plain ws. */
   resolveTarget?: () => Promise<{ url: string; token?: string }>
@@ -163,6 +168,7 @@ export class WsRpcClient implements RpcClient {
   private readonly connectTimeout: number
   private readonly mode: TransportMode
   private readonly peerTrustVerifier?: PeerTrustVerifier
+  private readonly tlsSocketOptions?: RemoteTlsSocketOptions
 
   constructor(url: string, opts?: WsRpcClientOptions) {
     this.url = url
@@ -177,6 +183,7 @@ export class WsRpcClient implements RpcClient {
     this.connectTimeout = opts?.connectTimeout ?? 10_000
     this.mode = opts?.mode ?? this.inferMode(url)
     this.peerTrustVerifier = opts?.peerTrustVerifier
+    this.tlsSocketOptions = opts?.tlsSocketOptions
     this.resolveTarget = opts?.resolveTarget
 
     this.connectionState = {
@@ -346,6 +353,20 @@ export class WsRpcClient implements RpcClient {
    * In the renderer (browser), falls back to the global WebSocket.
    */
   private createWebSocket(url: string): WebSocket {
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      try {
+        // Node `ws` applies tlsSocketOptions during the TLS handshake so a
+        // mismatched SPKI pin fails closed before onopen / RPC handshake.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const loaded = require('ws') as { WebSocket?: new (url: string, opts?: unknown) => WebSocket } & (new (url: string, opts?: unknown) => WebSocket)
+        const NodeWebSocket = typeof loaded === 'function' ? loaded : loaded.WebSocket
+        if (NodeWebSocket) {
+          return new NodeWebSocket(url, this.tlsSocketOptions)
+        }
+      } catch {
+        // Fall back to the global WebSocket (renderer / missing `ws`).
+      }
+    }
     return new WebSocket(url)
   }
 
@@ -475,10 +496,16 @@ export class WsRpcClient implements RpcClient {
         const detail = ('message' in event && event.message)
           || ('error' in event && event.error?.message)
           || undefined
+        const nested = ('error' in event && event.error) ? event.error : undefined
+        const pinRejected = nested?.name === 'PeerTrustError'
+          || (nested as { code?: string } | undefined)?.code === 'TLS_TRUST_REJECTED'
+          || (typeof detail === 'string' && detail.includes('enrolled SPKI pin'))
         const message = detail
           ? `WebSocket error: ${detail}`
           : 'WebSocket error during connection setup'
-        const err = this.createConnectionError('network', message, 'WS_ERROR')
+        const err = pinRejected
+          ? this.createConnectionError('auth', message, 'TLS_TRUST_REJECTED')
+          : this.createConnectionError('network', message, 'WS_ERROR')
         this.connectError = err
         this.setConnectionState({
           status: 'failed',
@@ -1043,7 +1070,7 @@ export class WsRpcClient implements RpcClient {
   private classifyErrorKindFromCode(code?: unknown): TransportConnectionErrorKind {
     const normalized = typeof code === 'string' ? code.toUpperCase() : ''
 
-    if (normalized === 'AUTH_FAILED') return 'auth'
+    if (normalized === 'AUTH_FAILED' || normalized === 'TLS_TRUST_REJECTED' || normalized === 'TLS_TRUST_UNSUPPORTED') return 'auth'
     if (normalized === 'PROTOCOL_VERSION_UNSUPPORTED') return 'protocol'
     if (normalized === 'HANDSHAKE_TIMEOUT' || normalized === 'REQUEST_TIMEOUT' || normalized === 'CLIENT_REQUEST_TIMEOUT') {
       return 'timeout'

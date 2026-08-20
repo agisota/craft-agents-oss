@@ -1,4 +1,6 @@
 import { createHash, X509Certificate } from 'node:crypto'
+import tls from 'node:tls'
+import type { PeerCertificate } from 'node:tls'
 import type { RemoteTlsTrust } from '@craft-agent/core/types'
 
 export type PeerTrustVerifier = (input: {
@@ -21,14 +23,12 @@ export class PeerTrustError extends Error {
   }
 }
 
-/** Public-CA and pinned remotes both keep Node TLS verification on. */
-export function tlsSocketOptions(_trust?: RemoteTlsTrust): { rejectUnauthorized: true } {
-  return { rejectUnauthorized: true }
+export type RemoteTlsSocketOptions = {
+  rejectUnauthorized: true
+  checkServerIdentity?: (hostname: string, cert: PeerCertificate) => Error | undefined
 }
 
-export function extractPeerSpkiSha256(socket: WebSocket): string | null {
-  const rawSocket = (socket as unknown as { _socket?: { getPeerCertificate?: (detailed: boolean) => { raw?: Buffer } } })._socket
-  const cert = rawSocket?.getPeerCertificate?.(true)
+function spkiSha256FromCertificate(cert: { raw?: Buffer }): string | null {
   if (!cert?.raw) return null
   try {
     const der = new X509Certificate(cert.raw).publicKey.export({ type: 'spki', format: 'der' })
@@ -36,6 +36,29 @@ export function extractPeerSpkiSha256(socket: WebSocket): string | null {
   } catch {
     return null
   }
+}
+
+/** Public-CA and pinned remotes both keep Node TLS verification on. */
+export function tlsSocketOptions(trust?: RemoteTlsTrust): RemoteTlsSocketOptions {
+  if (trust?.mode !== 'spki-pin') {
+    return { rejectUnauthorized: true }
+  }
+
+  return {
+    rejectUnauthorized: true,
+    checkServerIdentity: (hostname, cert) => {
+      const digest = spkiSha256FromCertificate(cert)
+      if (!digest || digest !== trust.spkiSha256) {
+        return new PeerTrustError('TLS_TRUST_REJECTED', 'Peer certificate does not match the enrolled SPKI pin')
+      }
+      return tls.checkServerIdentity(hostname, cert)
+    },
+  }
+}
+
+export function extractPeerSpkiSha256(socket: WebSocket): string | null {
+  const rawSocket = (socket as unknown as { _socket?: { getPeerCertificate?: (detailed: boolean) => { raw?: Buffer } } })._socket
+  return spkiSha256FromCertificate(rawSocket?.getPeerCertificate?.(true) ?? {})
 }
 
 export async function verifyPeerTrust(input: {
