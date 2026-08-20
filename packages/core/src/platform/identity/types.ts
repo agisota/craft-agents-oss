@@ -7,6 +7,65 @@
 
 export type ProfileMode = 'local' | 'cloud';
 
+export type ProfilePlan = 'standard' | 'pro' | 'team' | 'max';
+
+export const PROFILE_PLANS: readonly ProfilePlan[] = ['standard', 'pro', 'team', 'max'];
+
+const PROFILE_PLAN_SET = new Set<string>(PROFILE_PLANS);
+
+export function isProfilePlan(value: unknown): value is ProfilePlan {
+  return typeof value === 'string' && PROFILE_PLAN_SET.has(value);
+}
+
+const EMAIL_MAX = 254;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Empty/whitespace clears email. Invalid values throw. */
+export function normalizeProfileEmail(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('Invalid profile email');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length > EMAIL_MAX || !EMAIL_RE.test(trimmed)) {
+    throw new Error('Invalid profile email');
+  }
+  return trimmed;
+}
+
+const AVATAR_MAX = 400_000;
+const AVATAR_RE = /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+
+function avatarLooksUnsafe(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes('image/svg') ||
+    lower.includes('text/html') ||
+    lower.includes('<svg') ||
+    lower.includes('<html') ||
+    lower.includes('<script') ||
+    lower.includes('javascript:')
+  );
+}
+
+/** Empty/whitespace clears avatar. Invalid values throw. */
+export function normalizeProfileAvatar(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('Invalid profile avatar');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length > AVATAR_MAX) {
+    throw new Error('Invalid profile avatar');
+  }
+  if (avatarLooksUnsafe(trimmed) || !AVATAR_RE.test(trimmed)) {
+    throw new Error('Invalid profile avatar');
+  }
+  return trimmed;
+}
+
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export type ServiceProvider =
@@ -32,6 +91,8 @@ export interface Profile {
   id: string;
   displayName: string;
   avatar?: string;
+  email?: string;
+  plan: ProfilePlan;
   mode: ProfileMode;
 }
 
@@ -80,6 +141,8 @@ export interface IdentityFile {
 export interface UpdateProfileInput {
   displayName?: string;
   avatar?: string;
+  email?: string;
+  plan?: ProfilePlan;
   mode?: ProfileMode;
 }
 

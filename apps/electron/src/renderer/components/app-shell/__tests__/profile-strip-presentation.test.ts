@@ -7,15 +7,17 @@ const profileStripPath = join(__dirname, '../ProfileStrip.tsx')
 describe('ProfileStrip presentation', () => {
   const src = readFileSync(profileStripPath, 'utf8')
 
-  it('renders a compact identity trigger instead of persistent gamification content', () => {
+  it('renders a compact identity trigger instead of persistent XP chrome', () => {
     expect(src).toContain('defaultAvatarFallback?: React.ReactNode')
     expect(src).toContain('default-avatar.svg')
     expect(src).toContain('data-tutorial="profile-strip"')
+    expect(src).toContain("t(`settings.account.plan.${plan}`)")
+    expect(src).toContain("t('profile.balanceLabel')")
+    expect(src).toContain("t('profile.balanceEmpty')")
     expect(src).not.toContain('initialsFromName')
     expect(src).not.toContain('role="progressbar"')
     expect(src).not.toContain("t('profile.level'")
     expect(src).not.toContain("t('profile.xp")
-    expect(src).not.toContain("t('profile.balance")
   })
 
   it('does not present a competing account switcher or secret-bearing actions', () => {

@@ -5,6 +5,7 @@ import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { Spinner } from '@craft-agent/ui'
+import { SettingsCard, SettingsCardContent } from '@/components/settings'
 import {
   ShoppingBag,
   Star,
@@ -470,10 +471,8 @@ export default function MarketplaceSettingsPage() {
                 const Icon = KIND_ICONS[e.kind]
                 const ghUrl = githubTreeUrl(e.source.repo, e.source.ref)
                 return (
-                  <div
-                    key={e.id}
-                    className="border border-border/70 rounded-lg p-4 flex items-start gap-4 bg-card/30 shadow-sm"
-                  >
+                  <SettingsCard key={e.id} divided={false}>
+                    <SettingsCardContent className="flex items-start gap-4">
                     <div className="p-2 rounded-lg bg-primary/10 text-primary mt-1">
                       <Icon className="w-5 h-5" />
                     </div>
@@ -672,7 +671,8 @@ export default function MarketplaceSettingsPage() {
                         </div>
                       </div>
                     </div>
-                  </div>
+                    </SettingsCardContent>
+                  </SettingsCard>
                 )
               })
             )}

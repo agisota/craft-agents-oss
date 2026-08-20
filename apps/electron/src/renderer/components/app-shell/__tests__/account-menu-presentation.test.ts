@@ -61,7 +61,9 @@ describe('AccountMenu presentation mode', () => {
       expect(branch).not.toContain("t('accountMenu.localProfile')")
     }
 
+    expect(src).toContain("navigate(routes.view.settings('account'))")
     expect(src).toContain("navigate(routes.view.settings('accounts'))")
+    expect(src).toContain('openAccountPage')
     expect(src).toContain('openAccountsSettings')
     expect(src).toContain("connection.provider === 'siyuan-cloud'")
   })

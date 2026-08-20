@@ -124,6 +124,8 @@ type ApiToChannelMapKeys = Exclude<
   | 'onSshBootstrapProgress'
   | 'onSshConnectionStatus'
   | 'onOmniboxOpen' // direct IPC listener — embedded BrowserView ⌘K bridge
+  | 'remoteTlsInspect' // direct IPC — inspect peer cert before token handshake
+  | 'remoteTlsDecide' // direct IPC — accept/reject/rollover enrollment
 > | BrowserPaneKeys
   | KnowledgeKeys
   | WorkgraphKeys

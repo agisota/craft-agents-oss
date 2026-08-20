@@ -7,6 +7,8 @@
  */
 
 import {
+  Blocks,
+  CircleUser,
   BookOpen,
   Building2,
   Cloud,
@@ -34,6 +36,8 @@ export const CloudRunsIcon = ({ className }: IconProps) => <Cloud className={cla
 export const AppearanceIcon = ({ className }: IconProps) => <Palette className={className} />
 export const InputIcon = ({ className }: IconProps) => <Keyboard className={className} />
 export const WorkspaceIcon = ({ className }: IconProps) => <Building2 className={className} />
+export const AccountIcon = ({ className }: IconProps) => <CircleUser className={className} />
+export const ExtensionsIcon = ({ className }: IconProps) => <Blocks className={className} />
 export const AccountsIcon = ({ className }: IconProps) => <Users className={className} />
 export const PermissionsIcon = ({ className }: IconProps) => <ShieldCheck className={className} />
 export const LabelsIcon = ({ className }: IconProps) => <Tag className={className} />
@@ -52,11 +56,12 @@ export const MarketplaceIcon = ({ className }: IconProps) => <ShoppingBag classN
  * Used by both AppMenu and SettingsNavigator for consistent icons.
  */
 export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconProps>> = {
+  account: AccountIcon,
   runtime: RuntimeIcon,
   context: ContextIcon,
   knowledge: KnowledgeIcon,
   marketplace: MarketplaceIcon,
-  extensions: MarketplaceIcon,
+  extensions: ExtensionsIcon,
   app: AppSettingsIcon,
   ai: AiSettingsIcon,
   appearance: AppearanceIcon,

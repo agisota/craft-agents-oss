@@ -15,10 +15,18 @@ import type {
   IdentityFile,
   IdentityState,
   Profile,
+  ProfilePlan,
   ServiceConnection,
   ServiceConnectionStatus,
   UpdateProfileInput,
 } from './types.ts';
+import {
+  isProfilePlan,
+  normalizeProfileAvatar,
+  normalizeProfileEmail,
+} from './types.ts';
+
+export { isProfilePlan, normalizeProfileEmail, normalizeProfileAvatar };
 
 const FILE_VERSION = 1 as const;
 const FILE_NAME = 'identity.json';
@@ -38,6 +46,7 @@ export function createDefaultProfile(): Profile {
     id: 'local',
     displayName: defaultDisplayName(),
     mode: 'local',
+    plan: 'standard',
   };
 }
 
@@ -54,6 +63,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function parseOptionalNormalized(
+  value: unknown,
+  normalize: (v: unknown) => string | undefined,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try {
+    return normalize(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function parseProfile(raw: unknown, fallback: Profile): Profile {
   if (!isObject(raw)) return fallback;
   const id = typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : fallback.id;
@@ -62,8 +83,13 @@ function parseProfile(raw: unknown, fallback: Profile): Profile {
       ? raw.displayName.trim()
       : fallback.displayName;
   const mode = raw.mode === 'cloud' ? 'cloud' : 'local';
-  const avatar = typeof raw.avatar === 'string' ? raw.avatar : undefined;
-  return avatar !== undefined ? { id, displayName, mode, avatar } : { id, displayName, mode };
+  const plan: ProfilePlan = isProfilePlan(raw.plan) ? raw.plan : (fallback.plan ?? 'standard');
+  const avatar = parseOptionalNormalized(raw.avatar, normalizeProfileAvatar);
+  const email = parseOptionalNormalized(raw.email, normalizeProfileEmail);
+  const profile: Profile = { id, displayName, mode, plan };
+  if (avatar !== undefined) profile.avatar = avatar;
+  if (email !== undefined) profile.email = email;
+  return profile;
 }
 
 const VALID_PROVIDERS = new Set([
@@ -177,11 +203,26 @@ export class IdentityStore {
       if (trimmed.length > 0) next.displayName = trimmed;
     }
     if (input.avatar !== undefined) {
-      if (input.avatar === null || input.avatar === '') {
+      const avatar = normalizeProfileAvatar(input.avatar);
+      if (avatar === undefined) {
         delete next.avatar;
       } else {
-        next.avatar = input.avatar;
+        next.avatar = avatar;
       }
+    }
+    if (input.email !== undefined) {
+      const email = normalizeProfileEmail(input.email);
+      if (email === undefined) {
+        delete next.email;
+      } else {
+        next.email = email;
+      }
+    }
+    if (input.plan !== undefined) {
+      if (!isProfilePlan(input.plan)) {
+        throw new Error('Invalid profile plan');
+      }
+      next.plan = input.plan;
     }
     if (input.mode === 'local' || input.mode === 'cloud') {
       next.mode = input.mode;

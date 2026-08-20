@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, CheckCircle, XCircle, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { prepareRemoteWorkspace } from "./remote-workspace-create"
+import { prepareRemoteWorkspace, type RemoteServerBinding } from "./remote-workspace-create"
+import { needsRemoteTlsInspect, tlsTrustFromDecision } from "./remote-tls-connect"
+import type { RemoteTlsTrust } from "../../../shared/types"
 import { Input } from "../ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { AddWorkspaceContainer, AddWorkspaceStepHeader, AddWorkspacePrimaryButton, AddWorkspaceSecondaryButton } from "./primitives"
@@ -12,7 +14,7 @@ const CREATE_NEW_VALUE = '__create_new__'
 
 interface AddWorkspaceStep_ConnectRemoteProps {
   onBack: () => void
-  onCreate: (folderPath: string, name: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string; sshHostId?: string }) => Promise<void>
+  onCreate: (folderPath: string, name: string, remoteServer: RemoteServerBinding) => Promise<void>
   isCreating: boolean
   /** Pre-fill the server URL (for reconnect flow) */
   initialUrl?: string
@@ -24,7 +26,7 @@ interface AddWorkspaceStep_ConnectRemoteProps {
   /** When set, updating an existing workspace's remote config instead of creating */
   reconnectWorkspace?: { id: string; name: string; remoteWorkspaceId: string }
   /** Called when reconnect updates the remote server config */
-  onUpdate?: (workspaceId: string, remoteServer: { url: string; token: string; remoteWorkspaceId: string }) => Promise<void>
+  onUpdate?: (workspaceId: string, remoteServer: RemoteServerBinding) => Promise<void>
 }
 
 /**
@@ -55,6 +57,9 @@ export function AddWorkspaceStep_ConnectRemote({
   const [selectedValue, setSelectedValue] = useState<string | null>(null) // workspace ID or CREATE_NEW_VALUE
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const [serverVersion, setServerVersion] = useState<string | null>(null)
+  const [tlsGate, setTlsGate] = useState<'none' | 'inspecting' | 'review' | 'rollover'>('none')
+  const [pendingInspect, setPendingInspect] = useState<{ nonce: string; origin: string; spkiSha256: string } | null>(null)
+  const [tlsTrust, setTlsTrust] = useState<RemoteTlsTrust | undefined>(undefined)
   const selectPortalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -73,38 +78,100 @@ export function AddWorkspaceStep_ConnectRemote({
     setRemoteWorkspaces([])
     setSelectedValue(null)
     setNewWorkspaceName('')
+    setServerVersion(null)
+    setTlsGate('none')
+    setPendingInspect(null)
+    setTlsTrust(undefined)
   }, [serverUrl, token])
 
-  const handleTestConnection = useCallback(async () => {
+  const applyTestResult = (result: Awaited<ReturnType<typeof window.electronAPI.testRemoteConnection>>) => {
+    if (result.ok) {
+      setTestState('ok')
+      setServerVersion(result.serverVersion ?? null)
+      if (result.needsWorkspace) {
+        setRemoteWorkspaces([])
+        setSelectedValue(null)
+      } else {
+        const workspaces = result.remoteWorkspaces ?? []
+        setRemoteWorkspaces(workspaces)
+        if (workspaces.length === 1) {
+          setSelectedValue(workspaces[0]!.id)
+        }
+      }
+    } else {
+      setTestState('error')
+      setTestError(result.error || 'Connection failed')
+    }
+  }
+
+  const runTokenBearingTest = useCallback(async () => {
     if (!serverUrl || !token) return
     setTestState('testing')
     setTestError(null)
     try {
       const result = await window.electronAPI.testRemoteConnection(serverUrl, token)
-      console.log('[ConnectRemote] testRemoteConnection result:', JSON.stringify(result, null, 2))
-      if (result.ok) {
-        setTestState('ok')
-        setServerVersion(result.serverVersion ?? null)
-        if (result.needsWorkspace) {
-          // Fresh server — no workspaces, go straight to create mode
-          setRemoteWorkspaces([])
-          setSelectedValue(null)
-        } else {
-          const workspaces = result.remoteWorkspaces ?? []
-          setRemoteWorkspaces(workspaces)
-          if (workspaces.length === 1) {
-            setSelectedValue(workspaces[0]!.id)
-          }
-        }
-      } else {
-        setTestState('error')
-        setTestError(result.error || 'Connection failed')
-      }
+      applyTestResult(result)
     } catch (err) {
       setTestState('error')
       setTestError(err instanceof Error ? err.message : 'Connection failed')
     }
   }, [serverUrl, token])
+
+  const handleTestConnection = useCallback(async () => {
+    if (!serverUrl || !token) return
+    setTestError(null)
+    setTlsTrust(undefined)
+    setPendingInspect(null)
+    if (needsRemoteTlsInspect(serverUrl, sshHostId)) {
+      setTlsGate('inspecting')
+      setTestState('testing')
+      try {
+        const { nonce, result } = await window.electronAPI.remoteTlsInspect(serverUrl)
+        setPendingInspect({ nonce, origin: result.origin, spkiSha256: result.spkiSha256 })
+        setTlsGate('review')
+        setTestState('idle')
+      } catch (err) {
+        setTlsGate('none')
+        setTestState('error')
+        setTestError(err instanceof Error ? err.message : t('workspace.tlsInspectFailed'))
+      }
+      return
+    }
+    setTlsGate('none')
+    await runTokenBearingTest()
+  }, [serverUrl, token, sshHostId, runTokenBearingTest, t])
+
+  const handleTlsDecide = useCallback(async (action: 'accept' | 'reject' | 'confirm-rollover') => {
+    if (!pendingInspect) return
+    try {
+      const decision = await window.electronAPI.remoteTlsDecide({
+        nonce: pendingInspect.nonce,
+        action,
+        workspaceId: reconnectWorkspace?.id,
+      })
+      if (action === 'reject') {
+        setTlsGate('none')
+        setPendingInspect(null)
+        setTlsTrust(undefined)
+        setTestState('error')
+        setTestError(t('workspace.tlsRejected'))
+        return
+      }
+      if (decision.requireSecondDecision) {
+        setTlsGate('rollover')
+        return
+      }
+      const persist = tlsTrustFromDecision(decision.persist)
+      setTlsTrust(persist)
+      setTlsGate('none')
+      setPendingInspect(null)
+      await runTokenBearingTest()
+    } catch (err) {
+      setTlsGate('none')
+      setTestState('error')
+      setTestError(err instanceof Error ? err.message : t('workspace.tlsDecideFailed'))
+    }
+  }, [pendingInspect, reconnectWorkspace, runTokenBearingTest, t])
 
   const handleConnect = useCallback(async () => {
     if (!serverUrl || !token) return
@@ -116,6 +183,8 @@ export function AddWorkspaceStep_ConnectRemote({
           url: serverUrl,
           token,
           remoteWorkspaceId: reconnectWorkspace!.remoteWorkspaceId,
+          ...(sshHostId ? { sshHostId } : {}),
+          ...(tlsTrust ? { tlsTrust } : {}),
         })
         return
       } catch (err) {
@@ -133,7 +202,7 @@ export function AddWorkspaceStep_ConnectRemote({
       if (!name) return
 
       try {
-        const prepared = await prepareRemoteWorkspace({ url: serverUrl, token, name, homeDir, sshHostId })
+        const prepared = await prepareRemoteWorkspace({ url: serverUrl, token, name, homeDir, sshHostId, tlsTrust })
         await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
       } catch (err) {
         setTestState('error')
@@ -149,10 +218,11 @@ export function AddWorkspaceStep_ConnectRemote({
         homeDir,
         remoteWorkspaceId: selectedWorkspace.id,
         sshHostId,
+        tlsTrust,
       })
       await onCreate(prepared.folderPath, prepared.name, prepared.remoteServer)
     }
-  }, [serverUrl, token, homeDir, isCreateNew, isFreshServer, newWorkspaceName, selectedWorkspace, onCreate, isReconnectMode, onUpdate, reconnectWorkspace, sshHostId])
+  }, [serverUrl, token, homeDir, isCreateNew, isFreshServer, newWorkspaceName, selectedWorkspace, onCreate, isReconnectMode, onUpdate, reconnectWorkspace, sshHostId, tlsTrust])
 
   const canConnect = testState === 'ok' && !isCreating && (
     isReconnectMode ? true :
@@ -227,7 +297,7 @@ export function AddWorkspaceStep_ConnectRemote({
             onClick={handleTestConnection}
             disabled={!serverUrl || !token || testState === 'testing' || isCreating}
           >
-            {testState === 'testing' ? 'Testing...' : 'Test Connection'}
+            {tlsGate === 'inspecting' || testState === 'testing' ? (tlsGate === 'inspecting' ? t('workspace.tlsInspecting') : 'Testing...') : 'Test Connection'}
           </AddWorkspaceSecondaryButton>
           {testState === 'ok' && !isFreshServer && (
             <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
@@ -248,6 +318,39 @@ export function AddWorkspaceStep_ConnectRemote({
             </span>
           )}
         </div>
+
+        {(tlsGate === 'review' || tlsGate === 'rollover') && pendingInspect && (
+          <div className="space-y-3 rounded-lg border border-border px-3 py-3 text-sm">
+            <div className="space-y-1">
+              <div className="font-medium text-foreground">
+                {tlsGate === 'rollover' ? t('workspace.tlsRolloverTitle') : t('workspace.tlsReviewTitle')}
+              </div>
+              {tlsGate === 'rollover' && (
+                <p className="text-xs text-muted-foreground">
+                  {t('workspace.tlsRolloverHint')}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">{t('workspace.tlsOrigin')}</p>
+              <p className="font-mono text-xs break-all text-muted-foreground">{pendingInspect.origin}</p>
+              <p className="text-xs text-muted-foreground">{t('workspace.tlsFingerprint')}</p>
+              <p className="font-mono text-xs break-all text-muted-foreground">{pendingInspect.spkiSha256}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {tlsGate === 'review' ? (
+                <AddWorkspacePrimaryButton onClick={() => void handleTlsDecide('accept')}>
+                  {t('workspace.tlsAccept')}
+                </AddWorkspacePrimaryButton>
+              ) : (
+                <AddWorkspacePrimaryButton onClick={() => void handleTlsDecide('confirm-rollover')}>
+                  {t('workspace.tlsConfirmPin')}
+                </AddWorkspacePrimaryButton>
+              )}
+              <AddWorkspaceSecondaryButton onClick={() => void handleTlsDecide('reject')}>
+                {t('workspace.tlsReject')}
+              </AddWorkspaceSecondaryButton>
+            </div>
+          </div>
+        )}
 
         {/* Old server warning */}
         {testState === 'ok' && !serverVersion && (

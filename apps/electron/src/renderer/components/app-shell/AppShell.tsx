@@ -317,7 +317,8 @@ function AppShellContent({
 
   // Profile strip (gamification footer)
   const [profileStrip, setProfileStrip] = React.useState<ProfileStripData>({
-    displayName: 'User',
+    displayName: '',
+    plan: 'standard',
     level: 1,
     xp: 0,
     progress: 0,
@@ -332,23 +333,15 @@ function AppShellContent({
 
     const applyProfile = async () => {
       try {
-        const [prefsResult, gamification] = await Promise.all([
-          window.electronAPI.readPreferences(),
+        const [identity, gamification] = await Promise.all([
+          window.electronAPI.identityGetState(),
           window.electronAPI.getGamificationProfile(),
         ])
         if (cancelled) return
-        let displayName = ''
-        try {
-          const prefs = JSON.parse(prefsResult.content || '{}') as { name?: string }
-          if (typeof prefs.name === 'string' && prefs.name.trim()) {
-            displayName = prefs.name.trim()
-          }
-        } catch {
-          // ignore bad prefs JSON
-        }
-        if (!displayName) displayName = t('profile.defaultName')
         setProfileStrip({
-          displayName,
+          displayName: identity.profile.displayName || t('profile.defaultName'),
+          avatar: identity.profile.avatar,
+          plan: identity.profile.plan ?? 'standard',
           level: gamification.level,
           xp: gamification.xp,
           progress: gamification.progress,
@@ -363,7 +356,7 @@ function AppShellContent({
     }
 
     void applyProfile()
-    const off = window.electronAPI.onGamificationChanged((payload) => {
+    const offXp = window.electronAPI.onGamificationChanged((payload) => {
       setProfileStrip((prev) => ({
         ...prev,
         level: payload.level,
@@ -375,9 +368,13 @@ function AppShellContent({
         balance: payload.balance,
       }))
     })
+    const offIdentity = window.electronAPI.onIdentityChanged?.(() => {
+      void applyProfile()
+    })
     return () => {
       cancelled = true
-      off()
+      offXp()
+      offIdentity?.()
     }
   }, [t])
 
@@ -2412,7 +2409,7 @@ function AppShellContent({
                 <div className="shrink-0 border-t border-foreground/5 px-1 py-1.5">
                   <ProfileStrip
                     data={profileStrip}
-                    onClick={() => handleSettingsClick()}
+                    onClick={() => handleSettingsClick('account')}
                   />
                 </div>
               </div>

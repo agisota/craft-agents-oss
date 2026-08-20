@@ -1,4 +1,5 @@
 import { slugify } from "@/lib/slugify"
+import type { RemoteTlsTrust } from "../../../shared/types"
 
 /** Resolve a unique local workspace slug by appending suffixes if needed.
  * Tries: baseName → baseName-remote → baseName-2 → baseName-3 → ... */
@@ -34,6 +35,8 @@ export interface RemoteServerBinding {
   /** Set for SSH-backed workspaces: makes the SSH host the durable identity so reconnects
    * re-establish a fresh tunnel instead of dialing the (now dead) ephemeral `url`. */
   sshHostId?: string
+  /** Origin-bound SPKI pin from TLS enrollment (direct wss/https remotes). */
+  tlsTrust?: RemoteTlsTrust
 }
 
 /** Create (or reuse) a workspace on the remote server and resolve the local folder path + remote binding.
@@ -46,8 +49,9 @@ export async function prepareRemoteWorkspace(args: {
   remoteWorkspaceId?: string
   /** When set, the created workspace is SSH-backed and durably bound to this host. */
   sshHostId?: string
+  tlsTrust?: RemoteTlsTrust
 }): Promise<{ folderPath: string; name: string; remoteServer: RemoteServerBinding }> {
-  const { url, token, name, homeDir, sshHostId } = args
+  const { url, token, name, homeDir, sshHostId, tlsTrust } = args
   const defaultBasePath = `${homeDir}/.craft-agent/workspaces`
 
   let remoteWorkspaceId = args.remoteWorkspaceId
@@ -68,6 +72,12 @@ export async function prepareRemoteWorkspace(args: {
   return {
     folderPath,
     name: workspaceName,
-    remoteServer: { url, token, remoteWorkspaceId, ...(sshHostId ? { sshHostId } : {}) },
+    remoteServer: {
+      url,
+      token,
+      remoteWorkspaceId,
+      ...(sshHostId ? { sshHostId } : {}),
+      ...(tlsTrust ? { tlsTrust } : {}),
+    },
   }
 }

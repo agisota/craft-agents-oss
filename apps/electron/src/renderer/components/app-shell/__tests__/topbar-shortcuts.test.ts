@@ -27,8 +27,8 @@ describe('TopBar navigation cutover', () => {
     expect(appShellSource).not.toContain('hasUnseenWhatsNew={')
   })
 
-  it('keeps update checks in the ProfileStrip identity menu', () => {
-    expect(profileStripSource).toContain("t('menu.checkForUpdates')")
-    expect(profileStripSource).toContain('window.electronAPI.checkForUpdates()')
+  it('does not keep update checks on the ProfileStrip', () => {
+    expect(profileStripSource).not.toContain("t('menu.checkForUpdates')")
+    expect(profileStripSource).not.toContain('window.electronAPI.checkForUpdates()')
   })
 })
