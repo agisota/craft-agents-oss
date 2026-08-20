@@ -1,10 +1,8 @@
 /**
- * AccountMenu — workspace selector for the top bar and compact panel header.
- *
- * Account/profile actions live in the sidebar profile menu. This surface stays
- * intentionally workspace-only: selection, remote state, creation, and
- * removal. Keeping those responsibilities separate avoids duplicate profile,
- * connection, and security destinations.
+ * AccountMenu — unified Identity Center surface (S-07) for the top bar and
+ * compact panel header. Four sections: Profile, Workspaces, Connections,
+ * Account & Security. Workspace switching stays here so ProfileStrip is not a
+ * second account switcher.
  *
  * Presentation:
  * - Desktop (`compact` false): Radix DropdownMenu.
@@ -22,7 +20,9 @@ import {
   CloudOff,
   ExternalLink,
   FolderPlus,
+  Shield,
   Trash2,
+  User,
 } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import { useSetAtom } from 'jotai'
@@ -35,7 +35,9 @@ import {
   DropdownMenuTrigger,
   StyledDropdownMenuContent,
   StyledDropdownMenuItem,
+  StyledDropdownMenuSeparator,
 } from '@/components/ui/styled-dropdown'
+import { navigate, routes } from '@/lib/navigate'
 import {
   Drawer,
   DrawerTrigger,
@@ -50,7 +52,7 @@ import { waitForTransportConnected } from '@/lib/transport-wait'
 import { useWorkspaceIcons } from '@/hooks/useWorkspaceIcon'
 import { useTransportConnectionState } from '@/hooks/useTransportConnectionState'
 import { isSshBackedWorkspace } from '../../../shared/ssh'
-import type { Workspace } from '../../../shared/types'
+import type { CredentialHealthStatus, IdentityState, Workspace } from '../../../shared/types'
 
 export interface AccountMenuProps {
   /**
@@ -107,6 +109,37 @@ export function AccountMenu({
 
   const [remoteHealthMap, setRemoteHealthMap] = React.useState<Map<string, 'ok' | 'error' | 'checking'>>(new Map())
   const healthCheckAbort = React.useRef<AbortController | null>(null)
+  const [identity, setIdentity] = React.useState<IdentityState | null>(null)
+  const [credentialHealth, setCredentialHealth] = React.useState<CredentialHealthStatus | null>(null)
+
+  const loadIdentity = React.useCallback(async () => {
+    try {
+      const next = await window.electronAPI.identityGetState(
+        activeWorkspaceId ? { workspaceId: activeWorkspaceId } : undefined,
+      )
+      setIdentity(next)
+    } catch {
+      // Menu still works for workspace switching if identity is unavailable.
+    }
+  }, [activeWorkspaceId])
+
+  const loadCredentialHealth = React.useCallback(async () => {
+    try {
+      setCredentialHealth(await window.electronAPI.getCredentialHealth())
+    } catch {
+      setCredentialHealth(null)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    void loadIdentity()
+    const unsub = window.electronAPI.onIdentityChanged?.(() => {
+      void loadIdentity()
+    })
+    return () => {
+      unsub?.()
+    }
+  }, [loadIdentity])
 
 
   const checkRemoteHealth = React.useCallback(() => {
@@ -142,9 +175,13 @@ export function AccountMenu({
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
       setOpen(next)
-      if (next) checkRemoteHealth()
+      if (next) {
+        checkRemoteHealth()
+        void loadIdentity()
+        void loadCredentialHealth()
+      }
     },
-    [checkRemoteHealth],
+    [checkRemoteHealth, loadCredentialHealth, loadIdentity],
   )
 
   const getDisconnectTooltip = (workspaceId: string): string => {
@@ -178,6 +215,39 @@ export function AccountMenu({
   }, [workspaces, activeWorkspaceId, workspaceUnreadMap])
 
   const closeMenu = React.useCallback(() => setOpen(false), [])
+
+  const openAccountsSettings = React.useCallback(() => {
+    closeMenu()
+    navigate(routes.view.settings('accounts'))
+  }, [closeMenu])
+
+  const handleResetAppData = React.useCallback(async () => {
+    try {
+      const confirmed = await window.electronAPI.showLogoutConfirmation()
+      if (!confirmed) return
+      closeMenu()
+      await window.electronAPI.logout()
+      toast.success(t('accountMenu.resetDone'))
+    } catch {
+      toast.error(t('accountMenu.resetFailed', { message: t('common.failed') }))
+    }
+  }, [closeMenu, t])
+
+  const profile = identity?.profile
+  const connections = identity?.connections ?? []
+  const connectedCount = connections.filter(
+    (connection) => connection.status === 'connected' || connection.status === 'syncing',
+  ).length
+  const expiredCount = connections.filter((connection) => connection.status === 'expired').length
+  const siyuanCloud = connections.find((connection) => connection.provider === 'siyuan-cloud')
+  const license = identity?.entitlements.find(
+    (item) => item.provider === 'siyuan-cloud' && item.product === 'cloud-sync',
+  )
+  const healthLabel = credentialHealth
+    ? credentialHealth.healthy
+      ? t('accountMenu.healthOk')
+      : t('accountMenu.healthIssues', { count: credentialHealth.issues?.length ?? 0 })
+    : t('accountMenu.healthUnknown')
 
   const handleNewWorkspace = () => {
     setShowCreationScreen(true)
@@ -312,6 +382,26 @@ export function AccountMenu({
             </DrawerHeader>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-6 flex flex-col gap-0.5">
+              {drawerSectionLabel(t('accountMenu.section.profile'))}
+              <div className="flex items-center gap-3 px-3 py-3">
+                <div className="h-7 w-7 rounded-full bg-foreground/5 flex items-center justify-center shrink-0">
+                  <User className="h-4 w-4 text-foreground/60" />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {profile?.displayName || t('profile.defaultName')}
+                  </div>
+                  <div className="text-xs text-foreground/50">
+                    {t('accountMenu.localProfile')}
+                  </div>
+                </div>
+              </div>
+              <DrawerClose asChild>
+                <button type="button" className={drawerRowClass} onClick={openAccountsSettings}>
+                  <span className="font-medium">{t('accountMenu.editProfile')}</span>
+                </button>
+              </DrawerClose>
+
               {drawerSectionLabel(t('accountMenu.section.workspaces'))}
               {workspaces.map((workspace) => {
                 const disconnected = isRemoteDisconnected(workspace.id)
@@ -401,6 +491,55 @@ export function AccountMenu({
                   <span className="font-medium">{t('workspace.addWorkspace')}</span>
                 </button>
               </DrawerClose>
+
+              {drawerSectionLabel(t('accountMenu.section.connections'))}
+              <div className="px-3 py-2 text-sm text-foreground/70">
+                {t('accountMenu.connectionsSummary', {
+                  connected: connectedCount,
+                  expired: expiredCount,
+                })}
+              </div>
+              {siyuanCloud && (
+                <div className="px-3 py-2 text-sm text-foreground/70">
+                  {t('accountMenu.siyuanCloudStatus', {
+                    status: t(`settings.accounts.status.${siyuanCloud.status}`),
+                  })}
+                </div>
+              )}
+              {license && (
+                <div className="px-3 py-2 text-sm text-foreground/70">
+                  {t('accountMenu.licenseStatus', {
+                    status: t(`settings.accounts.entitlement.${license.status}`, {
+                      product: license.product,
+                    }),
+                  })}
+                </div>
+              )}
+              <DrawerClose asChild>
+                <button type="button" className={drawerRowClass} onClick={openAccountsSettings}>
+                  <span className="font-medium">{t('accountMenu.manageConnections')}</span>
+                </button>
+              </DrawerClose>
+
+              {drawerSectionLabel(t('accountMenu.section.security'))}
+              <DrawerClose asChild>
+                <button type="button" className={drawerRowClass} onClick={openAccountsSettings}>
+                  <Shield className="h-4 w-4 text-foreground/60 shrink-0" />
+                  <span className="font-medium">{t('accountMenu.openAccountsSettings')}</span>
+                </button>
+              </DrawerClose>
+              <div className="px-3 py-2 text-sm text-foreground/70">
+                {t('accountMenu.credentialHealth', { status: healthLabel })}
+              </div>
+              <DrawerClose asChild>
+                <button
+                  type="button"
+                  className={drawerRowClass}
+                  onClick={() => void handleResetAppData()}
+                >
+                  <span className="font-medium text-destructive">{t('accountMenu.resetAppData')}</span>
+                </button>
+              </DrawerClose>
             </div>
           </DrawerContent>
         </Drawer>
@@ -419,6 +558,17 @@ export function AccountMenu({
         <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
 
         <StyledDropdownMenuContent align="start" sideOffset={6} minWidth="min-w-72">
+          {sectionLabel(t('accountMenu.section.profile'))}
+          <div className="px-2 py-1.5">
+            <div className="truncate text-sm font-medium">
+              {profile?.displayName || t('profile.defaultName')}
+            </div>
+            <div className="text-[11px] text-muted-foreground">{t('accountMenu.localProfile')}</div>
+          </div>
+          <StyledDropdownMenuItem onClick={openAccountsSettings} className="font-sans">
+            {t('accountMenu.editProfile')}
+          </StyledDropdownMenuItem>
+          <StyledDropdownMenuSeparator />
           {sectionLabel(t('accountMenu.section.workspaces'))}
           {workspaces.map((workspace) => {
             const disconnected = isRemoteDisconnected(workspace.id)
@@ -498,6 +648,48 @@ export function AccountMenu({
           <StyledDropdownMenuItem onClick={handleNewWorkspace} className="font-sans">
             <FolderPlus className="h-4 w-4" />
             {t('workspace.addWorkspace')}
+          </StyledDropdownMenuItem>
+          <StyledDropdownMenuSeparator />
+          {sectionLabel(t('accountMenu.section.connections'))}
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            {t('accountMenu.connectionsSummary', {
+              connected: connectedCount,
+              expired: expiredCount,
+            })}
+          </div>
+          {siyuanCloud && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {t('accountMenu.siyuanCloudStatus', {
+                status: t(`settings.accounts.status.${siyuanCloud.status}`),
+              })}
+            </div>
+          )}
+          {license && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {t('accountMenu.licenseStatus', {
+                status: t(`settings.accounts.entitlement.${license.status}`, {
+                  product: license.product,
+                }),
+              })}
+            </div>
+          )}
+          <StyledDropdownMenuItem onClick={openAccountsSettings} className="font-sans">
+            {t('accountMenu.manageConnections')}
+          </StyledDropdownMenuItem>
+          <StyledDropdownMenuSeparator />
+          {sectionLabel(t('accountMenu.section.security'))}
+          <StyledDropdownMenuItem onClick={openAccountsSettings} className="font-sans">
+            <Shield className="h-4 w-4" />
+            {t('accountMenu.openAccountsSettings')}
+          </StyledDropdownMenuItem>
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            {t('accountMenu.credentialHealth', { status: healthLabel })}
+          </div>
+          <StyledDropdownMenuItem
+            className="font-sans text-destructive focus:text-destructive"
+            onClick={() => void handleResetAppData()}
+          >
+            {t('accountMenu.resetAppData')}
           </StyledDropdownMenuItem>
         </StyledDropdownMenuContent>
       </DropdownMenu>

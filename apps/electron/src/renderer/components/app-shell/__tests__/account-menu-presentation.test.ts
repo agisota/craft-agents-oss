@@ -3,14 +3,17 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * AccountMenu uses a nested Drawer in compact headers and a DropdownMenu in
- * desktop headers. Both presentations intentionally expose only workspace
- * selection controls; profile/account actions belong to ProfileStrip.
+ * AccountMenu is the unified Identity Center (S-07): Profile, Workspaces,
+ * Connections, and Account & Security. Compact headers use a nested Drawer;
+ * desktop headers use a DropdownMenu. Workspace switching stays here so
+ * ProfileStrip is not a second account switcher.
  */
 const accountMenuPath = join(__dirname, '../AccountMenu.tsx')
 
 describe('AccountMenu presentation mode', () => {
   const src = readFileSync(accountMenuPath, 'utf8')
+  const compactBranch = src.slice(src.indexOf('if (compact)'), src.indexOf('// Desktop: DropdownMenu'))
+  const desktopBranch = src.slice(src.indexOf('// Desktop: DropdownMenu'))
 
   it('uses a nested Drawer when compact is true', () => {
     expect(src).toContain('if (compact)')
@@ -25,21 +28,49 @@ describe('AccountMenu presentation mode', () => {
     expect(src).toContain('StyledDropdownMenuContent')
 
     // Compact branch must not construct DropdownMenu; only the desktop return does.
-    const compactBranch = src.slice(src.indexOf('if (compact)'), src.indexOf('// Desktop: DropdownMenu'))
     expect(compactBranch).toContain('<Drawer nested')
     expect(compactBranch).not.toContain('<DropdownMenu')
     expect(compactBranch).not.toContain('StyledDropdownMenuContent')
   })
 
-  it('keeps profile, connection, and security destinations out of the workspace selector', () => {
+  it('loads Identity Center state via identityGetState and getCredentialHealth', () => {
+    expect(src).toContain('window.electronAPI.identityGetState')
+    expect(src).toContain('window.electronAPI.getCredentialHealth()')
+    expect(src).toContain('window.electronAPI.onIdentityChanged')
+    expect(src).toContain('void loadIdentity()')
+    expect(src).toContain('void loadCredentialHealth()')
     expect(src).toContain("const triggerLabel = selectedWorkspace?.name || t('workspace.selectWorkspace')")
-    expect(src).not.toContain('identityGetState')
-    expect(src).not.toContain('getCredentialHealth')
-    expect(src).not.toContain('profileMode')
-    expect(src).not.toContain('siyuanCloud')
     expect(src).toContain('onSelectWorkspace: (workspaceId: string, openInNewWindow?: boolean) => void | Promise<void>')
     expect(src).toContain('onWorkspaceCreated?.(workspace)')
     expect(src).toContain('onWorkspaceRemoved?.()')
-    expect(src).not.toContain('routes.view.settings')
+  })
+
+  it('exposes four Identity Center sections on both compact and desktop surfaces', () => {
+    for (const branch of [compactBranch, desktopBranch]) {
+      expect(branch).toContain("t('accountMenu.section.profile')")
+      expect(branch).toContain("t('accountMenu.section.workspaces')")
+      expect(branch).toContain("t('accountMenu.section.connections')")
+      expect(branch).toContain("t('accountMenu.section.security')")
+      expect(branch).toContain("t('accountMenu.editProfile')")
+      expect(branch).toContain("t('accountMenu.manageConnections')")
+      expect(branch).toContain("t('accountMenu.openAccountsSettings')")
+      expect(branch).toContain("t('accountMenu.credentialHealth'")
+      expect(branch).toContain("t('workspace.addWorkspace')")
+    }
+
+    expect(src).toContain("navigate(routes.view.settings('accounts'))")
+    expect(src).toContain('openAccountsSettings')
+    expect(src).toContain("connection.provider === 'siyuan-cloud'")
+  })
+
+  it('does not present secrets or a second account switcher', () => {
+    expect(src).not.toContain('credentialValue')
+    expect(src).not.toContain('type="password"')
+    expect(src).not.toContain('import { ProfileStrip')
+    expect(src).not.toContain('<ProfileStrip')
+    expect(src).not.toContain('profileMode')
+    expect(src).not.toContain('initialsFromName')
+    expect((src.match(/<DropdownMenu /g) ?? []).length).toBe(1)
+    expect((src.match(/<Drawer nested/g) ?? []).length).toBe(1)
   })
 })
