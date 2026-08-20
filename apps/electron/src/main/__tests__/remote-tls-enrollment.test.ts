@@ -82,6 +82,24 @@ describe('peerTrustOptionsForRemote', () => {
       sshHostId: 'host-1',
     }
     expect(peerTrustOptionsForRemote(remote).peerTrustVerifier).toBeUndefined()
+    expect(peerTrustOptionsForRemote(remote).tlsSocketOptions).toBeUndefined()
+  })
+
+  it('attaches pin-before-handshake TLS options for an enrolled SPKI pin', () => {
+    const remote: RemoteServerConfig = {
+      url: 'wss://remote.example.test:8443',
+      token: 't',
+      remoteWorkspaceId: 'ws',
+      tlsTrust: {
+        mode: 'spki-pin',
+        origin: 'wss://remote.example.test:8443',
+        spkiSha256: PIN_A,
+        enrolledAt: 1,
+      },
+    }
+    const opts = peerTrustOptionsForRemote(remote)
+    expect(opts.tlsSocketOptions?.rejectUnauthorized).toBe(true)
+    expect(typeof opts.tlsSocketOptions?.checkServerIdentity).toBe('function')
   })
 })
 
