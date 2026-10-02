@@ -1,0 +1,98 @@
+apps/electron/src/renderer/components/app-shell/__tests__/meetings-nav.test.ts(12,55): error TS2367: This comparison appears to be unintentional because the types 'AppNavDestinationId' and '"meetings"' have no overlap.
+apps/electron/src/renderer/components/app-shell/AppShell.tsx(2739,59): error TS2339: Property 'meetings' does not exist on type 'Record<AppNavDestinationId, AppNavDestination>'.
+apps/electron/src/renderer/components/app-shell/AppShell.tsx(2740,56): error TS2339: Property 'meetings' does not exist on type 'Record<AppNavDestinationId, AppNavDestination>'.
+apps/electron/src/renderer/components/app-shell/AppShell.tsx(3010,80): error TS2339: Property 'details' does not exist on type 'never'.
+  Property 'details' does not exist on type 'never'.
+apps/electron/src/renderer/components/app-shell/MainContentPanel.tsx(348,29): error TS2322: Type '{ id: string; slug: string; name: string; color?: string | undefined; }[] | undefined' is not assignable to type '{ id: string; slug: string; name: string; color?: string | undefined; }[]'.
+  Type 'undefined' is not assignable to type '{ id: string; slug: string; name: string; color?: string | undefined; }[]'.
+apps/electron/src/renderer/components/app-shell/nav-destinations.ts(129,5): error TS2322: Type '"meetings"' is not assignable to type 'AppNavDestinationId'.
+apps/electron/src/renderer/components/app-shell/ProjectsHomeInMain.tsx(79,11): error TS2322: Type '{ id: string; slug: string; name: string; color?: string | undefined; }[]' is not assignable to type 'LoadedProject[]'.
+  Type '{ id: string; slug: string; name: string; color?: string | undefined; }' is missing the following properties from type 'LoadedProject': config, folderPath, assetsPath, workspaceRootPath, workspaceId
+apps/electron/src/renderer/components/automations/AutomationGraphEditor.tsx(195,50): error TS2345: Argument of type 'AutomationGraphNode' is not assignable to parameter of type 'GraphLabelNode'.
+  Type 'AutomationGraphGroupNode' is not assignable to type 'GraphLabelNode'.
+    Types of property 'data' are incompatible.
+      Type '{ memberIds?: string[] | undefined; }' has no properties in common with type '{ event?: string | undefined; prompt?: string | undefined; text?: string | undefined; expression?: string | undefined; name?: string | undefined; matcher?: string | undefined; cron?: string | undefined; url?: string | undefined; method?: string | undefined; }'.
+apps/electron/src/renderer/pages/__tests__/rox2-native-surfaces.test.ts(95,20): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/__tests__/rox2-native-surfaces.test.ts(96,20): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/__tests__/rox2-native-surfaces.test.ts(97,20): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/__tests__/rox2-native-surfaces.test.ts(102,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/__tests__/rox2-native-surfaces.test.ts(111,20): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/meetings/capture-rpc.ts(45,33): error TS2774: This condition will always return true since this function is always defined. Did you mean to call it instead?
+apps/electron/src/renderer/pages/meetings/capture-rpc.ts(45,58): error TS2774: This condition will always return true since this function is always defined. Did you mean to call it instead?
+apps/electron/src/renderer/pages/meetings/import-rpc.ts(57,56): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+apps/electron/src/renderer/pages/meetings/manual-rpc.ts(28,34): error TS2774: This condition will always return true since this function is always defined. Did you mean to call it instead?
+apps/electron/src/renderer/pages/meetings/start-rpc.ts(38,34): error TS2774: This condition will always return true since this function is always defined. Did you mean to call it instead?
+apps/electron/src/renderer/pages/meetings/use-local-meeting-readiness.ts(24,3): error TS2322: Type '{ blocker: string | null; installed: boolean; enabled: boolean; authorized: boolean; healthy: boolean; running: boolean; id: "rox.meeting.coordinator" | "rox.meeting.assist" | "rox.meeting.scribe" | ... 4 more ... | "rox.meeting.analyst"; }[]' is not assignable to type 'AgentReadinessView[]'.
+  Type '{ blocker: string | null; installed: boolean; enabled: boolean; authorized: boolean; healthy: boolean; running: boolean; id: "rox.meeting.coordinator" | "rox.meeting.assist" | "rox.meeting.scribe" | ... 4 more ... | "rox.meeting.analyst"; }' is not assignable to type 'AgentReadinessView'.
+    Types of property 'blocker' are incompatible.
+      Type 'string | null' is not assignable to type '"unhealthy" | "unauthorized" | "disabled" | "not-installed" | "not-running" | null'.
+        Type 'string' is not assignable to type '"unhealthy" | "unauthorized" | "disabled" | "not-installed" | "not-running" | null'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-041-043-settings-pages.test.ts(136,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-041-043-settings-pages.test.ts(137,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-041-043-settings-pages.test.ts(138,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-041-043-settings-pages.test.ts(139,21): error TS2339: Property 'receipt' does not exist on type 'Rox2Result'.
+  Property 'receipt' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-044-046-settings-pages.test.ts(135,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-044-046-settings-pages.test.ts(136,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-044-046-settings-pages.test.ts(137,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-047-049-settings-pages.test.ts(148,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-047-049-settings-pages.test.ts(149,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-047-049-settings-pages.test.ts(150,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-050-052-settings-pages.test.ts(140,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-050-052-settings-pages.test.ts(141,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-050-052-settings-pages.test.ts(142,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-053-055-settings-pages.test.ts(154,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-053-055-settings-pages.test.ts(155,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-053-055-settings-pages.test.ts(156,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-056-058-settings-pages.test.ts(166,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-056-058-settings-pages.test.ts(167,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-056-058-settings-pages.test.ts(168,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-059-061-settings-pages.test.ts(162,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-059-061-settings-pages.test.ts(163,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-059-061-settings-pages.test.ts(164,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-062-shortcuts-settings-page.test.ts(95,21): error TS2339: Property 'executionMode' does not exist on type 'Rox2Result'.
+  Property 'executionMode' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-062-shortcuts-settings-page.test.ts(96,21): error TS2339: Property 'lifecycle' does not exist on type 'Rox2Result'.
+  Property 'lifecycle' does not exist on type 'Rox2LegacyOkResult'.
+apps/electron/src/renderer/pages/settings/__tests__/rox2-062-shortcuts-settings-page.test.ts(97,21): error TS2339: Property 'verification' does not exist on type 'Rox2Result'.
+  Property 'verification' does not exist on type 'Rox2LegacyOkResult'.
+packages/core/src/rox2/meeting-conation-shell.ts(29,40): error TS2367: This comparison appears to be unintentional because the types '"unverified" | "receipt_verified" | "readback_verified"' and '"verified"' have no overlap.
+packages/server-core/src/handlers/rpc/labels.ts(72,32): error TS18047: 'workspace' is possibly 'null'.
+packages/server-core/src/handlers/rpc/messaging.ts(142,61): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+packages/server-core/src/meetings/conation/native-shells.ts(174,46): error TS2322: Type 'boolean' is not assignable to type 'false'.
+packages/server-core/src/meetings/manual.ts(121,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/server-core/src/meetings/manual.ts(148,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/shared/src/voice/runtime.ts(177,13): error TS2741: Property 'preconnect' is missing in type '() => Promise<never>' but required in type 'typeof fetch'.

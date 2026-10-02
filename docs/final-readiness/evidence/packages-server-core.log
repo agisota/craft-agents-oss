@@ -1,0 +1,73 @@
+packages/core/src/rox2/meeting-conation-shell.ts(29,40): error TS2367: This comparison appears to be unintentional because the types '"unverified" | "receipt_verified" | "readback_verified"' and '"verified"' have no overlap.
+packages/server-core/src/handlers/rpc/labels.ts(72,32): error TS18047: 'workspace' is possibly 'null'.
+packages/server-core/src/handlers/rpc/memory-proposals.test.ts(106,30): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: string): void', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+  Overload 2 of 2, '(expected: string): void', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+packages/server-core/src/handlers/rpc/messaging.ts(142,61): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+packages/server-core/src/meetings/__tests__/budgets.test.ts(15,41): error TS2339: Property 'reason' does not exist on type 'BudgetResult'.
+  Property 'reason' does not exist on type '{ ok: true; reserved: number; }'.
+packages/server-core/src/meetings/__tests__/budgets.test.ts(16,40): error TS2339: Property 'reason' does not exist on type 'BudgetResult'.
+  Property 'reason' does not exist on type '{ ok: true; reserved: number; }'.
+packages/server-core/src/meetings/__tests__/budgets.test.ts(22,41): error TS2339: Property 'reason' does not exist on type 'BudgetResult'.
+  Property 'reason' does not exist on type '{ ok: true; reserved: number; }'.
+packages/server-core/src/meetings/__tests__/budgets.test.ts(30,31): error TS2339: Property 'reason' does not exist on type 'BudgetResult'.
+  Property 'reason' does not exist on type '{ ok: true; reserved: number; }'.
+packages/server-core/src/meetings/__tests__/budgets.test.ts(31,40): error TS2339: Property 'reason' does not exist on type 'BudgetResult'.
+  Property 'reason' does not exist on type '{ ok: true; reserved: number; }'.
+packages/server-core/src/meetings/__tests__/followup.test.ts(89,13): error TS2540: Cannot assign to 'executor' because it is a read-only property.
+packages/server-core/src/meetings/__tests__/followup.test.ts(92,13): error TS2540: Cannot assign to 'executor' because it is a read-only property.
+packages/server-core/src/meetings/conation/files.ts(45,23): error TS2322: Type 'MeetingOpResult<"dss-conation-unconfirmed", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(46,21): error TS2322: Type 'MeetingOpResult<"unsigned-write", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(47,24): error TS2322: Type 'MeetingOpResult<"corrupt-upload", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(48,24): error TS2322: Type 'MeetingOpResult<"upload-timeout", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(49,3): error TS2322: Type 'MeetingOpResult<"dss-upload-not-live", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(54,23): error TS2322: Type 'MeetingOpResult<"dss-conation-unconfirmed", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(56,18): error TS2322: Type 'MeetingOpResult<"not_found", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/files.ts(57,3): error TS2322: Type 'MeetingOpResult<"dss-move-not-live", unknown>' is not assignable to type 'MeetingOpResult<string, FileRecord>'.
+  Type 'unknown' is not assignable to type 'FileRecord'.
+packages/server-core/src/meetings/conation/native-shells.ts(174,46): error TS2322: Type 'boolean' is not assignable to type 'false'.
+packages/server-core/src/meetings/conation/notes-projects.ts(47,32): error TS2322: Type 'MeetingOpResult<"denied", unknown>' is not assignable to type 'MeetingOpResult<string, NoteRecord>'.
+  Type 'unknown' is not assignable to type 'NoteRecord'.
+packages/server-core/src/meetings/conation/notes-projects.ts(69,18): error TS2322: Type 'MeetingOpResult<"not_found", unknown>' is not assignable to type 'MeetingOpResult<string, NoteRecord>'.
+  Type 'unknown' is not assignable to type 'NoteRecord'.
+packages/server-core/src/meetings/conation/notes-projects.ts(70,32): error TS2322: Type 'MeetingOpResult<"denied", unknown>' is not assignable to type 'MeetingOpResult<string, NoteRecord>'.
+  Type 'unknown' is not assignable to type 'NoteRecord'.
+packages/server-core/src/meetings/conation/notes-projects.ts(77,25): error TS2322: Type 'MeetingOpResult<"unconfirmed-write", unknown>' is not assignable to type 'MeetingOpResult<string, NoteRecord>'.
+  Type 'unknown' is not assignable to type 'NoteRecord'.
+packages/server-core/src/meetings/manual.ts(121,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/server-core/src/meetings/manual.ts(148,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/server-core/src/meetings/tracker-actions.ts(282,11): error TS2322: Type '(request: TrackerCreateRequest) => Promise<MeetingOpResult<string>>' is not assignable to type '(request: TrackerCreateRequest) => Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+  Type 'Promise<MeetingOpResult<string>>' is not assignable to type 'Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+    Type 'MeetingOpResult<string>' is not assignable to type 'MeetingOpResult<string, SanitizedReceipt>'.
+      Type 'unknown' is not assignable to type 'SanitizedReceipt'.
+packages/server-core/src/meetings/tracker-actions.ts(286,44): error TS2345: Argument of type 'Promise<MeetingOpResult<string>>' is not assignable to parameter of type 'Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+  Type 'MeetingOpResult<string>' is not assignable to type 'MeetingOpResult<string, SanitizedReceipt>'.
+    Type 'unknown' is not assignable to type 'SanitizedReceipt'.
+packages/server-core/src/meetings/tracker-actions.ts(293,11): error TS2322: Type '(request: TrackerUpdateRequest) => Promise<MeetingOpResult<string>>' is not assignable to type '(request: TrackerUpdateRequest) => Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+  Type 'Promise<MeetingOpResult<string>>' is not assignable to type 'Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+    Type 'MeetingOpResult<string>' is not assignable to type 'MeetingOpResult<string, SanitizedReceipt>'.
+      Type 'unknown' is not assignable to type 'SanitizedReceipt'.
+packages/server-core/src/meetings/tracker-actions.ts(314,11): error TS2322: Type '() => Promise<MeetingOpResult<"live-disabled", unknown>>' is not assignable to type '(request: TrackerCreateRequest) => Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+  Type 'Promise<MeetingOpResult<"live-disabled", unknown>>' is not assignable to type 'Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+    Type 'MeetingOpResult<"live-disabled", unknown>' is not assignable to type 'MeetingOpResult<string, SanitizedReceipt>'.
+      Type 'unknown' is not assignable to type 'SanitizedReceipt'.
+packages/server-core/src/meetings/tracker-actions.ts(317,11): error TS2322: Type '() => Promise<MeetingOpResult<"live-disabled", unknown>>' is not assignable to type '(request: TrackerUpdateRequest) => Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+  Type 'Promise<MeetingOpResult<"live-disabled", unknown>>' is not assignable to type 'Promise<MeetingOpResult<string, SanitizedReceipt>>'.
+    Type 'MeetingOpResult<"live-disabled", unknown>' is not assignable to type 'MeetingOpResult<string, SanitizedReceipt>'.
+      Type 'unknown' is not assignable to type 'SanitizedReceipt'.
+packages/shared/src/voice/adapters/rox-transcription.ts(113,44): error TS2304: Cannot find name 'BlobPart'.
+packages/shared/src/voice/runtime.ts(177,13): error TS2741: Property 'preconnect' is missing in type '() => Promise<never>' but required in type 'typeof fetch'.

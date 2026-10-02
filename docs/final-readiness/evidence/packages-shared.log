@@ -1,0 +1,34 @@
+packages/core/src/rox2/meeting-conation-shell.ts(29,40): error TS2367: This comparison appears to be unintentional because the types '"unverified" | "receipt_verified" | "readback_verified"' and '"verified"' have no overlap.
+packages/shared/src/agent/__tests__/context-budget.test.ts(29,12): error TS18048: 'byKind.system' is possibly 'undefined'.
+packages/shared/src/agent/__tests__/context-budget.test.ts(30,12): error TS18048: 'byKind.skills' is possibly 'undefined'.
+packages/shared/src/agent/__tests__/context-budget.test.ts(31,12): error TS18048: 'byKind.mcp' is possibly 'undefined'.
+packages/shared/src/agent/__tests__/context-budget.test.ts(32,12): error TS18048: 'byKind.transcript' is possibly 'undefined'.
+packages/shared/src/agent/__tests__/context-budget.test.ts(33,12): error TS18048: 'byKind.attachments' is possibly 'undefined'.
+packages/shared/src/agent/__tests__/context-budget.test.ts(34,12): error TS18048: 'byKind.system' is possibly 'undefined'.
+packages/shared/src/meeting-agents/__tests__/extraction.test.ts(19,71): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: number): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'number'.
+  Overload 2 of 2, '(expected: number): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'number'.
+packages/shared/src/meeting-agents/__tests__/extraction.test.ts(20,82): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: string | undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'string | undefined'.
+  Overload 2 of 2, '(expected: string | undefined): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'string | undefined'.
+packages/shared/src/meeting-agents/__tests__/extraction.test.ts(23,33): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: "none" | "unresolved" | "unique-member"): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type '"none" | "unresolved" | "unique-member"'.
+  Overload 2 of 2, '(expected: "none" | "unresolved" | "unique-member"): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type '"none" | "unresolved" | "unique-member"'.
+packages/shared/src/meeting-agents/__tests__/extraction.test.ts(25,91): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(expected: number): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'number'.
+  Overload 2 of 2, '(expected: number): void', gave the following error.
+    Argument of type 'unknown' is not assignable to parameter of type 'number'.
+packages/shared/src/meeting-agents/__tests__/recipes.test.ts(49,50): error TS2339: Property 'reason' does not exist on type 'RecipeClone | { ok: false; reason: "clone-privilege-escalation"; }'.
+  Property 'reason' does not exist on type 'RecipeClone'.
+packages/shared/src/voice/adapters/rox-transcription.ts(113,44): error TS2304: Cannot find name 'BlobPart'.
+packages/shared/src/voice/runtime.ts(177,13): error TS2741: Property 'preconnect' is missing in type '() => Promise<never>' but required in type 'typeof fetch'.
+packages/shared/src/workflows/__tests__/canvas-spec.test.ts(203,12): error TS2532: Object is possibly 'undefined'.
+packages/shared/src/workflows/__tests__/canvas-spec.test.ts(205,12): error TS2532: Object is possibly 'undefined'.
+packages/shared/src/workflows/__tests__/canvas-spec.test.ts(208,12): error TS2532: Object is possibly 'undefined'.

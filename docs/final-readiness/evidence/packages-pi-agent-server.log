@@ -1,0 +1,2 @@
+packages/core/src/rox2/meeting-conation-shell.ts(29,40): error TS2367: This comparison appears to be unintentional because the types '"unverified" | "receipt_verified" | "readback_verified"' and '"verified"' have no overlap.
+packages/pi-agent-server/src/index.ts(512,20): error TS2367: This comparison appears to be unintentional because the types 'CustomEndpointApi' and '"openai-responses"' have no overlap.

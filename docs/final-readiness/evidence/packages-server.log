@@ -1,0 +1,11 @@
+packages/core/src/rox2/meeting-conation-shell.ts(29,40): error TS2367: This comparison appears to be unintentional because the types '"unverified" | "receipt_verified" | "readback_verified"' and '"verified"' have no overlap.
+packages/server-core/src/handlers/rpc/labels.ts(72,32): error TS18047: 'workspace' is possibly 'null'.
+packages/server-core/src/handlers/rpc/messaging.ts(142,61): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+packages/server-core/src/meetings/conation/native-shells.ts(174,46): error TS2322: Type 'boolean' is not assignable to type 'false'.
+packages/server-core/src/meetings/manual.ts(121,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/server-core/src/meetings/manual.ts(148,22): error TS2339: Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; } | { ok: true; meeting: Meeting; journal: MeetingJournal; }'.
+  Property 'journal' does not exist on type '{ ok: true; meeting: Meeting; }'.
+packages/shared/src/voice/adapters/rox-transcription.ts(113,44): error TS2304: Cannot find name 'BlobPart'.
+packages/shared/src/voice/runtime.ts(177,13): error TS2741: Property 'preconnect' is missing in type '() => Promise<never>' but required in type 'typeof fetch'.
